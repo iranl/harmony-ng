@@ -1,14 +1,36 @@
 #!/bin/sh
-# Harmony Remote Factory Reset & Stock Revert Script
-# Restores stock scripts, permissions, and wipes custom files.
+# Harmony remote factory reset: back to the stock Logitech firmware, with harmony-ng's files and
+# secrets removed. This is the remote's only reset: Settings > Factory Reset runs it on the
+# remote (/data/factory_reset.sh), and tools/factory_reset.py, deploy_remote.py --factory-reset
+# and setup_remote.py --factory-reset copy it to the remote and run it there.
+#
+# Removed: the harmony-ng programs and boot script, the settings and the Hub's activity and
+# device names (/data/remote_*), themes and icons, the logs, and SSH (links, binary,
+# authorized keys and host keys). Kept: the stock firmware's own data (/data/resources) and the
+# RF pairing with the Hub (in the radio chip). The hardware reset (Menu + Off) wipes everything.
+#
+# Usage: factory_reset.sh [--confirm] [--no-reboot]
+#   --confirm    no prompt
+#   --no-reboot  everything but the reboot (the caller reboots; tools/factory_reset.py does)
 
 set -e
 
-if [ "$1" != "--confirm" ]; then
+CONFIRMED=""
+REBOOT=1
+for _arg in "$@"; do
+    case "$_arg" in
+        --confirm) CONFIRMED=1 ;;
+        --no-reboot) REBOOT="" ;;
+        *) echo "Usage: $0 [--confirm] [--no-reboot]"; exit 2 ;;
+    esac
+done
+
+if [ -z "$CONFIRMED" ]; then
     echo "================================================================="
     echo " WARNING: REVERT HARMONY REMOTE TO FACTORY STOCK"
     echo "================================================================="
-    echo " This will remove the custom remote software and restore official Logitech firmware."
+    echo " This removes the custom remote software and restores the official Logitech firmware."
+    echo " It DELETES the remote's settings, the Hub's names on it and SSH access."
     printf " Type 'RESET' to confirm: "
     read -r CONFIRM
     if [ "$CONFIRM" != "RESET" ]; then
@@ -49,12 +71,6 @@ fi
 echo "[*] Restoring stock daemon permissions..."
 chmod +x /usr/bin/watchdog /usr/bin/usbhid /usr/bin/hal /opt/luaworks/luaworks /opt/luadraws/luadraws /usr/sbin/bluetoothd /usr/bin/dbus-daemon 2>/dev/null || true
 
-echo "[*] Preserving user configuration..."
-mkdir -p /data/remote_conf_p 2>/dev/null || true
-cp -f /data/remote_rf_config.json /data/remote_conf_p/ 2>/dev/null || true
-cp -f /data/remote_settings.conf /data/remote_conf_p/ 2>/dev/null || true
-cp -f /data/remote_ui.conf /data/remote_conf_p/ 2>/dev/null || true
-
 echo "[*] Removing custom triggers, logs, and symlinks..."
 rm -f /etc/tdeenable /etc/nowatchdog /data/reboot_counter /tmp/remote_ui.log /tmp/remote-init.log /tmp/remote_stop /tmp/remote_supervisors.pid /tmp/elite_stop /tmp/elite_supervisors.pid 2>/dev/null || true
 rm -f /usr/bin/sync /usr/sbin/dropbear /usr/sbin/dropbearkey /usr/sbin/dbclient /usr/sbin/scp 2>/dev/null || true
@@ -68,15 +84,33 @@ echo "[*] Removing custom binaries and supervisor scripts..."
 rm -f /data/remote_ui /data/remote_ui.new /data/elite_ui /data/elite_ui.new /data/elite_watchdog.sh /data/init.sh /data/safe_reboot.sh /data/remote_watchdog.sh /data/factory_reset.sh /data/dropbear* /data/mknod /data/scp /data/busybox 2>/dev/null || true
 rm -rf /data/stock_backup /data/assets /data/themes 2>/dev/null || true
 
-echo "[*] Restoring preserved configuration for future re-install..."
-cp -f /data/remote_conf_p/* /data/ 2>/dev/null || true
-rm -rf /data/remote_conf_p 2>/dev/null || true
+echo "[*] Removing settings, logs and SSH keys..."
+# remote_sync and the elite_sync link stay until the flush below
+for _f in /data/remote_* /data/elite_* /data/codex_*; do
+    case "$_f" in
+        /data/remote_sync|/data/elite_sync) ;;
+        *) rm -rf "$_f" 2>/dev/null || true ;;
+    esac
+done
+rm -rf /data/remote_conf_p /data/elite_conf_p 2>/dev/null || true
+# only the dropbear links of the installer live there (the stock firmware has no rmdir)
+rm -rf /data/bin 2>/dev/null || true
+rm -f /data/rcS.local /data/force_sync /data/flightlog_on /data/debug_logging.conf /data/power_debug.log \
+      /data/crash.log /data/harmony_crash.log /data/last_kmsg.log 2>/dev/null || true
+rm -f /etc/dropbear/authorized_keys /etc/dropbear/dropbear_*_host_key \
+      /root/.ssh/authorized_keys /home/root/.ssh/authorized_keys 2>/dev/null || true
 
-# Flush with our sync binary, remove it, then flush that removal with the stock
-# BusyBox applet (stock firmware has no sync link in PATH).
+# Flush with our sync binary, then remove it. The stock firmware has neither a sync
+# command nor a BusyBox sync applet, so the last two flush attempts below only work on a
+# remote that still has one; the removal is flushed by reboot itself (BusyBox reboot
+# calls sync() unless -n is given).
 /data/remote_sync 2>/dev/null || /data/sync 2>/dev/null || /bin/busybox sync 2>/dev/null || sync 2>/dev/null || true
 rm -f /data/remote_sync /data/elite_sync /data/sync 2>/dev/null || true
 /bin/busybox sync 2>/dev/null || sync 2>/dev/null || true
 sleep 1
 
+if [ -z "$REBOOT" ]; then
+    echo "[+] Factory reset done; reboot the remote to start the stock firmware."
+    exit 0
+fi
 /sbin/reboot -f 2>/dev/null || reboot -f

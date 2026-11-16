@@ -8,8 +8,10 @@ extern "C" {
 #endif
 
 /*
- * Queries SNTP server and updates system clock via settimeofday() if apply != 0.
- * Returns unix epoch on success, 0 on failure.
+ * Queries SNTP servers (server first, then public pools) and updates the system clock via
+ * settimeofday() if apply != 0. A correction of up to an hour from one server is applied at
+ * once; a larger step needs two servers that agree (see hub_ntp.c). Returns the unix epoch
+ * applied (or that would be applied), 0 when nothing was.
  */
 time_t sntp_sync_time(const char *server, int apply);
 

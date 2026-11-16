@@ -92,6 +92,8 @@ void frame_timing_poll(void) {
     if (s_timing_checked_ms && now - s_timing_checked_ms < 1000) return;
     s_timing_checked_ms = now;
     bool want = access(FRAME_TIMING_FLAG, F_OK) == 0;
+    /* Frames are recorded while g_render_mutex is held, from any thread that draws */
+    pthread_mutex_lock(&g_render_mutex);
     if (want && !s_timing_log) {
         s_timing_log = fopen(FRAME_TIMING_LOG, "a");
         if (s_timing_log) fprintf(s_timing_log, "# ms screen theme layout render_us present_us flipped decodes scales\n");
@@ -99,6 +101,7 @@ void frame_timing_poll(void) {
         fclose(s_timing_log);
         s_timing_log = NULL;
     }
+    pthread_mutex_unlock(&g_render_mutex);
 }
 
 bool frame_timing_enabled(void) {

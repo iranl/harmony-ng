@@ -259,6 +259,33 @@ def package_ota(output_dir: Path, version: str):
     (output_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     print(f"[+] Packaged {len(manifest_files)} artifacts into {output_dir}")
 
+
+def sign_manifest(output_dir: Path, require: bool) -> bool:
+    """Sign manifest.json with the Ed25519 release key in $OTA_SIGNING_KEY (64 hex characters)
+    and write manifest.json.sig (128 hex characters). Hubs install nothing from an OTA source
+    without a valid signature (payload/source/ota_verify.c)."""
+    sig_path = output_dir / "manifest.json.sig"
+    sig_path.unlink(missing_ok=True)
+    if not os.environ.get("OTA_SIGNING_KEY", "").strip():
+        if require:
+            print("[-] OTA_SIGNING_KEY is not set: refusing to publish an unsigned release.", file=sys.stderr)
+            return False
+        print("[!] OTA_SIGNING_KEY not set: manifest left unsigned (Hubs will refuse this source).")
+        return True
+    tool = output_dir.parent / "ota_sign"
+    cc = os.environ.get("CC_HOST", "cc")
+    subprocess.run([cc, "-O2", f"-I{REPO_ROOT / 'payload' / 'source'}", "-o", str(tool),
+                    str(REPO_ROOT / "tools" / "ota_sign.c"), str(REPO_ROOT / "payload" / "source" / "tweetnacl.c")],
+                   check=True)
+    res = subprocess.run([str(tool), "sign", str(output_dir / "manifest.json")], capture_output=True, text=True)
+    tool.unlink(missing_ok=True)
+    if res.returncode != 0 or len(res.stdout.strip()) != 128:
+        print(f"[-] Signing manifest.json failed: {res.stderr.strip()}", file=sys.stderr)
+        return False
+    sig_path.write_text(res.stdout.strip() + "\n", encoding="utf-8")
+    print("[+] manifest.json signed (manifest.json.sig)")
+    return True
+
 def push_to_ota_branch(staging_dir: Path, version: str, remote_url: str = None, branch: str = "ota"):
     print(f"[*] Preparing git commit on single squashed branch '{branch}'...")
     import tempfile
@@ -296,10 +323,14 @@ def main():
     parser.add_argument("--push", "-p", action="store_true", help="Push to git remote OTA branch")
     parser.add_argument("--remote", "-r", default="", help="Remote git URL (e.g. git@github.com:iranl/harmony-ng.git)")
     parser.add_argument("--branch", "-b", default="ota", help="Target branch (default: ota)")
+    parser.add_argument("--require-signature", action="store_true",
+                        help="Fail when OTA_SIGNING_KEY is not set (release workflow)")
     args = parser.parse_args()
 
     ver = args.version or (VERSION_FILE.read_text().strip() if VERSION_FILE.exists() else "1.3.0")
     package_ota(STAGING_DIR, ver)
+    if not sign_manifest(STAGING_DIR, args.require_signature):
+        sys.exit(1)
 
     if args.push or args.remote:
         push_to_ota_branch(STAGING_DIR, ver, remote_url=args.remote or None, branch=args.branch)

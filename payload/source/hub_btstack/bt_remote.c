@@ -495,6 +495,12 @@ void handle_gatt_notification_event(uint8_t packet_type, uint16_t channel, uint8
     if (packet_type != HCI_EVENT_PACKET) return;
     if (hci_event_packet_get_type(packet) != GATT_EVENT_NOTIFICATION) return;
 
+    /* Buttons count only on an encrypted link: after re-encryption with the stored bond
+     * (APP_READY) or after a pairing confirmed inside the pairing window (APP_W4_HIDS). BTstack
+     * drops notifications of a bonded peer while the link is not encrypted, but not those of a
+     * peer without a bond. */
+    if (app_state != APP_READY && app_state != APP_W4_HIDS) return;
+
     uint16_t val_len = gatt_event_notification_get_value_length(packet);
     const uint8_t *val = gatt_event_notification_get_value(packet);
     if (!val || val_len == 0) return;
@@ -584,9 +590,7 @@ void handle_gatt_client_event(uint8_t packet_type, uint16_t channel, uint8_t *pa
                 btstack_run_loop_add_timer(&g_remote_wake_grace_timer);
                 app_state = APP_READY;
                 update_status("ready");
-                if (tlv_impl) {
-                    tlv_impl->store_tag(&tlv_context, TLV_TAG_HOGD, (const uint8_t *)&remote_device, sizeof(remote_device));
-                }
+                bt_tlv_store_if_changed(TLV_TAG_HOGD, (const uint8_t *)&remote_device, sizeof(remote_device));
             } else {
                 char msg[64];
                 snprintf(msg, sizeof(msg), "HIDS client connection failed (status=0x%02x)", status);

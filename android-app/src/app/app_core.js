@@ -82,7 +82,6 @@ export class HarmonyAppCore {
     this.kbMods = { ctrl: false, shift: false, alt: false, win: false };
     this.labQueue = [];
     this.labRunning = false;
-    this.labRunId = null;
     this.autoReconnectTimer = null;
     this.consecutiveFailures = 0;
     this.isReconnecting = false;

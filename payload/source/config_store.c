@@ -1,11 +1,14 @@
 #define _GNU_SOURCE
 #include "config_store.h"
+#include "atomic_file.h"
 #include "bt_migrate.h"
 #include "config_sanitize.h"
+#include "config_snap.h"
 #include "hub_led.h"
 #include "bt_common.h"
 #include "state_watch.h"
 #include "cJSON.h"
+#include "json_number.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,9 +22,14 @@
 
 extern int g_dry_run;
 
-static cJSON *g_devices_json_cache = NULL;
-static cJSON *g_activities_json_cache = NULL;
+/* The cached trees, as shared read-only snapshots (config_snap.h) */
+static struct cfg_snap_slot g_devices_snap;
+static struct cfg_snap_slot g_activities_snap;
 static pthread_mutex_t g_cfg_lock = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
+static int g_cfg_depth = 0;        /* nesting of config_store_lock() by the thread holding it */
+static unsigned g_cfg_changed = 0; /* change notices to send at the outermost unlock */
+#define CFG_CHANGED_DEVICES 1u
+#define CFG_CHANGED_ACTIVITIES 2u
 
 char *read_file_text(const char *path, size_t max_bytes) {
     if (!path) return NULL;
@@ -39,15 +47,9 @@ char *read_file_text(const char *path, size_t max_bytes) {
     return buf;
 }
 
+/* Synced temporary file renamed over the old one; -1 (old file kept) when anything fails */
 int write_file_atomic(const char *path, const char *content) {
-    if (!path || !content) return -1;
-    char tmp[256];
-    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE *f = fopen(tmp, "w");
-    if (!f) return -1;
-    fputs(content, f);
-    fclose(f);
-    return rename(tmp, path);
+    return atomic_file_write_str(path, content);
 }
 
 const char *config_store_path(const char *rel_path) {
@@ -62,6 +64,22 @@ static void config_store_migrate_log(const char *msg) {
     printf("[*] %s\n", msg);
 }
 
+/* A configuration file that is there but could not be read or parsed (cut by a full flash, empty,
+ * too large) loads as an empty configuration, and the first save then printed that over it. The
+ * file is moved aside instead, so a person can still repair it. */
+static void keep_unreadable_config(const char *path) {
+    struct stat st;
+    if (stat(path, &st) != 0) return; /* no file: a first start, nothing to keep */
+    char aside[256];
+    snprintf(aside, sizeof(aside), "%s.corrupt-%ld", path, (long)time(NULL));
+    if (rename(path, aside) == 0) {
+        fprintf(stderr, "[!] %s could not be read (%ld bytes): kept as %s, starting with an empty list\n",
+                path, (long)st.st_size, aside);
+    } else {
+        fprintf(stderr, "[!] %s could not be read (%ld bytes), starting with an empty list\n", path, (long)st.st_size);
+    }
+}
+
 int config_store_init(void) {
     mkdir(HARMONY_DIR, 0755);
     mkdir(HARMONY_CONFIG_DIR, 0755);
@@ -73,117 +91,166 @@ int config_store_init(void) {
     bt_migrate_legacy_state(HARMONY_DIR, config_store_migrate_log);
 
     pthread_mutex_lock(&g_cfg_lock);
-    if (g_devices_json_cache) { cJSON_Delete(g_devices_json_cache); g_devices_json_cache = NULL; }
-    if (g_activities_json_cache) { cJSON_Delete(g_activities_json_cache); g_activities_json_cache = NULL; }
+    /* a reader still holding the old trees keeps them until its release */
+    cfg_snap_unpublish(&g_devices_snap);
+    cfg_snap_unpublish(&g_activities_snap);
 
     const char *dev_path = HARMONY_DEVICES_FILE;
+    cJSON *devices = NULL;
     char *dev_raw = read_file_text(dev_path, 4 * 1024 * 1024);
     if (dev_raw) {
-        g_devices_json_cache = cJSON_Parse(dev_raw);
+        devices = cJSON_Parse(dev_raw);
         free(dev_raw);
-        if (g_devices_json_cache) {
-            sanitize_devices_json(g_devices_json_cache);
+        if (devices) {
+            sanitize_devices_json(devices);
         }
     }
-    if (!g_devices_json_cache) {
-        g_devices_json_cache = cJSON_CreateObject();
-        cJSON_AddArrayToObject(g_devices_json_cache, "devices");
+    if (!devices) {
+        keep_unreadable_config(dev_path);
+        devices = cJSON_CreateObject();
+        cJSON_AddArrayToObject(devices, "devices");
     }
+    if (cfg_snap_publish(&g_devices_snap, devices) != 0) cJSON_Delete(devices);
 
     const char *act_path = HARMONY_ACTIVITIES_FILE;
+    cJSON *activities = NULL;
     char *act_raw = read_file_text(act_path, 2 * 1024 * 1024);
     if (act_raw) {
-        g_activities_json_cache = cJSON_Parse(act_raw);
+        activities = cJSON_Parse(act_raw);
         free(act_raw);
-        if (g_activities_json_cache) {
-            sanitize_activities_json(g_activities_json_cache);
+        if (activities) {
+            sanitize_activities_json(activities);
         }
     }
-    if (!g_activities_json_cache) {
-        g_activities_json_cache = cJSON_CreateObject();
-        cJSON_AddArrayToObject(g_activities_json_cache, "activities");
+    if (!activities) {
+        keep_unreadable_config(act_path);
+        activities = cJSON_CreateObject();
+        cJSON_AddArrayToObject(activities, "activities");
     }
+    if (cfg_snap_publish(&g_activities_snap, activities) != 0) cJSON_Delete(activities);
     pthread_mutex_unlock(&g_cfg_lock);
     return 0;
 }
 
-cJSON *config_store_get_devices_json(void) {
+void config_store_lock(void) {
     pthread_mutex_lock(&g_cfg_lock);
-    if (!g_devices_json_cache) {
-        pthread_mutex_unlock(&g_cfg_lock);
-        config_store_init();
-        pthread_mutex_lock(&g_cfg_lock);
+    g_cfg_depth++;
+}
+
+void config_store_unlock(void) {
+    unsigned changed = 0;
+    if (--g_cfg_depth == 0) {
+        changed = g_cfg_changed;
+        g_cfg_changed = 0;
     }
-    cJSON *res = g_devices_json_cache;
     pthread_mutex_unlock(&g_cfg_lock);
+    /* sent with the lock released: the event sinks may read the configuration themselves */
+    if (changed) notify_rf_push_config();
+    if (changed & CFG_CHANGED_DEVICES) state_watch_notify_config_changed("devices");
+    if (changed & CFG_CHANGED_ACTIVITIES) state_watch_notify_config_changed("activities");
+}
+
+/* A deep copy of one cached tree for a writer, made under the lock; loads the files after an
+ * invalidation */
+static cJSON *config_store_copy(struct cfg_snap_slot *slot) {
+    config_store_lock();
+    if (!slot->current) config_store_init();
+    cJSON *res = slot->current ? cJSON_Duplicate(slot->current->tree, 1) : NULL;
+    config_store_unlock();
     return res;
 }
 
-cJSON *config_store_get_activities_json(void) {
+cJSON *config_store_devices_copy(void) {
+    return config_store_copy(&g_devices_snap);
+}
+
+cJSON *config_store_activities_copy(void) {
+    return config_store_copy(&g_activities_snap);
+}
+
+/* One more reference on the current version of one cached tree; loads the files after an
+ * invalidation */
+static const cJSON *config_store_acquire(struct cfg_snap_slot *slot, cfg_snap_t **snap) {
+    config_store_lock();
+    if (!slot->current) config_store_init();
+    *snap = cfg_snap_acquire(slot);
+    config_store_unlock();
+    return *snap ? (*snap)->tree : NULL;
+}
+
+const cJSON *config_store_devices_acquire(cfg_snap_t **snap) {
+    return config_store_acquire(&g_devices_snap, snap);
+}
+
+const cJSON *config_store_activities_acquire(cfg_snap_t **snap) {
+    return config_store_acquire(&g_activities_snap, snap);
+}
+
+void config_store_release(cfg_snap_t **snap) {
+    if (!snap || !*snap) return;
     pthread_mutex_lock(&g_cfg_lock);
-    if (!g_activities_json_cache) {
-        pthread_mutex_unlock(&g_cfg_lock);
-        config_store_init();
-        pthread_mutex_lock(&g_cfg_lock);
-    }
-    cJSON *res = g_activities_json_cache;
+    cfg_snap_release(snap);
     pthread_mutex_unlock(&g_cfg_lock);
-    return res;
+}
+
+int config_store_snapshots_held(void) {
+    pthread_mutex_lock(&g_cfg_lock);
+    int held = g_devices_snap.held + g_activities_snap.held;
+    pthread_mutex_unlock(&g_cfg_lock);
+    return held;
+}
+
+/* Sanitize, print, write and publish in one locked step: a published tree is never changed */
+static int config_store_save(struct cfg_snap_slot *slot, cJSON *tree, void (*sanitize)(cJSON *),
+                             const char *path, unsigned changed) {
+    if (!tree) return -1;
+    config_store_lock();
+    sanitize(tree);
+    char *out = cJSON_Print(tree);
+    if (!out) {
+        config_store_unlock();
+        return -1;
+    }
+    int rc = write_file_atomic(path, out);
+    free(out);
+    if (rc != 0) {
+        /* Not on flash: keep the cache as it was, the caller keeps the tree and reports the error */
+        fprintf(stderr, "[-] Could not save %s (flash full?)\n", path);
+        config_store_unlock();
+        return -1;
+    }
+    if (cfg_snap_publish(slot, tree) != 0) {
+        /* out of memory: the file is saved, the next reader loads it again */
+        cfg_snap_unpublish(slot);
+        cJSON_Delete(tree);
+    }
+    g_cfg_changed |= changed;
+    config_store_unlock();
+    return 0;
 }
 
 int config_store_save_devices(cJSON *devices_json) {
-    if (!devices_json) return -1;
-    sanitize_devices_json(devices_json);
-    char *out = cJSON_Print(devices_json);
-    if (!out) return -1;
-    pthread_mutex_lock(&g_cfg_lock);
-    write_file_atomic(HARMONY_DEVICES_FILE, out);
-    free(out);
-    if (g_devices_json_cache && g_devices_json_cache != devices_json) {
-        cJSON_Delete(g_devices_json_cache);
-    }
-    g_devices_json_cache = devices_json;
-    pthread_mutex_unlock(&g_cfg_lock);
-    notify_rf_push_config();
-    state_watch_notify_config_changed("devices");
-    return 0;
+    return config_store_save(&g_devices_snap, devices_json, sanitize_devices_json,
+                             HARMONY_DEVICES_FILE, CFG_CHANGED_DEVICES);
 }
 
 int config_store_save_activities(cJSON *activities_json) {
-    if (!activities_json) return -1;
-    sanitize_activities_json(activities_json);
-    char *out = cJSON_Print(activities_json);
-    if (!out) return -1;
-    pthread_mutex_lock(&g_cfg_lock);
-    write_file_atomic(HARMONY_ACTIVITIES_FILE, out);
-    free(out);
-    if (g_activities_json_cache && g_activities_json_cache != activities_json) {
-        cJSON_Delete(g_activities_json_cache);
-    }
-    g_activities_json_cache = activities_json;
-    pthread_mutex_unlock(&g_cfg_lock);
-    notify_rf_push_config();
-    state_watch_notify_config_changed("activities");
-    return 0;
+    return config_store_save(&g_activities_snap, activities_json, sanitize_activities_json,
+                             HARMONY_ACTIVITIES_FILE, CFG_CHANGED_ACTIVITIES);
 }
 
 void notify_rf_push_config(void) {
-    FILE *df = fopen("/data/harmony/rf_sync_pending_details.json", "w");
-    if (df) {
-        fprintf(df, "{\"slot\":0,\"diff\":\"Devices and activities updated. Push settings to sync remotes.\"}\n");
-        fclose(df);
-    }
-    FILE *f = fopen("/data/harmony/rf_sync_pending.flag", "w");
-    if (f) {
-        fprintf(f, "%ld\n", (long)time(NULL));
-        fclose(f);
-    }
+    write_file_atomic("/data/harmony/rf_sync_pending_details.json",
+                      "{\"slot\":0,\"diff\":\"Devices and activities updated. Push settings to sync remotes.\"}\n");
+    char ts[32];
+    snprintf(ts, sizeof(ts), "%ld\n", (long)time(NULL));
+    write_file_atomic("/data/harmony/rf_sync_pending.flag", ts);
 }
 
 void config_store_invalidate_cache(void) {
     pthread_mutex_lock(&g_cfg_lock);
-    if (g_devices_json_cache) { cJSON_Delete(g_devices_json_cache); g_devices_json_cache = NULL; }
-    if (g_activities_json_cache) { cJSON_Delete(g_activities_json_cache); g_activities_json_cache = NULL; }
+    cfg_snap_unpublish(&g_devices_snap);
+    cfg_snap_unpublish(&g_activities_snap);
     pthread_mutex_unlock(&g_cfg_lock);
 }
 
@@ -225,7 +292,8 @@ int load_ir_inventory(struct ir_inventory *inv) {
     if (!inv) return -1;
     memset(inv, 0, sizeof(*inv));
 
-    cJSON *root = config_store_get_devices_json();
+    cfg_snap_t *snap = NULL;
+    const cJSON *root = config_store_devices_acquire(&snap);
     if (!root) return -1;
 
     /* Check clean format: { "devices": [ ... ] } */
@@ -233,14 +301,22 @@ int load_ir_inventory(struct ir_inventory *inv) {
     if (clean_devs && cJSON_IsArray(clean_devs)) {
         const cJSON *d = NULL;
         cJSON_ArrayForEach(d, clean_devs) {
-            if (inv->device_count >= MAX_IR_DEVICES) break;
+            if (inv->device_count >= MAX_IR_DEVICES) {
+                fprintf(stderr, "[!] Config: more than %d devices, the rest get no power steps\n", MAX_IR_DEVICES);
+                break;
+            }
+            /* The id as the rest of the daemon sees it (steps, deviceIds, the dispatcher compare
+             * strings): a device imported from the Harmony database has "d_<number>", which
+             * atol() turned into 0 and the device was left out of the automatic power steps */
             const cJSON *jid = cJSON_GetObjectItemCaseSensitive(d, "id");
-            long id = (jid && cJSON_IsNumber(jid)) ? (long)jid->valuedouble : 0;
-            if (id <= 0 && jid && cJSON_IsString(jid) && jid->valuestring) id = atol(jid->valuestring);
-            if (id <= 0) continue;
+            char id_str[32] = "";
+            if (jid && cJSON_IsString(jid) && jid->valuestring) snprintf(id_str, sizeof(id_str), "%s", jid->valuestring);
+            else if (jid && cJSON_IsNumber(jid)) json_number_text(jid, id_str, sizeof(id_str));
+            if (!id_str[0] || strcmp(id_str, "0") == 0) continue; /* "0" means no device / activity */
+            long id = atol(id_str);
 
             struct ir_device *dev = &inv->devices[inv->device_count];
-            snprintf(dev->id, sizeof(dev->id), "%ld", id);
+            snprintf(dev->id, sizeof(dev->id), "%s", id_str);
             if (id > inv->max_device_id) inv->max_device_id = id;
 
             const cJSON *name = cJSON_GetObjectItemCaseSensitive(d, "name");
@@ -357,9 +433,11 @@ int load_ir_inventory(struct ir_inventory *inv) {
 
             inv->device_count++;
         }
+        config_store_release(&snap);
         return 0;
     }
 
+    config_store_release(&snap);
     return 0;
 }
 
@@ -379,13 +457,16 @@ static void parse_activity_steps_array(const cJSON *arr, struct activity_step *s
     int cnt = 0;
     const cJSON *item = NULL;
     cJSON_ArrayForEach(item, arr) {
-        if (cnt >= max_steps) break;
+        if (cnt >= max_steps) {
+            fprintf(stderr, "[!] Config: a sequence has more than %d steps, the rest are not sent\n", max_steps);
+            break;
+        }
         struct activity_step *st = &steps[cnt];
         memset(st, 0, sizeof(*st));
 
         const cJSON *jid = cJSON_GetObjectItemCaseSensitive(item, "deviceId");
         if (jid) {
-            if (cJSON_IsNumber(jid)) snprintf(st->device_id, sizeof(st->device_id), "%ld", (long)jid->valuedouble);
+            if (cJSON_IsNumber(jid)) json_number_text(jid, st->device_id, sizeof(st->device_id));
             else if (cJSON_IsString(jid) && jid->valuestring) strncpy(st->device_id, jid->valuestring, sizeof(st->device_id) - 1);
         }
 
@@ -407,12 +488,12 @@ static void parse_activity_steps_array(const cJSON *arr, struct activity_step *s
 
         const cJSON *del = cJSON_GetObjectItemCaseSensitive(item, "delay");
         if (del) {
-            if (cJSON_IsNumber(del)) st->delay_ms = (int)del->valuedouble;
+            if (cJSON_IsNumber(del)) st->delay_ms = json_number_int(del, INT_MIN, INT_MAX, 0);
             else if (cJSON_IsString(del) && del->valuestring) st->delay_ms = atoi(del->valuestring);
         }
 
         const cJSON *order = cJSON_GetObjectItemCaseSensitive(item, "order");
-        if (order && cJSON_IsNumber(order)) st->order = (int)order->valuedouble;
+        if (order && cJSON_IsNumber(order)) st->order = json_number_int(order, INT_MIN, INT_MAX, 0);
 
         cnt++;
     }
@@ -432,22 +513,29 @@ int load_activity_inventory(struct activity_inventory *inv) {
         fclose(cf);
     }
 
-    cJSON *root = config_store_get_activities_json();
+    cfg_snap_t *snap = NULL;
+    const cJSON *root = config_store_activities_acquire(&snap);
     if (!root) return -1;
 
     cJSON *arr = cJSON_GetObjectItemCaseSensitive(root, "activities");
     if (arr && cJSON_IsArray(arr)) {
         const cJSON *a = NULL;
         cJSON_ArrayForEach(a, arr) {
-            if (inv->count >= MAX_ACTIVITIES) break;
+            if (inv->count >= MAX_ACTIVITIES) {
+                fprintf(stderr, "[!] Config: more than %d activities, the rest start with no steps\n", MAX_ACTIVITIES);
+                break;
+            }
 
+            /* the id as stored, like activity_known() and the requests see it ("movie", "007") */
             const cJSON *jid = cJSON_GetObjectItemCaseSensitive(a, "id");
-            long id = (jid && cJSON_IsNumber(jid)) ? (long)jid->valuedouble : 0;
-            if (id == 0 && jid && cJSON_IsString(jid) && jid->valuestring) id = atol(jid->valuestring);
-            if (id == 0) continue;
+            char id_str[32] = "";
+            if (jid && cJSON_IsString(jid) && jid->valuestring) snprintf(id_str, sizeof(id_str), "%s", jid->valuestring);
+            else if (jid && cJSON_IsNumber(jid)) json_number_text(jid, id_str, sizeof(id_str));
+            if (!id_str[0] || strcmp(id_str, "0") == 0) continue; /* "0" means no device / activity */
+            long id = atol(id_str);
 
             struct activity_item *act = &inv->items[inv->count];
-            snprintf(act->id, sizeof(act->id), "%ld", id);
+            snprintf(act->id, sizeof(act->id), "%s", id_str);
             if (id > 0 && id > inv->max_id) inv->max_id = id;
 
             const cJSON *name = cJSON_GetObjectItemCaseSensitive(a, "name");
@@ -465,11 +553,14 @@ int load_activity_inventory(struct activity_inventory *inv) {
             if (devs && cJSON_IsArray(devs)) {
                 const cJSON *d = NULL;
                 cJSON_ArrayForEach(d, devs) {
-                    if (act->device_count >= 16) break;
+                    if (act->device_count >= 16) {
+                        fprintf(stderr, "[!] Config: activity %s lists more than 16 devices, the rest are not powered\n", id_str);
+                        break;
+                    }
                     if (cJSON_IsString(d) && d->valuestring) {
                         strncpy(act->device_ids[act->device_count++], d->valuestring, 31);
-                    } else if (cJSON_IsNumber(d)) {
-                        snprintf(act->device_ids[act->device_count++], 31, "%ld", (long)d->valuedouble);
+                    } else if (cJSON_IsNumber(d) && json_number_text(d, act->device_ids[act->device_count], 31)) {
+                        act->device_count++;
                     }
                 }
             }
@@ -498,6 +589,7 @@ int load_activity_inventory(struct activity_inventory *inv) {
             inv->count++;
         }
     }
+    config_store_release(&snap);
     return 0;
 }
 
@@ -526,9 +618,13 @@ int run_bt_saved_script(const char *type, const char *bdaddr, const char *script
         return -1;
     }
 
+    /* With a host address, the TARGET line goes in the same write as the key: the key reaches
+     * that host, and no other writer's line can come between the two */
     char buf[1024];
-    int len = snprintf(buf, sizeof(buf), "KEY %s\n", script);
-    write(fd, buf, (size_t)len);
+    int len;
+    if (bdaddr && hub_valid_bdaddr(bdaddr)) len = snprintf(buf, sizeof(buf), "TARGET %s\nKEY %s\n", bdaddr, script);
+    else len = snprintf(buf, sizeof(buf), "KEY %s\n", script);
+    if (len > 0 && len < (int)sizeof(buf)) write(fd, buf, (size_t)len);
     close(fd);
 
     if (gap_ms > 0) usleep((useconds_t)gap_ms * 1000);

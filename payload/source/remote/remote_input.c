@@ -102,7 +102,11 @@ void *key_repeat_thread(void *arg) {
         uint16_t key = g_held_rf_code;
         pthread_mutex_unlock(&g_repeat_mutex);
 
-        usleep(450000); /* 450ms initial hold delay (prevents accidental double taps) */
+        /* The hold is the Hub's sign that the key is still down: sent KEY_HOLD_INTERVAL_MS
+         * after the press and then at that rate, as the stock remote does. The Hub repeats a
+         * held infrared command by itself and only needs these to go on; they were sent after
+         * 450 ms and then every 150 ms, when each one was one more send of the command. */
+        usleep(KEY_HOLD_INTERVAL_MS * 1000);
 
         while (g_running) {
             pthread_mutex_lock(&g_repeat_mutex);
@@ -113,7 +117,7 @@ void *key_repeat_thread(void *arg) {
             pthread_mutex_unlock(&g_repeat_mutex);
 
             rf_send_button_event(key, 2);
-            usleep(150000); /* 150ms repeat rate */
+            usleep(KEY_HOLD_INTERVAL_MS * 1000);
         }
     }
     return NULL;
@@ -128,7 +132,7 @@ int find_touchscreen_fd(void) {
         "/dev/input/event0"
     };
     for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
-        int fd = open(candidates[i], O_RDONLY | O_NONBLOCK);
+        int fd = open(candidates[i], O_RDONLY | O_NONBLOCK | O_CLOEXEC);
         if (fd >= 0) {
             char name[128] = {0};
             if (ioctl(fd, EVIOCGNAME(sizeof(name)), name) >= 0) {
@@ -141,7 +145,7 @@ int find_touchscreen_fd(void) {
             close(fd);
         }
     }
-    return open(TOUCH_EVENT_DEV, O_RDONLY | O_NONBLOCK);
+    return open(TOUCH_EVENT_DEV, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
 }
 
 void handle_screen_touch_tap(int x, int y) {
@@ -179,7 +183,9 @@ void handle_screen_touch_tap(int x, int y) {
 
     if (is_tap && y < UI_CONTENT_Y) {
         header_layout_t l;
+        pthread_mutex_lock(&g_render_mutex); /* measures text with the theme fonts, which a theme change frees */
         header_layout(&l);
+        pthread_mutex_unlock(&g_render_mutex);
         if (x < HDR_GEAR_W) {
             ui_menu_open();
             render_screen();
@@ -262,7 +268,6 @@ void handle_screen_touch_tap(int x, int y) {
 
     if (!is_tap) return;
 
-    int start_y = UI_CONTENT_Y;
     if (g_current_view == VIEW_ACTIVITIES) {
         /* On the running activity's carousel card, a device row opens that device's commands */
         int dev = home_card_device_at(y);
@@ -302,54 +307,14 @@ void handle_screen_touch_tap(int x, int y) {
         }
         return;
     } else if (g_current_view == VIEW_SETTINGS) {
-        if (g_settings_subview == SETTINGS_VIEW_CATEGORIES) {
-            int card_h = 35, spacing = 4;
-            for (int i = 0; i < 6; i++) {
-                int cy = start_y + i * (card_h + spacing);
-                if (y >= cy && y < cy + card_h) {
-                    g_selected_category = i;
-                    execute_settings_action(i);
-                    render_screen();
-                    return;
-                }
-            }
-        } else if (g_settings_subview == SETTINGS_VIEW_FACTORY_RESET || g_settings_subview == SETTINGS_VIEW_REBOOT || g_settings_subview == SETTINGS_VIEW_SUSPEND) {
-            int card_y = 38, card_h = 130;
-            int btn_y = card_y + card_h + 10, btn_h = 38, spacing = 8;
-            for (int i = 0; i < 2; i++) {
-                int cy = btn_y + i * (btn_h + spacing);
-                if (y >= cy && y < cy + btn_h) {
-                    g_selected_sub_item = i;
-                    execute_settings_action(i);
-                    render_screen();
-                    return;
-                }
-            }
-        } else if (g_settings_subview == SETTINGS_VIEW_UPDATE) {
-            int item_y_start = SETTINGS_LIST_Y - 4 + 76 + 6, item_h = 30, spacing = 3; /* render_settings_update() */
-            for (int i = 0; i < 5; i++) {
-                int cy = item_y_start + i * (item_h + spacing);
-                if (y >= cy && y < cy + item_h) {
-                    g_selected_sub_item = i;
-                    execute_settings_action(i);
-                    render_screen();
-                    return;
-                }
-            }
-        } else {
-            int start_y = SETTINGS_LIST_Y;
-            int count = get_settings_sub_count();
-            int card_h = (count >= 7) ? 30 : ((count >= 6) ? 34 : 36);
-            int spacing = (count >= 7) ? 3 : ((count >= 6) ? 4 : 5);
-            for (int i = 0; i < count; i++) {
-                int cy = start_y + i * (card_h + spacing);
-                if (y >= cy && y < cy + card_h) {
-                    g_selected_sub_item = i;
-                    execute_settings_action(i);
-                    render_screen();
-                    return;
-                }
-            }
+        /* The rows as the page draws them (settings_item_at) */
+        int i = settings_item_at(y);
+        if (i >= 0) {
+            if (g_settings_subview == SETTINGS_VIEW_CATEGORIES) g_selected_category = i;
+            else g_selected_sub_item = i;
+            execute_settings_action(i);
+            render_screen();
+            return;
         }
     } else if (g_current_view == VIEW_PAIRING) {
         int opt_y = 42 + 114, opt_h = 40, spacing = 10;
@@ -512,7 +477,7 @@ void handle_navigation_key(int code, int value) {
                         g_settings_subview = was_suspend ? SETTINGS_VIEW_POWER : SETTINGS_VIEW_SYSTEM;
                         g_factory_reset_stage = 0;
                         g_suspend_countdown_start_ms = 0;
-                        g_selected_sub_item = was_suspend ? 4 : (was_reboot ? 1 : 2);
+                        g_selected_sub_item = was_suspend ? SETTINGS_POWER_SUSPEND_ITEM : (was_reboot ? 1 : 2);
                     } else if (g_settings_subview != SETTINGS_VIEW_CATEGORIES) {
                         g_settings_subview = SETTINGS_VIEW_CATEGORIES;
                         g_factory_reset_stage = 0;
@@ -544,7 +509,7 @@ void handle_navigation_key(int code, int value) {
                     g_settings_subview = was_suspend ? SETTINGS_VIEW_POWER : SETTINGS_VIEW_SYSTEM;
                     g_factory_reset_stage = 0;
                     g_suspend_countdown_start_ms = 0;
-                    g_selected_sub_item = was_suspend ? 4 : (was_reboot ? 1 : 2);
+                    g_selected_sub_item = was_suspend ? SETTINGS_POWER_SUSPEND_ITEM : (was_reboot ? 1 : 2);
                 } else if (g_settings_subview != SETTINGS_VIEW_CATEGORIES) {
                     g_settings_subview = SETTINGS_VIEW_CATEGORIES;
                     g_factory_reset_stage = 0;
@@ -639,7 +604,8 @@ void handle_navigation_key(int code, int value) {
                     break;
                 }
             }
-            if (g_confirm_pending_idx >= 0 && get_monotonic_ms() < g_confirm_pending_deadline_ms) {
+            if (g_confirm_pending_idx >= 0 && g_confirm_pending_idx < g_activity_count &&
+                get_monotonic_ms() < g_confirm_pending_deadline_ms) {
                 int idx = g_confirm_pending_idx;
                 g_confirm_pending_idx = -1;
                 g_confirm_pending_deadline_ms = 0;

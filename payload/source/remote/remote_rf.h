@@ -8,6 +8,10 @@ extern "C" {
 #endif
 
 void rf_wake_and_reconnect(void);
+/* The same re-sync for a hard key pressed while the screen is off: the caller sends the key frame
+ * right after it, and for a moment every other rf_wake_and_reconnect() does nothing, so no second
+ * re-sync is written behind that frame */
+void rf_wake_for_key(void);
 int rf_send_frame(rf_frame_t *frame);
 void rf_send_button_event(uint16_t key_code, int value);
 void rf_send_sync_query(void);
@@ -26,7 +30,6 @@ extern uint8_t g_remote_skin_id;   /* "skin" record of the mfg partition, 0 when
 void send_unit_id_rf(void);
 void send_remote_config_backup_rf(void);
 void rf_send_activity_start(const char *act_id);
-void rf_send_device_command(const char *dev_id, const char *cmd);
 void rf_send_help_request(const char *act_id);
 void rf_send_help_answer(const char *dev_id, bool on);
 void rf_send_screen_button_press(const char *act_id, uint8_t btn_idx, const char *label);

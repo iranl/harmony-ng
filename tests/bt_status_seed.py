@@ -17,8 +17,12 @@ _SRCS = [os.path.join(TESTS_DIR, "bt_status_sample.c"),
          os.path.join(REPO_ROOT, "payload", "source", "hub_btstack", "bt_status_json.c")]
 
 
+# the header that defines the writer's input counts too: a changed struct must rebuild the sample
+_DEPS = _SRCS + [os.path.join(REPO_ROOT, "payload", "source", "hub_btstack", "bt_status_json.h")]
+
+
 def _build():
-    if os.path.exists(_BIN) and all(os.path.getmtime(_BIN) >= os.path.getmtime(s) for s in _SRCS):
+    if os.path.exists(_BIN) and all(os.path.getmtime(_BIN) >= os.path.getmtime(s) for s in _DEPS):
         return
     os.makedirs(os.path.dirname(_BIN), exist_ok=True)
     subprocess.run(["gcc", "-Wall", "-Wextra", "-O2",

@@ -6,6 +6,7 @@
 #include "orchestrator.h"
 #include "hw_action.h"
 #include "ws_server.h"
+#include "hub_ws.h"
 #include "cJSON.h"
 
 #include <stdio.h>
@@ -14,6 +15,8 @@
 #include <unistd.h>
 #include <strings.h>
 #include <pthread.h>
+#include <time.h>
+#include "http_api_devices.h"
 
 static cJSON *build_activity_steps_cjson(const char *seq_text) {
     cJSON *arr = cJSON_CreateArray();
@@ -86,10 +89,23 @@ static cJSON *build_activity_steps_cjson(const char *seq_text) {
     return arr;
 }
 
-/* Help: the devices the last Help asked about, so answers toggle only those */
+/* Help: the devices the last Help asked about, so answers toggle only those; the activity it
+ * ran in and when, so a late answer cannot toggle a device after the Hub moved on */
 static orch_toggle_t s_help_toggles[16];
 static size_t s_help_toggle_count;
+static char s_help_activity[32];
+static time_t s_help_started;
 static pthread_mutex_t s_help_lock = PTHREAD_MUTEX_INITIALIZER;
+
+/* hub_rf waits up to 120 s for the re-send, then asks one question per device: an answer
+ * later than this does not belong to that Help */
+#define HELP_ANSWER_MAX_AGE_SEC 300
+
+static time_t help_now(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec;
+}
 
 static void device_name(const char *id, char *out, size_t cap);
 
@@ -127,6 +143,8 @@ int activity_help_start(const cJSON *req, cJSON **out) {
         pthread_mutex_lock(&s_help_lock);
         memcpy(s_help_toggles, toggles, n * sizeof(toggles[0]));
         s_help_toggle_count = n;
+        snprintf(s_help_activity, sizeof(s_help_activity), "%s", act_id);
+        s_help_started = help_now();
         pthread_mutex_unlock(&s_help_lock);
     }
     cJSON *resp = cJSON_CreateObject();
@@ -159,7 +177,19 @@ int activity_help_answer(const cJSON *req, cJSON **out) {
     if (cJSON_IsFalse(jon) || (cJSON_IsNumber(jon) && jon->valuedouble == 0)) on = 0;
 
     char cmd[64] = {0};
+    char current[32];
+    snprintf(current, sizeof(current), "%s", orch_get_current_activity());
     pthread_mutex_lock(&s_help_lock);
+    /* The questions are void once the Hub left the activity of that Help (a power off, another
+     * activity) or when they are too old: the toggle would switch a device the user no longer
+     * means */
+    if (s_help_toggle_count > 0 &&
+        (strcmp(current, s_help_activity) != 0 || help_now() - s_help_started > HELP_ANSWER_MAX_AGE_SEC)) {
+        s_help_toggle_count = 0;
+        pthread_mutex_unlock(&s_help_lock);
+        *out = help_error("The Help question is no longer valid");
+        return 409;
+    }
     for (size_t i = 0; i < s_help_toggle_count; i++) {
         if (strcmp(s_help_toggles[i].device_id, dev_id) != 0) continue;
         /* One answer per device, so a repeated "No" cannot toggle it back off */
@@ -182,7 +212,8 @@ int activity_help_answer(const cJSON *req, cJSON **out) {
 
 static void device_name(const char *id, char *out, size_t len) {
     snprintf(out, len, "%s", id);
-    cJSON *root = config_store_get_devices_json();
+    cfg_snap_t *snap = NULL;
+    const cJSON *root = config_store_devices_acquire(&snap);
     cJSON *devs = root ? cJSON_GetObjectItemCaseSensitive(root, "devices") : NULL;
     cJSON *d = NULL;
     cJSON_ArrayForEach(d, devs) {
@@ -193,9 +224,10 @@ static void device_name(const char *id, char *out, size_t len) {
         else if (cJSON_IsString(jid)) snprintf(d_id, sizeof(d_id), "%s", jid->valuestring);
         if (strcmp(d_id, id) == 0 && cJSON_IsString(jname)) {
             snprintf(out, len, "%s", jname->valuestring);
-            return;
+            break;
         }
     }
+    config_store_release(&snap);
 }
 
 /* The "error" string of a Help reply, or a plain text when the reply has none (out of memory) */
@@ -211,17 +243,14 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
 
     /* Route: GET /api/activities */
     if (strcmp(clean_path, "/api/activities") == 0 && strcmp(method, "GET") == 0) {
-        cJSON *act_j = config_store_get_activities_json();
-        if (act_j) {
-            cJSON *resp = cJSON_Duplicate(act_j, 1);
-            if (resp) {
-                cJSON_AddStringToObject(resp, "currentId", orch_get_current_activity());
-                cJSON_AddNumberToObject(resp, "state", (int)orch_get_state());
-                send_cjson_resp(client_fd, 200, resp);
-                cJSON_Delete(resp);
-                close(client_fd);
-                return 1;
-            }
+        cJSON *resp = config_store_activities_copy();
+        if (resp) {
+            cJSON_AddStringToObject(resp, "currentId", orch_get_current_activity());
+            cJSON_AddNumberToObject(resp, "state", (int)orch_get_state());
+            send_cjson_resp(client_fd, 200, resp);
+            cJSON_Delete(resp);
+            close(client_fd);
+            return 1;
         }
         send_json_error(client_fd, 404, "Activities not found");
         close(client_fd);
@@ -247,9 +276,43 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
 
     /* Route: POST /api/activity-progress */
     if (strcmp(clean_path, "/api/activity-progress") == 0 && strcmp(method, "POST") == 0) {
-        if (body && body[0]) {
-            ws_broadcast_text(body);
+        /* An activity_progress frame built from the known fields and sent through the event bus
+         * (WebSocket and MQTT, from the main loop). The body used to go to every WebSocket client
+         * as it was, from this worker thread: any text, as any event type. */
+        cJSON *req_j = (body && body[0]) ? cJSON_Parse(body) : NULL;
+        if (!req_j || !cJSON_IsObject(req_j)) {
+            cJSON_Delete(req_j);
+            send_json_error(client_fd, 400, "JSON object required");
+            close(client_fd);
+            return 1;
         }
+        char act[32] = "-1", desc[128] = "";
+        const cJSON *ja = cJSON_GetObjectItemCaseSensitive(req_j, "activity");
+        if (!ja) ja = cJSON_GetObjectItemCaseSensitive(req_j, "activityId");
+        if (ja && cJSON_IsString(ja) && ja->valuestring && ja->valuestring[0]) snprintf(act, sizeof(act), "%s", ja->valuestring);
+        else if (ja && cJSON_IsNumber(ja)) snprintf(act, sizeof(act), "%ld", (long)ja->valuedouble);
+        const cJSON *jd = cJSON_GetObjectItemCaseSensitive(req_j, "desc");
+        if (!jd) jd = cJSON_GetObjectItemCaseSensitive(req_j, "stepDesc");
+        if (jd && cJSON_IsString(jd) && jd->valuestring) snprintf(desc, sizeof(desc), "%s", jd->valuestring);
+        orch_state_t st = orch_get_state();
+        const cJSON *js = cJSON_GetObjectItemCaseSensitive(req_j, "stateCode");
+        if (!js || !cJSON_IsNumber(js)) js = cJSON_GetObjectItemCaseSensitive(req_j, "state");
+        if (js && cJSON_IsNumber(js) && js->valueint >= ORCH_STATE_IDLE && js->valueint <= ORCH_STATE_STOPPING) {
+            st = (orch_state_t)js->valueint;
+        } else if (js && cJSON_IsString(js) && js->valuestring) {
+            if (strcasecmp(js->valuestring, "starting") == 0) st = ORCH_STATE_STARTING;
+            else if (strcasecmp(js->valuestring, "running") == 0) st = ORCH_STATE_RUNNING;
+            else if (strcasecmp(js->valuestring, "stopping") == 0) st = ORCH_STATE_STOPPING;
+            else if (strcasecmp(js->valuestring, "idle") == 0) st = ORCH_STATE_IDLE;
+        }
+        const cJSON *jstep = cJSON_GetObjectItemCaseSensitive(req_j, "step");
+        if (!jstep) jstep = cJSON_GetObjectItemCaseSensitive(req_j, "currentStep");
+        const cJSON *jtot = cJSON_GetObjectItemCaseSensitive(req_j, "total");
+        if (!jtot) jtot = cJSON_GetObjectItemCaseSensitive(req_j, "totalSteps");
+        int step = (jstep && cJSON_IsNumber(jstep)) ? jstep->valueint : 0;
+        int total = (jtot && cJSON_IsNumber(jtot)) ? jtot->valueint : 0;
+        cJSON_Delete(req_j);
+        on_orch_progress(act, st, step, total, desc, 0, -1, NULL);
         cJSON *ok = cJSON_CreateObject();
         cJSON_AddBoolToObject(ok, "ok", 1);
         send_cjson_resp(client_fd, 200, ok);
@@ -406,6 +469,7 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
     if (strcmp(clean_path, "/api/activity-save") == 0 && strcmp(method, "POST") == 0) {
         cJSON *params = parse_request_params(body);
         int success = 0;
+        int save_failed = 0; /* valid request, activities.json could not be written: 500, not 400 */
         if (params) {
             cJSON *p_id = cJSON_GetObjectItemCaseSensitive(params, "id");
             if (!p_id) p_id = cJSON_GetObjectItemCaseSensitive(params, "activityId");
@@ -470,12 +534,15 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
                 char dev_buf[512];
                 strncpy(dev_buf, p_devs->valuestring, sizeof(dev_buf) - 1);
                 dev_buf[sizeof(dev_buf) - 1] = '\0';
-                char *tok = strtok(dev_buf, ",; ");
+                /* strtok_r: strtok keeps its position in one static pointer, shared by every
+                 * request thread */
+                char *save = NULL;
+                char *tok = strtok_r(dev_buf, ",; ", &save);
                 while (tok) {
                     if (tok[0] && strcmp(tok, "0") != 0) {
                         cJSON_AddItemToArray(dev_ids_arr, cJSON_CreateString(tok));
                     }
-                    tok = strtok(NULL, ",; ");
+                    tok = strtok_r(NULL, ",; ", &save);
                 }
             }
             if (!dev_ids_provided && cJSON_GetArraySize(dev_ids_arr) == 0) {
@@ -496,8 +563,9 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
                 }
             }
 
-            cJSON *cached = config_store_get_activities_json();
-            cJSON *root = cached ? cJSON_Duplicate(cached, 1) : cJSON_CreateObject();
+            /* held until the new list is saved: another save cannot slip in between */
+            config_store_lock();
+            cJSON *root = config_store_activities_copy(); /* NULL only when out of memory */
             if (root) {
                 cJSON *acts = cJSON_GetObjectItemCaseSensitive(root, "activities");
                 if (!acts) acts = cJSON_AddArrayToObject(root, "activities");
@@ -584,6 +652,7 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
                     if (config_store_save_activities(root) == 0) {
                         success = 1;
                     } else {
+                        save_failed = 1;
                         cJSON_Delete(root);
                     }
                 } else {
@@ -597,6 +666,7 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
                 cJSON_Delete(enter_steps);
                 cJSON_Delete(leave_steps);
             }
+            config_store_unlock();
 
             cJSON_Delete(params);
         }
@@ -604,7 +674,8 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", success);
         cJSON_AddStringToObject(resp, "message", success ? "Activity saved successfully" : "Failed to save activity");
-        send_cjson_resp(client_fd, success ? 200 : 400, resp);
+        if (save_failed) cJSON_AddStringToObject(resp, "error", "Could not save the activities (flash full?)");
+        send_cjson_resp(client_fd, success ? 200 : (save_failed ? 500 : 400), resp);
         cJSON_Delete(resp);
         close(client_fd);
         return 1;
@@ -621,6 +692,18 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
             if (p_steps && cJSON_IsArray(p_steps)) step_arr = p_steps;
             else if (p_steps && cJSON_IsString(p_steps)) step_arr = build_activity_steps_cjson(p_steps->valuestring);
 
+            /* The steps run on this request's thread, up to 3 s each: without a limit one request
+             * held an HTTP worker for steps x 3 s. A sequence can hold no more steps than the
+             * configuration keeps (MAX_ACTIVITY_STEPS), so a longer one is refused. */
+            if (step_arr && cJSON_IsArray(step_arr) && cJSON_GetArraySize(step_arr) > MAX_ACTIVITY_STEPS) {
+                if (step_arr != p_steps) cJSON_Delete(step_arr);
+                cJSON_Delete(params);
+                char msg[64];
+                snprintf(msg, sizeof(msg), "Too many steps (limit %d)", MAX_ACTIVITY_STEPS);
+                send_json_error(client_fd, 400, msg);
+                close(client_fd);
+                return 1;
+            }
             if (step_arr && cJSON_IsArray(step_arr)) {
                 cJSON *st = NULL;
                 cJSON_ArrayForEach(st, step_arr) {
@@ -681,7 +764,17 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
                     snprintf(id_buf, sizeof(id_buf), "%ld", (long)p_id->valuedouble);
                     act_id_str = id_buf;
                 }
-                cJSON *root = config_store_get_activities_json();
+                /* The running activity's definition is what its power off is built from: deleted,
+                 * the Hub stayed "running" in it and Off sent nothing */
+                if (act_id_str[0] && strcmp(act_id_str, ORCH_POWEROFF_ID) != 0 &&
+                    strcmp(act_id_str, orch_get_current_activity()) == 0) {
+                    cJSON_Delete(params);
+                    send_json_error(client_fd, 409, "Activity is running: power off or start another activity first");
+                    close(client_fd);
+                    return 1;
+                }
+                config_store_lock();
+                cJSON *root = config_store_activities_copy();
                 if (root) {
                     cJSON *acts = cJSON_GetObjectItemCaseSensitive(root, "activities");
                     if (acts && cJSON_IsArray(acts)) {
@@ -694,13 +787,19 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
                             else if (jid && cJSON_IsString(jid)) strncpy(item_id, jid->valuestring, sizeof(item_id) - 1);
                             if (strcmp(item_id, act_id_str) == 0) {
                                 cJSON_DeleteItemFromArray(acts, i);
-                                config_store_save_activities(root);
-                                success = 1;
+                                if (config_store_save_activities(root) == 0) {
+                                    root = NULL;
+                                    success = 1;
+                                }
                                 break;
                             }
                         }
                     }
+                    cJSON_Delete(root); /* NULL once the store took it */
                 }
+                config_store_unlock();
+                /* its key bindings in the remote maps: no editor shows them any more */
+                if (success) remote_maps_drop_section("activities", act_id_str);
             }
             cJSON_Delete(params);
         }

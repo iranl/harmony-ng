@@ -20,6 +20,15 @@ import sys
 import tempfile
 import time
 
+# Shared SSH host key policy: tools/ssh_hostkeys.py (tools/ next to this script in a release bundle)
+for _hk_dir in (pathlib.Path(__file__).resolve().parent, pathlib.Path(__file__).resolve().parent / "tools",
+                pathlib.Path(__file__).resolve().parent.parent / "tools"):
+    if (_hk_dir / "ssh_hostkeys.py").is_file():
+        if str(_hk_dir) not in sys.path:
+            sys.path.append(str(_hk_dir))
+        break
+import ssh_hostkeys  # noqa: E402
+
 
 def find_default_ssh_key() -> str | None:
     """Find newest harmony_owner key or standard SSH key."""
@@ -44,6 +53,22 @@ def find_default_ssh_key() -> str | None:
                 return str(cand)
 
     return None
+
+
+ELF_MACHINE_MIPS = 8
+
+
+def elf_machine(path: pathlib.Path) -> int | None:
+    """The ELF e_machine of a file, or None when it is not an ELF file."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(20)
+    except OSError:
+        return None
+    if len(head) < 20 or head[:4] != b"\x7fELF":
+        return None
+    order = "little" if head[5] == 1 else "big"
+    return int.from_bytes(head[18:20], order)
 
 
 def get_file_md5(path: pathlib.Path) -> str:
@@ -95,12 +120,15 @@ class HubDeployer:
 
         self.deploy_failures: list[str] = []
         self.remote_hashes: dict[str, str] = {}
+        # Set once the Hub's services were stopped, cleared when the last step started them again
+        self.services_stopped = False
 
         # Resolve paths
         self.script_dir = pathlib.Path(__file__).resolve().parent
         self.repo_root = self.script_dir.parent
+        self.bundle_layout = (self.script_dir / "bin").is_dir()
 
-        if (self.script_dir / "bin").is_dir():
+        if self.bundle_layout:
             # Release bundle layout
             self.bin_dir = self.script_dir / "bin"
             self.www_dir = self.script_dir / "www"
@@ -109,6 +137,8 @@ class HubDeployer:
             self.config_dir = self.script_dir / "config"
             self.fw_tool = self.script_dir / "tools" / "harmony_firmware.py"
             self.icons_tar = self.script_dir / "icons.tar.gz"
+            # The bundle is self-contained: never take files from the folder it was unpacked in
+            self.version_file = self.script_dir / "VERSION"
         else:
             # Repository layout
             self.bin_dir = self.repo_root / "payload" / "bin"
@@ -118,17 +148,25 @@ class HubDeployer:
             self.config_dir = self.repo_root / "payload" / "config"
             self.fw_tool = self.repo_root / "tools" / "harmony_firmware.py"
             self.icons_tar = self.repo_root / "build" / "icons.tar.gz"
+            self.version_file = self.repo_root / "VERSION"
+            if not self.icons_tar.is_file() and (self.script_dir / "icons.tar.gz").is_file():
+                self.icons_tar = self.script_dir / "icons.tar.gz"
 
-        if (self.repo_root / "build" / "icons.tar.gz").is_file():
-            self.icons_tar = self.repo_root / "build" / "icons.tar.gz"
-        elif (self.script_dir / "icons.tar.gz").is_file():
-            self.icons_tar = self.script_dir / "icons.tar.gz"
+    def wrong_arch_binaries(self) -> list[str]:
+        """Local binaries this tool would install that are not built for the Hub (MIPS)."""
+        wrong = []
+        if self.bin_dir.is_dir():
+            for f in sorted(self.bin_dir.iterdir()):
+                m = elf_machine(f) if f.is_file() else None
+                if m is not None and m != ELF_MACHINE_MIPS:
+                    wrong.append(f.name)
+        return wrong
 
     def get_ssh_cmd(self, cmd_str: str) -> list[str]:
         cmd = [
             "ssh",
             "-o", "BatchMode=yes",
-            "-o", "StrictHostKeyChecking=no",
+            *ssh_hostkeys.ssh_options(self.hub_host),
             "-o", "ConnectTimeout=5",
         ]
         if self.ssh_key and os.path.isfile(self.ssh_key):
@@ -191,7 +229,7 @@ class HubDeployer:
             return False
 
         # SCP upload
-        scp_cmd = ["scp", "-O", "-q", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no"]
+        scp_cmd = ["scp", "-O", "-q", "-o", "BatchMode=yes", *ssh_hostkeys.ssh_options(self.hub_host)]
         if self.ssh_key and os.path.isfile(self.ssh_key):
             scp_cmd.extend(["-i", self.ssh_key])
         scp_cmd.extend([str(src), f"{self.hub_user}@{self.hub_host}:{stage}"])
@@ -235,6 +273,41 @@ class HubDeployer:
                 self.remote_hashes[parts[1]] = parts[0].lower()
 
     def deploy(self) -> bool:
+        """Run the deployment. Whatever ends it early after the services were stopped (a failed
+        web UI build, a missing npm, Ctrl+C, an exception), the services are started again."""
+        try:
+            return self._deploy()
+        finally:
+            if self.services_stopped:
+                print("[!] Deployment ended early: starting the Hub services again...", file=sys.stderr)
+                self.run_ssh(self.RESTART_CMD)
+                procs = self.wait_for_services()
+                if procs:
+                    print(f"[!] Hub services running again (PIDs: {procs}), with the files deployed so far.", file=sys.stderr)
+                else:
+                    print(f"[-] Hub services are NOT running. Start them with: ssh {self.hub_user}@{self.hub_host} /data/harmony/init.sh start", file=sys.stderr)
+
+    def wait_for_services(self) -> str:
+        """PIDs of the Hub daemons once they run (up to about 11 s), or "" """
+        for attempt in range(5):
+            time.sleep(3 if attempt == 0 else 2)
+            procs = self.run_ssh("pidof hub_daemon hub_rf hub_btstack 2>/dev/null || true").stdout.strip()
+            if procs:
+                return procs
+        return ""
+
+    RESTART_CMD = (
+        "chmod +x /data/harmony/bin/* /data/harmony/*.sh /data/harmony/init.sh 2>/dev/null || true; "
+        "mkdir -p /data/harmony/scripts 2>/dev/null || true; "
+        "ln -sf /data/harmony/init.sh /data/harmony/scripts/init.sh 2>/dev/null || true; "
+        "ln -sf /data/harmony/bin/hub_sync /data/harmony/bin/sync 2>/dev/null || true; "
+        "ln -sf /data/harmony/bin/hub_sync /cache/bin/sync 2>/dev/null || true; "
+        "/data/harmony/bin/hub_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || sync 2>/dev/null || true; "
+        "rm -f /tmp/harmony_stop 2>/dev/null || true; "
+        "if [ -x /data/harmony/init.sh ]; then /data/harmony/init.sh restart >/dev/null 2>&1 & fi"
+    )
+
+    def _deploy(self) -> bool:
         print("=== Harmony Hub Firmware Deployment ===")
         print(f"Target Hub: {self.hub_host}")
         print(f"SSH key: {self.ssh_key or '(ssh defaults)'}")
@@ -243,9 +316,22 @@ class HubDeployer:
         # Connection check
         if self.dry_run:
             print("Dry run: Hub is only read, nothing is changed")
-        probe = self.run_ssh("true")
+        probe = self.run_ssh("uname -m")
         if probe.returncode != 0:
-            print(f"[-] Cannot reach {self.hub_user}@{self.hub_host} over SSH.", file=sys.stderr)
+            if not ssh_hostkeys.report_failure(probe.stderr, self.hub_host):
+                print(f"[-] Cannot reach {self.hub_user}@{self.hub_host} over SSH.", file=sys.stderr)
+            return False
+        # The Hub is a MIPS board. The remote (ARM) answers at 192.168.2.1 with the same key:
+        # the Hub's boot script and binaries would leave it without a UI and without SSH.
+        machine = probe.stdout.strip()
+        if not machine.startswith("mips"):
+            print(f"[-] {self.hub_host} is not a Harmony Hub (uname -m: {machine or 'no answer'}). Nothing was changed. "
+                  "For the remote use remote/deploy_remote.py.", file=sys.stderr)
+            return False
+        wrong = [] if self.webui_only else self.wrong_arch_binaries()
+        if wrong:
+            print(f"[-] Not built for the Hub (MIPS) in {self.bin_dir}: {', '.join(wrong)}. Nothing was changed.",
+                  file=sys.stderr)
             return False
 
         if not self.webui_only:
@@ -256,13 +342,20 @@ class HubDeployer:
                     try:
                         # Import and run backup_hub directly
                         # Release bundle: tools/ next to this script; repository: <repo>/tools
-                        for tools_dir in (self.repo_root / "tools", self.script_dir / "tools"):
-                            if (tools_dir / "backup_hub.py").is_file():
-                                sys.path.insert(0, str(tools_dir))
+                        tools_dir = (self.script_dir if self.bundle_layout else self.repo_root) / "tools"
+                        sys.path.insert(0, str(tools_dir))
                         import backup_hub as bkp_mod
-                        bkp_mod.backup_hub(hub_host=self.hub_host, hub_user=self.hub_user, ssh_key=self.ssh_key)
-                    except Exception as e:
-                        print(f"[!] Warning running backup: {e}")
+                        backed_up = bkp_mod.backup_hub(hub_host=self.hub_host, hub_user=self.hub_user, ssh_key=self.ssh_key)
+                    except Exception as e:  # noqa: BLE001
+                        print(f"[-] Backup failed: {type(e).__name__}: {e}", file=sys.stderr)
+                        backed_up = False
+                    # Nothing on the Hub has been changed yet: stop here rather than deploy without a backup
+                    if not backed_up:
+                        print("[-] No backup of the Hub was made, so nothing was deployed. Fix the cause above, or "
+                              "deploy without a backup with --no-backup.", file=sys.stderr)
+                        return False
+            else:
+                print("[!] --no-backup: deploying without a backup of the Hub.")
 
             # Keep stock startup script
             if not self.dry_skip("save stock /etc/init.d/rcS.local to /data/stock_backup (if not saved yet)"):
@@ -289,6 +382,7 @@ class HubDeployer:
                 "/data/harmony/bin/hub_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || sync 2>/dev/null || true"
             )
             if not self.dry_skip("stop hub services (init.sh stop)"):
+                self.services_stopped = True
                 self.run_ssh(stop_cmd)
 
             # 3. Migrate legacy codex paths
@@ -316,10 +410,7 @@ class HubDeployer:
                 has_stock_res = self.run_ssh("[ -f /data/resources/DeviceList.json ] && echo 1 || echo 0")
                 has_stock = has_stock_res.stdout.strip() == "1"
                 mig_script = None
-                for cand in (
-                    self.script_dir / "tools" / "migrate_hub_configs.py",
-                    self.repo_root / "tools" / "migrate_hub_configs.py",
-                ):
+                for cand in ((self.script_dir if self.bundle_layout else self.repo_root) / "tools" / "migrate_hub_configs.py",):
                     if cand.is_file():
                         mig_script = cand
                         break
@@ -331,7 +422,7 @@ class HubDeployer:
                     with tempfile.TemporaryDirectory() as tmp_dir:
                         tmp_p = pathlib.Path(tmp_dir)
                         # Pull /data/resources
-                        scp_pull = ["scp", "-O", "-q", "-r", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no"]
+                        scp_pull = ["scp", "-O", "-q", "-r", "-o", "BatchMode=yes", *ssh_hostkeys.ssh_options(self.hub_host)]
                         if self.ssh_key and os.path.isfile(self.ssh_key):
                             scp_pull.extend(["-i", self.ssh_key])
                         scp_pull.extend([f"{self.hub_user}@{self.hub_host}:/data/resources", str(tmp_p / "resources")])
@@ -340,7 +431,7 @@ class HubDeployer:
                         out_dir = tmp_p / "out"
                         mig_res = subprocess.run([sys.executable, str(mig_script), "--src", str(tmp_p / "resources"), "--dest", str(out_dir)], capture_output=True, text=True)
                         if (out_dir / "config" / "devices.json").is_file():
-                            scp_push = ["scp", "-O", "-q", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no"]
+                            scp_push = ["scp", "-O", "-q", "-o", "BatchMode=yes", *ssh_hostkeys.ssh_options(self.hub_host)]
                             if self.ssh_key and os.path.isfile(self.ssh_key):
                                 scp_push.extend(["-i", self.ssh_key])
                             # Push config/*.json
@@ -420,7 +511,7 @@ class HubDeployer:
                         self.deploy_file_if_changed(sc, f"/data/harmony/{sc.name}", "755")
 
             # Deploy VERSION
-            ver_file = self.repo_root / "VERSION"
+            ver_file = self.version_file
             if ver_file.is_file():
                 print("[*] Syncing VERSION file to /data/harmony/VERSION...")
                 self.deploy_file_if_changed(ver_file, "/data/harmony/VERSION", "644")
@@ -492,13 +583,12 @@ class HubDeployer:
                 print(f"    [dry-run] would build web UI ({self.ui_choice}) first; comparison below uses files currently in payload/www")
             else:
                 ui_src_dir = self.repo_root / ("android-app" if self.ui_choice == "legacy" else "frontend")
-                if shutil.which("emcc"):
-                    render_sh = self.repo_root / "tools" / "remote_render" / "build.sh"
-                    if render_sh.is_file():
-                        subprocess.run(["bash", str(render_sh), "--wasm", str(ui_src_dir / "public" / "assets")], capture_output=True)
-                    theme_py = self.repo_root / "tools" / "remote_render" / "build_theme.py"
-                    if theme_py.is_file():
-                        subprocess.run([sys.executable, str(theme_py), "--tar", str(ui_src_dir / "public" / "assets" / "themes")], capture_output=True)
+                # One copy of the build steps for build_webui.py and this tool (same folder)
+                sys.path.insert(0, str(self.script_dir))
+                import build_webui
+                if not build_webui.build_extras(ui_src_dir, self.repo_root):
+                    print("[-] WebUI build failed. Nothing deployed from this step.", file=sys.stderr)
+                    return False
 
                 print(f"[*] Compiling frontend bundle with Vite ({ui_src_dir.name})...")
                 npm_cmd = "npm.cmd" if sys.platform == "win32" else "npm"
@@ -507,29 +597,9 @@ class HubDeployer:
                     print(f"[-] WebUI build failed in {ui_src_dir.name}. Nothing deployed from this step.", file=sys.stderr)
                     return False
 
-                self.www_dir.mkdir(parents=True, exist_ok=True)
-                for p in self.www_dir.iterdir():
-                    if p.is_file():
-                        p.unlink(missing_ok=True)
-                assets_d = self.www_dir / "assets"
-                if assets_d.is_dir():
-                    shutil.rmtree(assets_d, ignore_errors=True)
-
-                dist_d = ui_src_dir / "dist"
-                for item in dist_d.iterdir():
-                    dest = self.www_dir / item.name
-                    if item.is_dir():
-                        shutil.copytree(item, dest, dirs_exist_ok=True)
-                    else:
-                        shutil.copy2(item, dest)
-
-                icons_sub = assets_d / "icons"
-                if icons_sub.is_dir():
-                    shutil.rmtree(icons_sub, ignore_errors=True)
-
-                gzip_script = self.repo_root / "build" / "gzip_assets.py"
-                if gzip_script.is_file():
-                    subprocess.run([sys.executable, str(gzip_script), str(self.www_dir)], capture_output=True)
+                if not build_webui.sync_dist_to_www(ui_src_dir / "dist", self.www_dir, self.repo_root):
+                    print("[-] WebUI packaging failed. Nothing deployed from this step.", file=sys.stderr)
+                    return False
 
         if not self.dry_run:
             self.run_ssh(
@@ -600,28 +670,20 @@ class HubDeployer:
                 "ln -sf /data/harmony/bin/hub_sync /data/harmony/bin/sync 2>/dev/null || true; "
                 "(sleep 2 && /data/harmony/safe_reboot.sh) >/dev/null 2>&1 &"
             )
+            self.services_stopped = False
             self.run_ssh(reboot_cmd)
             print(f"=== Deployment to {self.hub_host} Complete! Hub is rebooting safely. ===")
         else:
             print("[5/5] Flushing NOR flash buffers and hot-restarting services (no reboot)...")
-            restart_cmd = (
-                "chmod +x /data/harmony/bin/* /data/harmony/*.sh /data/harmony/init.sh 2>/dev/null || true; "
-                "mkdir -p /data/harmony/scripts 2>/dev/null || true; "
-                "ln -sf /data/harmony/init.sh /data/harmony/scripts/init.sh 2>/dev/null || true; "
-                "ln -sf /data/harmony/bin/hub_sync /data/harmony/bin/sync 2>/dev/null || true; "
-                "ln -sf /data/harmony/bin/hub_sync /cache/bin/sync 2>/dev/null || true; "
-                "/data/harmony/bin/hub_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || sync 2>/dev/null || true; "
-                "rm -f /tmp/harmony_stop 2>/dev/null || true; "
-                "if [ -x /data/harmony/init.sh ]; then /data/harmony/init.sh restart >/dev/null 2>&1 & fi"
-            )
-            self.run_ssh(restart_cmd)
-            time.sleep(3)
-            procs_res = self.run_ssh("pidof hub_daemon hub_rf hub_btstack 2>/dev/null || true")
-            procs = procs_res.stdout.strip()
+            self.services_stopped = False
+            self.run_ssh(self.RESTART_CMD)
+            procs = self.wait_for_services()
             if procs:
                 print(f"=== Deployment to {self.hub_host} Complete! Hub services running (PIDs: {procs}). ===")
             else:
-                print(f"=== Deployment to {self.hub_host} Complete! Services started. ===")
+                print(f"[-] Deployment to {self.hub_host}: files copied, but no Hub service is running "
+                      f"(pidof found none). Check /tmp/harmony-init.log on the Hub.", file=sys.stderr)
+                return False
 
         if self.deploy_failures:
             print("[-] These files were not deployed; Hub runs with old copies:", file=sys.stderr)
@@ -651,11 +713,16 @@ def main() -> None:
     parser.add_argument("--dry-run", "-n", action="store_true", help="Read Hub state and report changes without modifying Hub")
     parser.add_argument("--no-backup", action="store_true", help="Skip pre-deployment backup")
     parser.add_argument("--stage-remote-ota", action="store_true", help="Stage local remote_ui.ota.gz into Hub /tmp/remote_ui.ota.gz (RAM tmpfs) for offline testing")
+    ssh_hostkeys.add_reset_option(parser, "the Hub")
 
     args = parser.parse_args()
     target_host = args.flag_host or args.host
     if not target_host:
         parser.error("HUB_ADDRESS is required (pass as first argument or --host=IP)")
+    # Before any USB or device work: a stop here leaves the device untouched
+    ssh_hostkeys.require_known_hosts()
+    if args.reset_host_key:
+        ssh_hostkeys.reset_host(target_host)
 
     ui_choice = "legacy"
     if args.ui_new:
@@ -681,4 +748,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    if sys.version_info < (3, 13):
+        sys.exit(f"This tool needs Python 3.13 or newer (this is Python {sys.version.split()[0]}).")
     main()

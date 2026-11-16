@@ -37,10 +37,17 @@ int rf_build_button_list(const cJSON *acts_map, rf_button_entry_t *out, int max)
                 const cJSON *ja = cJSON_GetObjectItemCaseSensitive(b, "action");
                 const char *action = cJSON_IsString(ja) ? ja->valuestring : "device_cmd";
                 if (nt >= RF_BUTTON_TRIGGERS_MAX) continue;
-                if (strcmp(action, "activity_start") == 0) {
+                /* The spellings dispatch_remote_button() accepts for the same key (rf_keymap.c):
+                   change_activity / poweroff, and the target in activityId or targetActivity,
+                   else deviceId or targetDevice */
+                if (strcmp(action, "activity_start") == 0 || strcmp(action, "change_activity") == 0) {
+                    const cJSON *jdev = cJSON_GetObjectItemCaseSensitive(b, "deviceId");
+                    if (!jdev) jdev = cJSON_GetObjectItemCaseSensitive(b, "targetDevice");
                     const cJSON *jid = cJSON_GetObjectItemCaseSensitive(b, "activityId");
+                    if (!jid) jid = cJSON_GetObjectItemCaseSensitive(b, "targetActivity");
+                    if (!cJSON_IsString(jid)) jid = jdev;
                     put(&trig[nt++], cJSON_IsString(jid) ? jid->valuestring : ctx, name, 0x00, 0x02, pos);
-                } else if (strcmp(action, "activity_stop") == 0) {
+                } else if (strcmp(action, "activity_stop") == 0 || strcmp(action, "poweroff") == 0) {
                     put(&trig[nt++], "-1", name, 0x00, 0x03, pos);
                 }
             }

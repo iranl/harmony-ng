@@ -106,7 +106,7 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
       if (stat) stat.textContent = 'Testing Bluetooth key...';
       try {
         if (code.startsWith('BT:SCRIPT:')) {
-          await this.client.runBtScript(code.substring(10));
+          await this.client.runBtScript(code.substring(10), 35, dev?.bdaddr || dev?.btHost || '');
         } else {
           await this.client.sendBtKey(code, 'tap', dev?.bdaddr || dev?.btHost || '');
         }

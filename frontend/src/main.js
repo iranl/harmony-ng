@@ -6,6 +6,7 @@ import { connection } from './utils/connection.js';
 import { getActiveHub } from './storage.js';
 import { getInitialLanguage, setLanguage } from './i18n/index.js';
 import { createStatusPill } from './components/status-pill.js';
+import { installUnauthorizedHandler } from './components/login-modal.js';
 import { initIconCache } from './icons/cache.js';
 import { createRemoteView } from './views/remote.js';
 import { createDevicesView } from './views/devices.js';
@@ -23,6 +24,9 @@ async function initApp() {
       setLanguage(e.target.value);
     });
   }
+
+  // A refused login (expired or revoked session) drops the token and asks for a new login
+  installUnauthorizedHandler();
 
   // 2. Active Hub configuration
   const hub = await getActiveHub();
@@ -83,7 +87,9 @@ async function initApp() {
   let devicesViewEl = null;
   let setupViewEl = null;
 
+  let activeTab = null;
   function renderActiveTab(tab) {
+    activeTab = tab;
     // Update tab bar buttons
     document.querySelectorAll('.tab-btn').forEach(btn => {
       if (btn.dataset.tab === tab) {
@@ -123,6 +129,15 @@ async function initApp() {
     renderActiveTab(e.detail.tab);
   });
 
+  // The views are built once and kept: after a language change build them again, so their texts
+  // follow the new language without a reload
+  window.addEventListener('harmony-lang-changed', () => {
+    remoteViewEl = null;
+    devicesViewEl = null;
+    setupViewEl = null;
+    if (activeTab) renderActiveTab(activeTab);
+  });
+
   // 5. Start router
   router.init();
 
@@ -155,3 +170,7 @@ async function initApp() {
 }
 
 document.addEventListener('DOMContentLoaded', initApp);
+// a list of accounts and tokens to check kept from before a reload (the Users page login reloads)
+document.addEventListener('DOMContentLoaded', () => {
+  import('./components/hub-decisions.js').then((m) => m.installSwitchCheck(api)).catch(() => {});
+});

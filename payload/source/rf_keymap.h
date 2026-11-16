@@ -9,6 +9,8 @@ extern "C" {
 #endif
 
 extern pthread_mutex_t g_map_lock;
+/* hub_daemon's key channel socket (hub_key_channel.h); tests point it elsewhere */
+extern const char *g_rf_key_sock_path;
 
 const char *map_button_code(uint8_t k0, uint8_t k1);
 void dispatch_remote_button(uint8_t slot, const char *button_name, const char *action_state, const char *dev_id);

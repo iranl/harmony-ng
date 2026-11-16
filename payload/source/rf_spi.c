@@ -9,20 +9,35 @@
 #include <unistd.h>
 #include <errno.h>
 #include <pthread.h>
+#include <poll.h>
 #include <sys/time.h>
 #include <time.h>
 
 uint8_t g_tx_seq = 0;
-int g_ack_status = 0;
-uint8_t g_ack_payload[25] = {0};
+/* The status and payload of the last ACK this thread waited for (rf_send_frame_acked): one copy
+ * per thread, so a caller reads its own ACK even when another thread sent in the meantime */
+__thread int g_ack_status = 0;
+__thread uint8_t g_ack_payload[25] = {0};
+/* One ACKed send at a time: the frame waited for is described by one slot and one sequence
+ * number, and several threads send ACKed frames (config push, icon push, settings, sleep, wake,
+ * Help, OTA). Set (under g_ack_mutex) from before the pending number is set until the result is
+ * copied. Not a mutex held over the wait: on the Hub (no futex) a thread blocked on a held mutex
+ * spins, so a second sender sleeps in short steps until the flag is clear. */
+static int g_acked_tx_busy = 0;
 static uint8_t g_pending_ack_seq = 0;
+static uint8_t g_pending_ack_slot = 0;
 static int g_ack_received = 0;
+static int g_ack_result_status = 0;
+static uint8_t g_ack_result_payload[25];
 static pthread_mutex_t g_ack_mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t g_ack_cond = PTHREAD_COND_INITIALIZER;
+/* The Hub's kernel has no futex system call, so pthread_cond_timedwait() returns at once there
+ * and a sender waiting for an ACK spun at full CPU for the whole wait. The receive thread
+ * writes a byte to this pipe instead, and the sender sleeps in poll() until it or the timeout
+ * comes. g_ack_received (under g_ack_mutex) stays the answer; the byte only wakes. */
+static int g_ack_pipe[2] = { -1, -1 };
 
+/* CC2544 NAKs in a row (logged; senders retry on their own ACK timeouts) */
 static int g_nak_count = 0;
-static int g_backoff_ms = 0;
-#define NAK_BACKOFF_MAX_MS 5000
 
 int flash_cc2544(void) {
     int fin = open(CC2544_FW, O_RDONLY);
@@ -52,6 +67,8 @@ int rf_write_cmd(const uint8_t *cmd, size_t len) {
     pthread_mutex_lock(&g_rf_mutex);
     ssize_t w = write(g_rf_fd, cmd, len);
     pthread_mutex_unlock(&g_rf_mutex);
+    /* Only a negative result is an error: the CC2544 driver (/dev/rfspi) returns 0 for a
+     * complete write (measured on the Hub), so a length check would fail every send */
     if (w < 0) {
         perror("write /dev/rfspi");
         return -1;
@@ -107,37 +124,94 @@ static int link_idx(uint8_t slot) {
     return (slot >= 1 && slot <= MAX_PAIRED_REMOTES) ? slot - 1 : -1;
 }
 
+/* g_ack_mutex held */
+static void ack_pipe_open_locked(void) {
+    if (g_ack_pipe[0] >= 0) return;
+    int fds[2];
+    if (pipe(fds) != 0) return;
+    for (int i = 0; i < 2; i++) {
+        fcntl(fds[i], F_SETFL, fcntl(fds[i], F_GETFL) | O_NONBLOCK);
+        fcntl(fds[i], F_SETFD, FD_CLOEXEC);
+    }
+    g_ack_pipe[0] = fds[0];
+    g_ack_pipe[1] = fds[1];
+}
+
+static void ack_pipe_drain(void) {
+    char buf[16];
+    if (g_ack_pipe[0] < 0) return;
+    while (read(g_ack_pipe[0], buf, sizeof(buf)) > 0) {}
+}
+
 int rf_send_frame_acked(rf_frame_t *frame, int timeout_ms) {
-    /* A send of the same frame as the last one to this remote is a retry */
-    static struct { uint8_t seq, type; bool valid; } s_last[MAX_PAIRED_REMOTES];
+    /* A send of the same frame as this thread's last one to this remote is a retry. Kept per
+     * thread: each sender resends only its own frames, and with one shared record another
+     * thread's send in between (even one still waiting for the busy flag) hid the retry. */
+    static __thread struct { uint8_t seq, type; bool valid; } s_last[MAX_PAIRED_REMOTES];
     int li = link_idx(frame->dev_slot ? frame->dev_slot : (g_remote_slot ? g_remote_slot : 0x01));
+    bool retry = false;
     if (li >= 0) {
-        if (s_last[li].valid && s_last[li].seq == frame->seq && s_last[li].type == frame->msg_type) g_remote_link[li].retries++;
+        retry = s_last[li].valid && s_last[li].seq == frame->seq && s_last[li].type == frame->msg_type;
         s_last[li].seq = frame->seq;
         s_last[li].type = frame->msg_type;
         s_last[li].valid = true;
-        g_remote_link[li].acked_sent++;
     }
 
     pthread_mutex_lock(&g_ack_mutex);
+    while (g_acked_tx_busy) {
+        pthread_mutex_unlock(&g_ack_mutex);
+        usleep(2000);
+        pthread_mutex_lock(&g_ack_mutex);
+    }
+    g_acked_tx_busy = 1;
+    /* the link counters change under g_ack_mutex: several threads send */
+    if (li >= 0) {
+        g_remote_link[li].acked_sent++;
+        if (retry) g_remote_link[li].retries++;
+    }
+    ack_pipe_open_locked();
+    ack_pipe_drain();   /* a byte from an earlier ACK must not end this wait */
     g_pending_ack_seq = frame->seq;
+    /* the slot rf_send_frame() sends to */
+    g_pending_ack_slot = frame->dev_slot ? (frame->dev_slot & 0x0F) : (g_remote_slot ? (g_remote_slot & 0x0F) : 0x01);
     g_ack_received = 0;
     pthread_mutex_unlock(&g_ack_mutex);
 
-    if (rf_send_frame(frame) < 0) return -1;
+    if (rf_send_frame(frame) < 0) {
+        pthread_mutex_lock(&g_ack_mutex);
+        g_pending_ack_slot = 0;
+        g_acked_tx_busy = 0;
+        pthread_mutex_unlock(&g_ack_mutex);
+        return -1;
+    }
 
+    struct timespec start;
+    clock_gettime(CLOCK_MONOTONIC, &start);
     pthread_mutex_lock(&g_ack_mutex);
-    if (!g_ack_received) {
-        struct timespec ts;
-        clock_gettime(CLOCK_REALTIME, &ts);
-        ts.tv_sec += timeout_ms / 1000;
-        ts.tv_nsec += (timeout_ms % 1000) * 1000000L;
-        if (ts.tv_nsec >= 1000000000L) { ts.tv_sec++; ts.tv_nsec -= 1000000000L; }
-        pthread_cond_timedwait(&g_ack_cond, &g_ack_mutex, &ts);
+    while (!g_ack_received) {
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        long elapsed = (long)(now.tv_sec - start.tv_sec) * 1000L + (now.tv_nsec - start.tv_nsec) / 1000000L;
+        if (elapsed >= timeout_ms) break;
+        pthread_mutex_unlock(&g_ack_mutex);
+        if (g_ack_pipe[0] >= 0) {
+            struct pollfd pfd = { g_ack_pipe[0], POLLIN, 0 };
+            if (poll(&pfd, 1, (int)(timeout_ms - elapsed)) > 0) ack_pipe_drain();
+        } else {
+            usleep(2000);   /* no pipe: check the flag every 2 ms */
+        }
+        pthread_mutex_lock(&g_ack_mutex);
     }
     int ok = g_ack_received;
+    g_ack_received = 0;
+    g_pending_ack_slot = 0; /* nothing waits: a late ACK matches no one */
+    if (ok) {
+        g_ack_status = g_ack_result_status;
+        memcpy(g_ack_payload, g_ack_result_payload, sizeof(g_ack_payload));
+        if (li >= 0) g_remote_link[li].acked_ok++;
+    }
+    g_acked_tx_busy = 0;
     pthread_mutex_unlock(&g_ack_mutex);
-    if (ok && li >= 0) g_remote_link[li].acked_ok++;
     return ok ? 0 : -1;
 }
 
@@ -153,19 +227,31 @@ int rf_wake_remote(uint8_t slot, int attempts) {
     return 0;
 }
 
-void rf_signal_ack(uint8_t seq, uint8_t status, const uint8_t *payload) {
+void rf_signal_ack_from(uint8_t slot, uint8_t seq, uint8_t status, const uint8_t *payload) {
     pthread_mutex_lock(&g_ack_mutex);
-    if ((seq & 0x0F) == (g_pending_ack_seq & 0x0F) || seq == g_pending_ack_seq) {
+    /* The frame carries 4 bits of the sequence number; the ACK must also come from the slot the
+     * frame went to (slot 0 = not known, as from older callers): an ACK of the other remote for
+     * its own frame with the same low bits is not this one */
+    slot &= 0x0F;
+    if (g_pending_ack_slot != 0 && !g_ack_received && (slot == 0 || slot == g_pending_ack_slot) &&
+        ((seq & 0x0F) == (g_pending_ack_seq & 0x0F) || seq == g_pending_ack_seq)) {
         g_ack_received = 1;
-        g_ack_status = status;
+        g_ack_result_status = status;
         if (payload) {
-            memcpy(g_ack_payload, payload, sizeof(g_ack_payload));
+            memcpy(g_ack_result_payload, payload, sizeof(g_ack_result_payload));
         } else {
-            memset(g_ack_payload, 0, sizeof(g_ack_payload));
+            memset(g_ack_result_payload, 0, sizeof(g_ack_result_payload));
         }
-        pthread_cond_signal(&g_ack_cond);
+        if (g_ack_pipe[1] >= 0) {
+            ssize_t w = write(g_ack_pipe[1], "a", 1);   /* full pipe: a wake is already pending */
+            (void)w;
+        }
     }
     pthread_mutex_unlock(&g_ack_mutex);
+}
+
+void rf_signal_ack(uint8_t seq, uint8_t status, const uint8_t *payload) {
+    rf_signal_ack_from(0, seq, status, payload);
 }
 
 void query_paired_devices(void) {
@@ -194,6 +280,17 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
 
     /* Route Companion / eQuad HID keyboard & consumer reports (Report 0x20, Sub-ID 0x01 or 0x03) */
     if (len >= 5 && pkt[0] == 0x20 && (pkt[2] == 0x01 || pkt[2] == 0x03)) {
+        /* hub_rf keeps two remote slots; a key report from another CC2544 slot (a third paired
+           device) would be handled as a key of the remote in slot 1 */
+        uint8_t kslot = pkt[1] & 0x0F;
+        if (kslot < 1 || kslot > MAX_PAIRED_REMOTES) {
+            static uint16_t s_logged; /* one line per slot */
+            if (!(s_logged & (1u << kslot))) {
+                s_logged |= (uint16_t)(1u << kslot);
+                printf("[-] RF key report from slot %u ignored: only slots 1 and 2 hold a remote\n", kslot);
+            }
+            return;
+        }
         handle_companion_packet(pkt, len);
         return;
     }
@@ -216,7 +313,7 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
                 memcpy(&f, pkt, sizeof(f));
             }
         } else if (pkt[0] == 0x12 && len >= 30) {
-            if (pkt[1] >= 1 && pkt[1] <= 15) {
+            if (pkt[1] >= 1 && pkt[1] <= MAX_PAIRED_REMOTES) {
                 g_remote_slot = pkt[1];
             }
             if ((pkt[2] & 0xE0) == 0x40 || (pkt[2] & 0xE0) == 0x60) {
@@ -239,7 +336,6 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
                 memcpy(f.payload, &pkt[4], sizeof(f.payload));
             }
             g_nak_count = 0;
-            g_backoff_ms = 0;
         }
         if (link_idx(f.dev_slot) >= 0) g_remote_link[link_idx(f.dev_slot)].frames_rx++;
         handle_rf_frame(&f);
@@ -263,12 +359,14 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
 
     /* 0x41: Link status notification: 10 <slot> 41 04 <status> ... */
     if (len == 7 && pkt[0] == 0x10 && pkt[2] == 0x41) {
-        if (pkt[1] >= 1 && pkt[1] <= 15) {
+        /* the default slot for sends without one: only a slot that can hold a remote */
+        if (pkt[1] >= 1 && pkt[1] <= MAX_PAIRED_REMOTES) {
             g_remote_slot = pkt[1];
         }
         bool link_lost = (pkt[4] & 0x40) != 0;
         if (pkt[1] == 1 || pkt[1] == 2) {
             g_paired_remotes[pkt[1] - 1].link_lost = link_lost;
+            if (!link_lost) rf_key_note_restart_hint(pkt[1]); /* a remote that started links again */
         }
         if (g_debug_logging)
             printf("[*] Hub RF Link Status: %s (slot=%d byte4=0x%02X)\n",
@@ -276,12 +374,11 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
         return;
     }
 
-    /* Reset NAK backoff on any valid non-error response from CC2544 */
+    /* Any valid non-error response from the CC2544 ends a run of NAKs */
     if (!(pkt[0] == 0x10 && len >= 3 && pkt[2] == 0x8F)) {
         if (g_nak_count > 0 && g_debug_logging)
-            printf("[+] NAK backoff cleared (was %d NAKs, %dms)\n", g_nak_count, g_backoff_ms);
+            printf("[+] CC2544 answers again after %d NAKs\n", g_nak_count);
         g_nak_count = 0;
-        g_backoff_ms = 0;
     }
 
     uint8_t report_id = pkt[0];
@@ -320,17 +417,9 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
             /* 10 <slot> 8F <report of the refused send> ... */
             if (link_idx(pkt[1]) >= 0) g_remote_link[link_idx(pkt[1])].naks++;
             g_nak_count++;
-            if (g_nak_count > 3) {
-                if (g_nak_count - 3 >= 6) {
-                    g_backoff_ms = NAK_BACKOFF_MAX_MS;
-                } else {
-                    g_backoff_ms = 100 * (1 << (g_nak_count - 3));
-                    if (g_backoff_ms > NAK_BACKOFF_MAX_MS) g_backoff_ms = NAK_BACKOFF_MAX_MS;
-                }
-            }
             if (g_debug_logging || g_nak_count <= 5)
-                printf("[-] CC2544 NAK: SubID=0x%02X err=0x%02X (count=%d, backoff=%dms)\n",
-                       pkt[3], pkt[5], g_nak_count, g_backoff_ms);
+                printf("[-] CC2544 NAK: SubID=0x%02X err=0x%02X (count=%d)\n",
+                       pkt[3], pkt[5], g_nak_count);
             return;
         }
     }
@@ -386,7 +475,12 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
                 uint8_t nlen = pkt[5];
                 if (sidx < MAX_PAIRED_REMOTES && nlen > 0) {
                     if (nlen > 15) nlen = 15;
-                    memcpy(g_paired_remotes[sidx].name, &pkt[6], nlen);
+                    /* printable ASCII without quote and backslash: the name goes into the RF
+                       status object, which is JSON built with "%s" */
+                    for (uint8_t i = 0; i < nlen; i++) {
+                        uint8_t c = pkt[6 + i];
+                        g_paired_remotes[sidx].name[i] = (c >= 0x20 && c < 0x7F && c != '"' && c != '\\') ? (char)c : '?';
+                    }
                     g_paired_remotes[sidx].name[nlen] = '\0';
                     /* the name hints at a Sprite remote only while the EquadID is unknown; it
                      * never replaces an identified family (is_companion_slot applies it) */
@@ -406,18 +500,32 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
     }
 }
 
+volatile bool g_rf_read_failed = false;
+
 void *rx_worker(void *arg) {
     (void)arg;
     uint8_t buf[64];
+    int read_errors = 0;
 
     while (g_running) {
         memset(buf, 0, sizeof(buf));
         ssize_t n = read(g_rf_fd, buf, sizeof(buf));
         if (n > 0) {
+            read_errors = 0;
             handle_rf_packet(buf, (size_t)n);
         } else if (n < 0) {
             if (errno == EINTR) continue;
-            perror("read /dev/rfspi");
+            if (errno == EAGAIN) { usleep(100000); continue; }
+            if (++read_errors <= 3) perror("read /dev/rfspi");
+            if (read_errors >= RF_READ_ERRORS_MAX) {
+                /* The radio does not answer any more: hub_rf ends, its supervisor starts it again
+                 * and the start sets the CC2544 up anew. It used to log ten lines a second for as
+                 * long as it ran, with the remotes on "No Hub". */
+                fprintf(stderr, "[-] /dev/rfspi: %d read errors in a row, hub_rf stops for a restart\n", read_errors);
+                g_rf_read_failed = true;
+                g_running = false;
+                break;
+            }
             usleep(100000);
         } else {
             usleep(50000);
@@ -432,6 +540,7 @@ int rf_spi_open(void) {
         perror("open /dev/rfspi");
         return -1;
     }
+    fcntl(g_rf_fd, F_SETFD, FD_CLOEXEC); /* one user of /dev/rfspi: no helper may keep it */
     return 0;
 }
 

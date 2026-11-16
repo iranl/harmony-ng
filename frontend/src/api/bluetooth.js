@@ -22,6 +22,11 @@ export function createBluetoothApi(client) {
       return client.postJson('/api/bt-disconnect', { bdaddr: bdaddr || '' });
     },
 
+    // Remove a paired host: its link key, its link and the devices' links to it (admin)
+    async forgetBtHost(addr) {
+      return client.postJson('/api/bt-forget-host', { addr: String(addr || '') });
+    },
+
     async linkBtDevice(bdaddr, deviceId) {
       return client.postJson('/api/bt-link-device', { bdaddr, deviceId });
     },
@@ -61,10 +66,6 @@ export function createBluetoothApi(client) {
         return { ok: true, ws: true };
       }
       return client.postJson('/api/bt-mouse', payload);
-    },
-
-    async runBtScript(script, delay = 35) {
-      return client.postJson('/api/bt-script', { script: String(script), delay: Number(delay) || 35 });
     },
 
     async saveBtCommand(deviceId, name, script) {

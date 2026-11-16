@@ -9,6 +9,7 @@ Usage:
   python tests/test_openapi.py
   python tests/test_openapi.py --host 192.168.1.1 --port 8089
   python tests/test_openapi.py --spec docs/openapi.yaml --strict
+  python tests/test_openapi.py --harness --port 9262   (host test daemon, as the mock suite runs it)
   python -m unittest tests/test_openapi.py
 """
 
@@ -508,7 +509,11 @@ class TestOpenApiCompliance(unittest.TestCase):
             self.assertIn("slots", rf_j)
             slots = rf_j.get("slots", [])
             self.assertIsInstance(slots, list)
-            if len(slots) > 0:
+            if rf_j.get("running") is False:
+                # hub_rf not running: hub_daemon's own reply, slot numbers only
+                self.assertEqual(rf_j.get("state"), "stopped")
+                self.assertEqual([s.get("slot") for s in slots], [1, 2])
+            elif len(slots) > 0:
                 s1 = slots[0]
                 self.assertIn("slot", s1)
                 self.assertIn("model", s1)
@@ -574,7 +579,28 @@ def main():
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"Hub port (default: {DEFAULT_PORT})")
     parser.add_argument("--spec", default=DEFAULT_SPEC, help="Path to openapi.yaml")
     parser.add_argument("--strict", action="store_true", help="Fail if live Hub is unreachable")
+    parser.add_argument("--harness", action="store_true",
+                        help="Start hub_daemon_test (tests/hub_harness.py, dry run) on 127.0.0.1:--port "
+                             "and run every live test against it (implies --strict)")
     args, unknown = parser.parse_known_args()
+
+    hub = None
+    if args.harness:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from hub_harness import HubHarness
+        args.host = "127.0.0.1"
+        args.strict = True
+        hub = HubHarness(port=args.port)
+        hub.start()
+        try:
+            run_suite(args)
+        finally:
+            hub.stop()
+        return
+    run_suite(args)
+
+
+def run_suite(args):
 
     os.environ["HUB_HOST"] = args.host
     os.environ["HUB_PORT"] = str(args.port)
@@ -597,7 +623,11 @@ def main():
     suite = unittest.TestLoader().loadTestsFromTestCase(TestOpenApiCompliance)
     runner = unittest.TextTestRunner(verbosity=2)
     result = runner.run(suite)
-    sys.exit(0 if result.wasSuccessful() else 1)
+    if args.strict and result.skipped:
+        print(f"{C_RED}[ERROR] Strict mode: {len(result.skipped)} test(s) skipped{C_RESET}")
+        sys.exit(1)
+    if not result.wasSuccessful():
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

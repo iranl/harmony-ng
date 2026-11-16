@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Harmony Hub Control API
-  version: 2.4.0
+  version: 2.4.2
   description: |
     REST and WebSocket API for the open-source **Harmony Hub** firmware and **Harmony remote** RF daemon.
     
@@ -9,7 +9,45 @@ info:
     
     ### Testing Locally
     Use the **Servers** dropdown or "Try it out" to send requests directly to your Harmony Hub.
-    *Default Hub IP*: `harmony.local:8089`
+    The Hub announces itself over mDNS as `harmony-ng-<hub_id>.local` (port 8089).
+    "Try it out" works only when this page is opened from the Hub itself or from `localhost`:
+    a request a browser sends for a page of another origin is answered `403`
+    `{"ok":false,"error":"Cross-site request refused"}` (API.md, "Requests from web pages").
+    Clients outside a browser (`curl`, scripts) are not affected.
+
+    ### Authentication
+    Authentication is off after install: until an admin turns it on (API.md 11), every client on
+    the LAN is admin and no credentials are needed, hence the empty alternative in the global
+    `security`. Once it is on, every route under `/api/` (and the legacy `/ir/`, `/bt/`,
+    `/export/`, `/import`, `/wifi`, `/ethernet`, `/system`, `/mqtt` names) needs `basicAuth` or
+    `bearerAuth`, except `POST /api/auth/token` and `GET /health`. Accounts with the `user` role may
+    call only the routes listed in API.md 11.5. Requests from the Hub itself (127.0.0.1) are
+    always admin.
+
+    Without valid credentials such a route answers `401` `{"ok":false,"error":"Unauthorized"}`.
+    A `user` account gets `403` `{"ok":false,"error":"Forbidden: Admin access required"}` on
+    every route that is not in this list (all other routes are admin only):
+    `GET` `/api/status`, `/api/auth/me`, `/api/activities`, `/api/activity`,
+    `/api/current_activity`, `/api/devices`, `/api/inventory`, `/api/icons`,
+    `/api/icons/archive`, `/assets/icons.tar.gz`, `/api/custom-icons`, `/api/ui-remote-layout`;
+    `POST` `/api/auth/logout`, `/api/activity`, `/api/activity-start`, `/api/poweroff`,
+    `/api/activity-stop`, `/api/activity-cancel`, `/api/ir-send`, `/ir/send`, `/api/ir-raw`,
+    `/api/button-press`, `/api/mqtt-publish`, `/api/bt-mouse`, `/api/v1/bt/mouse`.
+    The other names of `/api/activity-cancel` (`/api/activity-reset`, `/api/interlock-reset`)
+    are not in the list and need the admin role.
+
+    ### Replies every route can give
+    These are not repeated under each operation: `401` and `403` as above; `413`
+    `Request body too large` for a body over 64 KB (2 MB for `POST /import` and
+    `POST /api/custom-icons`, 256 KB for `/api/rf-mapping-save`, `/api/remote-mapping-save` and
+    `POST /api/ui-remote-layout`); `400` `Bad request` for a body shorter than its
+    `Content-Length`; `404` `{"ok":false,"error":"Not Found"}` for an unknown route or a method
+    the route does not take. These replies are JSON objects with `ok: false` and `error`.
+
+    The `/api/rf/*` routes are served by `hub_rf`: one request (headers and body) may be at
+    most 4095 bytes (`413`, or `400` `Request body incomplete`), and when `hub_rf` does not
+    run, every `/api/rf/*` request, whatever its method, is answered `200` with the
+    "stopped" status object shown under `GET /api/rf`, so check its `running` field.
 servers:
   - url: http://{hubIp}:8089
     description: Configurable Harmony Hub IP
@@ -17,12 +55,18 @@ servers:
       hubIp:
         default: 192.168.1.100
         description: IP address or hostname of Harmony Hub
-  - url: http://harmony.local:8089
-    description: Default Hub IP
-  - url: http://harmony.local:8089
+  - url: http://harmony-ng-{hubId}.local:8089
     description: mDNS Hostname
+    variables:
+      hubId:
+        default: 20140101120000-000001
+        description: The Hub's hub_id (GET /api/status)
   - url: http://127.0.0.1:8089
     description: Localhost / SSH Tunnel
+security:
+  - {}
+  - basicAuth: []
+  - bearerAuth: []
 tags:
   - name: System & Status
     description: Hub health, system telemetry, diagnostics, and settings
@@ -35,7 +79,7 @@ tags:
   - name: Bluetooth HID
     description: Bluetooth host pairing, connection management, and BLE remotes
   - name: RF & Remote
-    description: CC2544 2.4GHz RF transceiver and Harmony remote management
+    description: 'CC2544 2.4GHz RF transceiver and Harmony remote management. On every /api/rf/* route that takes a slot, the slot may be given in the query (?slot=1) or in a JSON body ({"slot": 1}); a value other than 1 or 2 is answered 400 (0 or all are accepted only by pair, unpair, sleep and push-icon, where they mean every remote).'
   - name: Network & MQTT
     description: Wi-Fi, USB Ethernet, and MQTT broker configuration
   - name: Updates & Maintenance
@@ -55,7 +99,7 @@ paths:
       tags:
         - System & Status
       summary: Health check
-      description: Returns service status of hub_daemon.
+      description: Returns service status of hub_daemon. Never needs credentials. Any method is answered. GET / gives the same reply when the Hub has no web UI file to serve for it.
       responses:
         '200':
           description: Service is healthy
@@ -64,6 +108,8 @@ paths:
               example:
                 status: ok
                 service: hub_daemon
+                version: 2.4.2
+                min_app_version: 1.3.0
 
   /ws:
     get:
@@ -72,12 +118,14 @@ paths:
       summary: WebSocket live telemetry & event stream
       description: |
         WebSocket connection for real-time activity transitions, IR/RF events, and hub telemetry.
-        Requires upgrade headers `Connection: Upgrade` and `Upgrade: websocket`.
+        Requires upgrade headers `Connection: Upgrade` and `Upgrade: websocket`. The Hub upgrades
+        a request on any path that carries `Upgrade: websocket`, not only `/ws`.
         With authentication enabled the upgrade needs a PAT or session token, as
         `Authorization: Bearer <token>` or `?token=<token>` in the request line (401 otherwise;
         loopback callers are exempt). The token's role applies to the actions sent on the socket.
         Pushed messages (type, seq, ts): activity_state, activity_progress, config_changed,
-        bt_status, rf_status, button; see docs/API.md section 10.
+        bt_status, rf_status, mqtt_status, button, ir_received, ir_capture; see docs/API.md
+        section 10.
       parameters:
         - name: token
           in: query
@@ -95,22 +143,39 @@ paths:
           JSON objects with "action" and an optional "msgId" echoed in the reply. Pushed messages
           carry "type", "seq" (sequence number, from 1 per daemon run) and "ts" (Unix seconds);
           nothing is replayed to a client that connects later, the snapshot is its first frame.
+          A numeric "msgId" and a string "id" of the request are both echoed in the reply. An ack
+          is {type: ack, action, ok}; a failed one also carries "code" (the HTTP status of the
+          REST equivalent) and "error". An unknown action is acked with code 400. With a
+          user-role token an action is allowed when its REST equivalent is (403 otherwise).
         client:
           ping: {reply: pong}
           get_state: {reply: activity_state}
           get_snapshot: {reply: snapshot}
-          send_command: {reply: ack, fields: [deviceId, command, cmdAction]}
-          start_activity: {reply: ack, fields: [id]}
-          stop_activity: {reply: ack}
-          cancel_activity: {reply: ack}
-          bt_key: {reply: ack}
-          bt_text: {reply: ack}
-          bt_mouse: {reply: ack}
+          send_command: {reply: ack, fields: [deviceId, command, cmdAction, num_repeats, delay_secs, hold_secs], description: "command is one name or a list of up to 32 names. A list, repeats or a hold run as a queued job; their ack carries state started or queued"}
+          ir_send: {reply: ack, description: Same as send_command}
+          start_activity: {reply: ack, fields: [activity], description: "The ack carries state starting or queued. id is the request id; it is taken as the activity only when activity is missing and id names a configured activity"}
+          stop_activity: {reply: ack, description: The ack carries state stopping or queued}
+          power_off: {reply: ack, description: Same as stop_activity}
+          cancel_activity: {reply: ack, description: Also drops the queued command jobs (commandsCancelled in the ack)}
+          reset_interlock: {reply: ack, description: Same as cancel_activity}
+          cancel_commands: {reply: ack, description: Drops the queued command jobs only (commandsCancelled in the ack)}
+          bt_key: {reply: ack, fields: [key, keyAction, target]}
+          bt_text: {reply: ack, fields: [text, target]}
+          bt_mouse: {reply: ack, fields: [dx, dy, buttons, wheel, mouseAction, button, target]}
+          ir_raw: {reply: ack, fields: [frequency, timings, port, repeats], description: As POST /api/ir-raw}
           ir_capture: {reply: ack, fields: [enabled]}
+          rf_wake: {reply: ack, fields: [slot], description: "As POST /api/rf/wake (slot 1 or 2, default 1)"}
+          rf_sleep: {reply: ack, fields: [slot], description: "As POST /api/rf/sleep (slot 1 or 2, default 1)"}
+          sync: {reply: ack, description: As POST /api/sync}
+          update_check: {reply: ack, fields: [repo, token, remote_version], description: As POST /api/update-check}
+          update_apply: {reply: ack, fields: [repo, token], description: As POST /api/update-apply}
+          activity_help: {reply: ack, fields: [activity, dry_run], description: As POST /api/activity/help}
+          activity_help_answer: {reply: ack, fields: [device, "on"], description: As POST /api/activity/help/answer}
         pushed:
           activity_state:
             example: {type: activity_state, seq: 17, ts: 1762387200, activity: "123456", state: 2, stateName: running, busy: false, sending: true, queued: null}
           activity_progress:
+            description: May also carry error (a step failed) and failedSteps
             example: {type: activity_progress, seq: 18, ts: 1762387200, activity: "123456", activityId: "123456", state: starting, stateCode: 1, step: 2, currentStep: 2, total: 6, totalSteps: 6, desc: TV PowerOn, stepDesc: TV PowerOn}
           config_changed:
             example: {type: config_changed, seq: 19, ts: 1762387200, files: [devices]}
@@ -120,8 +185,11 @@ paths:
           rf_status:
             description: The GET /api/rf/status object when it changed (link counters and battery.voltage_mv are not changes)
             example: {type: rf_status, seq: 21, ts: 1762387200, ok: true, slots: []}
+          mqtt_status:
+            description: MQTT client state, sent when it changes (docs/API.md 10.13a)
+            example: {type: mqtt_status, seq: 23, ts: 1762387200, enabled: true, connected: true, broker: 192.168.1.50, port: 1883, baseTopic: harmony/hub, haDiscovery: true}
           button:
-            description: First press and release of a physical key on an RF remote, with the mapped device command when any
+            description: First press and release of a physical key on an RF remote, with the mapped device command when any. Also sent for keys of a Bluetooth remote (source bt_remote), for POST /api/button-press (the source the caller gave, else api) and for a command sent to an MQTT-type device (source api); slot is present only for a key of an RF remote.
             example: {type: button, seq: 22, ts: 1762387200, slot: 1, button: VolumeUp, action: press, source: remote_rf, deviceId: "70321456", command: VolumeUp}
           ir_received:
             description: One learned IR signal while the capture mode is on (POST /api/ir-capture). timings are signed microseconds (+ mark, - space) of one frame ending with the gap; modulation is the measured carrier in Hz or null.
@@ -133,10 +201,11 @@ paths:
             description: First frame after the upgrade and the reply to get_snapshot
             example:
               type: snapshot
-              hub: {hub_id: "20140101120000-000001", hub_name: Living Room Hub, version: 2.2.0, api_version: 2, capabilities: [events, snapshot, ws_auth, ws_keepalive, ir_raw, rf_wake], auth_enabled: false, uptime_sec: 34821, boot_time: 1762352379, legacy_enabled: false, mdns_enabled: false, ir_capture: false}
+              hub: {hub_id: "20140101120000-000001", hub_name: Living Room Hub, version: 2.2.0, api_version: 2, capabilities: [events, snapshot, ws_auth, ws_keepalive, ir_raw, ir_capture, mdns, legacy, mqtt_v2, rf_wake], auth_enabled: false, uptime_sec: 34821, boot_time: 1762352379, legacy_enabled: false, mdns_enabled: false, ir_capture: false}
               activity_state: {type: activity_state, activity: "-1", state: 0, stateName: idle, busy: false, sending: false, queued: null, seq: 3, ts: 1762387100}
               bt_status: null
               rf_status: null
+              mqtt_status: {type: mqtt_status, seq: 2, ts: 1762387100, enabled: false, connected: false, broker: "", port: 1883, baseTopic: harmony/hub, haDiscovery: true}
               config: {files: {devices: 1762387000, activities: 1762387000, settings: 1762380000, remote_map: 1762387000}}
               seq: 42
               ts: 1762387200
@@ -151,6 +220,8 @@ paths:
         identity: hub_id (factory unit id from the mfg partition), version and commit of this
         firmware, api_version (2; changes only on a breaking change) and the capability flags of
         the compiled-in features (events, snapshot, ws_auth, ws_keepalive, ir_raw, rf_wake, ...).
+        boot_time is null until the clock is set. ir_capture_error is present only while the
+        IR receiver has a problem.
       responses:
         '200':
           description: Status retrieved
@@ -174,6 +245,8 @@ paths:
                 ip: 192.168.1.100
                 total_kb: 5120
                 free_kb: 1372
+                cache_total_kb: 5120
+                cache_free_kb: 1824
                 uptime_sec: 10421
                 boot_time: 1762352379
                 updating: false
@@ -186,6 +259,7 @@ paths:
                   port: 1883
                   baseTopic: harmony/hub
                   v2: true
+                has_icons: true
 
   /api/system-info:
     get:
@@ -199,11 +273,20 @@ paths:
           content:
             application/json:
               example:
+                ok: true
+                hub_name: Living Room Hub
                 uptime: "1d 4h 12m (101520s)"
-                load: "0.12 0.08 0.05"
+                loadavg: "0.12 0.08 0.05"
                 kernel: "Linux version 3.3.8 (mips Atheros AR9344)"
+                firmware: "4.15.600"
+                version: "2.4.2"
+                commit: abc1234
+                build_time: "Nov 14 2026 18:00:00"
                 memory: "Total: 128 MB, Free: 48 MB (Avail: 72 MB)"
-                network: "=== Network Interfaces (/proc/net/dev) ===\n..."
+                mem_total_kb: 131072
+                mem_free_kb: 49152
+                mem_available_kb: 73728
+                network_details: "=== Network Interfaces (/proc/net/dev) ===\n..."
 
   /api/disk-space:
     get:
@@ -249,10 +332,20 @@ paths:
                 mac: 02:00:00:00:00:01
                 gateway: 192.168.1.1
                 eth_present: true
+                eth_onboard: false
                 eth_carrier: true
                 eth_interface: eth0
+                eth_ip: 192.168.1.100
+                eth_mask: 255.255.255.0
+                eth_mac: 02:00:00:00:00:01
                 wifi_connected: true
+                wifi_interface: ath0
+                wifi_ip: 192.168.1.101
+                wifi_mask: 255.255.255.0
+                wifi_mac: 02:00:00:00:00:02
                 wifi_ssid: ExampleSSID
+                config: {eth_enabled: true, eth_fallback_wifi: true, eth_mode: dhcp}
+                ifconfig: "eth0      Link encap:Ethernet ..."
 
   /api/services:
     get:
@@ -276,6 +369,7 @@ paths:
       tags:
         - System & Status
       summary: Toggle CC2544 RF daemon
+      description: Also available under /api/rf-toggle. A request without enable turns the daemon off.
       requestBody:
         required: true
         content:
@@ -285,7 +379,7 @@ paths:
               properties:
                 enable:
                   type: boolean
-              required: [enable]
+                  default: false
             example:
               enable: true
       responses:
@@ -296,12 +390,15 @@ paths:
               example:
                 ok: true
                 rf_enabled: true
+        '500':
+          description: The setting could not be saved (turning off only)
 
   /api/services/bt-toggle:
     post:
       tags:
         - System & Status
       summary: Toggle BTstack daemon
+      description: Also available under /api/bt-toggle. A request without enable turns the daemon off.
       requestBody:
         required: true
         content:
@@ -311,23 +408,27 @@ paths:
               properties:
                 enable:
                   type: boolean
-              required: [enable]
+                  default: false
             example:
               enable: true
       responses:
         '200':
-          description: Service toggled
+          description: Service toggled. bt_running is the process at that moment; after turning on, hub_btstack starts within about 5 s.
           content:
             application/json:
               example:
                 ok: true
-                bt_running: true
+                bt_enabled: true
+                bt_running: false
+        '500':
+          description: The setting could not be saved (turning off only)
 
   /api/logs:
     get:
       tags:
         - System & Status
       summary: Hub log tail
+      description: "daemon and rf /tmp/harmony-init.log (the output of hub_daemon and hub_rf), btstack /tmp/hub-btstack.log, network /tmp/harmony-network.log, system logread (or dmesg). Any other value gives the daemon log; source in the reply says which. At most the last 12 KB of a log file are returned."
       parameters:
         - name: source
           in: query
@@ -345,7 +446,7 @@ paths:
               example:
                 ok: true
                 source: daemon
-                log: "[INFO] Harmony hub daemon listening on port 8089\n..."
+                logs: "[INFO] Harmony hub daemon listening on port 8089\n..."
 
   /api/icons:
     get:
@@ -363,12 +464,11 @@ paths:
                 - gamepad.png
                 - apple_tv.png
 
-  /api/icons/archive:
+  /assets/icons.tar.gz:
     get:
       tags:
         - Custom Icons
-      summary: Download full icon archive (tar.gz)
-      description: Returns compressed tarball containing stock and custom icons (/assets/icons.tar.gz).
+      summary: Download the icon archive (same as GET /api/icons/archive)
       responses:
         '200':
           description: Icons tarball stream
@@ -377,13 +477,32 @@ paths:
               schema:
                 type: string
                 format: binary
+        '404':
+          description: The Hub has no icon archive
+
+  /api/icons/archive:
+    get:
+      tags:
+        - Custom Icons
+      summary: Download full icon archive (tar.gz)
+      description: Returns the stock icon archive as it is stored on the Hub (also served as /assets/icons.tar.gz). Custom icons are not in it. HEAD is answered too.
+      responses:
+        '200':
+          description: Icons tarball stream
+          content:
+            application/gzip:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: The Hub has no icon archive
 
   /api/custom-icons:
     get:
       tags:
         - Custom Icons
       summary: List custom PNG icons
-      description: Returns array of custom uploaded icons stored in /data/harmony/custom_icons.
+      description: Returns array of custom uploaded icons stored in /data/harmony/custom_icons. type is activity or device for the files named activity_<id>.png and device_<id>.png (id is then the part after the prefix); any other file has no type and its id is the file name without .png.
       responses:
         '200':
           description: Custom icons list
@@ -398,8 +517,7 @@ paths:
                 - filename: custom_appletv.png
                   url: /assets/icons/custom_appletv.png
                   size: 3200
-                  type: custom
-                  id: appletv
+                  id: custom_appletv
     post:
       tags:
         - Custom Icons
@@ -407,6 +525,9 @@ paths:
       description: |
         Uploads base64-encoded PNG image (enforces <= 16 KB size limit) and saves to /data/harmony/custom_icons.
         Automatically notifies hub_rf over local socket (port 8092) to propagate icon to paired touchscreen remotes.
+        One of id and name is required. With name the file is custom_<name>.png (name in lower
+        case, every character other than a letter, a digit, - or _ becomes _) and type and id do
+        not name the file; without name the file is <type>_<id>.png.
       requestBody:
         required: true
         content:
@@ -420,10 +541,10 @@ paths:
                   description: Target entity type (activity, device, or custom)
                 id:
                   type: string
-                  description: Entity identifier or icon identifier
+                  description: Entity identifier or icon identifier (required when name is not given)
                 name:
                   type: string
-                  description: Optional custom icon name
+                  description: Custom icon name (required when id is not given)
                 image_base64:
                   type: string
                   description: Base64-encoded PNG data (can also be provided as data)
@@ -444,14 +565,18 @@ paths:
                 url: /assets/icons/custom_apple_tv_dark.png
                 size: 2840
         '400':
-          description: Invalid PNG data or missing parameters
+          description: Invalid PNG data or missing parameters (neither id nor name, or no image)
+        '413':
+          description: The decoded image is larger than 16 KB
         '500':
           description: Flash storage write failure
+        '507':
+          description: No room for more custom icons (128 icons or 512 KB); delete some first
     delete:
       tags:
         - Custom Icons
       summary: Delete custom PNG icon
-      description: Removes custom icon from persistent storage and flash cache.
+      description: Removes custom icon from persistent storage and flash cache. Answers 200 also when no such file existed.
       parameters:
         - name: filename
           in: query
@@ -524,6 +649,7 @@ paths:
               example:
                 ok: true
                 auth_enabled: true
+                authenticated: true
                 username: admin
                 role: admin
 
@@ -532,7 +658,7 @@ paths:
       tags:
         - Authentication & Users
       summary: OAuth2 Password Grant / Login
-      description: Exchanges username and password credentials for an expiring Bearer token.
+      description: Exchanges username and password credentials for an expiring Bearer token. Needs no credentials itself. While authentication is off, a token for the admin role is issued for any body, without a password check. The body may also be sent as application/x-www-form-urlencoded.
       requestBody:
         required: true
         content:
@@ -563,6 +689,16 @@ paths:
                 role: admin
         '401':
           description: Invalid username or password
+        '429':
+          description: Too many failed logins from this address (locked from the third failure in a row, 2 s doubling up to 30 s)
+          content:
+            application/json:
+              example:
+                ok: false
+                error: Too many failed attempts. Try again in 4 seconds
+                retry_after: 4
+        '500':
+          description: The session token could not be created
 
   /api/auth/logout:
     post:
@@ -586,10 +722,9 @@ paths:
       tags:
         - Authentication & Users
       summary: List Personal Access Tokens (Admin only)
-      description: Returns active Personal Access Tokens for third-party home automation integrations.
+      description: Returns active Personal Access Tokens for third-party home automation integrations. last_used_at is always 0 (it is set when the token is created and not updated).
       security:
         - bearerAuth: []
-        - digestAuth: []
         - basicAuth: []
       responses:
         '200':
@@ -603,15 +738,14 @@ paths:
                     name: "Home Assistant"
                     role: admin
                     created_at: 1729940000
-                    last_used_at: 1729950000
+                    last_used_at: 0
     post:
       tags:
         - Authentication & Users
       summary: Generate Personal Access Token (Admin only)
-      description: Generates a persistent PAT (`pat_...`). The raw token is returned once upon creation.
+      description: Generates a persistent PAT (`pat_...`). The raw token is returned once upon creation. Refused while authentication is off. name defaults to "Personal Access Token", role to admin.
       security:
         - bearerAuth: []
-        - digestAuth: []
         - basicAuth: []
       requestBody:
         required: true
@@ -638,17 +772,22 @@ paths:
                 name: "Home Assistant"
                 role: admin
                 token: "pat_3f8a9b1c2d4e..."
+        '409':
+          description: Authentication is off (turn it on before creating access tokens)
+        '500':
+          description: The token could not be created or saved
     delete:
       tags:
         - Authentication & Users
       summary: Revoke Personal Access Token (Admin only)
+      description: The id may be given in the query or in a JSON body ({"id":"tok_..."}).
       parameters:
         - in: query
           name: id
           schema:
             type: string
-          required: true
-          description: Token ID to revoke
+          required: false
+          description: Token ID to revoke (or id in a JSON body)
       responses:
         '200':
           description: Token revoked
@@ -657,6 +796,34 @@ paths:
               example:
                 ok: true
                 message: Token deleted
+        '400':
+          description: No token id given
+        '404':
+          description: Token not found
+        '500':
+          description: The token list could not be saved
+
+  /api/users/delete:
+    post:
+      tags:
+        - Authentication & Users
+      summary: Delete a user account (same as DELETE /api/users)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username: {type: string}
+              required: [username]
+      responses:
+        '200':
+          description: Account deleted
+        '400':
+          description: Username missing, or it is the only admin
+        '404':
+          description: Unknown user
 
   /api/users:
     get:
@@ -685,7 +852,13 @@ paths:
       tags:
         - Authentication & Users
       summary: Create or update user account (Admin only)
-      description: Adds a new user account or updates password and role of an existing account.
+      description: |
+        Adds a new user account or updates password and role of an existing account.
+        auth_enabled in the same request turns authentication on or off. Rules (400 otherwise):
+        the name is shorter than 32 bytes and has no ":" or line break; the password is at most
+        128 bytes and is required for a new account; at most 16 accounts; the change must leave
+        at least one admin account ("Create an admin account first", "Cannot demote the last
+        admin account"). 500 when the accounts cannot be saved.
       requestBody:
         required: true
         content:
@@ -697,10 +870,14 @@ paths:
                   type: string
                 password:
                   type: string
+                  description: Required for a new account; for an existing one, left out keeps the password
                 role:
                   type: string
                   enum: [admin, user]
                   default: user
+                auth_enabled:
+                  type: boolean
+                  description: Turns authentication on (true) or off (false); left out keeps the current state
               required: [username]
             example:
               username: family
@@ -708,12 +885,21 @@ paths:
               role: user
       responses:
         '200':
-          description: User account saved
+          description: >-
+            User account saved. A request with auth_enabled true that turns authentication on also
+            returns auth_enabled and "to_check": every other account and every access token, to
+            check and delete what is not recognised (while authentication was off anybody could make
+            them).
           content:
             application/json:
               example:
                 ok: true
                 message: User account saved
+                auth_enabled: true
+                to_check:
+                  users: [{username: guest, role: admin}]
+                  tokens: [{id: tok_1a2b3c4d, name: Old script, owner: guest, role: admin, created_at: 1729940000},
+                           {id: tok_5e6f7a8b, name: Gone script, owner: old, role: admin, owner_missing: true}]
         '400':
           description: Invalid request or payload error
         '401':
@@ -793,13 +979,12 @@ paths:
               type: object
               properties:
                 hub_name: {type: string}
-                dry_run: {type: boolean}
-                ntp_server: {type: string}
+                dry_run: {type: boolean, description: "Runtime only: never stored as true, so it is off again after a restart or reboot"}
+                ntp_server: {type: string, description: "Default empty (pool.ntp.org). Stored at once, used from the next hub_daemon start"}
                 timezone: {type: string, description: "IANA timezone name or POSIX TZ string"}
                 led_mode:
                   type: string
-                  enum: [green, amber, red, "off"]
-                  description: Front light colour while the Hub runs normally. The older values always_on (green) and always_off (off) are still accepted.
+                  description: "Front light colour while the Hub runs normally: green, amber (also orange), red or off. The older values always_on (green) and always_off (off) are still accepted. Stored as sent without a check; a value the Hub does not know shows green."
                 mdns_enabled: {type: boolean, default: true, description: "mDNS responder for _harmony-ng._tcp; takes effect at once"}
                 legacy_enabled: {type: boolean, default: false, description: "Logitech protocol shim on port 8088 (never authenticated) and its SSDP responder; takes effect at once, off closes every 8088 client"}
             example:
@@ -812,18 +997,35 @@ paths:
               legacy_enabled: false
       responses:
         '200':
-          description: Settings saved
+          description: Settings saved; the reply carries ok and every setting, as GET /api/settings
           content:
             application/json:
               example:
                 ok: true
+                hub_name: Living Room Hub
+                dry_run: false
+                ntp_server: ""
+                timezone: Europe/Amsterdam
+                led_mode: green
+                mdns_enabled: true
+                legacy_enabled: false
+        '400':
+          description: "Unknown timezone: use a name from the list or a POSIX TZ string (nothing is saved)"
+        '500':
+          description: The settings could not be saved
 
   /api/system-action:
     post:
       tags:
         - Updates & Maintenance
       summary: Execute system maintenance action
-      description: Reboot the hub, run factory reset, configure authentication, or send raw MQTT messages. Also available under /system.
+      description: |
+        Reboot the hub, run factory reset, configure authentication, or send raw MQTT messages. Also available under /system.
+        mqtt_publish sends payload on topic as it is (an empty payload is sent as "cmd") and
+        answers {"ok": true}; there is no retain option. The auth action answers
+        {"ok": true, "auth_enabled": <bool>, "message": "Authentication settings updated"}; a
+        request without authEnabled keeps the current state. An unknown or missing action
+        answers 200 {"ok": true} and does nothing.
       requestBody:
         required: true
         content:
@@ -843,8 +1045,6 @@ paths:
                 payload:
                   type: string
                   description: MQTT payload for mqtt_publish action
-                retain:
-                  type: boolean
                 authEnabled:
                   type: boolean
                   description: Enable or disable HTTP authentication (auth action)
@@ -866,19 +1066,28 @@ paths:
                 value: {action: auth, authEnabled: true, authUsername: admin, authPassword: secretpassword}
       responses:
         '200':
-          description: Action accepted
+          description: >-
+            Action accepted. The auth action that turns authentication on also answers auth_enabled
+            and "to_check": every account but the admin it sets and every access token, to check
+            (as POST /api/users).
           content:
             application/json:
               example:
                 ok: true
                 message: Rebooting hub now
+        '400':
+          description: "factory_reset without confirm RESET; auth: a name of 32 bytes or more or with ':' or a line break, a password over 128 bytes, renaming the admin without the password, or turning authentication on with no admin account and no password"
+        '409':
+          description: "reboot while a software update runs (Software update in progress. Manual reboot blocked.)"
+        '500':
+          description: "factory_reset: the reset script is not installed on this Hub; auth: the accounts could not be saved"
 
   /api/inventory:
     get:
       tags:
         - Devices & Commands
       summary: Get device inventory
-      description: Returns configured devices and command profiles. Also available under /api/devices.
+      description: Returns configured devices and command profiles. Also available under /api/devices. The example is an infrared device. A Bluetooth device (type BT) has bdaddr and the btAutoReconnect, btReconnectDurationSec and btReconnectDelaySec fields instead of controlPort; an MQTT device has mqttEnabled, mqttTopic and mqttPulseMs instead. Their commands have no port and repeats.
       responses:
         '200':
           description: Device list
@@ -891,12 +1100,18 @@ paths:
                     type: Television
                     manufacturer: LG
                     model: OLED65C2
-                    controlPort: 0
-                    mqttTopic: home/livingroom/tv
-                    mqttEnabled: true
-                    mqttPulse: 100
+                    controlPort: 7
+                    interDeviceDelay: 500
+                    interKeyDelay: 100
+                    holdInterKeyDelay: 200
+                    defaultInterDeviceDelay: 500
+                    powerOnDelay: 1500
+                    isPowerAlwaysOn: false
+                    powerOnSequence: []
+                    powerOffSequence: []
                     commands:
                       - name: PowerToggle
+                        keyCode: ""
                         raw: "0000 006d 0022 0002 0155 00aa ..."
                         port: 7
                         repeats: 3
@@ -919,12 +1134,18 @@ paths:
                     type: Television
                     manufacturer: LG
                     model: OLED65C2
-                    controlPort: 0
-                    mqttTopic: home/livingroom/tv
-                    mqttEnabled: true
-                    mqttPulse: 100
+                    controlPort: 7
+                    interDeviceDelay: 500
+                    interKeyDelay: 100
+                    holdInterKeyDelay: 200
+                    defaultInterDeviceDelay: 500
+                    powerOnDelay: 1500
+                    isPowerAlwaysOn: false
+                    powerOnSequence: []
+                    powerOffSequence: []
                     commands:
                       - name: PowerToggle
+                        keyCode: ""
                         raw: "0000 006d 0022 0002 0155 00aa ..."
                         port: 7
                         repeats: 3
@@ -934,7 +1155,7 @@ paths:
       tags:
         - Devices & Commands
       summary: Save or update device
-      description: Creates or updates a device definition. Also available under /api/new-device, /ir/device, /ir/new-device, /ir/device-mqtt, /ir/device-power.
+      description: Creates or updates a device definition. Also available under /api/new-device, /ir/device, /ir/new-device, /ir/device-mqtt, /ir/device-power. No field is required. Without deviceId (also accepted as id) a new device gets the lowest free number as its id; a new device without name is named after its id. A device is a Bluetooth device by its type (BT, Bluetooth or BTHID) and an MQTT device by mqttEnabled or type MQTT.
       requestBody:
         required: true
         content:
@@ -950,38 +1171,49 @@ paths:
                 controlPort: {type: integer}
                 mqttTopic: {type: string}
                 mqttEnabled: {type: boolean}
-                mqttPulse: {type: integer}
-                bt_auto_reconnect: {type: boolean, description: "Auto-reconnect Bluetooth device on activity start"}
-                bt_reconnect_duration_sec: {type: integer, default: 30, description: "Bluetooth reconnect attempt timeout"}
-                bt_reconnect_delay_sec: {type: integer, default: 0, description: "Delay in seconds before attempting Bluetooth reconnection"}
-                transport: {type: string, enum: [ir, bt], default: ir}
-              required: [deviceId, name]
+                mqttPulseMs: {type: integer, default: 1000, description: "Length of the MQTT pulse in ms (mqttPulse is ignored here)"}
+                interDeviceDelay: {type: integer, minimum: 0, maximum: 10000, default: 500, description: "ms waited before a command to this device after one to another device"}
+                interKeyDelay: {type: integer, minimum: 0, maximum: 10000, default: 100, description: "ms between two different commands to this device"}
+                holdInterKeyDelay: {type: integer, minimum: 0, maximum: 10000, default: 200, description: "ms between repeats of the same command"}
+                icon: {oneOf: [{type: string}, {type: integer}]}
+                powerOnDelay: {type: integer}
+                isPowerAlwaysOn: {type: boolean}
+                powerOnSequence: {type: array, items: {type: object}}
+                powerOffSequence: {type: array, items: {type: object}}
+                bdaddr: {type: string, description: "Bluetooth host address of a Bluetooth device (older name btHost)"}
+                btAutoReconnect: {type: boolean, default: true, description: "Reconnect the Bluetooth host when a command is sent to it, or when the trigger command is sent"}
+                btReconnectDurationSec: {type: integer, description: "Reconnect attempts last this many seconds (60 when 0 or missing)"}
+                btReconnectDelaySec: {type: integer, description: "Seconds before the reconnect starts after the trigger command (2 when missing)"}
+                btTriggerDeviceId: {type: string, description: "Device whose command starts the reconnect"}
+                btTriggerCommandName: {type: string, description: "Command that starts the reconnect (also deviceId:Command)"}
             example:
               deviceId: "70321456"
               name: LG OLED TV
               type: Television
               manufacturer: LG
               model: OLED65C2
-              controlPort: 0
-              mqttTopic: home/livingroom/tv
-              mqttEnabled: true
-              mqttPulse: 100
-              bt_auto_reconnect: true
-              bt_reconnect_duration_sec: 30
-              bt_reconnect_delay_sec: 0
+              controlPort: 7
+              interDeviceDelay: 500
       responses:
         '200':
-          description: Device saved
+          description: Device saved; deviceId and id carry the id of the saved device
           content:
             application/json:
               example:
                 ok: true
+                deviceId: "70321456"
+                id: "70321456"
+        '400':
+          description: 'No usable body, a timing field that is not a number, or a send delay outside 0..10000 ms; the body is {"ok": false} and nothing is saved'
+        '500':
+          description: devices.json could not be written (ok false, with error)
 
   /api/device-delete:
     post:
       tags:
         - Devices & Commands
       summary: Delete device
+      description: Also available under /ir/delete-device, and with the DELETE method on both paths (the id may then be given as ?id=). deviceId is also accepted as id. The reply is 200 with ok false when no device has that id or no id is given.
       requestBody:
         required: true
         content:
@@ -1000,6 +1232,23 @@ paths:
             application/json:
               example:
                 ok: true
+        '409':
+          description: >-
+            The device is in use by activities, other devices or remote key bindings (not counted:
+            its own map page, which is removed with it, sections of deleted activities, pages of
+            deleted devices, the map of a slot without a remote: hub_rf does not report it active
+            and its version file names no remote, or hub_rf does not answer and there is no version
+            file); nothing changed
+          content:
+            application/json:
+              example:
+                ok: false
+                error: "Device is in use: remove it from these activities, devices and remote keys first"
+                deviceId: "1"
+                users:
+                  - {type: activity, id: "10", name: Watch TV, fields: [startSequence]}
+                  - {type: remote_map, slot: 1, count: 1, keys: [activities/10/VolumeUp],
+                     groups: [{type: activity, id: "10", name: Watch TV, count: 1}]}
 
   /api/device-commands:
     get:
@@ -1013,6 +1262,7 @@ paths:
           schema:
             type: string
           example: "70321456"
+          description: Also accepted as id. Without it, or for an unknown device, the reply is an empty commands list.
       responses:
         '200':
           description: Commands list
@@ -1022,6 +1272,7 @@ paths:
                 ok: true
                 commands:
                   - name: PowerToggle
+                    keyCode: ""
                     raw: "0000 006d 0022 0002 0155 00aa ..."
                     port: 7
                     repeats: 3
@@ -1031,6 +1282,7 @@ paths:
       tags:
         - Devices & Commands
       summary: Save command for device
+      description: Adds a command to a device or updates it. Also available under /ir/command and /bt/command. The reply is 200 with ok false when deviceId or name is missing or no device has that id.
       requestBody:
         required: true
         content:
@@ -1038,12 +1290,14 @@ paths:
             schema:
               type: object
               properties:
-                deviceId: {type: string}
+                deviceId: {type: string, description: "Also accepted as id"}
                 name: {type: string}
-                raw: {type: string}
-                port: {type: integer, default: 7}
-                repeats: {type: integer, default: 1}
-              required: [deviceId, name, raw]
+                oldName: {type: string, description: "Current name of the command, to rename it to name"}
+                raw: {type: string, description: "The code (also accepted as code). Left out on an update, the stored code is kept"}
+                script: {type: string, description: "Bluetooth macro; stored as the code BT:SCRIPT:<script>"}
+                port: {type: integer, description: "IR ports 1..7; left out, a new command uses the device's controlPort and an existing one keeps its port"}
+                repeats: {type: integer, default: 3, description: "Stored as 3 on every save that leaves it out"}
+              required: [deviceId, name]
             example:
               deviceId: "70321456"
               name: VolumeUp
@@ -1057,12 +1311,15 @@ paths:
             application/json:
               example:
                 ok: true
+        '500':
+          description: devices.json could not be written (ok false, with error)
 
   /api/command-delete:
     post:
       tags:
         - Devices & Commands
       summary: Delete command from device
+      description: Also available under /ir/delete-command and /bt/delete-command. deviceId is also accepted as id, command as name. The reply is 200 with ok false when the device or the command does not exist.
       requestBody:
         required: true
         content:
@@ -1083,12 +1340,15 @@ paths:
             application/json:
               example:
                 ok: true
+        '500':
+          description: devices.json could not be written (ok false, with error)
 
   /api/commands-batch:
     post:
       tags:
         - Devices & Commands
       summary: Batch import commands
+      description: Also available under /ir/commands-batch. The reply is 200 with ok false and count 0 when no device has that id.
       requestBody:
         required: true
         content:
@@ -1127,6 +1387,8 @@ paths:
               example:
                 ok: true
                 count: 2
+        '500':
+          description: devices.json could not be written (ok false, with error)
 
   /api/activities:
     get:
@@ -1145,6 +1407,10 @@ paths:
                     type: Custom
                     icon: tv.png
                     order: 1
+                    startSequence:
+                      - {type: Command, command: PowerOn, deviceId: "70321456"}
+                    stopSequence:
+                      - {type: Command, command: PowerOff, deviceId: "70321456"}
                 currentId: "-1"
                 state: 0
 
@@ -1169,7 +1435,7 @@ paths:
       tags:
         - Activities
       summary: Start or switch activity
-      description: Initiates transition to target activity. Also available under /api/activity-start.
+      description: Initiates transition to target activity. Also available under /api/activity-start. A request made while another transition runs is not refused but queued behind it (state queued). With dry_run true nothing is sent and the reply is the list of steps the switch would run.
       requestBody:
         required: true
         content:
@@ -1177,7 +1443,7 @@ paths:
             schema:
               type: object
               properties:
-                activity: {type: string}
+                activity: {type: string, description: "Activity id, as a string or a number (also accepted as id)"}
                 dry_run: {type: boolean, default: false}
               required: [activity]
             example:
@@ -1185,14 +1451,29 @@ paths:
               dry_run: false
       responses:
         '200':
-          description: Transition initiated
+          description: Transition initiated (state starting) or queued behind the running one (state queued). With dry_run the step preview instead.
           content:
             application/json:
-              example:
-                success: true
-                state: starting
+              examples:
+                started:
+                  value: {success: true, state: starting}
+                queued:
+                  value: {success: true, state: queued}
+                dryRun:
+                  value:
+                    target: "123456"
+                    switchedDurationMs: 250
+                    trueEndMs: 250
+                    steps:
+                      - {description: "Starting: PowerOn", type: 2, deviceId: "70321456", command: PowerOn, delayMs: 250}
+                      - {description: Activity switched, type: 4, stepType: Switched, delayMs: 0}
+                    backgroundSteps: []
+        '400':
+          description: No activity given (Missing activity parameter)
         '409':
-          description: Orchestrator is busy transitioning another activity
+          description: Only with dry_run, while a transition runs (Interlock busy)
+        '500':
+          description: The transition could not be built, for example an unknown activity id (Could not build the transition)
 
   /api/current_activity:
     get:
@@ -1208,6 +1489,7 @@ paths:
                 activity: "-1"
                 state: 0
                 busy: false
+                queued: null
                 sending: false
 
   /api/activity/help:
@@ -1251,7 +1533,10 @@ paths:
           content:
             application/json:
               example:
+                ok: false
                 error: "Interlock busy"
+        '500':
+          description: The activity's commands could not be built, or no memory
 
   /api/activity/help/answer:
     post:
@@ -1260,7 +1545,8 @@ paths:
       summary: Answer help power toggle prompt
       description: |
         Answers the question for one device of the last Help. "on": false sends that device's
-        power toggle; "on": true sends nothing. Each device takes one answer.
+        power toggle; "on": true sends nothing. Each device takes one answer. The questions are
+        void once the Hub left the Help's activity or after 5 minutes (409).
       requestBody:
         required: true
         content:
@@ -1271,13 +1557,13 @@ paths:
                 device:
                   type: string
                   description: Device ID
-                on:
+                "on":
                   type: boolean
                   description: Whether the device is already on
-              required: [device, on]
+              required: [device, "on"]
             example:
               device: "4"
-              on: false
+              "on": false
       responses:
         '200':
           description: Answer processed
@@ -1288,13 +1574,15 @@ paths:
                 sent: true
         '404':
           description: Device is not waiting for a Help answer
+        '409':
+          description: The Help question is no longer valid (the Hub left the Help's activity, or it is older than 5 minutes)
 
   /api/poweroff:
     post:
       tags:
         - Activities
       summary: Stop activity and power off
-      description: Initiates activity shutdown sequence. Also available under /api/activity-stop.
+      description: Initiates activity shutdown sequence. Also available under /api/activity-stop. While another transition runs the request is queued behind it (state queued). With dry_run true nothing is sent and the reply is the step preview, as for POST /api/activity.
       requestBody:
         required: false
         content:
@@ -1307,33 +1595,45 @@ paths:
               dry_run: false
       responses:
         '200':
-          description: Power-off sequence initiated
+          description: Power-off sequence initiated (state stopping) or queued behind the running transition (state queued). With dry_run the step preview instead.
           content:
             application/json:
-              example:
-                success: true
-                state: stopping
+              examples:
+                stopping:
+                  value: {success: true, state: stopping}
+                queued:
+                  value: {success: true, state: queued}
+                dryRun:
+                  value: {target: "-1", switchedDurationMs: 0, trueEndMs: 0, steps: [], backgroundSteps: []}
+        '409':
+          description: Only with dry_run, while a transition runs (busy)
+        '500':
+          description: The transition could not be built
 
   /api/activity-cancel:
     post:
       tags:
         - Activities
       summary: Force reset orchestrator interlock
-      description: Cancels stalled activity transitions and resets orchestrator to idle. Also available under /api/activity-reset and /api/interlock-reset.
+      description: Cancels stalled activity transitions and resets orchestrator to idle. Also available under /api/activity-reset and /api/interlock-reset; those two names need the admin role, /api/activity-cancel is also open to the user role.
       responses:
         '200':
           description: Interlock reset
           content:
             application/json:
               example:
-                ok: true
+                success: true
+                message: Activity cancelled / interlock reset
 
   /api/activity-progress:
     post:
       tags:
         - Activities
       summary: Broadcast activity switching progress
-      description: Relays transition progress events to WebSocket clients and publishes to MQTT topic harmony/hub/activity/status.
+      description: >-
+        Sends an activity_progress event to the WebSocket clients and MQTT, built from the known
+        fields of the body (activity or activityId, state or stateCode, step or currentStep, total
+        or totalSteps, desc or stepDesc); nothing else of the body is sent.
       requestBody:
         required: true
         content:
@@ -1342,23 +1642,26 @@ paths:
               type: object
             example:
               activityId: "123456"
-              state: switching
-              progress: 50
+              state: starting
               step: 2
               totalSteps: 4
+              desc: TV PowerOn
       responses:
         '200':
-          description: Progress broadcasted
+          description: Progress event sent
           content:
             application/json:
               example:
                 ok: true
+        '400':
+          description: The body is not a JSON object
 
   /api/activity-save:
     post:
       tags:
         - Activities
       summary: Save activity definition
+      description: No field is required. Without id (also accepted as activityId) a new activity is created with the lowest free number from 1 to 99 as its id. Defaults for a new activity are name "Custom Activity", type "Custom", icon "Default", order 1.
       requestBody:
         required: true
         content:
@@ -1373,7 +1676,7 @@ paths:
                 order: {type: integer}
                 startSequence: {type: array}
                 stopSequence: {type: array}
-              required: [id, name]
+                deviceIds: {type: array, items: {type: string}, description: "Devices of the activity (also accepted as devices)"}
             example:
               id: "123456"
               name: Watch TV
@@ -1397,12 +1700,20 @@ paths:
             application/json:
               example:
                 ok: true
+                message: Activity saved successfully
+        '400':
+          description: 'No usable body: {"ok": false, "message": "Failed to save activity"}'
+        '500':
+          description: activities.json could not be written (ok false, with error)
 
   /api/activity-delete:
     post:
       tags:
         - Activities
       summary: Delete activity
+      description: >-
+        Also removes the activity's sections (activities/<id>) from remote_slot1_map.json,
+        remote_slot2_map.json and bt_remote_map.json.
       requestBody:
         required: true
         content:
@@ -1416,17 +1727,20 @@ paths:
               id: "123456"
       responses:
         '200':
-          description: Activity deleted
+          description: Activity deleted. ok is false, still with 200, when no activity has that id or no id is given.
           content:
             application/json:
               example:
                 ok: true
+        '409':
+          description: The activity is running; power off or start another activity first
 
   /api/activity-test-sequence:
     post:
       tags:
         - Activities
       summary: Test sequence execution
+      description: Runs the steps one after the other before answering. Each step waits its delay, at most 3 s; at most 64 steps.
       requestBody:
         required: true
         content:
@@ -1436,6 +1750,7 @@ paths:
               properties:
                 steps:
                   type: array
+                  description: Also accepted as sequence
               required: [steps]
             example:
               steps:
@@ -1452,13 +1767,20 @@ paths:
               example:
                 ok: true
                 executed: 2
+        '400':
+          description: More than 64 steps (the most a saved sequence can hold)
+          content:
+            application/json:
+              example:
+                ok: false
+                error: Too many steps (limit 64)
 
   /api/sync:
     post:
       tags:
         - Activities
       summary: Reload configuration from flash
-      description: Forces daemon to reload JSON configs from flash. Also available under /api/reload.
+      description: Forces daemon to reload JSON configs from flash and marks the remotes' configuration as waiting for a push (sync_pending in the RF status); the push itself is /api/rf/push-config. Also available under /api/reload.
       responses:
         '200':
           description: Configurations reloaded
@@ -1466,13 +1788,17 @@ paths:
             application/json:
               example:
                 ok: true
+                message: Configuration reloaded and synchronized
 
   /api/ir-send:
     post:
       tags:
         - Hardware & IR
       summary: Transmit IR code or device command
-      description: Transmits an IR command by device ID and command name, or raw Pronto hex. Also available under /ir/send.
+      description: |
+        Transmits an IR command by device ID and one command name, or raw Pronto hex. Also
+        available under /ir/send. A list of commands, num_repeats, delay_secs and hold_secs are
+        taken only by the WebSocket and MQTT send_command action (API.md 10.3, 8.1), not here.
       requestBody:
         required: true
         content:
@@ -1480,29 +1806,14 @@ paths:
             schema:
               type: object
               properties:
-                deviceId: {type: string}
-                command:
-                  oneOf:
-                    - type: string
-                    - type: array
-                      items: {type: string}
-                  description: Command name or array of command names
+                deviceId: {type: string, description: "Device id (also accepted as device_id, device or id)"}
+                command: {type: string, description: "One command name (also accepted as name); a list answers 400"}
                 action:
                   type: string
                   enum: [press, down, hold, repeat, release, up, tap]
                   default: tap
                   description: Button action for key holding and repeating
-                num_repeats:
-                  type: integer
-                  default: 1
-                  description: Number of sequence repeats (1-50)
-                delay_secs:
-                  type: number
-                  description: Delay in seconds between successive commands
-                hold_secs:
-                  type: number
-                  description: Button hold duration in seconds
-                pronto: {type: string}
+                pronto: {type: string, description: "Pronto hex, or a Harmony code (also accepted as code or raw)"}
                 port: {type: integer, default: 7}
                 repeats: {type: integer, default: 1}
             examples:
@@ -1523,6 +1834,12 @@ paths:
             application/json:
               example:
                 ok: true
+                deviceId: "70321456"
+                command: PowerToggle
+        '400':
+          description: Neither deviceId with one command name nor a Pronto code
+        '500':
+          description: The send failed, or the device or the command is not known ("error":"IR transmit failed")
 
   /api/ir-raw:
     post:
@@ -1542,14 +1859,14 @@ paths:
               type: object
               required: [timings]
               properties:
-                frequency: {type: integer, default: 38000, description: "Carrier in Hz: 0 (unmodulated) or 20000 to 60000"}
+                frequency: {type: integer, default: 38000, description: "Carrier in Hz, 20000 to 60000; 0 is the default (no unmodulated output)"}
                 timings:
                   type: array
                   minItems: 2
                   maxItems: 2048
-                  items: {type: integer, minimum: -65535, maximum: 65535}
+                  items: {type: integer, minimum: -65535, maximum: 65535, description: "Never 0: each value is 1 to 65535 us, with a minus sign for a space in the signed form"}
                 port: {type: integer, minimum: 1, maximum: 7, default: 7}
-                repeats: {type: integer, minimum: 1, maximum: 10, default: 1}
+                repeats: {type: integer, minimum: 1, maximum: 10, default: 1, description: "Written into the code; the frame is sent once"}
             example:
               frequency: 38000
               timings: [9000, -4500, 560, -560, 560, -1690]
@@ -1563,6 +1880,7 @@ paths:
               example:
                 ok: true
                 count: 6
+                frequency: 38000
                 duration_ms: 17
         '400':
           description: Validation error, the error names the field
@@ -1573,6 +1891,8 @@ paths:
               example:
                 ok: false
                 error: busy
+        '500':
+          description: The send failed ("error":"IR transmit failed")
 
   /api/pronto-blast:
     post:
@@ -1601,13 +1921,17 @@ paths:
             application/json:
               example:
                 success: true
+        '400':
+          description: No pronto code given (Missing pronto parameter)
+        '500':
+          description: The send failed (IR send failed)
 
   /api/capture:
     post:
       tags:
         - Hardware & IR
       summary: Learn an IR code from the Hub's receiver
-      description: Waits for one IR signal and returns it as a Harmony raw timing string.
+      description: Waits for one IR signal and returns it as a Harmony raw timing string. timeout may also be given in the query (?timeout=5).
       requestBody:
         required: false
         content:
@@ -1632,7 +1956,9 @@ paths:
         '408':
           description: No signal before the timeout
         '409':
-          description: Another capture is running, or an IR send holds the hardware
+          description: Another capture is running, the IR capture mode is on, or an IR send holds the hardware
+        '500':
+          description: The capture failed for another reason (IR capture failed)
         '503':
           description: No IR receiver
 
@@ -1667,6 +1993,8 @@ paths:
           description: enabled missing or not a boolean
         '409':
           description: A one-shot capture is running
+        '500':
+          description: The mode could not be changed for another reason
         '503':
           description: No IR receiver, or it could not be set up
 
@@ -1683,7 +2011,7 @@ paths:
               type: object
               properties:
                 deviceId: {type: string}
-                keycode: {type: string}
+                keycode: {type: string, description: "The learned code (also accepted as raw or code)"}
                 raw: {type: string}
             example:
               deviceId: "3"
@@ -1698,13 +2026,15 @@ paths:
                 port: 7
         '400':
           description: Missing code, or a code the IR encoder does not understand
+        '500':
+          description: The send failed (ok false, port, "error":"IR transmit failed")
 
   /api/button-press:
     post:
       tags:
         - Hardware & IR
-      summary: Automated button pulse over MQTT & hardware
-      description: Dispatches button press or MQTT pulse. Also available under /api/mqtt-publish.
+      summary: Report a key press (button event on the WebSocket and MQTT)
+      description: Reports a key press (button event on the WebSocket and MQTT). Also available under /api/mqtt-publish, an older name of the same route with the same role; it publishes nothing by itself. Nothing is sent to a device. One of button and command is required. An event is emitted for action press or release (and when action is left out, as a press).
       requestBody:
         required: true
         content:
@@ -1712,19 +2042,18 @@ paths:
             schema:
               type: object
               properties:
-                deviceId: {type: string}
-                device: {type: string}
+                deviceId: {type: string, description: "Also accepted as id"}
+                device: {type: string, description: "Ignored"}
                 button: {type: string, description: "Physical key name (hub_rf). When present, command is the device command the key was mapped to."}
                 command: {type: string}
-                source: {type: string}
+                source: {type: string, description: "Copied into the event; api when left out"}
                 action: {type: string, enum: [press, hold, release], description: "press and release give a button event on the WebSocket; hold repeats do not"}
-                topic: {type: string}
-                pulseMs: {type: integer, default: 100}
-                slot: {type: integer, enum: [1, 2], default: 1}
+                topic: {type: string, description: "Ignored (kept for old clients)"}
+                pulseMs: {type: integer, description: "Ignored (kept for old clients)"}
+                slot: {type: integer, enum: [1, 2], description: "RF remote slot of the key. No default: without it the event has no slot and goes to <base>/button on MQTT, not <base>/remote/<slot>/button"}
             example:
               deviceId: "70321456"
               command: VolumeUp
-              pulseMs: 100
       responses:
         '200':
           description: Button reported (a button event on the WebSocket and on MQTT)
@@ -1733,6 +2062,8 @@ paths:
               example:
                 ok: true
                 button: VolumeUp
+        '400':
+          description: Neither button nor command given (Missing command parameter)
 
   /api/bt-mouse:
     post:
@@ -1773,6 +2104,7 @@ paths:
                   type: string
                   enum: [left, right, middle]
                   default: left
+                  description: Letters only; any name other than right and middle means left
                 target:
                   type: string
                   description: Target Bluetooth host BD_ADDR
@@ -1783,11 +2115,13 @@ paths:
               wheel: 0
       responses:
         '200':
-          description: Mouse event processed
+          description: Mouse event processed. ok is false, still with 200, when hub_btstack is not reading its key pipe (Bluetooth off or not running).
           content:
             application/json:
               example:
                 ok: true
+        '400':
+          description: target is not a Bluetooth address, or button is not a plain name
 
   /api/bt/reconnect:
     post:
@@ -1804,14 +2138,14 @@ paths:
               properties:
                 target:
                   type: string
-                  description: Target BD_ADDR or deviceId (optional, connects all if omitted)
+                  description: "Bluetooth address of the host (also accepted as bdaddr or deviceId, but always an address). Left out: the default host (the running activity's host, else the pinned one)."
                 duration:
                   type: integer
-                  description: Connection attempt timeout in seconds
+                  description: Connection attempt timeout in seconds (at most 3600)
                   default: 30
                 delay:
                   type: integer
-                  description: Delay before starting reconnection in seconds
+                  description: Delay before starting reconnection in seconds (at most 3600)
                   default: 0
             example:
               target: "AA:BB:CC:DD:EE:FF"
@@ -1825,6 +2159,8 @@ paths:
               example:
                 ok: true
                 message: Bluetooth reconnect triggered
+        '400':
+          description: target is not a Bluetooth address (XX:XX:XX:XX:XX:XX)
 
   /api/bt-status:
     get:
@@ -1833,7 +2169,7 @@ paths:
       summary: Bluetooth stack and pairing status
       responses:
         '200':
-          description: hub_btstack's status plus ok, running, connected and pairing (docs/API.md 6.1)
+          description: 'hub_btstack''s status plus ok, running, connected and pairing (docs/API.md 6.1). Before hub_btstack wrote its first status the reply is {"ok": true, "running": <bool>, "state": "running" or "stopped", "connected": false, "pairing": false, "hosts": []}.'
           content:
             application/json:
               example:
@@ -1841,6 +2177,8 @@ paths:
                 pid: 1234
                 state: connecting
                 target: "11:22:33:44:55:66"
+                last_button: VolumeUp
+                last_seen: 1762387200
                 remote: {connected: true, addr: "11:22:33:44:55:66"}
                 host: {connected: true, addr: "AA:BB:CC:DD:EE:FF", name: Media Player, pairing: false}
                 hosts:
@@ -1856,6 +2194,7 @@ paths:
       tags:
         - Bluetooth HID
       summary: Trigger Bluetooth HID keyboard pairing
+      description: Turns the pairing mode for a Bluetooth host on or off. A request without enable turns it off. The device the new host belongs to is needed only to turn it on. The mode ends by itself after 180 s.
       requestBody:
         required: true
         content:
@@ -1863,10 +2202,9 @@ paths:
             schema:
               type: object
               properties:
-                enable: {type: boolean}
+                enable: {type: boolean, default: false}
                 name: {type: string, default: "Harmony Keyboard"}
-                deviceId: {type: string}
-              required: [enable, deviceId]
+                deviceId: {type: string, description: "Device the paired host is linked to (also accepted as targetDev, which is read first). Required with enable true."}
             example:
               enable: true
               name: Harmony Keyboard
@@ -1879,6 +2217,8 @@ paths:
               example:
                 ok: true
                 pairing: true
+        '400':
+          description: enable true without a device (Target device is required for Bluetooth pairing)
 
   /api/bt-connect:
     post:
@@ -1892,8 +2232,7 @@ paths:
             schema:
               type: object
               properties:
-                bdaddr: {type: string}
-              required: [bdaddr]
+                bdaddr: {type: string, description: "Host address. Left out: the default host (the running activity's host, else the pinned one)"}
             example:
               bdaddr: "AA:BB:CC:DD:EE:FF"
       responses:
@@ -1903,6 +2242,8 @@ paths:
             application/json:
               example:
                 ok: true
+        '400':
+          description: bdaddr is not a Bluetooth address (XX:XX:XX:XX:XX:XX)
 
   /api/bt-disconnect:
     post:
@@ -1916,8 +2257,7 @@ paths:
             schema:
               type: object
               properties:
-                bdaddr: {type: string}
-              required: [bdaddr]
+                bdaddr: {type: string, description: "Host address. Left out: every connected host is disconnected"}
             example:
               bdaddr: "AA:BB:CC:DD:EE:FF"
       responses:
@@ -1927,12 +2267,15 @@ paths:
             application/json:
               example:
                 ok: true
+        '400':
+          description: bdaddr is not a Bluetooth address (XX:XX:XX:XX:XX:XX)
 
   /api/bt-link-device:
     post:
       tags:
         - Bluetooth HID
       summary: Link device profile to Bluetooth MAC
+      description: Stores bdaddr as the Bluetooth host of the device. A request without bdaddr removes the device's link. deviceId is also accepted as id.
       requestBody:
         required: true
         content:
@@ -1942,7 +2285,7 @@ paths:
               properties:
                 deviceId: {type: string}
                 bdaddr: {type: string}
-              required: [deviceId, bdaddr]
+              required: [deviceId]
             example:
               deviceId: "70321456"
               bdaddr: "AA:BB:CC:DD:EE:FF"
@@ -1953,30 +2296,91 @@ paths:
             application/json:
               example:
                 ok: true
+        '400':
+          description: deviceId missing, or bdaddr is not a Bluetooth address
+        '404':
+          description: no device with that id
+        '500':
+          description: devices.json could not be saved
+
+  /api/bt-forget-host:
+    post:
+      tags:
+        - Bluetooth HID
+      summary: Forget a paired Bluetooth host
+      description: >-
+        Admin only. Clears the bdaddr of the devices linked to the host, removes the default host
+        file when it names it, then hub_btstack drops the host's link key, closes its link and
+        removes it from the host list. The devices that used it send their keys to the default
+        host (the last host paired) until linked again. The host can only come back through a new
+        pairing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                addr: {type: string, description: "XX:XX:XX:XX:XX:XX (bdaddr is accepted too)"}
+              required: [addr]
+            example:
+              addr: "AA:BB:CC:DD:EE:FF"
+      responses:
+        '200':
+          description: Host forgotten
+          content:
+            application/json:
+              example:
+                ok: true
+                addr: "AA:BB:CC:DD:EE:FF"
+                devices_cleared: 1
+                default_host_cleared: true
+        '400':
+          description: addr is not a Bluetooth address, or is 00:00:00:00:00:00
+        '403':
+          description: not an admin account
+        '500':
+          description: devices.json could not be saved, or hub_btstack did not take the command (send it again)
+        '503':
+          description: hub_btstack is not running (Bluetooth off); nothing was changed
 
   /api/remote-status:
     get:
       tags:
         - Bluetooth HID
       summary: BLE remote connection status
-      description: Returns connection state of the paired BLE remote (e.g. Homatics B25). Also available under /api/remote-pair-status. When a BLE remote is sleeping, the first button press wakes its radio (showing a red light on B25) and drops; the second button registers after the remote reconnects to the Hub.
+      description: |
+        Returns connection state of the paired BLE remote (e.g. Homatics B25). Also available under /api/remote-pair-status. When a BLE remote is sleeping, the first button press wakes its radio (showing a red light on B25) and drops; the second button registers after the remote reconnects to the Hub.
+        The reply is hub_btstack's status (the fields of GET /api/bt-status: state, target,
+        last_button, last_seen, remote, host, hosts) plus ok, running (the hub_btstack process),
+        bdaddr (the pinned remote, when there is one) and, after a scan, scanning and devices:
+        the results of POST /api/remote-scan are read here. The link state of the remote is
+        remote.connected and state (ready when connected). Without a status from hub_btstack
+        the reply is {"state": "idle", "ok": true, "running": false}. When the status names no
+        remote but bt_remote_map.json holds an address, the reply adds bdaddr, name and
+        connected, where connected only says that hub_btstack runs.
       responses:
         '200':
           description: Remote link state
           content:
             application/json:
               example:
+                state: ready
+                target: "11:22:33:44:55:66"
+                remote: {connected: true, addr: "11:22:33:44:55:66"}
                 ok: true
                 running: true
-                connected: true
+                scanning: false
+                devices:
+                  - {addr: "11:22:33:44:55:66", bdaddr: "11:22:33:44:55:66", name: Homatics B25, rssi: -52, pairing: true}
                 bdaddr: "11:22:33:44:55:66"
-                name: Homatics B25
 
   /api/remote-scan:
     post:
       tags:
         - Bluetooth HID
       summary: Scan for BLE remotes
+      description: The scan runs for 8 s. Its results are read with GET /api/remote-status (scanning, devices).
       responses:
         '200':
           description: Scan started
@@ -2008,6 +2412,7 @@ paths:
       tags:
         - Bluetooth HID
       summary: Pair BLE remote
+      description: A request without bdaddr does nothing, although it is answered 200 with the same message.
       requestBody:
         required: true
         content:
@@ -2027,6 +2432,8 @@ paths:
               example:
                 ok: true
                 message: Pair command issued to BTstack
+        '400':
+          description: bdaddr is not a Bluetooth address (XX:XX:XX:XX:XX:XX)
 
   /api/remote-unpair:
     post:
@@ -2052,11 +2459,10 @@ paths:
       summary: Get BLE remote button bindings
       responses:
         '200':
-          description: Mapping JSON
+          description: 'The stored bt_remote_map.json, as it was saved (no ok field is added). While no map is stored: {"ok": true, "remote": {"name": "Homatics B25", "bdaddr": ""}, "activities": {}}.'
           content:
             application/json:
               example:
-                ok: true
                 remote:
                   name: Homatics B25
                   bdaddr: "11:22:33:44:55:66"
@@ -2067,6 +2473,7 @@ paths:
       tags:
         - Bluetooth HID
       summary: Save BLE remote button bindings
+      description: The body is stored as bt_remote_map.json. It may be up to 256 KB (other routes 64 KB).
       requestBody:
         required: true
         content:
@@ -2079,6 +2486,12 @@ paths:
             application/json:
               example:
                 ok: true
+        '400':
+          description: No body (Request body required), or the body is not a JSON object
+        '413':
+          description: Body of 256 KB or more (Mapping too large)
+        '500':
+          description: The file could not be written
 
   /api/rf:
     get:
@@ -2087,6 +2500,7 @@ paths:
       summary: CC2544 RF subsystem status
       description: |
         Proxied to hub_rf (port 8092). Returns remote RF status, paired slots, battery telemetry, and RF link statistics (frames_rx, acked_sent, acked_ok, retries, naks, last_seen_s).
+        link.key_events counts the key frames received from a remote that numbers them, link.key_events_lost the numbers missing between them (key frames are sent once, without acknowledgement), split into key_lost_press, key_lost_release and key_lost_other; all 0 for a remote that does not number its key frames. docs/API.md 7.1.
         battery.reported_at is the Unix time of the last report (null before the first one or while the clock was not set), battery.restored is true for a value read back from RAM after a hub_rf restart, until the remote reports again. docs/API.md 7.1.
         Per slot, the product: model (ultimate, ultimate_one, ultimate_home, elite, 950, touch,
         companion, smart_control, unknown), model_name (the stock product name, null
@@ -2094,6 +2508,14 @@ paths:
         equad_id (the CC2544's EquadID for the slot, null when not known: 16417 = 0x4021
         touchscreen remotes, 16414 = 0x401E Smart Control, 16422 / 16423 Companion). A touchscreen
         remote is unknown until it reports its skin id. docs/API.md 7.1.
+        An address that is not known is the string "None". sync_pending_diff is a text for the
+        user; it has a value also while sync_pending is false.
+        When hub_rf does not run, hub_daemon answers this route, and every other /api/rf/*
+        request whatever its method, with 200 and
+        {"ok": true, "running": false, "state": "stopped", "connected": false,
+        "pairing_active": false, "paired": false, "rf_address": "None", "hub_rf_address": "None",
+        "slots": [{"slot": 1, "active": false, "address": "None", "rf_address": "None"},
+        {"slot": 2, ...}]}: check running before reading the reply of any /api/rf/* call.
       responses:
         '200':
           description: RF status
@@ -2109,7 +2531,7 @@ paths:
                 pairing_active: false
                 sync_pending: false
                 sync_pending_slot: 0
-                sync_pending_diff: ""
+                sync_pending_diff: "Hub configuration changed. Push settings to sync."
                 hub_config_version: 3
                 ota:
                   in_progress: false
@@ -2139,12 +2561,19 @@ paths:
                       percent: 95
                       charging: false
                       voltage_mv: 3020
+                      reported_at: null
+                      restored: false
                     link:
                       frames_rx: 1520
                       acked_sent: 412
                       acked_ok: 398
                       retries: 14
                       naks: 9
+                      key_events: 0
+                      key_events_lost: 0
+                      key_lost_press: 0
+                      key_lost_release: 0
+                      key_lost_other: 0
                       last_seen_s: 2
                   - slot: 2
                     name: "Harmony Ultimate (Slot 2)"
@@ -2173,6 +2602,11 @@ paths:
                       acked_ok: 82
                       retries: 3
                       naks: 1
+                      key_events: 640
+                      key_events_lost: 3
+                      key_lost_press: 1
+                      key_lost_release: 0
+                      key_lost_other: 2
                       last_seen_s: 14
 
   /api/rf/status-changed:
@@ -2203,19 +2637,33 @@ paths:
         '403':
           description: Not from loopback
 
+  /api/rf/status:
+    get:
+      tags:
+        - RF & Remote
+      summary: CC2544 RF subsystem status (same object as GET /api/rf)
+      description: |
+        Proxied to hub_rf (port 8092); the object of GET /api/rf. hub_rf answers every /api/rf/
+        request it does not know (another path, or another method than documented) with this
+        status and 200, not 404, and does nothing else.
+      responses:
+        '200':
+          description: RF status (see GET /api/rf)
+
   /api/rf/pair:
     get:
       tags:
         - RF & Remote
       summary: Start RF pairing beacon
+      description: Opens the radio's pairing lock for 30 s. The slot has no effect; the radio gives the remote a free slot itself.
       parameters:
         - name: slot
           in: query
           required: false
           schema:
             type: integer
-            enum: [1, 2]
-            default: 1
+            enum: [0, 1, 2]
+          description: Accepted (0, all, 1 or 2) but not used
       responses:
         '200':
           description: Pairing started
@@ -2223,18 +2671,23 @@ paths:
             application/json:
               example:
                 status: pairing_started
+        '400':
+          description: slot is not 0, all, 1 or 2
+        '409':
+          description: RF OTA update in progress
     post:
       tags:
         - RF & Remote
       summary: Start RF pairing beacon (POST)
+      description: Same as GET.
       parameters:
         - name: slot
           in: query
           required: false
           schema:
             type: integer
-            enum: [1, 2]
-            default: 1
+            enum: [0, 1, 2]
+          description: Accepted (0, all, 1 or 2) but not used
       responses:
         '200':
           description: Pairing started
@@ -2242,13 +2695,17 @@ paths:
             application/json:
               example:
                 status: pairing_started
+        '400':
+          description: slot is not 0, all, 1 or 2
+        '409':
+          description: RF OTA update in progress
 
   /api/rf/sleep:
     get:
       tags:
         - RF & Remote
       summary: Put paired remote to sleep (Suspend-to-RAM)
-      description: Broadcasts or directs RF_MSG_SLEEP_REQ (0x1D) command over CC2544 RF to trigger immediate Suspend-to-RAM on battery-powered touchscreen remotes.
+      description: Broadcasts or directs RF_MSG_SLEEP_REQ (0x1D) command over CC2544 RF to trigger immediate Suspend-to-RAM on battery-powered touchscreen remotes. Companion slots are skipped (sent is then 0). 400 for a slot other than 0, all, 1 or 2.
       parameters:
         - name: slot
           in: query
@@ -2315,16 +2772,23 @@ paths:
           description: Wake request accepted (status waking), or a wake for a remote is already running (status already_waking)
           content:
             application/json:
-              example:
-                status: waking
-                slot: 1
-                ok: true
+              examples:
+                waking:
+                  value: {status: waking, slot: 1, ok: true}
+                alreadyWaking:
+                  value: {status: already_waking, slot: 1, ok: true}
         '400':
-          description: The remote in this slot is a Companion (no screen)
+          description: The remote in this slot is a Companion (no screen), or slot is not 1 or 2
         '409':
           description: RF OTA update in progress
         '500':
           description: The background worker could not be started
+          content:
+            application/json:
+              example:
+                status: error
+                slot: 1
+                ok: false
 
   /api/rf/push-icon:
     get:
@@ -2352,17 +2816,21 @@ paths:
             enum: [0, 1, 2]
             default: 0
       responses:
-        '200':
-          description: Icon push dispatched
+        '202':
+          description: Icon push started in the background (the result is in the hub_rf log)
           content:
             application/json:
               example:
-                status: icon_pushed
+                status: icon_push_started
                 id: "123456"
-                pushed: 1
+                slot: 0
                 ok: true
+        '400':
+          description: id or type not 1..19 of A-Z a-z 0-9 _ -, or slot not 0, 1 or 2
         '409':
           description: RF OTA update in progress
+        '500':
+          description: The background worker could not be started
     post:
       tags:
         - RF & Remote
@@ -2387,17 +2855,21 @@ paths:
             enum: [0, 1, 2]
             default: 0
       responses:
-        '200':
-          description: Icon push dispatched
+        '202':
+          description: Icon push started in the background (the result is in the hub_rf log)
           content:
             application/json:
               example:
-                status: icon_pushed
+                status: icon_push_started
                 id: "123456"
-                pushed: 1
+                slot: 0
                 ok: true
+        '400':
+          description: id or type not 1..19 of A-Z a-z 0-9 _ -, or slot not 0, 1 or 2
         '409':
           description: RF OTA update in progress
+        '500':
+          description: The background worker could not be started
 
   /api/rf/pull-config:
     get:
@@ -2418,9 +2890,11 @@ paths:
           content:
             application/json:
               example:
-                status: config_pulled
+                status: pull_requested
                 slot: 1
                 ok: true
+        '400':
+          description: The remote in this slot is a Companion (Companion remotes do not support config pull), or slot is not 1 or 2
         '409':
           description: RF OTA update in progress
     post:
@@ -2441,9 +2915,11 @@ paths:
           content:
             application/json:
               example:
-                status: config_pulled
+                status: pull_requested
                 slot: 1
                 ok: true
+        '400':
+          description: The remote in this slot is a Companion (Companion remotes do not support config pull), or slot is not 1 or 2
         '409':
           description: RF OTA update in progress
 
@@ -2452,6 +2928,7 @@ paths:
       tags:
         - RF & Remote
       summary: Get touchscreen direct command button grid
+      description: Kept for old clients. Returns the stored file; remote direct mode was removed, so nothing uses it.
       parameters:
         - name: slot
           in: query
@@ -2473,6 +2950,7 @@ paths:
       tags:
         - RF & Remote
       summary: Save touchscreen direct command button grid
+      description: Kept for old clients. Stores the body as remote_slot<N>_direct_buttons.json; remote direct mode was removed (remoteMode is always 0), so nothing reads the file and nothing is pushed to the remote. The request (headers and body) may be at most 4095 bytes.
       parameters:
         - name: slot
           in: query
@@ -2496,7 +2974,7 @@ paths:
               buttons: {}
       responses:
         '200':
-          description: Saved and pushed if remote is in direct mode
+          description: Saved (never pushed)
           content:
             application/json:
               example:
@@ -2504,6 +2982,8 @@ paths:
                 ok: true
         '409':
           description: RF OTA update in progress
+        '500':
+          description: The file could not be written (Could not save the direct buttons (flash full?))
 
   /api/rf/log-level:
     get:
@@ -2516,16 +2996,16 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [0, 1, 2, 3, 4]
-          description: Log level (0=NONE, 1=ERROR, 2=WARN, 3=INFO, 4=DEBUG)
+            enum: [0, 1, 2, 3]
+          description: Log level (0=ERROR, 1=WARN, 2=INFO, the default, 3=DEBUG). A value outside 0..3 is ignored. Without it the level is only read.
       responses:
         '200':
           description: Current or updated log level
           content:
             application/json:
               example:
+                log_level: 2
                 ok: true
-                log_level: 3
     post:
       tags:
         - RF & Remote
@@ -2536,21 +3016,23 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [0, 1, 2, 3, 4]
+            enum: [0, 1, 2, 3]
+          description: As for GET; read from the query only, also for POST
       responses:
         '200':
           description: Updated log level
           content:
             application/json:
               example:
+                log_level: 2
                 ok: true
-                log_level: 3
 
   /api/rf/send:
     get:
       tags:
         - RF & Remote
       summary: Transmit raw RF hex frame
+      description: Only GET, and hex must be the first query parameter; any other form of the request is answered with the status object of GET /api/rf and sends nothing. At most 64 bytes are sent.
       parameters:
         - name: hex
           in: query
@@ -2560,12 +3042,11 @@ paths:
           example: "120150000000000000000000000000000000000000000000000000000000"
       responses:
         '200':
-          description: Raw frame transmitted
+          description: Raw frame transmitted. Also the reply when no byte of hex could be read and nothing was transmitted; there is no ok field.
           content:
             application/json:
               example:
-                ok: true
-                sent_hex: "120150..."
+                status: sent
         '409':
           description: RF OTA update in progress
 
@@ -2581,8 +3062,44 @@ paths:
             application/json:
               example:
                 status: pairing_stopped
+    post:
+      tags:
+        - RF & Remote
+      summary: Stop RF pairing mode (POST)
+      responses:
+        '200':
+          description: Pairing stopped
+          content:
+            application/json:
+              example:
+                status: pairing_stopped
 
   /api/rf/unpair:
+    post:
+      tags:
+        - RF & Remote
+      summary: Unpair remote slot (same as GET)
+      parameters:
+        - name: slot
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [0, 1, 2]
+            default: 0
+          description: 1 or 2 unpairs that slot; 0, all or no slot unpairs every remote
+      responses:
+        '200':
+          description: Slot unpaired
+          content:
+            application/json:
+              example:
+                status: unpaired
+                ok: true
+        '400':
+          description: slot is not 0, all, 1 or 2
+        '409':
+          description: RF OTA update in progress
     get:
       tags:
         - RF & Remote
@@ -2593,8 +3110,9 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [1, 2]
-            default: 1
+            enum: [0, 1, 2]
+            default: 0
+          description: 1 or 2 unpairs that slot; 0, all or no slot unpairs every remote
       responses:
         '200':
           description: Slot unpaired
@@ -2602,12 +3120,26 @@ paths:
             application/json:
               example:
                 status: unpaired
+                ok: true
+        '400':
+          description: slot is not 0, all, 1 or 2
+        '409':
+          description: RF OTA update in progress
 
   /api/rf/remote-config:
     get:
       tags:
         - RF & Remote
       summary: Get remote configuration
+      description: |
+        Returns the stored remote_slot<N>_config.json as it is (written by the last POST, or
+        from the settings the remote reported), else the defaults shown here. Every setting is
+        there twice: under the name shown and under an older snake_case name with a number
+        value (touch, physical_nav, cap_buttons, gyro, gyro_rate, btn_backlight, night_start,
+        night_end, nav_key, nav_mode, usbeth, confirm_act, touch_sensitivity, remote_mode,
+        no_screen, debug_logging, power_debug). theme and layout are present only when set.
+        For a Companion slot the reply is
+        {"slot": N, "model": "companion", "has_screen": false, "supports_ota": false, "in_sync": true}.
       parameters:
         - name: slot
           in: query
@@ -2623,25 +3155,35 @@ paths:
             application/json:
               example:
                 slot: 1
-                brightness: 3
-                timeout: 120
+                brightness: 2
+                timeout: 10
                 touchEnabled: true
+                physicalNavEnabled: false
                 capButtonsEnabled: true
                 gyroEnabled: true
                 gyroRate: 50
-                btnBacklight: 1
+                btnBacklight: 2
                 nightStart: 22
                 nightEnd: 7
                 navToggleKey: 139
                 navToggleMode: 1
-                confirmActivity: false
+                usbEth: false
+                confirmActivity: true
                 touchSensitivity: 2
                 remoteMode: 0
-                usbEth: false
+                noScreen: false
+                debugLogging: false
+                powerDebug: false
+                language: en
+                language_id: 0
     post:
       tags:
         - RF & Remote
       summary: Save and push remote configuration
+      description: |
+        Stores the settings and sends them to the remote. The whole set is written each time: a
+        field left out is saved and sent with the default below, not with its stored value, so
+        send every field. Each field is also accepted under its snake_case name (see GET).
       parameters:
         - name: slot
           in: query
@@ -2657,37 +3199,44 @@ paths:
             schema:
               type: object
               properties:
-                brightness: {type: integer, default: 3}
-                timeout: {type: integer, default: 120}
-                touchEnabled: {type: boolean, default: true}
+                slot: {type: integer, enum: [1, 2], description: "Overrides the slot of the query"}
+                brightness: {type: integer, default: 2}
+                timeout: {type: integer, default: 10, minimum: 5, maximum: 600, description: "Screen timeout in seconds; values outside 5..600 are brought into the range"}
+                touchEnabled: {type: boolean, default: false, description: "Off when left out"}
                 capButtonsEnabled: {type: boolean, default: true}
                 gyroEnabled: {type: boolean, default: true}
                 gyroRate: {type: integer, default: 50}
-                btnBacklight: {type: integer, default: 1}
-                nightStart: {type: integer, default: 22}
-                nightEnd: {type: integer, default: 7}
+                btnBacklight: {type: integer, default: 2, minimum: 0, maximum: 2}
+                nightStart: {type: integer, default: 22, minimum: 0, maximum: 23}
+                nightEnd: {type: integer, default: 7, minimum: 0, maximum: 23}
                 navToggleKey: {type: integer, default: 139}
                 navToggleMode: {type: integer, default: 1}
                 confirmActivity: {type: boolean, default: false}
-                touchSensitivity: {type: integer, default: 2}
-                remoteMode: {type: integer, default: 0}
+                touchSensitivity: {type: integer, default: 2, minimum: 1, maximum: 3}
+                remoteMode: {type: integer, description: "Ignored: always saved and sent as 0"}
                 usbEth: {type: boolean, default: false}
+                physicalNavEnabled: {type: boolean, default: false, description: "Navigation with the keys; sets layout to list"}
+                noScreen: {type: boolean, default: false}
+                debugLogging: {type: boolean, default: false, description: "Also accepted as powerDebug"}
+                language: {type: string, default: en, description: "en, de, fr, nl, es or it (or 0..5)"}
+                theme: {type: string, description: "classic, dark, light or colourful; left out keeps the remote's own choice"}
+                layout: {type: string, description: "theme, list, grid or carousel; left out keeps the remote's own choice"}
             example:
-              brightness: 3
-              timeout: 120
+              brightness: 2
+              timeout: 10
               touchEnabled: true
               capButtonsEnabled: true
               gyroEnabled: true
               gyroRate: 50
-              btnBacklight: 1
+              btnBacklight: 2
               nightStart: 22
               nightEnd: 7
               navToggleKey: 139
               navToggleMode: 1
               confirmActivity: false
               touchSensitivity: 2
-              remoteMode: 0
               usbEth: false
+              language: en
       responses:
         '200':
           description: Saved and pushed over RF
@@ -2696,8 +3245,29 @@ paths:
               example:
                 status: saved_and_pushed
                 ok: true
+        '400':
+          description: The remote in this slot is a Companion (no screen or motion settings), or slot is not 1 or 2
+        '409':
+          description: RF OTA update in progress
+        '500':
+          description: The settings were sent to the remote but could not be saved on the Hub
 
   /api/rf/push-config:
+    get:
+      tags:
+        - RF & Remote
+      summary: Trigger OTA config sync to remote (same as POST)
+      responses:
+        '200':
+          description: OTA config push started
+          content:
+            application/json:
+              example:
+                status: push_started
+        '409':
+          description: RF OTA update in progress
+        '500':
+          description: The push could not be started (config push not started)
     post:
       tags:
         - RF & Remote
@@ -2709,6 +3279,10 @@ paths:
             application/json:
               example:
                 status: push_started
+        '409':
+          description: RF OTA update in progress
+        '500':
+          description: The push could not be started (config push not started)
 
   /api/rf/sync:
     get:
@@ -2717,17 +3291,21 @@ paths:
       summary: Resync current activity to remote display
       responses:
         '200':
-          description: Activity synced
+          description: Activity synced. During an RF OTA update nothing is sent and the reply is the second example.
           content:
             application/json:
-              example:
-                status: synced
+              examples:
+                synced:
+                  value: {status: synced}
+                otaInProgress:
+                  value: {status: ota_in_progress, ok: true}
 
   /api/rf/ota-status:
     get:
       tags:
         - RF & Remote
       summary: Remote firmware update status
+      description: "Returns OTA progress, chunk counts, and the transfer or download status code (API.md 7.5). status: 0 idle, 3 preparing or downloading the image, 1 sending, 2 sent, -1 failed (error says why). slot is 0 until an update was started."
       responses:
         '200':
           description: Remote OTA transfer status
@@ -2735,7 +3313,7 @@ paths:
             application/json:
               example:
                 in_progress: false
-                slot: 1
+                slot: 0
                 status: 0
                 sent_bytes: 0
                 total_bytes: 0
@@ -2785,27 +3363,6 @@ paths:
                 error: RF OTA already in progress on slot 1
                 ok: false
 
-  /api/rf/ota-status:
-    get:
-      tags:
-        - RF & Remote
-      summary: Query RF remote OTA progress and status
-      description: Returns real-time OTA progress, chunk metrics, and transfer or download status codes.
-      responses:
-        '200':
-          description: OTA status telemetry
-          content:
-            application/json:
-              example:
-                in_progress: false
-                slot: 1
-                status: 0
-                sent_bytes: 0
-                total_bytes: 0
-                sent_chunks: 0
-                total_chunks: 0
-                error: ""
-
   /api/ui-remote-layout:
     get:
       tags:
@@ -2814,17 +3371,18 @@ paths:
       description: Retrieves layout definitions stored in /data/harmony/web_remote_layouts.json.
       responses:
         '200':
-          description: Layout configuration
+          description: 'The stored file, as it was saved (no ok field is added). While no file is stored: {"ok": true, "layouts": {}}.'
           content:
             application/json:
               example:
-                ok: true
-                layouts: {}
+                layouts:
+                  "123456":
+                    grid: []
     post:
       tags:
         - UI Remote Layout
       summary: Save web and touch UI remote button layout configuration
-      description: Persists layout definitions to /data/harmony/web_remote_layouts.json.
+      description: Persists layout definitions to /data/harmony/web_remote_layouts.json. The body is stored as the file. It may be up to 256 KB (other routes 64 KB).
       requestBody:
         required: true
         content:
@@ -2842,11 +3400,17 @@ paths:
             application/json:
               example:
                 ok: true
+        '400':
+          description: No body (Request body required), or the body is not a JSON object
+        '413':
+          description: Body of 256 KB or more (Mapping too large)
+        '500':
+          description: The file could not be written
 
   /api/rf-mapping:
     get:
       tags:
-        - RF & Physical Remotes
+        - RF & Remote
       summary: Get physical remote button mapping (Elite / Ultimate, Companion, Smart Control)
       parameters:
         - name: slot
@@ -2856,21 +3420,25 @@ paths:
             type: integer
             enum: [1, 2]
             default: 1
-          description: Remote slot number (1 or 2)
+          description: Remote slot number (1 or 2); any other value means slot 1
       responses:
         '200':
-          description: Mapping array
+          description: 'The stored remote_slot<N>_map.json, as it was saved (an object, no ok field is added). While no map is stored: {"ok": true, "mappings": []}.'
           content:
             application/json:
               example:
-                ok: true
-                mappings: []
+                activities:
+                  "123456":
+                    VolumeUp: {type: command, action: device_cmd, deviceId: "70321456", command: VolumeUp}
+                    PowerOffActivity: {type: command, action: poweroff}
+                devices: {}
 
   /api/rf-mapping-save:
     post:
       tags:
-        - RF & Physical Remotes
+        - RF & Remote
       summary: Save physical remote button mapping (Elite / Ultimate, Companion, Smart Control)
+      description: The body is stored as remote_slot<N>_map.json and the slot is marked as waiting for a push (sync_pending in the RF status). The body may be up to 256 KB (other routes 64 KB).
       parameters:
         - name: slot
           in: query
@@ -2879,7 +3447,7 @@ paths:
             type: integer
             enum: [1, 2]
             default: 1
-          description: Remote slot number (1 or 2)
+          description: 'Remote slot number (1 or 2). "slot": 2 in the body selects slot 2 as well.'
       requestBody:
         required: true
         content:
@@ -2892,26 +3460,35 @@ paths:
             application/json:
               example:
                 ok: true
+        '400':
+          description: No body (Request body required), or the body is not a JSON object
+        '413':
+          description: Body of 256 KB or more (Mapping too large)
+        '500':
+          description: The file could not be written
 
   /api/rf-mapping-copy:
     post:
       tags:
-        - RF & Physical Remotes
+        - RF & Remote
       summary: Copy physical remote button mapping from one slot to another
+      description: from and to may also be given as numbers in a JSON body. The destination slot is marked as waiting for a push. A source slot without a stored map gives the destination an empty map.
       parameters:
         - name: from
           in: query
-          required: true
+          required: false
           schema:
             type: integer
             enum: [1, 2]
+            default: 1
           description: Source remote slot
         - name: to
           in: query
-          required: true
+          required: false
           schema:
             type: integer
             enum: [1, 2]
+            default: 2
           description: Destination remote slot
       responses:
         '200':
@@ -2920,7 +3497,10 @@ paths:
             application/json:
               example:
                 ok: true
-                message: Copied mapping from slot 1 to slot 2
+                from: 1
+                to: 2
+        '500':
+          description: The copy could not be written
 
   /api/mqtt-status:
     get:
@@ -2929,7 +3509,7 @@ paths:
       summary: MQTT connection state and settings
       responses:
         '200':
-          description: Status
+          description: Status. config is the stored settings without the password, plus has_password; it is missing until the settings were saved once.
           content:
             application/json:
               example:
@@ -2939,7 +3519,7 @@ paths:
                 port: 1883
                 baseTopic: harmony/hub
                 v2: true
-                config: {enabled: true, host: 192.168.1.50, port: 1883, baseTopic: harmony/hub, clientId: harmony_hub}
+                config: {enabled: true, host: 192.168.1.50, port: 1883, username: homeassistant, baseTopic: harmony/hub, clientId: harmony_hub, discoveryPrefix: homeassistant, haDiscovery: true, has_password: true}
 
   /api/mqtt-save:
     post:
@@ -2959,13 +3539,13 @@ paths:
             schema:
               type: object
               properties:
-                enabled: {type: boolean}
+                enabled: {type: boolean, description: "Left out on the first save, it becomes true; later it keeps its stored value"}
                 host: {type: string}
                 port: {type: integer, default: 1883}
-                username: {type: string}
-                password: {type: string, description: "kept when absent or empty"}
+                username: {type: string, description: "An empty user name removes the stored password"}
+                password: {type: string, description: "kept when absent or empty; stored only when a user name is stored"}
                 baseTopic: {type: string, default: harmony/hub}
-                clientId: {type: string}
+                clientId: {type: string, default: harmony-local-mqtt}
                 discoveryPrefix: {type: string, default: homeassistant}
                 haDiscovery: {type: boolean, default: true, description: "publish the Home Assistant discovery entities; off clears them"}
             example:
@@ -2986,16 +3566,25 @@ paths:
               example:
                 ok: true
                 message: MQTT settings saved
+        '400':
+          description: No usable body (Invalid parameters)
+        '500':
+          description: The settings could not be saved
 
   /api/device-mqtt-test:
     post:
       tags:
-        - Devices
+        - Devices & Commands
       summary: Publish the MQTT pulse of a device once
       description: |
         "1" on the resolved topic, then "0" after the pulse, the way a command to an MQTT-type
-        device does (docs/API.md 3.8 and 8.1). topic and pulseMs override the device's mqttTopic
-        and mqttPulseMs; command defaults to PowerToggle.
+        device does (docs/API.md 3.8 and 8.1). topic overrides the device's mqttTopic; without
+        both, the template {root}/button/{device}/{command} is used. The pulse is pulseMs,
+        1000 ms when left out: the device's mqttPulseMs is not used on this route. command
+        defaults to PowerToggle. In the template {base_topic}, {baseTopic}, {base} and {root}
+        stand for the base topic, {device}, {device_id}, {deviceId} and {deviceName} for the
+        device name, {command} and {button} for the command; a topic that starts with "/" and
+        names no base is put under the base topic.
       requestBody:
         required: true
         content:
@@ -3003,11 +3592,11 @@ paths:
             schema:
               type: object
               properties:
-                deviceId: {type: string}
+                deviceId: {type: string, description: "Also accepted as id"}
                 device: {type: string, description: "device name, used for {device} in the template"}
                 command: {type: string, default: PowerToggle}
-                topic: {type: string, description: "template with {base_topic}, {device}, {command}"}
-                pulseMs: {type: integer, default: 1000}
+                topic: {type: string, description: "template with {base_topic}, {device}, {command} (also accepted as mqttTopic)"}
+                pulseMs: {type: integer, default: 1000, description: "Also accepted as mqttPulse"}
             example:
               deviceId: "3"
               device: Plug
@@ -3083,13 +3672,14 @@ paths:
             application/json:
               example:
                 ok: false
-                error: "Authentication failed: incorrect Wi-Fi password"
+                error: "Incorrect Wi-Fi password"
 
   /api/wifi-save:
     post:
       tags:
         - Network & MQTT
       summary: Save Wi-Fi credentials
+      description: Also available as POST /wifi. With apply set to reconfigure, apply, 1 or reboot the Hub first tests the connection (unless force is set) and changes nothing when the test fails.
       requestBody:
         required: true
         content:
@@ -3099,7 +3689,11 @@ paths:
               properties:
                 ssid: {type: string}
                 password: {type: string}
-                apply: {type: string, default: "apply"}
+                open: {type: integer, default: 0, description: "1 for a network without a password"}
+                hidden: {type: integer, default: 0, description: "1 for a hidden network"}
+                keep_password: {type: integer, default: 0, description: "1 to use the stored password when password is empty"}
+                force: {type: integer, default: 0, description: "1 to skip the connection test before applying"}
+                apply: {type: string, default: "save", description: "save writes the settings only; reconfigure, apply, 1 or reboot test the connection first and then apply them"}
               required: [ssid]
             example:
               ssid: MyWiFiNetwork
@@ -3107,18 +3701,23 @@ paths:
               apply: apply
       responses:
         '200':
-          description: Wi-Fi updated
+          description: Wi-Fi updated. The message is "Wi-Fi settings verified and applied" when apply asked to apply them, "Wi-Fi settings saved" otherwise.
           content:
             application/json:
               example:
                 ok: true
-                message: Wi-Fi settings saved
+                message: Wi-Fi settings verified and applied
+        '400':
+          description: 'Missing or empty SSID, an SSID or password that cannot be used, or the connection test failed ("Wi-Fi test connection failed: <reason>. Settings not changed.")'
+        '500':
+          description: The settings could not be saved
 
   /api/ethernet-save:
     post:
       tags:
         - Network & MQTT
       summary: Configure USB Ethernet adapter
+      description: Also available as POST /ethernet. Every save rewrites the whole ethernet.conf. A field left out gets its default, not its stored value, so send every field each time.
       requestBody:
         required: true
         content:
@@ -3126,12 +3725,14 @@ paths:
             schema:
               type: object
               properties:
+                eth_enabled: {type: boolean, default: true}
+                eth_fallback_wifi: {type: boolean, default: true}
                 eth_mode: {type: string, enum: [dhcp, static], default: dhcp}
                 eth_ip: {type: string}
                 eth_netmask: {type: string, default: 255.255.255.0}
                 eth_gateway: {type: string}
                 eth_dns: {type: string}
-                apply: {type: string, default: "apply"}
+                apply: {type: string, description: "apply, 1, reconfigure or restart applies the settings now; anything else or nothing only saves them"}
             example:
               eth_mode: dhcp
               eth_ip: 192.168.1.100
@@ -3147,6 +3748,10 @@ paths:
               example:
                 ok: true
                 message: Ethernet configuration saved
+        '400':
+          description: Static values that cannot work (the error says which, for example "Static mode needs a valid IPv4 address"), or no usable body (Invalid parameters)
+        '500':
+          description: The settings could not be saved
 
   /api/update-status:
     get:
@@ -3172,28 +3777,31 @@ paths:
                 bt_version: "BTstack v1.5 (UART)"
                 arch: "mips (AR9344)"
                 update_available: false
+                updating: false
 
   /api/update-check:
     get:
       tags:
         - Updates & Maintenance
       summary: Check online for firmware updates
-      description: Queries GitHub releases or local update state. Also available under /api/update-check-state.
+      description: Downloads the published VERSION from the default update source (the official ota branch). Also available under /api/update-check-state. Admin only, also for GET. The check runs update.sh and can take several seconds.
       responses:
         '200':
-          description: Check result
+          description: Check result (the same object for GET and POST)
           content:
             application/json:
               example:
                 ok: true
                 current_version: "2.1.1"
+                remote_version: "2.1.1"
                 message: Hub binaries and WebUI are up to date (v2.1.1).
                 has_update: false
+                update_available: false
     post:
       tags:
         - Updates & Maintenance
       summary: Check online for firmware updates (custom repository or version)
-      description: Checks for updates against a specific GitHub repository, API token, or target version.
+      description: Checks for updates against another update source, with a token for a private one, or records a version the client already knows.
       requestBody:
         required: false
         content:
@@ -3203,16 +3811,15 @@ paths:
               properties:
                 repo:
                   type: string
-                  description: Target GitHub repository owner/name
+                  description: "Base URL of the update source (where VERSION, manifest.json and the bundle files are published); default the official ota branch. Only A-Z a-z 0-9 / . : - _ @ ~ are taken, any other value is ignored."
                 token:
                   type: string
-                  description: GitHub personal access token (optional)
+                  description: "Sent as 'Authorization: token <token>' with every download. Letters, digits, - and _ only, else ignored."
                 remote_version:
                   type: string
-                  description: Expected remote version override
+                  description: "A version the client already knows (also accepted as version): stored as the latest version, nothing is downloaded"
             example:
-              repo: "iranl/harmony-ng"
-              remote_version: "2.1.1"
+              repo: "https://raw.githubusercontent.com/iranl/harmony-ng/ota"
       responses:
         '200':
           description: Check result
@@ -3221,8 +3828,9 @@ paths:
               example:
                 ok: true
                 current_version: "2.1.1"
-                version: "2.1.1"
                 remote_version: "2.1.1"
+                message: Hub binaries and WebUI are up to date (v2.1.1).
+                has_update: false
                 update_available: false
 
   /api/update-apply:
@@ -3230,6 +3838,10 @@ paths:
       tags:
         - Updates & Maintenance
       summary: Trigger OTA update application
+      description: >-
+        Refused with 409 and status activity_switch (fields busy, sending, queued) while an
+        activity switch runs, a request is queued behind it, or its last steps are still being
+        sent: the update ends with a reboot, which must not cut a switch in the middle.
       responses:
         '200':
           description: Update started in background
@@ -3238,20 +3850,57 @@ paths:
               example:
                 ok: true
                 status: applying
-                message: Software update triggered. Hub services restarting in background.
+                message: Software update triggered. Hub services downloading and applying in background.
+        '409':
+          description: An update started earlier is still running (one started more than 30 minutes ago no longer blocks)
+          content:
+            application/json:
+              example:
+                ok: false
+                status: busy
+                error: A software update is already running
+      requestBody:
+        required: false
+        description: |
+          Runs update.sh apply in the background. Only a release whose manifest.json carries a
+          valid signature by a release key built into the firmware is installed (API.md 2.3),
+          whatever server repo names. repo chooses where the firmware is downloaded from, so the
+          route is admin only once authentication is on; with authentication off (the default) any
+          LAN client may call it.
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                repo:
+                  type: string
+                  description: Base URL of the update source, as for /api/update-check
+                token:
+                  type: string
+                  description: Token for a private update source, as for /api/update-check
 
   /export/{target}:
     get:
       tags:
         - Backup & Restore
       summary: Export configuration bundle or table
+      description: |
+        A single target returns the stored file: JSON, except network (ethernet), wifi and auth,
+        which are text/plain. bundle returns one JSON object with version, timestamp and a
+        section per stored file: devices, activities, settings, mqtt, network, wifi, bluetooth,
+        bt_remote_map, remote_slot1_map, remote_slot2_map, ui_remote_layout, auth, users, hub_id,
+        plus btstack_keys (the Bluetooth key store, base64). The bundle holds secrets: the MQTT
+        broker password (mqtt), the Wi-Fi password (wifi), the account password hashes (users)
+        and the Bluetooth link keys (btstack_keys). Its reply carries the header
+        X-Checksum-CRC32.
       parameters:
         - name: target
           in: path
           required: true
           schema:
             type: string
-            enum: [bundle, devices, activities, settings, mqtt, network, wifi, bluetooth, bt_remote_map, elite_remote_map, ui_remote_layout, auth, hub_id]
+            enum: [bundle, devices, activities, settings, mqtt, network, ethernet, wifi, bluetooth, bt_remote_map, remote-mapping, remote_slot1_map, remote_slot2_map, ui_remote_layout, ui-remote-layout, auth, users]
+          description: Any other target answers 404. hub_id is only a section of bundle.
           example: bundle
       responses:
         '200':
@@ -3264,12 +3913,23 @@ paths:
                 devices: {...}
                 activities: {...}
                 settings: {...}
+        '404':
+          description: Unknown target (Export target not found)
+        '409':
+          description: Another import or export is running
 
   /import:
     post:
       tags:
         - Backup & Restore
       summary: Import configuration bundle or section
+      description: |
+        target is required (there is no default): bundle, or one of devices, activities,
+        settings, mqtt, network (ethernet), wifi, bluetooth, bt_remote_map (remote-mapping),
+        remote_slot1_map, remote_slot2_map, ui_remote_layout (ui-remote-layout), auth, users.
+        For bundle the payload may be the bundle object, the bundle as a JSON string, or left
+        out: the body itself is then taken as the bundle. Every section is checked first; when
+        one is not valid nothing is changed. The body may be up to 2 MB.
       requestBody:
         required: true
         content:
@@ -3277,9 +3937,10 @@ paths:
             schema:
               type: object
               properties:
-                target: {type: string, default: "bundle"}
-                payload: {type: object}
-              required: [target, payload]
+                target: {type: string, description: "bundle or a single export target"}
+                payload: {description: "An object, or the content as a string; optional for bundle"}
+                restore_network: {type: boolean, default: false, description: "In a bundle, write the wifi and network sections too (skipped otherwise)"}
+              required: [target]
             example:
               target: bundle
               payload:
@@ -3288,11 +3949,23 @@ paths:
                 settings: {...}
       responses:
         '200':
-          description: Configuration imported and applied
+          description: >-
+            Configuration imported and applied. When an import of the accounts turns authentication
+            on, the reply also carries auth_enabled and "to_check" (every account and access token,
+            as POST /api/users).
           content:
             application/json:
               example:
                 ok: true
+                message: Restored successfully
+        '400':
+          description: 'No or unknown target ({"ok": false, "message": "Import failed"}), or a section that is not valid ("Import refused, nothing was changed: ''<section>'' is not valid")'
+        '409':
+          description: Another import or export is running
+        '413':
+          description: Body over 2 MB
+        '500':
+          description: 'The files could not be written (Import failed: could not write the files)'
 
 components:
   securitySchemes:
@@ -3302,7 +3975,8 @@ components:
       description: |
         HTTP Basic Authentication for multi-user RBAC.
         When authentication is enabled on the Hub, requests can supply the `Authorization: Basic <base64(user:pass)>` header.
-        Users can have `admin` or `user` roles.
+        Users can have `admin` or `user` roles. The password goes over the network on every request
+        (plain HTTP): prefer a token. Digest authentication is not offered.
     bearerAuth:
       type: http
       scheme: bearer
@@ -3311,9 +3985,3 @@ components:
         OAuth2 Bearer Token Authentication.
         Supports in-memory session tokens (`hht_...` generated via `/api/auth/token`) and persistent Personal Access Tokens (`pat_...` generated via `/api/auth/tokens`).
         Supply header `Authorization: Bearer <token>`.
-    digestAuth:
-      type: http
-      scheme: digest
-      description: |
-        HTTP Digest Authentication (RFC 7616 / RFC 2617) with SHA-256.
-        Standard curl, Postman, Home Assistant digest authentication without sending plaintext credentials over the wire.

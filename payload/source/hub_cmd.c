@@ -16,6 +16,7 @@
 #include "hub_mqtt.h"
 #include "ws_server.h"
 #include "hub_info.h"
+#include "bt_common.h"
 #include <pthread.h>
 
 #include <stdio.h>
@@ -44,9 +45,11 @@ static const char *json_str(const cJSON *o, const char *k1, const char *k2, cons
 static int activity_id_known(const char *id) {
     if (!id || !id[0]) return 0;
     if (strcmp(id, "-1") == 0) return 1;
-    cJSON *root = config_store_get_activities_json();
+    cfg_snap_t *snap = NULL;
+    const cJSON *root = config_store_activities_acquire(&snap);
     const cJSON *arr = root ? cJSON_GetObjectItemCaseSensitive(root, "activities") : NULL;
     const cJSON *a = NULL;
+    int found = 0;
     cJSON_ArrayForEach(a, arr) {
         const cJSON *jid = cJSON_GetObjectItemCaseSensitive(a, "id");
         char buf[32];
@@ -56,9 +59,13 @@ static int activity_id_known(const char *id) {
             snprintf(buf, sizeof(buf), "%ld", (long)jid->valuedouble);
             aid = buf;
         }
-        if (aid && strcmp(aid, id) == 0) return 1;
+        if (aid && strcmp(aid, id) == 0) {
+            found = 1;
+            break;
+        }
     }
-    return 0;
+    config_store_release(&snap);
+    return found;
 }
 
 static cJSON *reply_base(const cJSON *req, const char *type, const char *action) {
@@ -118,19 +125,6 @@ static int rf_request(const char *method, const char *path, const char *body) {
     int status = -1;
     if (r > 0 && sscanf(resp, "HTTP/%*s %d", &status) == 1) return status;
     return -1;
-}
-
-static int pipe_write(const char *target, const char *line) {
-    int bfd = open("/tmp/bthid_input", O_WRONLY | O_NONBLOCK);
-    if (bfd < 0) return 0;
-    if (target && target[0]) {
-        char thdr[64];
-        snprintf(thdr, sizeof(thdr), "TARGET %s\n", target);
-        if (write(bfd, thdr, strlen(thdr)) < 0) { /* ignore */ }
-    }
-    int ok = write(bfd, line, strlen(line)) > 0;
-    close(bfd);
-    return ok;
 }
 
 /* ------------------------------------------------------------------------------------------ */
@@ -214,7 +208,9 @@ int hub_cmd_ir_raw(const cJSON *req, cJSON **reply) {
     if (jf) {
         if (!cJSON_IsNumber(jf) || jf->valuedouble < 0 || jf->valuedouble != (double)(long)jf->valuedouble) err = "frequency: integer Hz required";
         else if (jf->valuedouble != 0 && (jf->valuedouble < 20000 || jf->valuedouble > 60000)) err = "frequency: 0 or 20000 to 60000 Hz";
-        else freq = (uint32_t)jf->valuedouble;
+        /* 0 is the default carrier: the blaster has no unmodulated output (0 was documented as
+         * unmodulated and went out at 38 kHz anyway) */
+        else if (jf->valuedouble != 0) freq = (uint32_t)jf->valuedouble;
     }
     const cJSON *jp = cJSON_GetObjectItemCaseSensitive(req, "port");
     if (!err && jp) {
@@ -286,7 +282,10 @@ int hub_cmd_ir_raw(const cJSON *req, cJSON **reply) {
     }
     cJSON_AddBoolToObject(*reply, "ok", 1);
     cJSON_AddNumberToObject(*reply, "count", (double)count);
-    cJSON_AddNumberToObject(*reply, "duration_ms", (double)((sum_us * (uint64_t)repeats + 999) / 1000));
+    cJSON_AddNumberToObject(*reply, "frequency", (double)freq);
+    /* What went out: the IR player sends a frame once (repeats are written into the code but
+     * not played), so the duration of one frame, not "repeats" of them */
+    cJSON_AddNumberToObject(*reply, "duration_ms", (double)((sum_us + 999) / 1000));
     return 200;
 }
 
@@ -336,6 +335,7 @@ static cJSON *update_check_reply(const cJSON *req) {
 /* Replies of slow actions, produced on a thread, delivered by hub_cmd_poll on the main loop */
 typedef struct deferred {
     int origin;
+    unsigned int origin_gen; /* WebSocket client generation (ws_client_gen) when it asked */
     cJSON *req;
     cJSON *reply;
     struct deferred *next;
@@ -366,7 +366,7 @@ void hub_cmd_poll(void) {
         if (d->reply) {
             if (d->origin == HUB_CMD_ORIGIN_MQTT) {
                 hub_mqtt_deliver_reply(d->req, d->reply);
-            } else if (d->origin >= 0 && ws_is_client(d->origin)) {
+            } else if (d->origin >= 0 && d->origin_gen != 0 && ws_client_gen(d->origin) == d->origin_gen) {
                 char *txt = cJSON_PrintUnformatted(d->reply);
                 if (txt) {
                     if (ws_send_text(d->origin, txt) != 0) ws_remove_client(d->origin);
@@ -393,7 +393,8 @@ cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin) {
      * state queries are always allowed */
     if (role == (int)ROLE_USER) {
         const char *rest_path = NULL;
-        if (strcmp(action, "send_command") == 0 || strcmp(action, "ir_send") == 0) rest_path = "/api/ir-send";
+        if (strcmp(action, "send_command") == 0 || strcmp(action, "ir_send") == 0 ||
+            strcmp(action, "cancel_commands") == 0) rest_path = "/api/ir-send";
         else if (strcmp(action, "start_activity") == 0) rest_path = "/api/activity";
         else if (strcmp(action, "stop_activity") == 0 || strcmp(action, "power_off") == 0) rest_path = "/api/poweroff";
         else if (strcmp(action, "cancel_activity") == 0 || strcmp(action, "reset_interlock") == 0) rest_path = "/api/activity-cancel";
@@ -489,11 +490,17 @@ cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin) {
             if (rc == -6) return ack(req, action, 0, 404, "Command not found");
             return (rc == 0) ? ack(req, action, 1, 200, NULL) : ack(req, action, 0, 500, "IR transmit failed");
         }
+        int waiting = hub_mqtt_queue_busy();
         int rc = hub_mqtt_queue_commands(dev_buf, 0, cmd_list, cmd_count, num_repeats, btn_action, delay_secs, hold_secs);
         if (rc == -5) return ack(req, action, 0, 404, "Device not found");
         if (rc == -6) return ack(req, action, 0, 404, "Command not found");
         if (rc == -2) return ack(req, action, 0, 409, "Command queue full");
-        return (rc == 0) ? ack(req, action, 1, 200, NULL) : ack(req, action, 0, 500, "Failed to queue command sequence");
+        if (rc == -3) return ack(req, action, 0, 400, "Command sequence too long (more than 300 s)");
+        if (rc != 0) return ack(req, action, 0, 500, "Failed to queue command sequence");
+        /* behind another job, the command waits: the ack says so */
+        cJSON *r = ack(req, action, 1, 200, NULL);
+        if (r) cJSON_AddStringToObject(r, "state", waiting ? "queued" : "started");
+        return r;
     }
     if (strcmp(action, "start_activity") == 0) {
         /* "activity" names the activity. The web UI sends it as "id" (its request id is msgId),
@@ -518,38 +525,51 @@ cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin) {
         if (r) cJSON_AddStringToObject(r, "state", rc == 1 ? "queued" : "stopping");
         return r;
     }
-    if (strcmp(action, "cancel_activity") == 0 || strcmp(action, "reset_interlock") == 0) {
-        orch_cancel();
-        return ack(req, action, 1, 200, NULL);
+    if (strcmp(action, "cancel_activity") == 0 || strcmp(action, "reset_interlock") == 0 ||
+        strcmp(action, "cancel_commands") == 0) {
+        /* cancel_activity stops the command jobs too: nothing else could stop a long one */
+        if (strcmp(action, "cancel_commands") != 0) orch_cancel();
+        int dropped = hub_mqtt_queue_clear();
+        cJSON *r = ack(req, action, 1, 200, NULL);
+        if (r) cJSON_AddNumberToObject(r, "commandsCancelled", dropped);
+        return r;
     }
     if (strcmp(action, "bt_key") == 0) {
         const char *k = json_str(req, "key", NULL, NULL);
         const char *ka = json_str(req, "keyAction", NULL, NULL);
         const char *tgt = json_str(req, "target", "bdaddr", NULL);
         if (!k || !k[0]) return ack(req, action, 0, 400, "key required");
+        /* key and target become lines of the hub_btstack pipe: a line break in them ran any
+         * hub_btstack command (pairing mode, disconnect) */
+        if (!hub_bt_pipe_value_ok(k) || strlen(k) > 64) return ack(req, action, 0, 400, "key: a key name");
+        if (tgt && tgt[0] && !hub_valid_bdaddr(tgt)) return ack(req, action, 0, 400, "target: a Bluetooth address");
         if (!ka) ka = "tap";
         char line[160];
-        if (strcasecmp(k, "release_all") == 0 || strcasecmp(ka, "up") == 0 || strcasecmp(ka, "release") == 0) {
-            if (strcasecmp(k, "release_all") == 0) snprintf(line, sizeof(line), "RELEASE\n");
+        if (strcasecmp(k, "release_all") == 0 || strcasecmp(ka, "release_all") == 0 ||
+            strcasecmp(ka, "up") == 0 || strcasecmp(ka, "release") == 0) {
+            /* keyAction "release_all" (documented) used to fall through to a tap of the key */
+            if (strcasecmp(k, "release_all") == 0 || strcasecmp(ka, "release_all") == 0) snprintf(line, sizeof(line), "RELEASE\n");
             else snprintf(line, sizeof(line), "KEYUP %s\n", k);
         } else if (strcasecmp(ka, "down") == 0 || strcasecmp(ka, "press") == 0) {
             snprintf(line, sizeof(line), "KEYDOWN %s\n", k);
         } else {
             snprintf(line, sizeof(line), "KEY %s\n", k);
         }
-        int ok = pipe_write(tgt, line);
+        int ok = hub_bt_pipe_send(tgt, line);
         return ok ? ack(req, action, 1, 200, NULL) : ack(req, action, 0, 503, "Bluetooth stack not running");
     }
     if (strcmp(action, "bt_text") == 0) {
         const char *t = json_str(req, "text", NULL, NULL);
         const char *tgt = json_str(req, "target", "bdaddr", NULL);
         if (!t || !t[0]) return ack(req, action, 0, 400, "text required");
+        if (strlen(t) > HUB_BT_TEXT_MAX) return ack(req, action, 0, 400, "text: too long");
+        if (tgt && tgt[0] && !hub_valid_bdaddr(tgt)) return ack(req, action, 0, 400, "target: a Bluetooth address");
         char *line = (char *)malloc(strlen(t) + 8);
         if (!line) return ack(req, action, 0, 500, "out of memory");
         sprintf(line, "TEXT %s\n", t);
         /* one pipe line per command: a line break in the text would start another command */
         for (char *c = line + 5; *c && c[1]; c++) if (*c == '\n' || *c == '\r') *c = ' ';
-        int ok = pipe_write(tgt, line);
+        int ok = hub_bt_pipe_send(tgt, line);
         free(line);
         return ok ? ack(req, action, 1, 200, NULL) : ack(req, action, 0, 503, "Bluetooth stack not running");
     }
@@ -567,13 +587,15 @@ cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin) {
         int wheel = (wh_j && cJSON_IsNumber(wh_j)) ? wh_j->valueint : 0;
         if (!act) act = "";
         if (!bname || !bname[0]) bname = "left";
+        if (!hub_bt_pipe_value_ok(bname) || strlen(bname) > 16) return ack(req, action, 0, 400, "button: a button name");
+        if (tgt && tgt[0] && !hub_valid_bdaddr(tgt)) return ack(req, action, 0, 400, "target: a Bluetooth address");
         char pipe_cmd[128];
         if (strcasecmp(act, "click") == 0) snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE_CLICK %s\n", bname);
         else if (strcasecmp(act, "down") == 0) snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE_DOWN %s\n", bname);
         else if (strcasecmp(act, "up") == 0) snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE_UP %s\n", bname);
         else if (strcasecmp(act, "wheel") == 0) snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE_WHEEL %d\n", wheel);
         else snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE %d %d %d %d\n", buttons, dx, dy, wheel);
-        int ok = pipe_write(tgt, pipe_cmd);
+        int ok = hub_bt_pipe_send(tgt, pipe_cmd);
         return ok ? ack(req, action, 1, 200, NULL) : ack(req, action, 0, 503, "Bluetooth stack not running");
     }
     if (strcmp(action, "rf_wake") == 0 || strcmp(action, "rf_sleep") == 0) {
@@ -644,6 +666,7 @@ cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin) {
         int started = 0;
         if (d) {
             d->origin = origin;
+            d->origin_gen = origin >= 0 ? ws_client_gen(origin) : 0;
             d->req = cJSON_Duplicate(req, 1);
             started = d->req && pthread_create(&tid, &attr, update_check_thread, d) == 0;
         }
@@ -659,8 +682,22 @@ cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin) {
         return NULL; /* hub_cmd_poll delivers the reply */
     }
     if (strcmp(action, "update_apply") == 0) {
+        cJSON *blocked = ota_update_apply_blocked();
+        if (blocked) {
+            cJSON *rb = ack_with(req, action, 409, blocked);
+            /* ack_with copies the reply's fields only on success: these tell this 409 apart */
+            static const char *const keep[] = { "status", "busy", "sending", "queued" };
+            for (size_t k = 0; rb && k < sizeof(keep) / sizeof(keep[0]); k++) {
+                const cJSON *v = cJSON_GetObjectItemCaseSensitive(blocked, keep[k]);
+                if (v && !cJSON_GetObjectItemCaseSensitive(rb, keep[k])) cJSON_AddItemToObject(rb, keep[k], cJSON_Duplicate(v, 1));
+            }
+            cJSON_Delete(blocked);
+            return rb;
+        }
+
         cJSON *rest = ota_update_apply(req);
-        cJSON *r = ack_with(req, action, rest ? 200 : 500, rest);
+        int code = !rest ? 500 : cJSON_IsTrue(cJSON_GetObjectItem(rest, "ok")) ? 200 : 409;
+        cJSON *r = ack_with(req, action, code, rest);
         cJSON_Delete(rest);
         return r;
     }

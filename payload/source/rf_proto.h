@@ -78,6 +78,9 @@
 #define RF_MSG_ICON_END            0x28  /* Hub -> Remote: complete / CRC16 verification */
 #define RF_ICON_STATUS_OK              0x00  /* Ready for chunk streaming */
 #define RF_ICON_STATUS_ALREADY_EXISTS  0x04  /* Remote already possesses exact icon */
+#define RF_ICON_STATUS_BAD_ID         0x05  /* Remote refused the icon id (see rf_icon_id_valid) */
+#define RF_ICON_ID_MAX                 19    /* ICON_START payload[5..24]: id + terminating zero */
+#define RF_ICON_MAX_BYTES              16384 /* largest icon file either side accepts */
 
 /* Update Management */
 #define RF_MSG_OTA_REQUEST         0x29  /* Remote -> Hub: request Hub to start binary OTA */
@@ -106,6 +109,13 @@
 #define RF_UNIT_ID_MAX             24
 #define RF_UNIT_ID_SKIN_OFF        24
 
+/* RF_MSG_BUTTON_PRESS payload[RF_KEY_COUNTER_OFF]: the key event counter. The remote numbers
+ * every key frame it sends (press, hold, release) 1..255 and then 1 again; 0 = a remote without
+ * the counter. Key frames are sent once and never acknowledged, so the Hub counts the gaps to
+ * measure how many are lost (rf_state.c rf_key_note_event). The byte lies between the short name
+ * (payload[3..18]) and the device context (payload[20..24]); older Hubs do not read it. */
+#define RF_KEY_COUNTER_OFF         19
+
 /* RF_MSG_HELP_STATUS payload[0] */
 #define RF_HELP_QUESTION           0x00  /* [1] index, [2] count, [3..10] device id, [11..24] name */
 #define RF_HELP_STARTED            0x01  /* re-sending the activity's commands */
@@ -117,6 +127,15 @@
 #define RF_CAP_ACT_DEVICES         0x01  /* RF_MSG_ACT_DEVICES_CHUNK */
 #define RF_CAP_LONG_NAMES          0x02  /* RF_MSG_NAME_TAIL_CHUNK */
 #define RF_CAP_UNIT_ID             0x04  /* sends RF_MSG_UNIT_ID after every version report */
+#define RF_CAP_DEVICE_CMDS         0x08  /* stores and ACKs RF_MSG_DEVICE_CMD_CHUNK (device browsing) */
+
+/* Screen timeout of the remote settings, in seconds: 0 kept the screen on (and the remote awake)
+ * until the battery was empty. The remote's own Settings screen offers 10 to 120 s. */
+#define RF_SCREEN_TIMEOUT_MIN      5
+#define RF_SCREEN_TIMEOUT_MAX      600
+static inline int rf_clamp_screen_timeout(int s) {
+    return s < RF_SCREEN_TIMEOUT_MIN ? RF_SCREEN_TIMEOUT_MIN : (s > RF_SCREEN_TIMEOUT_MAX ? RF_SCREEN_TIMEOUT_MAX : s);
+}
 
 /* Activity and device names, including the NUL, on remotes that report RF_CAP_LONG_NAMES */
 #define RF_NAME_SIZE               40
@@ -151,6 +170,11 @@ static inline void rf_build_frame(rf_frame_t *f, uint8_t dev_slot, uint8_t type,
         if (payload_len > sizeof(f->payload)) payload_len = sizeof(f->payload);
         memcpy(f->payload, payload, payload_len);
     }
+}
+
+/* The key event counter after c: 1..255, then 1 again (0 is never sent by a counting remote) */
+static inline uint8_t rf_key_counter_next(uint8_t c) {
+    return (uint8_t)(c >= 255 ? 1 : c + 1);
 }
 
 /* Helper: validate received frame */
@@ -204,6 +228,20 @@ static inline uint32_t rf_crc32(const uint8_t *data, size_t len) {
 }
 
 /* Helper: build ACK frame */
+/* A custom icon id becomes part of file names on the remote (/data/assets/custom/<id>.png),
+ * so both sides accept only [A-Za-z0-9_-] and 1..RF_ICON_ID_MAX characters. The same rule is
+ * used for the icon type. */
+static inline int rf_icon_id_valid(const char *id) {
+    if (!id || !id[0]) return 0;
+    for (size_t n = 0; id[n]; n++) {
+        char c = id[n];
+        if (n >= RF_ICON_ID_MAX) return 0;
+        if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-'))
+            return 0;
+    }
+    return 1;
+}
+
 static inline void rf_build_ack(rf_frame_t *f, uint8_t dev_slot, uint8_t acked_seq, uint8_t status) {
     memset(f, 0, sizeof(*f));
     f->report_id = RF_REPORT_ID;

@@ -1,0 +1,43 @@
+name: Host Tools
+
+# The tools that run on the user's computer (install, deploy, backup, recovery, migration,
+# firmware and build tools). Runs only when one of them or their tests change.
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '**.py'
+      - 'build/**'
+      - 'remote/**'
+      - 'scripts/**'
+      - 'tools/**'
+      - 'tests/run_host_tools.sh'
+      - 'tests/suite.d/*host-tools*'
+      - '.github/workflows/host-tools.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '**.py'
+      - 'build/**'
+      - 'remote/**'
+      - 'scripts/**'
+      - 'tools/**'
+      - 'tests/run_host_tools.sh'
+      - 'tests/suite.d/*host-tools*'
+      - '.github/workflows/host-tools.yml'
+
+jobs:
+  test-host-tools:
+    name: Host Tools Tests (Python 3.13)
+    # Same pinned image as the firmware tests (the remote_render test builds with the host gcc)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - name: Run Host Tools Test Suite
+        run: |
+          chmod +x tests/run_host_tools.sh
+          ./tests/run_host_tools.sh

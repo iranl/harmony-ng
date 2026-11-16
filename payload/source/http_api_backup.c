@@ -11,7 +11,96 @@
 #include <string.h>
 #include <unistd.h>
 #include <time.h>
+#include <pthread.h>
 #include <sys/socket.h>
+
+/* --- Import: every part is checked before the first file is written --- */
+
+/* One file of an import, ready to be written */
+struct import_file {
+    const char *path;
+    char *text;
+    size_t len;
+};
+
+/* Sections that hold a JSON object; the others (network, wifi, auth, hub_id) are text files */
+static int import_is_json_section(const char *key) {
+    static const char *const json_keys[] = { "devices", "activities", "settings", "mqtt", "bluetooth",
+                                             "bt_remote_map", "remote_slot1_map", "remote_slot2_map",
+                                             "ui_remote_layout", "users", NULL };
+    for (int i = 0; json_keys[i]; i++) {
+        if (strcmp(key, json_keys[i]) == 0) return 1;
+    }
+    return 0;
+}
+
+/* The text for one section's file. A JSON section must be an object, sent as an object or as a
+ * string that parses completely to one; devices needs a "devices" array and activities an
+ * "activities" array. Returns 1 when out is ready, 0 when there is nothing to write (the empty
+ * list an export puts in for a file it could not read), -1 when the section is not valid. */
+static int import_prepare(const char *key, const char *path, const cJSON *sec, struct import_file *out) {
+    out->path = path;
+    out->text = NULL;
+    out->len = 0;
+    if (!import_is_json_section(key)) {
+        if (cJSON_IsString(sec)) out->text = strdup(sec->valuestring ? sec->valuestring : "");
+        else out->text = cJSON_PrintUnformatted(sec);
+        if (!out->text) return -1;
+        out->len = strlen(out->text);
+        return 1;
+    }
+    cJSON *parsed = NULL;
+    const cJSON *obj = sec;
+    if (cJSON_IsString(sec)) {
+        parsed = sec->valuestring ? cJSON_ParseWithOpts(sec->valuestring, NULL, 1) : NULL;
+        obj = parsed;
+    }
+    int rc = -1;
+    const char *list = strcmp(key, "devices") == 0 ? "devices" : strcmp(key, "activities") == 0 ? "activities" : NULL;
+    if (list && obj && cJSON_IsArray(obj) && cJSON_GetArraySize(obj) == 0) {
+        rc = 0;
+    } else if (obj && cJSON_IsObject(obj) && (!list || cJSON_IsArray(cJSON_GetObjectItemCaseSensitive(obj, list)))) {
+        if (cJSON_IsString(sec)) out->text = strdup(sec->valuestring);
+        else out->text = cJSON_PrintUnformatted(sec);
+        if (out->text) {
+            out->len = strlen(out->text);
+            rc = 1;
+        }
+    }
+    cJSON_Delete(parsed);
+    return rc;
+}
+
+/* Writes every prepared file under a temporary name first (flushed to flash), then renames them
+ * into place: when a write fails, every live file is left as it was. 0 when all are in place. */
+static int import_commit(const struct import_file *files, int n) {
+    char tmp[300];
+    int written = 0;
+    for (; written < n; written++) {
+        snprintf(tmp, sizeof(tmp), "%s.import", files[written].path);
+        if (write_file_atomic_sized(tmp, files[written].text, files[written].len) != 0) break;
+    }
+    if (written < n) {
+        for (int i = 0; i <= written && i < n; i++) {
+            snprintf(tmp, sizeof(tmp), "%s.import", files[i].path);
+            unlink(tmp);
+        }
+        return -1;
+    }
+    int rc = 0;
+    for (int i = 0; i < n; i++) {
+        snprintf(tmp, sizeof(tmp), "%s.import", files[i].path);
+        if (rename(tmp, files[i].path) != 0) {
+            unlink(tmp);
+            rc = -1;
+        }
+    }
+    return rc;
+}
+
+static void import_free(struct import_file *files, int n) {
+    for (int i = 0; i < n; i++) free(files[i].text);
+}
 
 /* The Bluetooth devices that have a host, in the shape of the retired bt-devices.json:
  * config/devices.json is the only device-to-host mapping now, so the "bluetooth" export is
@@ -53,8 +142,8 @@ static char *bt_links_export_json(size_t *out_len) {
     return txt;
 }
 
-int http_api_backup_handle(int client_fd, const char *method, const char *clean_path,
-                           const char *query, const char *body, const char *req) {
+static int backup_handle(int client_fd, const char *method, const char *clean_path,
+                         const char *query, const char *body, const char *req) {
     (void)query;
     (void)req;
 
@@ -81,7 +170,7 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
                 { "remote_slot2_map", "/data/harmony/remote_slot2_map.json" },
                 { "ui_remote_layout", "/data/harmony/web_remote_layouts.json" },
                 { "auth", "/data/harmony/webui_auth.conf" },
-                { "users", "/data/harmony/users.json" },
+                { "users", HARMONY_USERS_JSON },
                 { "hub_id", "/data/harmony/hub_id" },
                 { NULL, NULL }
             };
@@ -143,8 +232,7 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
                     "Access-Control-Allow-Origin: *\r\n"
                     "Connection: close\r\n\r\n",
                     crc, jlen);
-                send(client_fd, header, (size_t)hlen, 0);
-                send(client_fd, json_out, jlen, 0);
+                if (http_send_all(client_fd, header, (size_t)hlen) == 0) http_send_all(client_fd, json_out, jlen);
                 free(json_out);
                 close(client_fd);
                 return 1;
@@ -209,7 +297,7 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
             ctype = "text/plain; charset=utf-8";
             fallback_content = "# WebUI authentication disabled (default)\n";
         } else if (strcmp(tgt, "users") == 0) {
-            file_to_send = config_store_path("users.json");
+            file_to_send = HARMONY_USERS_JSON;
             download_name = "users.json";
             fallback_content = "{\"users\":[]}\n";
         }
@@ -232,8 +320,7 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
                     "Access-Control-Allow-Origin: *\r\n"
                     "Connection: close\r\n\r\n",
                     ctype, download_name, flen);
-                send(client_fd, header, (size_t)hlen, 0);
-                send(client_fd, content_ptr, flen, 0);
+                if (http_send_all(client_fd, header, (size_t)hlen) == 0) http_send_all(client_fd, content_ptr, flen);
                 if (buf) free(buf);
                 close(client_fd);
                 return 1;
@@ -248,6 +335,16 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
     if (strcmp(clean_path, "/import") == 0 && strcmp(method, "POST") == 0) {
         cJSON *params = parse_request_params(body);
         int success = 0;
+        /* Every section is checked and turned into its file's text before anything is written:
+         * a cut or wrong file used to replace the live configuration and the Hub still answered
+         * "Restored successfully" */
+        struct import_file files[16];
+        int nfiles = 0;
+        const char *refused = NULL; /* the section that is not valid */
+        int write_failed = 0;
+        int auth_before = 0; /* an import that turns authentication on answers what to check */
+        load_user_accounts(NULL, 0, &auth_before);
+        cJSON *import_check = NULL;
         if (params) {
             cJSON *p_tgt = cJSON_GetObjectItemCaseSensitive(params, "target");
             cJSON *p_pay = cJSON_GetObjectItemCaseSensitive(params, "payload");
@@ -256,13 +353,15 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
             cJSON *p_net = cJSON_GetObjectItemCaseSensitive(params, "restore_network");
             int allow_network = (p_net && (cJSON_IsTrue(p_net) || (cJSON_IsNumber(p_net) && p_net->valueint > 0)));
 
-            if (strcmp(tgt, "bundle") == 0) {
+            /* "all": the new web UI's name for the whole backup */
+            if (strcmp(tgt, "bundle") == 0 || strcmp(tgt, "all") == 0) {
                 cJSON *bundle = NULL;
-                if (p_pay && cJSON_IsString(p_pay)) bundle = cJSON_Parse(p_pay->valuestring);
+                if (p_pay && cJSON_IsString(p_pay)) bundle = cJSON_ParseWithOpts(p_pay->valuestring, NULL, 1);
                 else if (p_pay && cJSON_IsObject(p_pay)) bundle = p_pay;
                 else bundle = params;
+                if (!bundle || !cJSON_IsObject(bundle)) refused = "bundle";
 
-                if (bundle) {
+                if (!refused) {
                     static const struct { const char *key; const char *path; int is_net; } b_files[] = {
                         { "devices", "/data/harmony/config/devices.json", 0 },
                         { "activities", "/data/harmony/config/activities.json", 0 },
@@ -278,12 +377,12 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
                         { "remote_slot2_map", "/data/harmony/remote_slot2_map.json", 0 },
                         { "ui_remote_layout", "/data/harmony/web_remote_layouts.json", 0 },
                         { "auth", "/data/harmony/webui_auth.conf", 0 },
-                        { "users", "/data/harmony/users.json", 0 },
+                        { "users", HARMONY_USERS_JSON, 0 },
                         { "hub_id", "/data/harmony/hub_id", 0 },
                         { NULL, NULL, 0 }
                     };
 
-                    for (int i = 0; b_files[i].key; i++) {
+                    for (int i = 0; b_files[i].key && !refused; i++) {
                         if (b_files[i].is_net && !allow_network) {
                             continue;
                         }
@@ -301,69 +400,81 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
                                     }
                                 }
                             }
-                            if (cJSON_IsString(sec)) {
-                                write_file_atomic(b_files[i].path, sec->valuestring);
-                            } else {
-                                char *pstr = cJSON_PrintUnformatted(sec);
-                                if (pstr) {
-                                    write_file_atomic(b_files[i].path, pstr);
-                                    free(pstr);
-                                }
-                            }
+                            int pr = import_prepare(b_files[i].key, b_files[i].path, sec, &files[nfiles]);
+                            if (pr < 0) refused = b_files[i].key;
+                            else if (pr > 0) nfiles++;
                         }
                     }
 
                     cJSON *j_keys = cJSON_GetObjectItemCaseSensitive(bundle, "btstack_keys");
-                    if (j_keys && cJSON_IsString(j_keys) && j_keys->valuestring[0]) {
+                    if (!refused && j_keys && cJSON_IsString(j_keys) && j_keys->valuestring[0]) {
                         size_t klen = 0;
                         unsigned char *raw_keys = b64_decode(j_keys->valuestring, &klen);
-                        if (raw_keys) {
-                            write_file_atomic_sized("/data/harmony/btstack_keys.tlv", (const char *)raw_keys, klen);
-                            write_file_atomic_sized("/data/harmony/btstack_keys.bin", (const char *)raw_keys, klen);
+                        if (!raw_keys || klen == 0 || klen >= 200000) {
                             free(raw_keys);
+                            refused = "btstack_keys";
+                        } else {
+                            /* the same keys under both names; the second copy owns its buffer */
+                            files[nfiles++] = (struct import_file){ "/data/harmony/btstack_keys.tlv", (char *)raw_keys, klen };
+                            char *copy = (char *)malloc(klen);
+                            if (copy) {
+                                memcpy(copy, raw_keys, klen);
+                                files[nfiles++] = (struct import_file){ "/data/harmony/btstack_keys.bin", copy, klen };
+                            } else {
+                                refused = "btstack_keys";
+                            }
                         }
                     }
 
-                    sync();
-                    invalidate_device_list_cache();
-                    config_store_init();
-                    notify_rf_push_config();
-                    hub_send_btstack_cmd("reload_map");
-                    struct user_account tmp_u[MAX_HTTP_USERS];
-                    int tmp_en = 0;
-                    int tmp_c = load_user_accounts(tmp_u, MAX_HTTP_USERS, &tmp_en);
-                    if (tmp_c > 0) save_user_accounts(tmp_u, tmp_c, tmp_en);
-                    success = 1;
+                    if (!refused) {
+                        if (import_commit(files, nfiles) != 0) {
+                            write_failed = 1;
+                        } else {
+                            sync();
+                            invalidate_device_list_cache();
+                            config_store_init();
+                            notify_rf_push_config();
+                            hub_send_btstack_cmd("reload_map");
+                            struct user_account tmp_u[MAX_HTTP_USERS];
+                            int tmp_en = 0;
+                            int tmp_c = load_user_accounts(tmp_u, MAX_HTTP_USERS, &tmp_en);
+                            if (tmp_c > 0) save_user_accounts(tmp_u, tmp_c, tmp_en);
+                            if (!auth_before && tmp_en && tmp_c > 0) {
+                                import_check = cJSON_CreateObject();
+                                http_auth_add_switch_check(import_check, tmp_u, tmp_c, NULL);
+                            }
+                            http_auth_drop_all_sessions(); /* accounts replaced: end every session */
+                            success = 1;
+                        }
+                    }
                 }
                 if (bundle && bundle != p_pay && bundle != params) cJSON_Delete(bundle);
             } else if (tgt[0] && p_pay) {
                 const char *file_to_write = NULL;
+                const char *key = tgt; /* section name of the target, for the check */
                 if (strcmp(tgt, "devices") == 0) { file_to_write = "/data/harmony/config/devices.json"; }
                 else if (strcmp(tgt, "activities") == 0) { file_to_write = "/data/harmony/config/activities.json"; }
                 else if (strcmp(tgt, "settings") == 0) { file_to_write = "/data/harmony/config/settings.json"; }
                 else if (strcmp(tgt, "mqtt") == 0) { file_to_write = "/data/harmony/mqtt.json"; }
-                else if (strcmp(tgt, "network") == 0 || strcmp(tgt, "ethernet") == 0) { file_to_write = "/data/harmony/ethernet.conf"; }
+                else if (strcmp(tgt, "network") == 0 || strcmp(tgt, "ethernet") == 0) { file_to_write = "/data/harmony/ethernet.conf"; key = "network"; }
                 else if (strcmp(tgt, "wifi") == 0) { file_to_write = "/etc/wpa_supplicant.conf"; }
                 /* Folded into devices.json by config_store_init() below (bt_migrate.c) */
                 else if (strcmp(tgt, "bluetooth") == 0) { file_to_write = "/data/harmony/bt-devices.json"; }
-                else if (strcmp(tgt, "remote-mapping") == 0 || strcmp(tgt, "bt_remote_map") == 0) { file_to_write = "/data/harmony/bt_remote_map.json"; }
+                else if (strcmp(tgt, "remote-mapping") == 0 || strcmp(tgt, "bt_remote_map") == 0) { file_to_write = "/data/harmony/bt_remote_map.json"; key = "bt_remote_map"; }
                 else if (strcmp(tgt, "remote_slot1_map") == 0) { file_to_write = "/data/harmony/remote_slot1_map.json"; }
                 else if (strcmp(tgt, "remote_slot2_map") == 0) { file_to_write = "/data/harmony/remote_slot2_map.json"; }
-                else if (strcmp(tgt, "ui-remote-layout") == 0 || strcmp(tgt, "ui_remote_layout") == 0) { file_to_write = "/data/harmony/web_remote_layouts.json"; }
+                else if (strcmp(tgt, "ui-remote-layout") == 0 || strcmp(tgt, "ui_remote_layout") == 0) { file_to_write = "/data/harmony/web_remote_layouts.json"; key = "ui_remote_layout"; }
                 else if (strcmp(tgt, "auth") == 0) { file_to_write = "/data/harmony/webui_auth.conf"; }
-                else if (strcmp(tgt, "users") == 0) { file_to_write = "/data/harmony/users.json"; }
+                else if (strcmp(tgt, "users") == 0) { file_to_write = HARMONY_USERS_JSON; }
 
                 if (file_to_write) {
-                    if (cJSON_IsString(p_pay)) {
-                        write_file_atomic(file_to_write, p_pay->valuestring);
-                        success = 1;
+                    /* the empty list counts as not valid here: there is nothing else to restore */
+                    if (import_prepare(key, file_to_write, p_pay, &files[0]) <= 0) {
+                        refused = tgt;
                     } else {
-                        char *pstr = cJSON_PrintUnformatted(p_pay);
-                        if (pstr) {
-                            write_file_atomic(file_to_write, pstr);
-                            free(pstr);
-                            success = 1;
-                        }
+                        nfiles = 1;
+                        if (import_commit(files, nfiles) != 0) write_failed = 1;
+                        else success = 1;
                     }
                     if (success) {
                         invalidate_device_list_cache();
@@ -379,9 +490,29 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
                             int tmp_en = 0;
                             int tmp_c = load_user_accounts(tmp_u, MAX_HTTP_USERS, &tmp_en);
                             if (tmp_c > 0) save_user_accounts(tmp_u, tmp_c, tmp_en);
+                            if (!auth_before && tmp_en && tmp_c > 0) {
+                                import_check = cJSON_CreateObject();
+                                http_auth_add_switch_check(import_check, tmp_u, tmp_c, NULL);
+                            }
+                            http_auth_drop_all_sessions(); /* accounts replaced: end every session */
                         }
                     }
                 }
+            }
+            import_free(files, nfiles);
+            if (refused) {
+                char msg[96];
+                snprintf(msg, sizeof(msg), "Import refused, nothing was changed: '%s' is not valid", refused);
+                cJSON_Delete(params);
+                send_json_error(client_fd, 400, msg);
+                close(client_fd);
+                return 1;
+            }
+            if (write_failed) {
+                cJSON_Delete(params);
+                send_json_error(client_fd, 500, "Import failed: could not write the files");
+                close(client_fd);
+                return 1;
             }
             cJSON_Delete(params);
         }
@@ -389,6 +520,12 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", success);
         cJSON_AddStringToObject(resp, "message", success ? "Restored successfully" : "Import failed");
+        if (import_check) {
+            /* the import turned authentication on: what to check, as the other switches answer */
+            cJSON_AddBoolToObject(resp, "auth_enabled", 1);
+            cJSON_AddItemToObject(resp, "to_check", cJSON_DetachItemFromObjectCaseSensitive(import_check, "to_check"));
+            cJSON_Delete(import_check);
+        }
         send_cjson_resp(client_fd, success ? 200 : 400, resp);
         cJSON_Delete(resp);
         close(client_fd);
@@ -396,4 +533,24 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
     }
 
     return 0;
+}
+
+/* One import or export at a time: each holds the whole configuration in memory several times
+ * (request body, parsed tree, printed sections), and several at once could run the Hub out of
+ * memory. A second one gets 409. */
+static pthread_mutex_t g_backup_busy = PTHREAD_MUTEX_INITIALIZER;
+
+int http_api_backup_handle(int client_fd, const char *method, const char *clean_path,
+                           const char *query, const char *body, const char *req) {
+    int is_backup = (strncmp(clean_path, "/export/", 8) == 0 && strcmp(method, "GET") == 0) ||
+                    (strcmp(clean_path, "/import") == 0 && strcmp(method, "POST") == 0);
+    if (!is_backup) return 0;
+    if (pthread_mutex_trylock(&g_backup_busy) != 0) {
+        send_json_error(client_fd, 409, "Another import or export is running");
+        close(client_fd);
+        return 1;
+    }
+    int handled = backup_handle(client_fd, method, clean_path, query, body, req);
+    pthread_mutex_unlock(&g_backup_busy);
+    return handled;
 }

@@ -24,8 +24,19 @@ CONF=/data/harmony/recovery_ap.conf
 WPA_PASSPHRASE=harmonyrecovery
 WPA_ENABLED=1
 
+# Read as KEY=VALUE lines, never run as shell code: a value is only ever data
 if [ -f "$CONF" ]; then
-  . "$CONF"
+  while IFS='=' read -r _k _v || [ -n "$_k" ]; do
+    _v=$(printf '%s' "$_v" | tr -d '\r')
+    case "$_v" in \"*\") _v=${_v#\"}; _v=${_v%\"} ;; \'*\') _v=${_v#\'}; _v=${_v%\'} ;; esac
+    case "$_k" in
+      WPA_PASSPHRASE)
+        # hostapd takes 8 to 63 printable characters; anything else keeps the default
+        case "$_v" in *[!\ -~]*) ;; *) [ ${#_v} -ge 8 ] && [ ${#_v} -le 63 ] && WPA_PASSPHRASE="$_v" ;; esac ;;
+      WPA_ENABLED)
+        case "$_v" in 0|1) WPA_ENABLED="$_v" ;; esac ;;
+    esac
+  done < "$CONF"
 fi
 
 stop_station() {
@@ -90,7 +101,18 @@ EOF
   DHCPD_BIN="/data/harmony/bin/hub_dhcpd"
   PORTAL_BIN="/data/harmony/bin/hub_portal"
   [ -x "$DHCPD_BIN" ] && "$DHCPD_BIN" "$AP_IF" "$AP_IP" 192.168.76.100 192.168.76.150 >> "$LOG" 2>&1 &
-  [ -x "$PORTAL_BIN" ] && "$PORTAL_BIN" 80 >> "$LOG" 2>&1 &
+  # The portal is started again if it ends while the AP is up (the pid file is removed first by
+  # stop_ap): without it nobody could enter Wi-Fi values until a power cycle. The pid file exists
+  # before the loop first looks at it.
+  : > /var/run/hub-recovery-ap.pid
+  (
+    while [ -x "$PORTAL_BIN" ] && [ -f /var/run/hub-recovery-ap.pid ]; do
+      "$PORTAL_BIN" 80 >> "$LOG" 2>&1
+      [ -f /var/run/hub-recovery-ap.pid ] || break
+      log "recovery portal ended, starting it again"
+      sleep 2
+    done
+  ) &
   pid=$!
   echo "$pid" > /var/run/hub-recovery-ap.pid
   echo 3 > /sys/class/input/input0/led 2>/dev/null
@@ -98,8 +120,12 @@ EOF
 
 stop_ap() {
   log "stopping recovery ap"
-  killall -9 hub_portal hub_dhcpd hostapd 2>/dev/null || true
+  # end the portal loop itself: in its 2 s wait it outlived the stop, and a start within that
+  # time gave it its pid file back (two loops, two portals on port 80)
+  _loop=$(cat /var/run/hub-recovery-ap.pid 2>/dev/null)
+  [ -n "$_loop" ] && kill -9 "$_loop" 2>/dev/null
   rm -f /var/run/hub-recovery-ap.pid /tmp/hostapd-recovery.conf
+  killall -9 hub_portal hub_dhcpd hostapd 2>/dev/null || true
   ifconfig "$AP_IF" down 2>/dev/null
   wlanconfig "$AP_IF" destroy 2>/dev/null
 }

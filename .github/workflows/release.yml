@@ -36,7 +36,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: '3.11'
+          python-version: '3.13'
       - name: Update Curated CA Certificate Bundle
         id: ca_bundle
         run: |
@@ -48,7 +48,9 @@ jobs:
             if [ -n "${{ github.event.inputs.version }}" ]; then
               TARGET_VER="${{ github.event.inputs.version }}"
             else
-              TARGET_VER=$(python scripts/bump_version.py --bump ${{ github.event.inputs.bump }} | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | tail -1)
+              # --next only prints: --bump would write the files and raise versionCode, and the
+              # --version below raises it again (the repository then had +2, the APK +1)
+              TARGET_VER=$(python scripts/bump_version.py --next ${{ github.event.inputs.bump }})
             fi
             python scripts/bump_version.py --version "$TARGET_VER"
             git config user.name "github-actions[bot]"
@@ -80,7 +82,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: '3.11'
+          python-version: '3.13'
       - name: Sync Version
         run: python scripts/bump_version.py --version ${{ needs.prepare-version.outputs.version }}
       - name: Set up Node.js
@@ -120,7 +122,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: '3.11'
+          python-version: '3.13'
       - name: Sync Version
         run: python scripts/bump_version.py --version ${{ needs.prepare-version.outputs.version }}
       - name: Cache Bootlin ARM Toolchain
@@ -128,12 +130,15 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build/toolchains
-          key: bootlin-armv5-uclibc-2017.05
+          key: bootlin-armv5-uclibc-2017.05-9afe6d92b2fd
       - name: Install Bootlin ARMv5 uClibc Toolchain
         if: steps.cache-arm-toolchain.outputs.cache-hit != 'true'
         run: |
           mkdir -p build/toolchains
-          curl -sSL "https://toolchains.bootlin.com/downloads/releases/toolchains/armv5-eabi/tarballs/armv5-eabi--uclibc--stable-2017.05-toolchains-1-1.tar.bz2" | tar -xjf - -C build/toolchains/
+          # Pinned by SHA-256 as well as by name (the cache step keeps whatever was fetched once)
+          curl -fsSL -o "$RUNNER_TEMP/toolchain.tar.bz2" "https://toolchains.bootlin.com/downloads/releases/toolchains/armv5-eabi/tarballs/armv5-eabi--uclibc--stable-2017.05-toolchains-1-1.tar.bz2"
+          echo "9afe6d92b2fdb5eee75c90f776374d19aa1203d5679651b289a4030dc9982036  $RUNNER_TEMP/toolchain.tar.bz2" | sha256sum -c -
+          tar -xjf "$RUNNER_TEMP/toolchain.tar.bz2" -C build/toolchains/
       - name: Compile Remote Binaries & Extended BusyBox
         run: |
           chmod +x build/*.sh
@@ -168,7 +173,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: '3.11'
+          python-version: '3.13'
       - name: Sync Version
         run: python scripts/bump_version.py --version ${{ needs.prepare-version.outputs.version }}
       - name: Cache Bootlin MIPS Toolchain
@@ -176,12 +181,15 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build/toolchains
-          key: bootlin-mips32-uclibc-2017.05
+          key: bootlin-mips32-uclibc-2017.05-a75aeb0f82ea
       - name: Install Bootlin MIPS uClibc Toolchain
         if: steps.cache-mips-toolchain.outputs.cache-hit != 'true'
         run: |
           mkdir -p build/toolchains
-          curl -sSL "https://toolchains.bootlin.com/downloads/releases/toolchains/mips32/tarballs/mips32--uclibc--stable-2017.05-toolchains-1-1.tar.bz2" | tar -xjf - -C build/toolchains/
+          # Pinned by SHA-256 as well as by name (the cache step keeps whatever was fetched once)
+          curl -fsSL -o "$RUNNER_TEMP/toolchain.tar.bz2" "https://toolchains.bootlin.com/downloads/releases/toolchains/mips32/tarballs/mips32--uclibc--stable-2017.05-toolchains-1-1.tar.bz2"
+          echo "a75aeb0f82eaeaf1989a7dfdf80219486b5ed1470c29c6f253fbcf824922c29f  $RUNNER_TEMP/toolchain.tar.bz2" | sha256sum -c -
+          tar -xjf "$RUNNER_TEMP/toolchain.tar.bz2" -C build/toolchains/
       - name: Compile Hub Binaries & Extended BusyBox
         run: |
           chmod +x build/*.sh
@@ -208,7 +216,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: '3.11'
+          python-version: '3.13'
       - name: Sync Version
         run: python scripts/bump_version.py --version ${{ needs.prepare-version.outputs.version }}
       - name: Set up JDK 21
@@ -291,7 +299,8 @@ jobs:
               cp -rf artifacts/webui-assets/* staging_hub/www/
             fi
             cp -f build/deploy_hub.py staging_hub/
-            cp -f tools/root_hub_usb.py tools/harmony_hid.py tools/harmony_firmware.py tools/migrate_hub_configs.py tools/backup_hub.py staging_hub/tools/
+            printf '%s\n' "$VERSION" > staging_hub/VERSION
+            cp -f tools/root_hub_usb.py tools/harmony_hid.py tools/harmony_firmware.py tools/migrate_hub_configs.py tools/backup_hub.py tools/restore_stock.py tools/factory_reset.py tools/ssh_hostkeys.py staging_hub/tools/
             if [ -d payload/config ]; then
               mkdir -p staging_hub/config
               cp -rf payload/config/* staging_hub/config/
@@ -309,7 +318,7 @@ jobs:
             rm -f staging_remote/bin/remote_ui.gz staging_remote/bin/remote_ui.ota.gz 2>/dev/null || true
             cp -f remote/rcS.local remote/init.sh remote/remote_watchdog.sh remote/safe_reboot.sh remote/factory_reset.sh staging_remote/
             cp -f remote/deploy_remote.py staging_remote/
-            cp -f tools/harmony_hid.py tools/harmony_firmware.py tools/usb_state.py tools/setup_remote_driver.ps1 remote/setup_remote.py staging_remote/tools/
+            cp -f tools/harmony_hid.py tools/harmony_firmware.py tools/usb_state.py tools/setup_remote_driver.ps1 tools/factory_reset.py tools/ssh_hostkeys.py remote/setup_remote.py staging_remote/tools/
             cp -rf drivers/windows/rndis/* staging_remote/drivers/windows/rndis/
 
             (cd staging_remote && zip -r "${RELEASE_DIR}/harmony-remote-v${VERSION}.zip" .)
@@ -351,8 +360,10 @@ jobs:
       - name: Publish to OTA Branch
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Ed25519 release key (64 hex characters): signs manifest.json, Hubs refuse unsigned updates
+          OTA_SIGNING_KEY: ${{ secrets.OTA_SIGNING_KEY }}
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           VERSION="${{ needs.prepare-version.outputs.version }}"
-          python scripts/publish_ota.py --version "$VERSION" --push --remote "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" --branch ota
+          python scripts/publish_ota.py --version "$VERSION" --require-signature --push --remote "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" --branch ota

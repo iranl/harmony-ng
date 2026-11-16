@@ -1,5 +1,30 @@
 import { HarmonyClientCore } from './api_core.js';
 
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// One step per line: TEXT <words>, KEY <name>, WAIT <ms> (0..10000). Blank lines and lines
+// starting with # are skipped; anything else is an error naming the line.
+export function parseBtScript(script) {
+  const steps = [];
+  String(script || '').split(/\r?\n/).forEach((raw, idx) => {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) return;
+    const m = line.match(/^(TEXT|KEY|WAIT)(?:\s+(.*))?$/i);
+    const op = m ? m[1].toUpperCase() : '';
+    const arg = m && m[2] ? m[2].trim() : '';
+    if (!m || !arg) throw new Error(`Script line ${idx + 1}: expected TEXT words, KEY name or WAIT ms`);
+    if (op === 'WAIT') {
+      const ms = Number(arg);
+      if (!Number.isInteger(ms) || ms < 0 || ms > 10000) throw new Error(`Script line ${idx + 1}: WAIT takes 0 to 10000 ms`);
+      steps.push({ op, ms });
+    } else {
+      steps.push({ op, arg: op === 'TEXT' ? m[2] : arg });
+    }
+  });
+  if (!steps.length) throw new Error('The script has no steps');
+  return steps;
+}
+
 export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
 
   /* Core Inventory & Activities */
@@ -214,13 +239,6 @@ export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
     return this.sendCommand(deviceId, command);
   }
 
-  async sendBtCommand(deviceId, command) {
-    return this.postJson('/api/bt-saved-command', {
-      deviceId: String(deviceId),
-      command: String(command)
-    });
-  }
-
   async sendBtKey(code, action = 'tap', target = '') {
     if (!code) return { ok: false };
     if (this.sendWs({ action: 'bt_key', key: String(code), keyAction: String(action), target: String(target) })) {
@@ -258,8 +276,20 @@ export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
     return this.postJson('/api/bt-mouse', payload);
   }
 
-  async runBtScript(script, delay = 35) {
-    return this.postJson('/api/bt-script', { script: String(script), delay: Number(delay) || 35 });
+  // Macro script (TEXT words, KEY name, WAIT ms, one per line), run from here: the Hub has no
+  // script route, so each step goes out as a Bluetooth key or text like the keyboard page sends.
+  // The whole script is checked before the first step is sent.
+  async runBtScript(script, delay = 35, target = '') {
+    const steps = parseBtScript(script);
+    const gap = Math.min(Math.max(Number(delay) || 0, 0), 10000);
+    for (let i = 0; i < steps.length; i++) {
+      const s = steps[i];
+      if (s.op === 'WAIT') await sleep(s.ms);
+      else if (s.op === 'KEY') await this.sendBtKey(s.arg, 'tap', target);
+      else await this.sendBtText(s.arg, target);
+      if (i < steps.length - 1 && gap) await sleep(gap);
+    }
+    return { ok: true, steps: steps.length };
   }
 
   async saveBtCommand(deviceId, name, script) {
@@ -288,6 +318,11 @@ export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
 
   async disconnectBt(bdaddr = '') {
     return this.postJson('/api/bt-disconnect', { bdaddr: bdaddr || '' });
+  }
+
+  // Remove a paired host: its link key, its link and the devices' links to it (admin)
+  async forgetBtHost(addr) {
+    return this.postJson('/api/bt-forget-host', { addr: String(addr || '') });
   }
 
   async linkBtDevice(bdaddr, deviceId) {

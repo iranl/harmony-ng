@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import binascii
 import json
 import os
 import pathlib
@@ -35,6 +36,10 @@ from typing import Any, Dict, List, Optional, Tuple
 # Logitech "Transport" is a bitmask: 1 = IR, 32 = Bluetooth (33 = both, e.g. a TV with a BT keyboard)
 TRANSPORT_IR = 1
 TRANSPORT_BT = 32
+
+# The RF protocol carries this many bytes of a device id: a longer id never matches on the
+# Hub's RF side, so the migration gives such devices short ids (shorten_long_device_ids())
+RF_DEVICE_ID_MAX = 4
 
 # Delay for migrated input steps when the stock InputFeature has none (ms)
 DEFAULT_INPUT_STEP_DELAY_MS = 300
@@ -80,6 +85,26 @@ MAIN_ROLE_TYPES = (
 )
 
 
+def _int(value: Any, default: int, keep_zero: bool = False) -> int:
+    """int(value or default) that does not raise: a value that is not a number gives default.
+
+    Configs from other tools and from older firmware hold numbers as strings ("500") and
+    sometimes text ("first"); one such value must not stop the whole migration. As with
+    "value or default", an empty value (0, "", None) gives default, unless keep_zero is set,
+    where only a missing value (None) does."""
+    if value is None or isinstance(value, bool) or (not keep_zero and not value):
+        return default
+    if isinstance(value, int):
+        return value
+    try:
+        return int(str(value).strip())
+    except ValueError:
+        try:
+            return int(float(str(value).strip()))
+        except ValueError:
+            return default
+
+
 def convert_hid_code(code: str) -> str:
     """Convert legacy raw hex or Logitech HID code to canonical HID:07:xxxx."""
     if not code:
@@ -98,6 +123,19 @@ def convert_hid_code(code: str) -> str:
         page, usage = m.group(1).upper(), m.group(2).upper()
         return f"HID:{page}:{usage}"
     return code
+
+
+def _write_secret(path: str, data: bytes) -> None:
+    """Write a file that holds a password or key readable by the owner only (0600)."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    os.chmod(path, 0o600)  # an existing file keeps its mode with O_CREAT
+    with os.fdopen(fd, "wb") as f:
+        f.write(data)
+
+
+def _copy_secret(src: str, dst: str) -> None:
+    with open(src, "rb") as f:
+        _write_secret(dst, f.read())
 
 
 def resolve_activity_icon(name: str, type_str: str) -> str:
@@ -137,7 +175,7 @@ def _stock_feature(item: Dict[str, Any], ftype: str) -> Dict[str, Any]:
 def _stock_action_steps(actions: Any) -> List[Dict[str, Any]]:
     """Convert stock IRPressAction lists (power, input) into harmony-ng Command steps."""
     steps: List[Dict[str, Any]] = []
-    for a in sorted([x for x in actions or [] if isinstance(x, dict)], key=lambda x: int(x.get("Order") or 0)):
+    for a in sorted([x for x in actions or [] if isinstance(x, dict)], key=lambda x: _int(x.get("Order"), 0)):
         cname = a.get("IRCommandName") or a.get("CommandName") or ""
         if not cname:
             continue
@@ -183,7 +221,7 @@ def migrate_stock_devices(device_list_path: str, function_list_path: Optional[st
         mfg = d.get("Manufacturer") or ""
         mdl = d.get("Model") or ""
         disp_type = d.get("DeviceTypeDisplayName") or d.get("Type") or ""
-        transport = int(d.get("Transport") or TRANSPORT_IR)
+        transport = _int(d.get("Transport"), TRANSPORT_IR)
 
         # Transport is a bitmask. A device with IR stays IR (e.g. 33 = IR + Bluetooth keyboard);
         # only a Bluetooth-only device becomes BT.
@@ -198,14 +236,14 @@ def migrate_stock_devices(device_list_path: str, function_list_path: Optional[st
         cmd_transport = TRANSPORT_BT if is_bt else TRANSPORT_IR
 
         cp = d.get("ControlPort")
-        control_port = int(cp) if cp is not None else 7
+        control_port = _int(cp, 7, keep_zero=True)
 
-        inter_device = int(d.get("InterDeviceDelay") or 500)
-        inter_key = int(d.get("InterKeyDelay") or 100)
-        hold_inter_key = int(d.get("HoldInterKeyDelay") or 200)
-        default_inter = int(d.get("DefaultInterDeviceDelay") or 500)
+        inter_device = _int(d.get("InterDeviceDelay"), 500)
+        inter_key = _int(d.get("InterKeyDelay"), 100)
+        hold_inter_key = _int(d.get("HoldInterKeyDelay"), 200)
+        default_inter = _int(d.get("DefaultInterDeviceDelay"), 500)
         power = _stock_feature(item, "PowerFeature")
-        power_on_delay = int(power.get("PowerOnDelay") or d.get("PowerOnDelay") or 1500)
+        power_on_delay = _int(power.get("PowerOnDelay") or d.get("PowerOnDelay"), 1500)
 
         bdaddr = d.get("BTAddress") or ""
 
@@ -239,9 +277,10 @@ def migrate_stock_devices(device_list_path: str, function_list_path: Optional[st
                 "keyCode": key_code,
                 "raw": raw_str
             }
+            # No "repeats": stock keeps a repeat count per device (PressMinRepeats), not per
+            # command, and a held key repeats on the Hub by itself. The Hub's default applies.
             if not is_bt and not is_mqtt:
                 cmd_obj["port"] = control_port
-                cmd_obj["repeats"] = int(c.get("Repeats") or 3)
 
             clean_cmds.append(cmd_obj)
 
@@ -319,14 +358,14 @@ def load_stock_device_inputs(device_list_path: Optional[str]) -> Dict[str, Dict[
             iname = str(inp.get("InputName") or "").strip()
             if iname and iname.lower() not in inputs:
                 inputs[iname.lower()] = _stock_action_steps(inp.get("Actions"))
-        out[did] = {"delay": int(feat.get("InputDelay") or 0), "type": feat.get("InputType"), "inputs": inputs,
+        out[did] = {"delay": _int(feat.get("InputDelay"), 0), "type": feat.get("InputType"), "inputs": inputs,
                     "name": d.get("Name") or did}
     return out
 
 
 def _sorted_roles(a: Dict[str, Any]) -> List[Dict[str, Any]]:
     roles = [r for r in a.get("Roles") or [] if isinstance(r, dict)]
-    return sorted(roles, key=lambda r: int(r.get("PowerOnOrder") or r.get("order") or 999))
+    return sorted(roles, key=lambda r: _int(r.get("PowerOnOrder") or r.get("order"), 999))
 
 
 def _role_device(r: Dict[str, Any]) -> str:
@@ -421,12 +460,12 @@ def migrate_stock_activities(activity_list_path: str, device_list_path: Optional
 
         name = a.get("Name") or ("PowerOff" if new_id == "-1" else "Activity")
         disp_type = a.get("SuggestedDisplay") or a.get("Type") or "Generic"
-        order = int(a.get("ActivityOrder") or a.get("Order") or 0)
+        order = _int(a.get("ActivityOrder") or a.get("Order"), 0)
         icon = a.get("Icon") or resolve_activity_icon(name, disp_type)
 
         # deviceIds: sort roles by PowerOnOrder
         roles = a.get("Roles") or []
-        sorted_roles = sorted(roles, key=lambda r: int(r.get("PowerOnOrder") or r.get("order") or 999))
+        sorted_roles = sorted(roles, key=lambda r: _int(r.get("PowerOnOrder") or r.get("order"), 999))
         dev_ids = []
         for r in sorted_roles:
             did = str(r.get("DeviceId-") or r.get("DeviceId") or r.get("deviceId") or "").strip()
@@ -480,7 +519,7 @@ def migrate_stock_activities(activity_list_path: str, device_list_path: Optional
                 "deviceId": str(s.get("DeviceId-") or s.get("DeviceId") or s.get("deviceId") or "0"),
                 "command": "Switched" if is_sw else cname,
                 "delay": del_val,
-                "order": int(s.get("Order") or s.get("ActionOrder") or idx)
+                "order": _int(s.get("Order") or s.get("ActionOrder"), idx)
             }
             norm_stop.append(step_obj)
 
@@ -498,12 +537,21 @@ def migrate_stock_activities(activity_list_path: str, device_list_path: Optional
     return {"activities": clean_activities}, id_map
 
 
+# Keys whose value is a device id: steps, power sequences, Bluetooth trigger, remote map buttons
+DEVICE_REF_KEYS = ("deviceId", "DeviceId", "DeviceId-", "btTriggerDeviceId", "targetDevice")
+
+
+def rf_id_too_long(device_id: Any) -> bool:
+    """True when the id does not fit the RF device id field (bytes, not characters)."""
+    return len(str(device_id).encode("utf-8")) > RF_DEVICE_ID_MAX
+
+
 def _remap_device_refs(obj: Any, dev_map: Dict[str, str]) -> Any:
     """Recursively rewrite device id references (deviceId / DeviceId / DeviceId- keys)."""
     if isinstance(obj, dict):
         out = {}
         for k, v in obj.items():
-            if k in ("deviceId", "DeviceId", "DeviceId-", "btTriggerDeviceId") and str(v) in dev_map:
+            if k in DEVICE_REF_KEYS and str(v) in dev_map:
                 out[k] = dev_map[str(v)]
             else:
                 out[k] = _remap_device_refs(v, dev_map)
@@ -511,6 +559,27 @@ def _remap_device_refs(obj: Any, dev_map: Dict[str, str]) -> Any:
     if isinstance(obj, list):
         return [_remap_device_refs(v, dev_map) for v in obj]
     return obj
+
+
+def apply_device_id_map(devices_obj: Dict[str, Any], activities_obj: Optional[Dict[str, Any]],
+                        dev_map: Dict[str, str]) -> None:
+    """Rewrite device ids (old -> new) in the devices and every reference to them in the
+    devices (power sequences, Bluetooth trigger) and the activities, in place."""
+    if not dev_map:
+        return
+    devices_obj["devices"] = [_remap_device_refs(d, dev_map) for d in devices_obj.get("devices", [])]
+    for d in devices_obj["devices"]:
+        old_id = str(d.get("id", ""))
+        if old_id in dev_map:
+            d["id"] = dev_map[old_id]
+
+    if activities_obj:
+        acts = []
+        for a in activities_obj.get("activities", []):
+            a = _remap_device_refs(a, dev_map)
+            a["deviceIds"] = [dev_map.get(str(did), str(did)) for did in a.get("deviceIds", [])]
+            acts.append(a)
+        activities_obj["activities"] = acts
 
 
 def shorten_stock_device_ids(devices_obj: Dict[str, Any], activities_obj: Optional[Dict[str, Any]]) -> Dict[str, str]:
@@ -528,22 +597,7 @@ def shorten_stock_device_ids(devices_obj: Dict[str, Any], activities_obj: Option
             continue
         dev_map[old_id] = str(next_id)
         next_id += 1
-    if not dev_map:
-        return dev_map
-
-    devices_obj["devices"] = [_remap_device_refs(d, dev_map) for d in devices_obj.get("devices", [])]
-    for d in devices_obj["devices"]:
-        old_id = str(d.get("id", ""))
-        if old_id in dev_map:
-            d["id"] = dev_map[old_id]
-
-    if activities_obj:
-        acts = []
-        for a in activities_obj.get("activities", []):
-            a = _remap_device_refs(a, dev_map)
-            a["deviceIds"] = [dev_map.get(str(did), str(did)) for did in a.get("deviceIds", [])]
-            acts.append(a)
-        activities_obj["activities"] = acts
+    apply_device_id_map(devices_obj, activities_obj, dev_map)
     return dev_map
 
 
@@ -664,7 +718,7 @@ def generate_stock_remote_maps(map_list_path: str, devices_obj: Dict[str, Any], 
             elif btype == "SoftRemoteButton":
                 if is_act:
                     menu = b.get("MenuItem") or {}
-                    soft.append(((int(b.get("FunctionGroupType") or 0), int(menu.get("IndexInMenu") or 0)),
+                    soft.append(((_int(b.get("FunctionGroupType"), 0), _int(menu.get("IndexInMenu"), 0)),
                                  dict(entry, label=str(b.get("TextOnRemote") or cmd)[:12])))
             else:
                 dropped["gestures"] = dropped.get("gestures", 0) + 1
@@ -719,6 +773,85 @@ def remap_remote_map_activities(map_obj: Dict[str, Any], id_map: Dict[str, str])
     return map_obj
 
 
+def remap_remote_map_devices(map_obj: Any, dev_map: Dict[str, str]) -> Any:
+    """Rewrite device ids in a remote button map: the "devices" keys and every deviceId value."""
+    if not dev_map or not isinstance(map_obj, dict):
+        return map_obj
+    out = _remap_device_refs(map_obj, dev_map)
+    devs = out.get("devices")
+    if isinstance(devs, dict):
+        out["devices"] = {dev_map.get(str(k), str(k)): v for k, v in devs.items()}
+    return out
+
+
+def collect_device_refs(obj: Any) -> set:
+    """Every device id an object refers to: DEVICE_REF_KEYS values, "deviceIds" lists and the
+    keys of a remote map's "devices" object."""
+    refs: set = set()
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k in DEVICE_REF_KEYS and isinstance(v, (str, int)) and not isinstance(v, bool):
+                refs.add(str(v))
+            elif k == "deviceIds" and isinstance(v, list):
+                refs.update(str(x) for x in v if isinstance(x, (str, int)) and not isinstance(x, bool))
+            elif k == "devices" and isinstance(v, dict):
+                refs.update(str(x) for x in v)
+            refs |= collect_device_refs(v)
+    elif isinstance(obj, list):
+        for v in obj:
+            refs |= collect_device_refs(v)
+    return refs
+
+
+def shorten_long_device_ids(devices_obj: Optional[Dict[str, Any]], activities_obj: Optional[Dict[str, Any]],
+                            warnings: List[str], maps: Optional[List[Any]] = None) -> Dict[str, str]:
+    """Give a short id to every device whose id the RF protocol cannot carry, on any import path.
+
+    A harmony-ng config or bundle can hold long ids (an import made before stock ids were
+    shortened, or devices added by other tools). Devices whose id already fits keep it; each
+    long id gets the lowest free number that no device has and nothing refers to: a reference
+    left over from a deleted device (in the activities, the devices or the remote maps given in
+    maps) never ends up pointing at a renumbered device, and map keys never collide. Every
+    reference follows (activities, power sequences, Bluetooth trigger; the caller remaps the
+    remote maps). Returns the old -> new map (empty when every id already fits)."""
+    if not devices_obj:
+        return {}
+    devs = [d for d in devices_obj.get("devices", []) if isinstance(d, dict)]
+    used = {str(d.get("id", "")) for d in devs if not rf_id_too_long(d.get("id", ""))}
+    used |= collect_device_refs(devices_obj) | collect_device_refs(activities_obj) | collect_device_refs(maps or [])
+    dev_map: Dict[str, str] = {}
+    next_id = 1
+    for d in devs:
+        old_id = str(d.get("id", ""))
+        if not rf_id_too_long(old_id) or old_id in dev_map:
+            continue
+        while str(next_id) in used:
+            next_id += 1
+        dev_map[old_id] = str(next_id)
+        used.add(str(next_id))
+    if dev_map:
+        apply_device_id_map(devices_obj, activities_obj, dev_map)
+        warnings.append(f"device ids longer than the {RF_DEVICE_ID_MAX} bytes the RF protocol carries were renumbered: "
+                        + ", ".join(f"{o} -> {n}" for o, n in dev_map.items()))
+    return dev_map
+
+
+def _read_config_maps(cfg_dir: Optional[str]) -> List[Any]:
+    """The remote maps of a config folder, read only for the device ids they refer to."""
+    maps: List[Any] = []
+    if not cfg_dir:
+        return maps
+    for name in ("remote_slot1_map.json", "elite_remote_map.json", "remote_slot2_map.json", "bt_remote_map.json"):
+        path = os.path.join(cfg_dir, name)
+        if os.path.isfile(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    maps.append(json.load(f))
+            except (OSError, ValueError):
+                pass  # read again (and reported) when the map itself is migrated
+    return maps
+
+
 def check_step_commands(devices_obj: Dict[str, Any], activities_obj: Optional[Dict[str, Any]],
                         warnings: List[str]) -> None:
     """Warn about power and activity steps whose command doesn't exist on the target device."""
@@ -763,33 +896,46 @@ def sanitize_devices_json(devices_obj: Dict[str, Any]) -> Dict[str, Any]:
         did = str(d.get("id") or d.get("Id-") or d.get("Id") or "").strip()
         if not did:
             continue
+        # Same rule as the Hub's config_sanitize.c: transport 32 marks a Bluetooth device
+        transport = d.get("transport")
+        transport = transport if isinstance(transport, int) and not isinstance(transport, bool) else None
+        dtype = d.get("type") or ("BT" if transport == 32 else "IR")
+        is_bt = transport == 32 or str(dtype).lower() in ("bt", "bthid") or "bluetooth" in str(dtype).lower()
         clean_dev = {
             "id": did,
             "name": d.get("name") or d.get("Name") or "Device",
-            "type": d.get("type") or "IR",
+            "type": dtype,
             "manufacturer": d.get("manufacturer") or d.get("Manufacturer") or "",
             "model": d.get("model") or d.get("Model") or "",
-            "controlPort": int(d.get("controlPort") or 7),
+            "controlPort": _int(d.get("controlPort"), 7),
             "icon": d.get("icon") or "",
-            "interDeviceDelay": int(d.get("interDeviceDelay") or 500),
-            "interKeyDelay": int(d.get("interKeyDelay") or 100),
-            "holdInterKeyDelay": int(d.get("holdInterKeyDelay") or 200),
-            "defaultInterDeviceDelay": int(d.get("defaultInterDeviceDelay") or 500),
-            "powerOnDelay": int(d.get("powerOnDelay") or 1500),
+            "interDeviceDelay": _int(d.get("interDeviceDelay"), 500),
+            "interKeyDelay": _int(d.get("interKeyDelay"), 100),
+            "holdInterKeyDelay": _int(d.get("holdInterKeyDelay"), 200),
+            "defaultInterDeviceDelay": _int(d.get("defaultInterDeviceDelay"), 500),
+            "powerOnDelay": _int(d.get("powerOnDelay"), 1500),
             "isPowerAlwaysOn": bool(d.get("isPowerAlwaysOn")),
             "bdaddr": d.get("bdaddr") or d.get("btHost") or "",
             "btHost": d.get("bdaddr") or d.get("btHost") or "",
-            "btAutoReconnect": int(d.get("btAutoReconnect") if d.get("btAutoReconnect") is not None else 1),
-            "btReconnectDurationSec": int(d.get("btReconnectDurationSec") or 0),
-            "btReconnectDelaySec": int(d.get("btReconnectDelaySec") if d.get("btReconnectDelaySec") is not None else -1),
+            "btAutoReconnect": _int(d.get("btAutoReconnect"), 1, keep_zero=True),
+            "btReconnectDurationSec": _int(d.get("btReconnectDurationSec"), 0),
+            "btReconnectDelaySec": _int(d.get("btReconnectDelaySec"), -1, keep_zero=True),
             "btTriggerDeviceId": d.get("btTriggerDeviceId") or "",
             "btTriggerCommandName": d.get("btTriggerCommandName") or "",
             "powerOnSequence": d.get("powerOnSequence") or [],
             "powerOffSequence": d.get("powerOffSequence") or [],
             "commands": []
         }
+        if transport is not None:
+            clean_dev["transport"] = transport
         for idx, c in enumerate(d.get("commands", [])):
-            cname = c.get("name") or (c if isinstance(c, str) else "")
+            # A command is an object, or (older configs) just its name
+            if isinstance(c, str):
+                cname = c
+            elif isinstance(c, dict):
+                cname = c.get("name") or ""
+            else:
+                continue
             if not cname:
                 continue
             kcode = convert_hid_code(c.get("keyCode") if isinstance(c, dict) else "")
@@ -800,15 +946,17 @@ def sanitize_devices_json(devices_obj: Dict[str, Any]) -> Dict[str, Any]:
                 "keyCode": kcode,
                 "raw": raw
             }
-            if clean_dev["type"] == "IR":
-                cobj["repeats"] = int(c.get("repeats") or 3) if isinstance(c, dict) else 3
-                cobj["port"] = int(c.get("port") or clean_dev["controlPort"]) if isinstance(c, dict) else clean_dev["controlPort"]
+            if clean_dev["type"] == "IR" and not is_bt:
+                cobj["repeats"] = _int(c.get("repeats"), 3) if isinstance(c, dict) else 3
+                cobj["port"] = _int(c.get("port"), clean_dev["controlPort"]) if isinstance(c, dict) else clean_dev["controlPort"]
+            if isinstance(c, dict) and c.get("isMacro") is True:
+                cobj["isMacro"] = True
             clean_dev["commands"].append(cobj)
 
         if d.get("mqttEnabled") or clean_dev["type"] == "MQTT":
             clean_dev["mqttEnabled"] = True
             clean_dev["mqttTopic"] = d.get("mqttTopic") or "{base_topic}/button/{device}/{command}"
-            clean_dev["mqttPulseMs"] = int(d.get("mqttPulseMs") or 1000)
+            clean_dev["mqttPulseMs"] = _int(d.get("mqttPulseMs"), 1000)
 
         clean_devs.append(clean_dev)
 
@@ -858,8 +1006,10 @@ def sanitize_activities_json(activities_obj: Dict[str, Any]) -> Tuple[Dict[str, 
     # Check if shortening is required
     needs_short = False
     for a in acts:
+        if not isinstance(a, dict):
+            continue
         aid = str(a.get("id", ""))
-        if aid and aid != "-1" and (len(aid) > 2 or int(aid) > 63):
+        if aid and aid != "-1" and (len(aid) > 2 or not aid.isdigit() or int(aid) > 63):
             needs_short = True
             break
 
@@ -898,7 +1048,7 @@ def sanitize_activities_json(activities_obj: Dict[str, Any]) -> Tuple[Dict[str, 
                 "deviceId": str(s.get("deviceId") or s.get("DeviceId-") or s.get("DeviceId") or "0"),
                 "command": "Switched" if is_sw else cname,
                 "delay": del_val,
-                "order": int(s.get("order") if s.get("order") is not None else idx)
+                "order": _int(s.get("order"), idx, keep_zero=True)
             })
 
         # Normalize stopSequence
@@ -919,7 +1069,7 @@ def sanitize_activities_json(activities_obj: Dict[str, Any]) -> Tuple[Dict[str, 
                 "deviceId": str(s.get("deviceId") or s.get("DeviceId-") or s.get("DeviceId") or "0"),
                 "command": "Switched" if is_sw else cname,
                 "delay": del_val,
-                "order": int(s.get("order") if s.get("order") is not None else idx)
+                "order": _int(s.get("order"), idx, keep_zero=True)
             })
 
         clean_acts.append({
@@ -927,7 +1077,7 @@ def sanitize_activities_json(activities_obj: Dict[str, Any]) -> Tuple[Dict[str, 
             "name": a.get("name") or ("PowerOff" if new_id == "-1" else "Activity"),
             "type": a.get("type") or "Generic",
             "icon": a.get("icon") or resolve_activity_icon(a.get("name") or "", a.get("type") or ""),
-            "order": int(a.get("order") or 0),
+            "order": _int(a.get("order"), 0),
             "deviceIds": [str(did) for did in a.get("deviceIds", [])],
             "startSequence": norm_start,
             "stopSequence": norm_stop
@@ -994,17 +1144,35 @@ def migrate_directory(source_root: str, dest_harmony: str) -> Dict[str, Any]:
         devices_from_stock = True
 
     activities_from_stock = False
-    if (not activities_obj or not activities_obj.get("activities")) and res_dir:
-        act_list = os.path.join(res_dir, "ActivityList.json")
+    act_list = os.path.join(res_dir, "ActivityList.json") if res_dir else ""
+    if (not activities_obj or not activities_obj.get("activities")) and res_dir and not os.path.isfile(act_list):
+        warnings.append("ActivityList.json not found next to DeviceList.json: no activities migrated")
+    elif (not activities_obj or not activities_obj.get("activities")) and res_dir:
         dev_list = os.path.join(res_dir, "DeviceList.json") if devices_from_stock else None
         activities_obj, id_map = migrate_stock_activities(act_list, dev_list, warnings)
         activities_from_stock = True
+
+    # Legacy bt-devices.json: its host addresses go into devices.json. Its ids are the ids of
+    # the same config's devices.json, so it is merged before any id is renumbered.
+    if cfg_dir and devices_obj and not devices_from_stock:
+        for cand_b in [os.path.join(cfg_dir, "bt-devices.json"), os.path.join(cfg_dir, "bt_devices.json")]:
+            if os.path.isfile(cand_b):
+                try:
+                    with open(cand_b, "r", encoding="utf-8") as f:
+                        merge_bt_device_hosts(devices_obj, json.load(f))
+                except (OSError, ValueError) as e:
+                    warnings.append(f"{os.path.basename(cand_b)} not merged: {e}")
+                break
 
     # Stock device ids are 8+ digits; give them short ids like the activities
     dev_map: Dict[str, str] = {}
     if devices_from_stock and devices_obj:
         dev_map = shorten_stock_device_ids(devices_obj, activities_obj)
         check_step_commands(devices_obj, activities_obj, warnings)
+    else:
+        # A config from an older import can still hold stock ids; its maps follow the new ids
+        dev_map = shorten_long_device_ids(devices_obj, activities_obj, warnings, _read_config_maps(cfg_dir))
+    cfg_dev_map = {} if devices_from_stock else dev_map
 
     # Stock remote maps (MapList.json) and activity roles, for a full stock import
     stock_maps: List[Dict[str, Any]] = []
@@ -1015,17 +1183,6 @@ def migrate_directory(source_root: str, dest_harmony: str) -> Dict[str, Any]:
         map_list = os.path.join(res_dir, "MapList.json")
         if os.path.isfile(map_list):
             stock_maps = generate_stock_remote_maps(map_list, devices_obj, dev_map, id_map, warnings)
-
-    # Legacy bt-devices.json: its host addresses go into devices.json
-    if cfg_dir and devices_obj:
-        for cand_b in [os.path.join(cfg_dir, "bt-devices.json"), os.path.join(cfg_dir, "bt_devices.json")]:
-            if os.path.isfile(cand_b):
-                try:
-                    with open(cand_b, "r", encoding="utf-8") as f:
-                        merge_bt_device_hosts(devices_obj, json.load(f))
-                except (OSError, ValueError) as e:
-                    warnings.append(f"{os.path.basename(cand_b)} not merged: {e}")
-                break
 
     # Write devices.json and activities.json
     if devices_obj:
@@ -1076,6 +1233,7 @@ def migrate_directory(source_root: str, dest_harmony: str) -> Dict[str, Any]:
     if slot1_obj:
         if id_map:
             slot1_obj = remap_remote_map_activities(slot1_obj, id_map)
+        slot1_obj = remap_remote_map_devices(slot1_obj, cfg_dev_map)
     elif stock_maps:
         slot1_obj = _complete_remote_map(stock_maps[0], activities_obj, devices_obj, "Harmony Remote", roles)
     elif activities_obj and devices_obj:
@@ -1097,6 +1255,7 @@ def migrate_directory(source_root: str, dest_harmony: str) -> Dict[str, Any]:
     if slot2_obj:
         if id_map:
             slot2_obj = remap_remote_map_activities(slot2_obj, id_map)
+        slot2_obj = remap_remote_map_devices(slot2_obj, cfg_dev_map)
     elif len(stock_maps) > 1:
         slot2_obj = _complete_remote_map(stock_maps[1], activities_obj, devices_obj, "Harmony Companion", roles)
     elif activities_obj and devices_obj and res_dir:
@@ -1116,6 +1275,7 @@ def migrate_directory(source_root: str, dest_harmony: str) -> Dict[str, Any]:
                 bt_map_obj = json.load(f)
             if id_map:
                 bt_map_obj = remap_remote_map_activities(bt_map_obj, id_map)
+            bt_map_obj = remap_remote_map_devices(bt_map_obj, cfg_dev_map)
             with open(os.path.join(dest_harmony, "bt_remote_map.json"), "w", encoding="utf-8") as f:
                 json.dump(bt_map_obj, f, indent=2)
             stats["bt_remote_map"] = True
@@ -1124,7 +1284,7 @@ def migrate_directory(source_root: str, dest_harmony: str) -> Dict[str, Any]:
     if cfg_dir:
         for cand_m in [os.path.join(cfg_dir, "mqtt.json"), os.path.join(cfg_dir, "mqtt_config.json")]:
             if os.path.isfile(cand_m):
-                shutil.copyfile(cand_m, os.path.join(dest_harmony, "mqtt.json"))
+                _copy_secret(cand_m, os.path.join(dest_harmony, "mqtt.json"))
                 stats["mqtt"] = True
                 break
 
@@ -1136,7 +1296,7 @@ def migrate_directory(source_root: str, dest_harmony: str) -> Dict[str, Any]:
         for cand_k in ["btstack_keys.tlv", "btstack_keys.bin"]:
             kf = os.path.join(cfg_dir, cand_k)
             if os.path.isfile(kf):
-                shutil.copyfile(kf, os.path.join(dest_harmony, cand_k))
+                _copy_secret(kf, os.path.join(dest_harmony, cand_k))
 
     return stats
 
@@ -1147,21 +1307,34 @@ def migrate_bundle_file(bundle_path: str, dest_harmony: str) -> Dict[str, Any]:
     with open(bundle_path, "r", encoding="utf-8") as f:
         bundle = json.load(f)
 
-    stats: Dict[str, Any] = {"devices": 0, "activities": 0, "slot1_map": False, "slot2_map": False, "bt_remote_map": False, "mqtt": False, "settings": False}
+    stats: Dict[str, Any] = {"devices": 0, "activities": 0, "slot1_map": False, "slot2_map": False, "bt_remote_map": False,
+                             "mqtt": False, "settings": False, "bt_keys": False, "warnings": []}
+    warnings: List[str] = stats["warnings"]
 
+    dev_obj = None
     dev_data = bundle.get("devices")
     if dev_data:
         dev_obj = sanitize_devices_json(dev_data)
         # An old bundle's "bluetooth" section (bt-devices.json): its hosts go into devices.json
         merge_bt_device_hosts(dev_obj, bundle.get("bluetooth"))
-        with open(os.path.join(dest_harmony, "config", "devices.json"), "w", encoding="utf-8") as f:
-            json.dump(dev_obj, f, indent=2)
-        stats["devices"] = len(dev_obj.get("devices", []))
 
+    act_obj = None
     act_data = bundle.get("activities")
     id_map = {}
     if act_data:
         act_obj, id_map = sanitize_activities_json(act_data)
+
+    # A bundle from an older import can still hold stock device ids
+    dev_map = shorten_long_device_ids(dev_obj, act_obj, warnings,
+                                      [bundle.get(k) for k in ("remote_slot1_map", "elite_remote_map",
+                                                               "remote_slot2_map", "bt_remote_map")])
+
+    if dev_obj:
+        with open(os.path.join(dest_harmony, "config", "devices.json"), "w", encoding="utf-8") as f:
+            json.dump(dev_obj, f, indent=2)
+        stats["devices"] = len(dev_obj.get("devices", []))
+
+    if act_obj:
         with open(os.path.join(dest_harmony, "config", "activities.json"), "w", encoding="utf-8") as f:
             json.dump(act_obj, f, indent=2)
         stats["activities"] = len(act_obj.get("activities", []))
@@ -1174,36 +1347,22 @@ def migrate_bundle_file(bundle_path: str, dest_harmony: str) -> Dict[str, Any]:
 
     mqtt_data = bundle.get("mqtt")
     if mqtt_data:
-        with open(os.path.join(dest_harmony, "mqtt.json"), "w", encoding="utf-8") as f:
-            json.dump(mqtt_data, f, indent=2)
+        _write_secret(os.path.join(dest_harmony, "mqtt.json"), json.dumps(mqtt_data, indent=2).encode("utf-8"))
         stats["mqtt"] = True
 
-    # Slot 1 (RF)
-    s1_data = bundle.get("remote_slot1_map") or bundle.get("elite_remote_map")
-    if s1_data:
+    # Remote maps: slot 1, slot 2 (RF) and the Bluetooth remote
+    for key, alt, fname, stat in (("remote_slot1_map", "elite_remote_map", "remote_slot1_map.json", "slot1_map"),
+                                  ("remote_slot2_map", None, "remote_slot2_map.json", "slot2_map"),
+                                  ("bt_remote_map", None, "bt_remote_map.json", "bt_remote_map")):
+        map_data = bundle.get(key) or (bundle.get(alt) if alt else None)
+        if not map_data:
+            continue
         if id_map:
-            s1_data = remap_remote_map_activities(s1_data, id_map)
-        with open(os.path.join(dest_harmony, "remote_slot1_map.json"), "w", encoding="utf-8") as f:
-            json.dump(s1_data, f, indent=2)
-        stats["slot1_map"] = True
-
-    # Slot 2 (RF)
-    s2_data = bundle.get("remote_slot2_map")
-    if s2_data:
-        if id_map:
-            s2_data = remap_remote_map_activities(s2_data, id_map)
-        with open(os.path.join(dest_harmony, "remote_slot2_map.json"), "w", encoding="utf-8") as f:
-            json.dump(s2_data, f, indent=2)
-        stats["slot2_map"] = True
-
-    # Bluetooth Remote Map
-    bt_map_data = bundle.get("bt_remote_map")
-    if bt_map_data:
-        if id_map:
-            bt_map_data = remap_remote_map_activities(bt_map_data, id_map)
-        with open(os.path.join(dest_harmony, "bt_remote_map.json"), "w", encoding="utf-8") as f:
-            json.dump(bt_map_data, f, indent=2)
-        stats["bt_remote_map"] = True
+            map_data = remap_remote_map_activities(map_data, id_map)
+        map_data = remap_remote_map_devices(map_data, dev_map)
+        with open(os.path.join(dest_harmony, fname), "w", encoding="utf-8") as f:
+            json.dump(map_data, f, indent=2)
+        stats[stat] = True
 
     net_data = bundle.get("network")
     if net_data:
@@ -1212,19 +1371,20 @@ def migrate_bundle_file(bundle_path: str, dest_harmony: str) -> Dict[str, Any]:
 
     wifi_data = bundle.get("wifi")
     if wifi_data:
-        with open(os.path.join(dest_harmony, "wpa_supplicant.conf"), "w", encoding="utf-8") as f:
-            f.write(wifi_data if isinstance(wifi_data, str) else json.dumps(wifi_data))
+        _write_secret(os.path.join(dest_harmony, "wpa_supplicant.conf"),
+                      (wifi_data if isinstance(wifi_data, str) else json.dumps(wifi_data)).encode("utf-8"))
 
     bt_keys = bundle.get("btstack_keys")
-    if bt_keys and isinstance(bt_keys, str):
+    if bt_keys:
         try:
-            raw_keys = base64.b64decode(bt_keys)
-            with open(os.path.join(dest_harmony, "btstack_keys.tlv"), "wb") as f:
-                f.write(raw_keys)
-            with open(os.path.join(dest_harmony, "btstack_keys.bin"), "wb") as f:
-                f.write(raw_keys)
-        except Exception:
-            pass
+            if not isinstance(bt_keys, str):
+                raise ValueError("not a base64 string")
+            raw_keys = base64.b64decode("".join(bt_keys.split()), validate=True)
+            for name in ("btstack_keys.tlv", "btstack_keys.bin"):
+                _write_secret(os.path.join(dest_harmony, name), raw_keys)
+            stats["bt_keys"] = True
+        except (binascii.Error, ValueError, OSError) as e:
+            warnings.append(f"Bluetooth link keys not migrated ({e}): paired Bluetooth devices must be paired again")
 
     return stats
 
@@ -1233,16 +1393,44 @@ def migrate(src_path: str, dest_dir: str) -> Dict[str, Any]:
     """Migrate from source file/folder to destination harmony directory."""
     src = pathlib.Path(src_path).resolve()
     dest = pathlib.Path(dest_dir).resolve()
-    dest.mkdir(parents=True, exist_ok=True)
+    # The output can hold the Wi-Fi passphrase, MQTT password and Bluetooth link keys
+    if not dest.exists():
+        dest.mkdir(parents=True, mode=0o700)
+    # Migrate into a scratch folder next to dest and move the result in only when the whole
+    # migration worked, so a failure never leaves a half-migrated dest
+    import tempfile
+    work = tempfile.mkdtemp(prefix=".migrate_", dir=str(dest))
+    try:
+        stats = _migrate_into(src, work)
+        for root, _dirs, files in os.walk(work):
+            rel = os.path.relpath(root, work)
+            target_dir = dest if rel == "." else dest / rel
+            target_dir.mkdir(parents=True, exist_ok=True)
+            for name in files:
+                os.replace(os.path.join(root, name), target_dir / name)
+        return stats
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
+
+def _migrate_into(src: pathlib.Path, dest_dir: str) -> Dict[str, Any]:
+    dest = pathlib.Path(dest_dir)
     if src.is_file() and src.name.endswith(".tar.gz"):
         import tempfile
         tmp = tempfile.mkdtemp(prefix="harmony_tar_")
+        base = os.path.realpath(tmp)
+        # Python before 3.14 extracts without a filter: refuse member names that leave tmp
+        # ("../x", or an absolute name after the leading "/" of a Hub archive is removed)
+        extract_args = {"filter": "data"} if hasattr(tarfile, "data_filter") else {}
         try:
             with tarfile.open(src, "r:gz") as tar:
                 for m in tar.getmembers():
                     if m.isfile() or m.isdir():
-                        tar.extract(m, tmp)
+                        m.name = m.name.lstrip("/")
+                        target = os.path.realpath(os.path.join(base, m.name))
+                        if target != base and not target.startswith(base + os.sep):
+                            raise ValueError(f"Refusing archive member outside the extraction folder: {m.name}")
+                        tar.extract(m, tmp, **extract_args)
             return migrate_directory(tmp, str(dest))
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
@@ -1263,7 +1451,8 @@ def main() -> None:
     try:
         stats = migrate(args.src, args.dest)
     except Exception as e:
-        print(f"[-] Migration failed: {e}")
+        # stderr: build/deploy_hub.py reports the tool's stderr when a migration fails
+        print(f"[-] Migration failed: {type(e).__name__}: {e}", file=sys.stderr)
         sys.exit(1)
 
     print(f"[+] Migration complete -> {args.dest}")
@@ -1274,8 +1463,14 @@ def main() -> None:
     print(f"    Remote Slot 2 (Companion): {stats.get('slot2_map')}")
     print(f"    Bluetooth Remote Map: {stats.get('bt_remote_map')}")
     print(f"    MQTT: {stats.get('mqtt')}")
+    if "bt_keys" in stats:
+        print(f"    Bluetooth link keys: {stats.get('bt_keys')}")
+    print("    The output can hold the Wi-Fi passphrase, MQTT password and Bluetooth link keys:")
+    print("    those files are readable by you only; delete the folder once it is on the Hub.")
     for w in stats.get("warnings") or []:
         print(f"[!] {w}")
 
 if __name__ == "__main__":
+    if sys.version_info < (3, 13):
+        sys.exit(f"This tool needs Python 3.13 or newer (this is Python {sys.version.split()[0]}).")
     main()

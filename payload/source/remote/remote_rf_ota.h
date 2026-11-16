@@ -12,6 +12,9 @@ bool handle_ota_frame(const rf_frame_t *f);
 void handle_ota_data_frame(const uint8_t *pkt);
 /* Enter or leave OTA mode: sets g_is_ota_updating and the CC2544 power mode */
 void ota_set_updating(bool on);
+/* The main loop's check: a transfer without a chunk for 60 s leaves OTA mode (the progress stays
+ * saved for a resume). Tested again under g_ota_lock, and skipped while the RF thread holds it. */
+void ota_check_timeout(void);
 bool handle_icon_frame(const rf_frame_t *f);
 void render_ota_overlay(void);
 /* Install helpers (exposed for tests). ota_stage_file copies src to dst, a new file on the
@@ -21,6 +24,22 @@ void render_ota_overlay(void);
 int ota_sync_file(const char *path);
 int ota_stage_file(const char *src, const char *dst, uint64_t free_margin);
 int ota_replace_file(const char *new_path, const char *path, const char *bak_path);
+/* ota_replace_file for the binary, except that bak_path is kept as it is when self_exe (the
+ * running binary, /proc/self/exe) is that backup file */
+int ota_install_binary(const char *new_path, const char *path, const char *bak_path, const char *self_exe);
+/* Files of a package installed next to the binary (rcS.local, *.sh, remote_sync): each target
+ * gets <dst>.new by ota_stage_files (all or none: a failure removes the ones already staged) and
+ * then ota_commit_files renames them over their targets, keeping the old one as <dst>.bak.
+ * ota_package_files lists them (returns the count, -1 on error). */
+#define OTA_PATH_MAX 160
+#define OTA_MAX_PKG_FILES 24
+typedef struct {
+    char src[OTA_PATH_MAX];
+    char dst[OTA_PATH_MAX];
+} ota_file_t;
+int ota_package_files(const char *pkg_dir, const char *data_dir, const char *initd_dir, ota_file_t *files, int max);
+int ota_stage_files(const ota_file_t *files, int n, uint64_t free_margin);
+int ota_commit_files(const ota_file_t *files, int n);
 
 #ifdef __cplusplus
 }

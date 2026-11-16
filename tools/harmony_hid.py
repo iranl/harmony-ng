@@ -24,6 +24,10 @@ from typing import Optional, Tuple
 
 HARMONY_VID = 0x046D
 HUB_PID = 0xC129
+# 046D:C132 is the Harmony Pro 2400 Hub in the docs, but remote/setup_remote.py and
+# tools/usb_state.py also accept it for a remote, and which Pro device enumerates with it is not
+# verified on hardware. So the USB id is not trusted to tell the model: the firmware flasher checks
+# the skin the device reports, and the scripts the root tools stage exit on the wrong uname -m.
 HUB_PRO_PID = 0xC132
 REMOTE_PID = 0xC12B
 ALL_HUB_PIDS = (HUB_PID, HUB_PRO_PID)
@@ -895,8 +899,11 @@ class HarmonyHid:
         packets_per_chunk: int = 5,
         timeout_ms: int = 15000,
         progress_callback=None,
+        count_width: str = "word",
     ) -> bool:
         """Stream data in chunks of data frames (cmd 0x03)."""
+        if count_width not in ("byte", "word"):
+            raise ValueError(f"Unsupported count_width: {count_width!r}")
         data_frames = build_data_frames(data, chunk_size=62)
         total_data_frames = len(data_frames)
         sent_frames = 0
@@ -907,7 +914,13 @@ class HarmonyHid:
 
             # Command 0x03 parameters: [handle_id, total_reports_in_burst]
             total_reports = 1 + len(burst)
-            params = [encode_param_byte(handle_id), encode_param_word_be(total_reports)]
+            if count_width == "byte":
+                if total_reports > 0xFF:
+                    raise ValueError(f"Burst report count {total_reports} exceeds byte count_width")
+                count_param = encode_param_byte(total_reports)
+            else:
+                count_param = encode_param_word_be(total_reports)
+            params = [encode_param_byte(handle_id), count_param]
             cmd_frame = build_primary_frames(0x03, seq, params)[0]
 
             if not self.dev.write_report(cmd_frame):
@@ -946,23 +959,27 @@ class HarmonyHid:
         packets_per_chunk: int = 5,
         progress_callback=None,
     ) -> bool:
-        """Complete workflow: open -> write chunks -> close."""
+        """Complete workflow: open -> write chunks -> close. False when a report write failed:
+        the file on the device is then cut short."""
         handle_id = self.open_file_write(remote_path, size=len(data))
+        written = False
         try:
-            self.write_file_chunks(handle_id, data, packets_per_chunk, progress_callback=progress_callback)
-            return True
+            written = self.write_file_chunks(handle_id, data, packets_per_chunk, progress_callback=progress_callback)
         finally:
             self.close_file(handle_id)
+        return written
 
     def write_simple(self, remote_path: str, payload: bytes) -> bool:
-        """Write a small single-burst endpoint (e.g. /tde/enable or /sys/reboot)."""
+        """Write a small single-burst endpoint (e.g. /tde/enable or /sys/reboot). False when the
+        data report was not written."""
         handle_id = self.open_file_write(remote_path, size=len(payload))
+        written = False
         try:
-            if payload:
-                self.write_file_chunks(handle_id, payload, packets_per_chunk=1)
-            return True
+            burst_pkts = max(1, (len(payload) + 61) // 62)
+            written = self.write_file_chunks(handle_id, payload, packets_per_chunk=burst_pkts) if payload else True
         finally:
             self.close_file(handle_id)
+        return written
 
     def open_file_read(self, remote_path: str, timeout_ms: int = 15000) -> tuple[int, int]:
         """Open a file for reading via command 0x01 ('R'). Returns (handle_id, file_size)."""
@@ -1045,9 +1062,27 @@ class HarmonyHid:
             return True  # Device frequently resets USB bus immediately
 
     def provision_wifi(self, ssid: str, password: str, encryption: str = "WPA2-PSK") -> bool:
-        """Provision Wi-Fi directly over USB HID."""
+        """Provision Wi-Fi directly over USB HID in a single byte-counted burst."""
+        for field_name, val in (("ssid", ssid), ("password", password), ("encryption", encryption)):
+            if any(ch in val for ch in ("\r", "\n", "\x00")):
+                raise ValueError(f"Wi-Fi {field_name} must not contain CR, LF, or NUL characters")
         payload = f"ssid,{ssid}\npassword,{password}\nencryption,{encryption}\n".encode("utf-8")
-        return self.write_simple("/sys/wifi/connect", payload)
+        handle_id = self.open_file_write("/sys/wifi/connect", size=len(payload), timeout_ms=60000)
+        written = False
+        try:
+            written = self.write_file_chunks(
+                handle_id,
+                payload,
+                packets_per_chunk=50,
+                timeout_ms=100000,
+                count_width="byte",
+            )
+        finally:
+            try:
+                self.close_file(handle_id, timeout_ms=30000)
+            except Exception:
+                pass
+        return written
 
     def get_wifi_status(self) -> dict[str, str]:
         """Query Wi-Fi status over USB HID, returning parsed key-value dict."""

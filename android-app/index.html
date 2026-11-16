@@ -1117,21 +1117,21 @@
                       title="Delay before sending command to this device after another device"
                       data-i18n="inter_device_delay" data-i18n-title="inter_device_delay_title">Inter-Device Delay (ms)</label>
                     <input type="number" id="devInterDeviceDelay" class="form-control form-control-sm" placeholder="100"
-                      min="0" max="5000" step="25">
+                      min="0" max="10000" step="25">
                   </div>
                   <div>
                     <label class="mini muted" for="devInterKeyDelay"
                       title="Delay between successive key presses to this device" data-i18n-title="tooltip_interkey"
                       data-i18n="inter_key_delay">Inter-Key Delay (ms)</label>
                     <input type="number" id="devInterKeyDelay" class="form-control form-control-sm" placeholder="100"
-                      min="0" max="5000" step="25">
+                      min="0" max="10000" step="25">
                   </div>
                   <div>
                     <label class="mini muted" for="devHoldInterKeyDelay"
                       title="Delay between repeated commands when holding a button" data-i18n-title="tooltip_repeats"
                       data-i18n="hold_inter_key_delay">Hold Inter-Key Delay (ms)</label>
                     <input type="number" id="devHoldInterKeyDelay" class="form-control form-control-sm"
-                      placeholder="200" min="0" max="5000" step="25">
+                      placeholder="200" min="0" max="10000" step="25">
                   </div>
                   <div>
                     <label class="mini muted" for="devPowerOnDelay"
@@ -4183,7 +4183,7 @@ harmony_send_command:
             <div class="row">
               <div>
                 <label for="authUsername" class="mini muted" data-i18n="admin_username">Admin Username</label>
-                <input id="authUsername" class="form-control form-control-sm" value="admin">
+                <input id="authUsername" maxlength="31" class="form-control form-control-sm" value="admin">
               </div>
               <div>
                 <label for="authPassword" class="mini muted" data-i18n="admin_password">Admin Password</label>
@@ -4216,7 +4216,7 @@ harmony_send_command:
               <div class="row" style="gap: 8px;">
                 <div>
                   <label for="newUserName" class="mini muted" data-i18n="username">Username</label>
-                  <input id="newUserName" class="form-control form-control-sm" placeholder="e.g. family or guest"
+                  <input id="newUserName" maxlength="31" class="form-control form-control-sm" placeholder="e.g. family or guest"
                     data-i18n-placeholder="placeholder_user_example">
                 </div>
                 <div>
@@ -4385,12 +4385,12 @@ harmony_send_command:
               This will uninstall HarmonyNG software and restore official Logitech factory firmware and startup scripts.
             </p>
             <div
-              style="background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3); border-radius: 6px; padding: 10px; margin: 12px 0;">
-              <strong style="color: #22c55e; font-size: 13px;" data-i18n="configs_are_safe">✓ Your configurations are
-                safe:</strong>
-              <p style="font-size: 12px; margin: 4px 0 0 0; color: var(--text-muted);" data-i18n="revert_all_files_safe_note">
-                All activity, device, and remote mapping JSON files will remain safely stored on the Hub. When you
-                re-install HarmonyNG in the future, all your configurations will be picked up immediately.
+              style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 6px; padding: 10px; margin: 12px 0;">
+              <strong style="color: #ef4444; font-size: 13px;" data-i18n="configs_are_deleted">Everything harmony-ng
+                stored on the Hub is deleted:</strong>
+              <p style="font-size: 12px; margin: 4px 0 0 0; color: var(--text-muted);" data-i18n="revert_factory_warn_2">
+                Devices, activities, button maps, accounts and tokens, the Wi-Fi and MQTT settings, Bluetooth keys
+                and SSH access are deleted. Save a backup first.
               </p>
             </div>
             <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
@@ -4689,7 +4689,7 @@ harmony_send_command:
         <div style="margin-bottom: 14px;">
           <label for="loginUsername"
             style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 5px;" data-i18n="username">Username</label>
-          <input type="text" id="loginUsername" class="form-control" placeholder="admin" required
+          <input type="text" id="loginUsername" maxlength="31" class="form-control" placeholder="admin" required
             autocomplete="username" style="width: 100%;">
         </div>
         <div style="margin-bottom: 16px;">

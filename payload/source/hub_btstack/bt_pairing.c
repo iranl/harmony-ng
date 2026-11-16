@@ -1,6 +1,8 @@
+#include "bt_le_pair_window.h"
 #include "bt_pairing.h"
 #include "bt_remote.h"
 #include "bt_status_json.h"
+#include "../atomic_file.h"
 
 /* Hosts connected right now, kept in /tmp: after a hub_btstack restart (deploy, crash) the same
  * hosts are reconnected, not only the activity's. Gone after a reboot. */
@@ -11,6 +13,15 @@ static bool s_hosts_restore_done;
 static uint8_t s_hosts_saved[MAX_HOST_CONNS][6];
 static int s_hosts_saved_n = -1;
 
+#include "bt_wake_key.h"
+
+#ifndef HOST_TARGET_FILE
+#define HOST_TARGET_FILE "/data/harmony/bthid_host_target"
+#endif
+#ifndef DEVICES_FILE
+#define DEVICES_FILE "/data/harmony/config/devices.json"
+#endif
+
 discovered_remote_t g_discovered[MAX_DISCOVERED];
 int g_discovered_count = 0;
 bool g_user_scan_active = false;
@@ -19,7 +30,9 @@ time_t g_user_scan_end = 0;
 uint16_t get_target_host_hid_cid(void) {
     /* Once a target host is chosen (TARGET line), its keys go to it or nowhere: falling back to
      * another connected host sent e.g. Shield keys to a TV. Without a target (g_active_host_idx
-     * -1, e.g. the web UI's "Auto") any connected host is used, as before. */
+     * -1, e.g. the web UI's "Auto") any connected host is used, as before. A target that could
+     * not be used (BT_HOST_IDX_NONE) gets nothing. */
+    if (g_active_host_idx == BT_HOST_IDX_NONE) return 0;
     if (g_active_host_idx >= 0 && g_active_host_idx < MAX_HOST_CONNS) {
         if (g_hosts[g_active_host_idx].connected && g_hosts[g_active_host_idx].hid_cid) {
             return g_hosts[g_active_host_idx].hid_cid;
@@ -111,6 +124,9 @@ host_conn_t * register_host_target(const bd_addr_t addr, const char *name) {
     for (int i = 0; i < MAX_HOST_CONNS; i++) {
         if (is_null_bd_addr(g_hosts[i].addr)) {
             memcpy(g_hosts[i].addr, addr, 6);
+            /* no link yet: 0 is a valid connection handle, and a failed connection to this host
+             * used to call gap_disconnect(0), which can close another device's link */
+            g_hosts[i].acl_handle = HCI_CON_HANDLE_INVALID;
             if (name && name[0]) {
                 strncpy(g_hosts[i].name, name, sizeof(g_hosts[i].name) - 1);
                 g_hosts[i].name[sizeof(g_hosts[i].name) - 1] = '\0';
@@ -215,10 +231,13 @@ void update_status(const char *state_str) {
         h->paired = gap_get_link_key_for_bd_addr(ha, lk, &lkt);
         h->cid = g_hosts[i].hid_cid;
     }
-    FILE *f = fopen(STATUS_FILE, "w");
+    /* Written whole, then renamed over the old one: a reader (GET /api/bt-status) that came
+     * between the truncation and the write saw an empty file and answered "no hosts" */
+    FILE *f = fopen(STATUS_FILE ".new", "w");
     if (f) {
         bt_status_write(f, &v);
-        fclose(f);
+        if (fclose(f) == 0) rename(STATUS_FILE ".new", STATUS_FILE);
+        else unlink(STATUS_FILE ".new");
     }
     update_bthid_status();
 }
@@ -232,29 +251,20 @@ int get_pinned_target(bd_addr_t addr) {
     fclose(f);
     buf[rn] = 0;
     if (parse_bd_addr(buf, addr)) return 1;
-    char *p = strstr(buf, "bdaddr");
-    if (p) {
-        p = strchr(p, ':');
-        if (p) {
-            char mac[32] = "";
-            int i = 0;
-            while (*p && i < 20) {
-                if ((*p >= '0' && *p <= '9') || (*p >= 'a' && *p <= 'f') || (*p >= 'A' && *p <= 'F') || *p == ':') {
-                    mac[i++] = *p;
-                } else if (i > 0) {
-                    break;
-                }
-                p++;
-            }
-            mac[i] = 0;
-            if (parse_bd_addr(mac, addr)) return 1;
-        }
-    }
-    return 0;
+    /* bt_remote_map.json (hub_daemon's): "remote": {"bdaddr": ...}, or "bdaddr" at the top. The
+     * text search used before started on the colon after the key and never found the address,
+     * so a remote pinned only in the map (after a restore) was never looked for. */
+    cJSON *mj = cJSON_Parse(buf);
+    cJSON *rem = mj ? cJSON_GetObjectItemCaseSensitive(mj, "remote") : NULL;
+    cJSON *ja = rem ? cJSON_GetObjectItemCaseSensitive(rem, "bdaddr") : NULL;
+    if (!ja && mj) ja = cJSON_GetObjectItemCaseSensitive(mj, "bdaddr");
+    int found = ja && cJSON_IsString(ja) && parse_bd_addr(ja->valuestring, addr) && !is_null_bd_addr(addr);
+    cJSON_Delete(mj);
+    return found;
 }
 
 int get_pinned_host_target(bd_addr_t addr) {
-    const char *files[] = {"/data/harmony/bthid_host_target", "/data/harmony/config/devices.json", NULL};
+    const char *files[] = {HOST_TARGET_FILE, DEVICES_FILE, NULL};
     for (int fi = 0; files[fi]; fi++) {
         FILE *f = fopen(files[fi], "r");
         if (!f) continue;
@@ -262,7 +272,9 @@ int get_pinned_host_target(bd_addr_t addr) {
         size_t rn = fread(buf, 1, sizeof(buf) - 1, f);
         fclose(f);
         buf[rn] = 0;
-        for (char *p = buf; *p; p++) {
+        /* stop where a whole address no longer fits: the tests below read up to p[14], which
+         * near the end went past the data and past the buffer */
+        for (char *p = buf; p + 17 <= buf + rn; p++) {
             if (isxdigit((unsigned char)*p) && p[2] == ':' && p[5] == ':' && p[8] == ':' && p[11] == ':' && p[14] == ':') {
                 char mac[18];
                 strncpy(mac, p, 17);
@@ -311,39 +323,305 @@ static void device_name_for_id(const char *dev_id, char *out, size_t out_len) {
     fclose(f);
 }
 
-/* Ask hub_daemon to link the device (POST /api/bt-link-device on loopback, which it trusts).
- * hub_daemon owns devices.json and keeps it cached: a file written behind its back is not seen
- * by its command sending and is overwritten by the next device edit in the web UI. */
-static bool link_via_daemon(const char *dev_id, const char *addr_str) {
-    int s = socket(AF_INET, SOCK_STREAM, 0);
-    if (s < 0) return false;
-    struct timeval tv = { .tv_sec = 3, .tv_usec = 0 };
-    setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+/* ---- Device links handed to hub_daemon ----
+ * hub_daemon owns devices.json and keeps it cached: a file written behind its back (the fallback
+ * this replaces) was not seen by its command sending and was undone by the next device edit.
+ * A link is sent with POST /api/bt-link-device on loopback (trusted). The exchange runs on the
+ * run loop (non-blocking socket, a data source and a timeout timer): keys keep flowing while it
+ * waits. A link hub_daemon did not answer is kept and sent again after a pause that doubles from
+ * 1 s up to 60 s, until it answers. A link it refused (no such device) is dropped. */
+#define LINK_PENDING_MAX 8
+#define LINK_RETRY_FIRST_MS 1000
+#define LINK_RETRY_MAX_MS 60000
+#define LINK_EXCHANGE_TIMEOUT_MS 3000
+
+typedef struct {
+    char dev_id[64];
+    char addr[18];
+    uint8_t ok_false; /* 200 {"ok":false} answers so far (an older hub_daemon: no such device) */
+} link_job_t;
+
+/* An older hub_daemon answers 200 {"ok":false} for an unknown device (and for nothing else that
+ * could pass later, except a missing device id): after this many such answers the link is dropped */
+#define LINK_OK_FALSE_MAX 3
+
+typedef enum { LINK_OK = 0, LINK_REFUSED, LINK_NO_ANSWER, LINK_OK_FALSE } link_result_t;
+typedef enum { LINK_IDLE = 0, LINK_CONNECTING, LINK_READING } link_phase_t;
+
+static link_job_t s_links[LINK_PENDING_MAX];
+static int s_links_n;
+static uint32_t s_link_retry_ms = LINK_RETRY_FIRST_MS;
+static unsigned s_link_failures; /* tries in a row hub_daemon did not answer */
+static btstack_timer_source_t s_link_retry_timer;
+static bool s_link_pause; /* the retry timer is running */
+static btstack_timer_source_t s_link_timeout_timer;
+static btstack_data_source_t s_link_ds;
+static int s_link_fd = -1;
+static link_phase_t s_link_phase = LINK_IDLE;
+static char s_link_req[512];
+static size_t s_link_req_len, s_link_req_sent;
+static char s_link_resp[512];
+static size_t s_link_resp_len;
+/* the link being sent was replaced by a newer one: send it again after this answer */
+static bool s_link_resend;
+
+static void link_try_next(void);
+static void link_retry_handler(btstack_timer_source_t *ts);
+
+static void link_pop_front(void) {
+    if (s_links_n <= 0) return;
+    memmove(&s_links[0], &s_links[1], sizeof(s_links[0]) * (size_t)(s_links_n - 1));
+    s_links_n--;
+}
+
+/* 200 with {"ok":true} links it. 404 (no such device) and 400 refuse it: it can never succeed.
+ * Anything else is no answer and is sent again: nothing, a cut answer, a 200 without its body,
+ * 5xx (hub_daemon could not save it). A 200 {"ok":false} (older hub_daemon) is sent again up to
+ * LINK_OK_FALSE_MAX times. */
+static link_result_t link_parse_answer(const char *resp, size_t len) {
+    int code = 0;
+    if (len < 12 || strncmp(resp, "HTTP/1.", 7) != 0 || sscanf(resp + 8, " %3d", &code) != 1) return LINK_NO_ANSWER;
+    if (code == 404 || code == 400) return LINK_REFUSED;
+    if (code != 200) return LINK_NO_ANSWER;
+    const char *body = strstr(resp, "\r\n\r\n");
+    if (!body) return LINK_NO_ANSWER;
+    cJSON *j = cJSON_Parse(body + 4);
+    const cJSON *ok = cJSON_GetObjectItemCaseSensitive(j, "ok");
+    link_result_t r = cJSON_IsTrue(ok) ? LINK_OK : cJSON_IsFalse(ok) ? LINK_OK_FALSE : LINK_NO_ANSWER;
+    cJSON_Delete(j);
+    return r;
+}
+
+static void link_exchange_end(link_result_t r) {
+    if (s_link_fd >= 0) {
+        btstack_run_loop_remove_data_source(&s_link_ds);
+        close(s_link_fd);
+        s_link_fd = -1;
+    }
+    btstack_run_loop_remove_timer(&s_link_timeout_timer);
+    s_link_phase = LINK_IDLE;
+    if (s_links_n <= 0) return;
+    char msg[192];
+    if (s_link_resend) {
+        /* the answer is for the old address: the newer one goes now, whatever the answer was */
+        s_link_resend = false;
+        s_link_retry_ms = LINK_RETRY_FIRST_MS;
+        link_try_next();
+        return;
+    }
+    if (r == LINK_OK_FALSE) {
+        if (++s_links[0].ok_false >= LINK_OK_FALSE_MAX) {
+            snprintf(msg, sizeof(msg), "hub_daemon answered {\"ok\":false} %d times for the link of device %s: dropped",
+                     LINK_OK_FALSE_MAX, s_links[0].dev_id);
+            log_msg(msg);
+            link_pop_front();
+            s_link_failures = 0;
+            s_link_retry_ms = LINK_RETRY_FIRST_MS;
+            link_try_next();
+            return;
+        }
+        r = LINK_NO_ANSWER;
+    }
+    if (r == LINK_OK || r == LINK_REFUSED) {
+        if (r == LINK_OK) {
+            snprintf(msg, sizeof(msg), "Device %s linked to host %s by hub_daemon%s", s_links[0].dev_id, s_links[0].addr,
+                     s_link_failures ? " (after waiting for it)" : "");
+        } else {
+            snprintf(msg, sizeof(msg), "hub_daemon refused the link of device %s to host %s (no such device): not kept", s_links[0].dev_id, s_links[0].addr);
+        }
+        log_msg(msg);
+        link_pop_front();
+        s_link_failures = 0;
+        s_link_retry_ms = LINK_RETRY_FIRST_MS;
+        link_try_next();
+        return;
+    }
+    s_link_failures++;
+    /* the first miss, then once the pause is at its longest (about once a minute) */
+    if (s_link_failures == 1 || s_link_retry_ms >= LINK_RETRY_MAX_MS) {
+        snprintf(msg, sizeof(msg), "hub_daemon did not answer the link of device %s to host %s: trying again in %u s",
+                 s_links[0].dev_id, s_links[0].addr, (unsigned)(s_link_retry_ms / 1000));
+        log_msg(msg);
+    }
+    btstack_run_loop_remove_timer(&s_link_retry_timer);
+    btstack_run_loop_set_timer_handler(&s_link_retry_timer, link_retry_handler);
+    btstack_run_loop_set_timer(&s_link_retry_timer, s_link_retry_ms);
+    btstack_run_loop_add_timer(&s_link_retry_timer);
+    s_link_pause = true;
+    s_link_retry_ms = s_link_retry_ms * 2 > LINK_RETRY_MAX_MS ? LINK_RETRY_MAX_MS : s_link_retry_ms * 2;
+}
+
+static void link_timeout_handler(btstack_timer_source_t *ts) {
+    UNUSED(ts);
+    link_exchange_end(LINK_NO_ANSWER);
+}
+
+static void link_retry_handler(btstack_timer_source_t *ts) {
+    UNUSED(ts);
+    s_link_pause = false;
+    link_try_next();
+}
+
+static void link_ds_process(btstack_data_source_t *ds, btstack_data_source_callback_type_t type) {
+    UNUSED(ds);
+    if (s_link_phase == LINK_CONNECTING && (type & DATA_SOURCE_CALLBACK_WRITE)) {
+        int err = 0;
+        socklen_t elen = sizeof(err);
+        if (getsockopt(s_link_fd, SOL_SOCKET, SO_ERROR, &err, &elen) != 0 || err != 0) {
+            link_exchange_end(LINK_NO_ANSWER);
+            return;
+        }
+        while (s_link_req_sent < s_link_req_len) {
+            ssize_t n = send(s_link_fd, s_link_req + s_link_req_sent, s_link_req_len - s_link_req_sent, MSG_NOSIGNAL);
+            if (n > 0) {
+                s_link_req_sent += (size_t)n;
+            } else if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) {
+                return; /* the rest on the next write callback */
+            } else {
+                link_exchange_end(LINK_NO_ANSWER);
+                return;
+            }
+        }
+        btstack_run_loop_disable_data_source_callbacks(&s_link_ds, DATA_SOURCE_CALLBACK_WRITE);
+        btstack_run_loop_enable_data_source_callbacks(&s_link_ds, DATA_SOURCE_CALLBACK_READ);
+        s_link_phase = LINK_READING;
+        return;
+    }
+    if (s_link_phase == LINK_READING && (type & DATA_SOURCE_CALLBACK_READ)) {
+        for (;;) {
+            if (s_link_resp_len >= sizeof(s_link_resp) - 1) break; /* enough to judge */
+            ssize_t n = recv(s_link_fd, s_link_resp + s_link_resp_len, sizeof(s_link_resp) - 1 - s_link_resp_len, 0);
+            if (n > 0) {
+                s_link_resp_len += (size_t)n;
+                s_link_resp[s_link_resp_len] = '\0';
+                continue;
+            }
+            if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) return; /* more later */
+            break; /* the end of the answer (Connection: close), or an error */
+        }
+        s_link_resp[s_link_resp_len] = '\0';
+        link_exchange_end(link_parse_answer(s_link_resp, s_link_resp_len));
+    }
+}
+
+/* Send the oldest waiting link, unless an exchange or a pause is running */
+static void link_try_next(void) {
+    if (s_link_phase != LINK_IDLE || s_links_n <= 0) return;
+    btstack_run_loop_remove_timer(&s_link_retry_timer);
+    s_link_pause = false;
+    cJSON *b = cJSON_CreateObject();
+    cJSON_AddStringToObject(b, "deviceId", s_links[0].dev_id);
+    cJSON_AddStringToObject(b, "bdaddr", s_links[0].addr);
+    char *body = cJSON_PrintUnformatted(b);
+    cJSON_Delete(b);
+    int rlen = body ? snprintf(s_link_req, sizeof(s_link_req),
+                               "POST /api/bt-link-device HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n"
+                               "Content-Length: %u\r\nConnection: close\r\n\r\n%s", (unsigned)strlen(body), body) : -1;
+    free(body);
+    if (rlen <= 0 || rlen >= (int)sizeof(s_link_req)) {
+        link_exchange_end(LINK_REFUSED); /* cannot be sent: drop it */
+        return;
+    }
+    s_link_req_len = (size_t)rlen;
+    s_link_req_sent = 0;
+    s_link_resp_len = 0;
+    s_link_resp[0] = '\0';
+
+    s_link_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (s_link_fd < 0) {
+        link_exchange_end(LINK_NO_ANSWER);
+        return;
+    }
+    int fl = fcntl(s_link_fd, F_GETFL, 0);
+    fcntl(s_link_fd, F_SETFL, (fl < 0 ? 0 : fl) | O_NONBLOCK);
+    fcntl(s_link_fd, F_SETFD, FD_CLOEXEC);
     struct sockaddr_in sin;
     memset(&sin, 0, sizeof(sin));
     sin.sin_family = AF_INET;
     sin.sin_port = htons(DAEMON_PORT);
     sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    bool ok = false;
-    if (connect(s, (struct sockaddr *)&sin, sizeof(sin)) == 0) {
-        char body[160], req[400];
-        int blen = snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"bdaddr\":\"%s\"}", dev_id, addr_str);
-        int rlen = snprintf(req, sizeof(req),
-                            "POST /api/bt-link-device HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n"
-                            "Content-Length: %d\r\nConnection: close\r\n\r\n%s", blen, body);
-        if (blen > 0 && blen < (int)sizeof(body) && rlen > 0 && rlen < (int)sizeof(req) &&
-            send(s, req, (size_t)rlen, MSG_NOSIGNAL) == rlen) {
-            char resp[512];
-            size_t got = 0;
-            ssize_t n;
-            while (got < sizeof(resp) - 1 && (n = recv(s, resp + got, sizeof(resp) - 1 - got, 0)) > 0) got += (size_t)n;
-            resp[got] = '\0';
-            ok = strncmp(resp, "HTTP/1.1 200", 12) == 0 && strstr(resp, "\"ok\":true") != NULL;
+    if (connect(s_link_fd, (struct sockaddr *)&sin, sizeof(sin)) != 0 && errno != EINPROGRESS) {
+        close(s_link_fd);
+        s_link_fd = -1;
+        link_exchange_end(LINK_NO_ANSWER); /* hub_daemon not listening (restarting) */
+        return;
+    }
+    s_link_phase = LINK_CONNECTING;
+    memset(&s_link_ds, 0, sizeof(s_link_ds));
+    btstack_run_loop_set_data_source_fd(&s_link_ds, s_link_fd);
+    btstack_run_loop_set_data_source_handler(&s_link_ds, link_ds_process);
+    btstack_run_loop_enable_data_source_callbacks(&s_link_ds, DATA_SOURCE_CALLBACK_WRITE);
+    btstack_run_loop_add_data_source(&s_link_ds);
+    btstack_run_loop_set_timer_handler(&s_link_timeout_timer, link_timeout_handler);
+    btstack_run_loop_remove_timer(&s_link_timeout_timer);
+    btstack_run_loop_set_timer(&s_link_timeout_timer, LINK_EXCHANGE_TIMEOUT_MS);
+    btstack_run_loop_add_timer(&s_link_timeout_timer);
+}
+
+/* Queue a link and send it as soon as nothing else is being sent. A newer link of the same device
+ * replaces a waiting one. */
+static void link_queue(const char *dev_id, const char *addr_str) {
+    int i;
+    for (i = 0; i < s_links_n; i++) {
+        if (strcmp(s_links[i].dev_id, dev_id) == 0) break;
+    }
+    if (i == s_links_n) {
+        if (s_links_n == LINK_PENDING_MAX) {
+            char msg[128];
+            snprintf(msg, sizeof(msg), "Too many device links waiting: link of device %s dropped", s_links[s_links_n - 1].dev_id);
+            log_msg(msg);
+            i = s_links_n - 1; /* the front may be in flight: replace the newest */
+        } else {
+            s_links_n++;
         }
     }
-    close(s);
-    return ok;
+    if (i == 0 && s_link_phase != LINK_IDLE && strcmp(s_links[0].addr, addr_str) != 0) {
+        /* That link is being sent with the old address. Its request may have reached hub_daemon
+         * already: let it finish (answer or 3 s timeout), then send the new one, so that the old
+         * one is not applied after it. The same address again needs nothing more. */
+        s_link_resend = true;
+    }
+    snprintf(s_links[i].dev_id, sizeof(s_links[i].dev_id), "%s", dev_id);
+    snprintf(s_links[i].addr, sizeof(s_links[i].addr), "%s", addr_str);
+    s_links[i].ok_false = 0;
+    /* a new link does not wait for the pause of an older one */
+    s_link_retry_ms = LINK_RETRY_FIRST_MS;
+    link_try_next();
+}
+
+/* Drop waiting links to this host (it was forgotten); one being sent is abandoned. The pause and
+ * the count of tries without an answer belong to the front link: when it goes, they go with it and
+ * the next link is sent at once (hub_daemon just sent the forget command, so it answers). */
+static void link_drop_host(const bd_addr_t addr) {
+    int w = 0;
+    bool front_gone = false;
+    for (int r = 0; r < s_links_n; r++) {
+        bd_addr_t a;
+        if (parse_bd_addr(s_links[r].addr, a) && memcmp(a, addr, 6) == 0) {
+            if (r == 0) front_gone = true;
+            if (r == 0 && s_link_phase != LINK_IDLE) {
+                s_link_resend = false;
+                if (s_link_fd >= 0) {
+                    btstack_run_loop_remove_data_source(&s_link_ds);
+                    close(s_link_fd);
+                    s_link_fd = -1;
+                }
+                btstack_run_loop_remove_timer(&s_link_timeout_timer);
+                s_link_phase = LINK_IDLE;
+            }
+            continue;
+        }
+        if (w != r) s_links[w] = s_links[r];
+        w++;
+    }
+    s_links_n = w;
+    if (s_links_n == 0 || front_gone) {
+        btstack_run_loop_remove_timer(&s_link_retry_timer);
+        s_link_pause = false;
+        s_link_failures = 0;
+        s_link_retry_ms = LINK_RETRY_FIRST_MS;
+    }
+    if (s_links_n > 0 && s_link_phase == LINK_IDLE && !s_link_pause) link_try_next();
 }
 
 void link_bt_device_to_addr(const char *dev_id, const char *addr_str) {
@@ -356,66 +634,8 @@ void link_bt_device_to_addr(const char *dev_id, const char *addr_str) {
 
     /* config/devices.json is the only device-to-host mapping; bt-devices.json, which used to
      * hold a second copy, is no longer written (hub_daemon folds old copies in, bt_migrate.c).
-     * hub_daemon writes it; editing the file directly is the fallback when it does not answer. */
-    bool linked = link_via_daemon(dev_id, addr_str);
-    if (linked) {
-        log_msg("Device link saved by hub_daemon");
-    } else {
-        log_msg("hub_daemon did not confirm the device link, writing devices.json directly");
-    }
-    const char *dpath = "/data/harmony/config/devices.json";
-    FILE *df = linked ? NULL : fopen(dpath, "r");
-    if (df) {
-        fseek(df, 0, SEEK_END);
-        long dsz = ftell(df);
-        fseek(df, 0, SEEK_SET);
-        if (dsz > 0 && dsz < 1000000) {
-            char *dbuf = (char *)malloc(dsz + 1);
-            if (dbuf) {
-                size_t dr = fread(dbuf, 1, dsz, df);
-                dbuf[dr] = 0;
-                cJSON *droot = cJSON_Parse(dbuf);
-                free(dbuf);
-                if (droot) {
-                    cJSON *ddevs = cJSON_GetObjectItemCaseSensitive(droot, "devices");
-                    if (ddevs && cJSON_IsArray(ddevs)) {
-                        cJSON *ditem = NULL;
-                        cJSON_ArrayForEach(ditem, ddevs) {
-                            cJSON *jid = cJSON_GetObjectItemCaseSensitive(ditem, "id");
-                            char d_id_str[32] = {0};
-                            if (jid && cJSON_IsNumber(jid)) snprintf(d_id_str, sizeof(d_id_str), "%ld", (long)jid->valuedouble);
-                            else if (jid && cJSON_IsString(jid)) strncpy(d_id_str, jid->valuestring, sizeof(d_id_str) - 1);
-                            if (strcmp(d_id_str, dev_id) == 0) {
-                                cJSON_DeleteItemFromObjectCaseSensitive(ditem, "btHost");
-                                cJSON_DeleteItemFromObjectCaseSensitive(ditem, "bdaddr");
-                                cJSON_AddStringToObject(ditem, "bdaddr", addr_str);
-                                char *dout = cJSON_Print(droot);
-                                if (dout) {
-                                    char tmp_dpath[128];
-                                    snprintf(tmp_dpath, sizeof(tmp_dpath), "%s.tmp", dpath);
-                                    FILE *dwf = fopen(tmp_dpath, "w");
-                                    if (dwf) {
-                                        fputs(dout, dwf);
-                                        fputc('\n', dwf);
-                                        fclose(dwf);
-                                        linked = (rename(tmp_dpath, dpath) == 0);
-                                    }
-                                    free(dout);
-                                }
-                                break;
-                            }
-                        }
-                    }
-                    cJSON_Delete(droot);
-                }
-            }
-        }
-        fclose(df);
-    }
-    if (!linked) {
-        snprintf(msg, sizeof(msg), "Device %s not saved in devices.json: host %s not linked", dev_id, addr_str);
-        log_msg(msg);
-    }
+     * Only hub_daemon writes it: the link waits here until hub_daemon has taken it. */
+    link_queue(dev_id, addr_str);
 
     /* Show the linked device's name for the host right away; until hub_btstack restarted, a
      * host paired from the web UI was listed as "Host <bdaddr>" */
@@ -428,6 +648,123 @@ void link_bt_device_to_addr(const char *dev_id, const char *addr_str) {
         }
         update_status(app_state == APP_READY ? "ready" : "standby");
     }
+}
+
+/* An outgoing HID connection failed (also when it is cancelled: closing a channel that still waits
+ * for its link reports "open failed" at once, inside hid_device_disconnect()). The reconnect loop is
+ * restarted only for a host still in the table: a host that was just forgotten must stay gone. */
+void host_open_failed(const bd_addr_t conn_addr_in, uint16_t cid, uint8_t status) {
+    bd_addr_t conn_addr;
+    memcpy(conn_addr, conn_addr_in, 6);
+    g_host_connecting = false;
+    char msg[128];
+    snprintf(msg, sizeof(msg), "Classic HID Host connection to %s failed (0x%02x)", bd_addr_to_str(conn_addr), status);
+    log_msg(msg);
+    bool known = false;
+    for (int i = 0; i < MAX_HOST_CONNS; i++) {
+        bool same = memcmp(g_hosts[i].addr, conn_addr, 6) == 0;
+        if (same && !is_null_bd_addr(conn_addr)) known = true;
+        if (same || g_hosts[i].hid_cid == cid) {
+            g_hosts[i].connected = false;
+            g_hosts[i].hid_cid = 0;
+            if (g_hosts[i].acl_handle != HCI_CON_HANDLE_INVALID) {
+                gap_disconnect(g_hosts[i].acl_handle);
+                g_hosts[i].acl_handle = HCI_CON_HANDLE_INVALID;
+            }
+        }
+    }
+    g_host_connected = is_any_host_connected();
+    g_host_hid_cid = get_target_host_hid_cid();
+    update_status(app_state == APP_READY ? "ready" : "standby");
+    update_bthid_status();
+    char cur_act[64] = "-1";
+    read_current_activity(cur_act, sizeof(cur_act));
+    if (!g_host_pairing && cur_act[0] && strcmp(cur_act, "-1") != 0 && strcasecmp(cur_act, "poweroff") != 0) {
+        if (known && !g_host_reconnect_active && !host_manual_disconnect(conn_addr)) {
+            start_host_reconnect(conn_addr, MAX_HOST_RECONNECT_ATTEMPTS);
+        }
+    } else {
+        log_msg("Host disconnected while Activity is PowerOff, suppressing reconnect");
+    }
+}
+
+/* host_forget <addr>: remove a classic host for good. Its link key goes (so it cannot reconnect
+ * outside pairing mode: a new pairing request is refused), its link is closed, it leaves the host
+ * table and every reconnect list, and no kept key or waiting device link goes to it. hub_daemon
+ * clears the devices linked to it and the default host file before it sends the command. */
+void forget_classic_host(const bd_addr_t addr_in) {
+    bd_addr_t addr;
+    if (is_null_bd_addr(addr_in)) return;
+    memcpy(addr, addr_in, 6);
+    char msg[128];
+    snprintf(msg, sizeof(msg), "Forgetting Bluetooth host %s", bd_addr_to_str(addr));
+    log_msg(msg);
+
+    /* no more reconnects to it: its loop stops (another host's loop goes on), it leaves the queue
+     * and the hosts to restore after a restart */
+    rq_remove(addr);
+    if (g_host_reconnect_active && memcmp(g_host_reconnect_target, addr, 6) == 0) {
+        stop_host_reconnect();
+    }
+    int w = 0;
+    for (int r = 0; r < s_hosts_before_n; r++) {
+        if (memcmp(s_hosts_before[r], addr, 6) == 0) continue;
+        if (w != r) memcpy(s_hosts_before[w], s_hosts_before[r], 6);
+        w++;
+    }
+    s_hosts_before_n = w;
+    wake_key_drop(addr);
+    link_drop_host(addr);
+    if (g_pairing_new_key_valid && memcmp(g_pairing_new_key_addr, addr, 6) == 0) g_pairing_new_key_valid = false;
+
+    /* The entry goes first, the channels are closed after: closing a connection that is still being
+     * set up reports a failed open at once, and that must not find the host and reconnect it. */
+    uint16_t cids[MAX_HOST_CONNS];
+    hci_con_handle_t handles[MAX_HOST_CONNS];
+    int n = 0;
+    for (int i = 0; i < MAX_HOST_CONNS; i++) {
+        if (memcmp(g_hosts[i].addr, addr, 6) != 0) continue;
+        cids[n] = g_hosts[i].hid_cid;
+        handles[n] = g_hosts[i].acl_handle;
+        n++;
+        memset(&g_hosts[i], 0, sizeof(g_hosts[i]));
+        g_hosts[i].acl_handle = HCI_CON_HANDLE_INVALID;
+        /* the next key brings its own TARGET; until then nothing goes to another host */
+        if (g_active_host_idx == i) g_active_host_idx = BT_HOST_IDX_NONE;
+    }
+    gap_drop_link_key_for_bd_addr(addr);
+    for (int k = 0; k < n; k++) {
+        /* close the HID channels, then the link itself: an open link stays authenticated without
+         * the key and the host could open the channels again on it */
+        if (cids[k]) hid_device_disconnect(cids[k]);
+        if (handles[k] != HCI_CON_HANDLE_INVALID) gap_disconnect(handles[k]);
+    }
+    if (memcmp(g_host_addr, addr, 6) == 0) {
+        /* the "last paired host" record: it was tried when no other host was known */
+        memset(g_host_addr, 0, sizeof(g_host_addr));
+        if (tlv_impl) tlv_impl->delete_tag(&tlv_context, TLV_TAG_HIDR);
+    }
+    /* hub_daemon removed the default host file already; a connection that opened in between may
+     * have written it again (it is written when missing) */
+    bd_addr_t def;
+    FILE *hf = fopen(HOST_TARGET_FILE, "r");
+    if (hf) {
+        char line[64] = "";
+        bool names_it = false;
+        while (fgets(line, sizeof(line), hf)) {
+            const char *v = strncmp(line, "bdaddr=", 7) == 0 ? line + 7 : line;
+            char a17[18];
+            snprintf(a17, sizeof(a17), "%s", v);
+            if (parse_bd_addr(a17, def) && memcmp(def, addr, 6) == 0) names_it = true;
+        }
+        fclose(hf);
+        if (names_it) unlink(HOST_TARGET_FILE);
+    }
+    g_host_connected = is_any_host_connected();
+    g_host_hid_cid = get_target_host_hid_cid();
+    host_reconnect_next();
+    update_status(app_state == APP_READY ? "ready" : "standby");
+    update_bthid_status();
 }
 
 static cJSON *load_json_file(const char *path, long max_size) {
@@ -510,6 +847,10 @@ bool get_activity_host_target(const char *act_id, bd_addr_t out) {
 }
 
 void init_known_hosts(void) {
+    /* An empty default host file (cut by a power loss while it was written) would never be
+     * rewritten: it is only written when missing or at a new pairing */
+    struct stat hst;
+    if (stat(HOST_TARGET_FILE, &hst) == 0 && hst.st_size == 0) unlink(HOST_TARGET_FILE);
     bd_addr_t def_target;
     /* Register the pinned host without a name: the devices below name it by address.
      * It used to get the first BT device's name in devices.json, whichever host that was. */
@@ -565,6 +906,13 @@ void try_connect_host_addr(const bd_addr_t addr) {
         }
     }
     if (g_host_connecting && (time(NULL) - g_host_connecting_start) < 5) {
+        /* Another attempt is running: this host waits for its turn (the loop's own target is
+         * tried again by the loop). It used to be skipped and never tried. */
+        if (!(g_host_reconnect_active && memcmp(g_host_reconnect_target, addr, 6) == 0) && rq_push(addr)) {
+            char qmsg[96];
+            snprintf(qmsg, sizeof(qmsg), "Host %s waits: another connection attempt is running", bd_addr_to_str(addr));
+            log_msg(qmsg);
+        }
         return;
     }
     char msg[128];
@@ -673,6 +1021,8 @@ static void host_reconnect_timer_handler(btstack_timer_source_t *ts) {
 
     if (g_host_reconnect_attempts >= MAX_HOST_RECONNECT_ATTEMPTS) {
         log_msg("Host reconnect: Maximum retry attempts reached");
+        /* a key kept for this host would otherwise wait for any later connection */
+        wake_key_drop(is_null_bd_addr(g_host_reconnect_target) ? NULL : g_host_reconnect_target);
         g_host_reconnect_active = false;
         g_host_connecting = false;
         host_reconnect_next();
@@ -709,6 +1059,9 @@ void start_host_reconnect(const bd_addr_t target, int max_attempts) {
     read_current_activity(cur_act, sizeof(cur_act));
     if (!g_host_pairing && (strcmp(cur_act, "-1") == 0 || strcasecmp(cur_act, "poweroff") == 0)) {
         log_msg("Host reconnect: Suppressed while Activity is PowerOff");
+        /* No key waits for a connection while the Hub is off: a kept key (e.g. a power-off key
+         * that came after the link closed) went out at the next start in place of its own key */
+        wake_key_drop(NULL);
         return;
     }
 
@@ -861,7 +1214,10 @@ void forget_ble_remote(void) {
         have = true;
     }
     g_user_scan_active = false;
+    le_pair_window_close();
     btstack_run_loop_remove_timer(&reconnect_timer);
+    /* a connection being set up would complete later and pair the forgotten remote again */
+    if (app_state == APP_CONNECTING) gap_connect_cancel();
     gap_stop_scan();
     unlink(TARGET_FILE);
     if (have) {
@@ -907,6 +1263,7 @@ void start_user_scan(void) {
     g_user_scan_end = time(NULL) + 8;
 
     btstack_run_loop_remove_timer(&reconnect_timer);
+    if (app_state == APP_CONNECTING) gap_connect_cancel();
     if (connection_handle != HCI_CON_HANDLE_INVALID) {
         gap_disconnect(connection_handle);
     }
@@ -935,17 +1292,17 @@ void start_user_pair(const char *addr_str) {
         return;
     }
     char msg[128];
-    snprintf(msg, sizeof(msg), "User pair requested for %s", addr_str);
+    snprintf(msg, sizeof(msg), "User pair requested for %s (LE pairing window open for %d s)", addr_str, LE_PAIR_WINDOW_SEC);
     log_msg(msg);
+    le_pair_window_open(new_addr, le_pair_now_s());
 
-    FILE *tf = fopen(TARGET_FILE, "w");
-    if (tf) {
-        fprintf(tf, "%s\n", addr_str);
-        fclose(tf);
-    }
+    char tline[32];
+    snprintf(tline, sizeof(tline), "%s\n", addr_str);
+    if (atomic_file_write_str(TARGET_FILE, tline) != 0) log_msg("Could not save " TARGET_FILE);
 
     g_user_scan_active = false;
     btstack_run_loop_remove_timer(&reconnect_timer);
+    if (app_state == APP_CONNECTING) gap_connect_cancel();
     if (connection_handle != HCI_CON_HANDLE_INVALID) {
         gap_disconnect(connection_handle);
     }

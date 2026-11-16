@@ -16,7 +16,9 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+#include "bt_le_pair_window.h"
 #include "bt_state.h"
+#include "../atomic_file.h"
 #include "bt_pairing.h"
 #include "bt_hid.h"
 
@@ -47,6 +49,12 @@ static void wake_key_timer_handler(btstack_timer_source_t *ts) {
         log_msg("Buffered wake report dropped: the host disconnected before it settled");
         return;
     }
+    /* Sent to the host that opened (the one it was kept for), not to whatever host is the
+     * target by now: a key for another host may have come in the meantime */
+    int saved_idx = g_active_host_idx;
+    for (int i = 0; i < MAX_HOST_CONNS; i++) {
+        if (g_hosts[i].connected && g_hosts[i].hid_cid == s_wake_key_cid) g_active_host_idx = i;
+    }
     uint8_t mod = 0, kc = 0;
     if (sscanf(pbtn, "KEY %hhx %hhx", &mod, &kc) == 2) {
         send_host_keyboard_report(mod, kc);
@@ -58,13 +66,13 @@ static void wake_key_timer_handler(btstack_timer_source_t *ts) {
             log_msg("Dispatched buffered wake consumer report to host");
         }
     }
+    g_active_host_idx = saved_idx;
 }
 
-/* Called when a HID channel opened: the kept key (if fresh) goes out after WAKE_KEY_SETTLE_MS */
-static void wake_key_schedule(uint16_t cid) {
-    if (g_pending_wake_btn[0] && (time(NULL) - g_pending_wake_time) < 10) {
-        strncpy(s_wake_key_btn, g_pending_wake_btn, sizeof(s_wake_key_btn) - 1);
-        s_wake_key_btn[sizeof(s_wake_key_btn) - 1] = 0;
+/* Called when the HID channel of host addr opened: the key kept for that host (if fresh) goes out
+ * after WAKE_KEY_SETTLE_MS; a key kept for another host stays for that host's own open */
+static void wake_key_schedule(uint16_t cid, const bd_addr_t addr) {
+    if (wake_key_take(addr, s_wake_key_btn, sizeof(s_wake_key_btn))) {
         s_wake_key_cid = cid;
         btstack_run_loop_remove_timer(&s_wake_key_timer);
         btstack_run_loop_set_timer_handler(&s_wake_key_timer, wake_key_timer_handler);
@@ -74,7 +82,6 @@ static void wake_key_schedule(uint16_t cid) {
         snprintf(msg, sizeof(msg), "Buffered wake report queued, sent in %d ms once the host has settled", WAKE_KEY_SETTLE_MS);
         log_msg(msg);
     }
-    g_pending_wake_btn[0] = 0;
 }
 #include "bt_cmd.h"
 #include "bt_remote.h"
@@ -239,8 +246,21 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
 
         case HCI_EVENT_META_GAP:
             if (hci_event_gap_meta_get_subevent_code(packet) == GAP_SUBEVENT_LE_CONNECTION_COMPLETE) {
+                hci_con_handle_t le_handle = gap_subevent_le_connection_complete_get_connection_handle(packet);
+                if (gap_subevent_le_connection_complete_get_status(packet) != ERROR_CODE_SUCCESS) {
+                    /* no link (a cancelled or failed attempt): nothing to pair with */
+                    log_msg("LE connection attempt ended without a link");
+                    break;
+                }
+                if (app_state != APP_CONNECTING) {
+                    /* the attempt was given up (forget, scan, pair) but completed anyway: a
+                     * forgotten remote must not be connected and paired again */
+                    log_msg("LE connection completed after the attempt was given up: disconnecting");
+                    gap_disconnect(le_handle);
+                    break;
+                }
                 btstack_run_loop_remove_timer(&reconnect_timer);
-                connection_handle = gap_subevent_le_connection_complete_get_connection_handle(packet);
+                connection_handle = le_handle;
                 char msg[64];
                 snprintf(msg, sizeof(msg), "LE Connection complete (handle=0x%04x)", connection_handle);
                 log_msg(msg);
@@ -273,7 +293,14 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
             snprintf(msg, sizeof(msg), "Classic BT: Connection Complete: %s handle=0x%04x status=0x%02x", bd_addr_to_str(conn_addr), handle, status);
             log_msg(msg);
             if (status == 0) {
-                host_conn_t *h = register_host_target(conn_addr, NULL);
+                /* A host table entry only for a known host, or for a device that may be pairing:
+                 * every ACL link of any device used to take one of the four entries for good,
+                 * and with the table full a configured host's keys went to another host */
+                host_conn_t *h = NULL;
+                for (int i = 0; i < MAX_HOST_CONNS && !h; i++) {
+                    if (memcmp(g_hosts[i].addr, conn_addr, 6) == 0) h = &g_hosts[i];
+                }
+                if (!h && g_host_pairing) h = register_host_target(conn_addr, NULL);
                 if (h) {
                     h->acl_handle = handle;
                 }
@@ -395,9 +422,7 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                 memcpy(g_pairing_new_key_addr, lk_addr, sizeof(bd_addr_t));
                 g_pairing_new_key_valid = true;
             }
-            if (tlv_impl) {
-                tlv_impl->store_tag(&tlv_context, TLV_TAG_HIDR, (const uint8_t *)lk_addr, sizeof(bd_addr_t));
-            }
+            bt_tlv_store_if_changed(TLV_TAG_HIDR, (const uint8_t *)lk_addr, sizeof(bd_addr_t));
             char msg[96];
             snprintf(msg, sizeof(msg), "Classic BT: Link Key saved for %s", bd_addr_to_str(lk_addr));
             log_msg(msg);
@@ -434,34 +459,7 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                     hid_subevent_connection_opened_get_bd_addr(packet, conn_addr);
 
                     if (status != ERROR_CODE_SUCCESS) {
-                        g_host_connecting = false;
-                        char msg[128];
-                        snprintf(msg, sizeof(msg), "Classic HID Host connection to %s failed (0x%02x)",
-                                 bd_addr_to_str(conn_addr), status);
-                        log_msg(msg);
-                        for (int i = 0; i < MAX_HOST_CONNS; i++) {
-                            if (memcmp(g_hosts[i].addr, conn_addr, 6) == 0 || g_hosts[i].hid_cid == cid) {
-                                g_hosts[i].connected = false;
-                                g_hosts[i].hid_cid = 0;
-                                if (g_hosts[i].acl_handle != HCI_CON_HANDLE_INVALID) {
-                                    gap_disconnect(g_hosts[i].acl_handle);
-                                    g_hosts[i].acl_handle = HCI_CON_HANDLE_INVALID;
-                                }
-                            }
-                        }
-                        g_host_connected = is_any_host_connected();
-                        g_host_hid_cid = get_target_host_hid_cid();
-                        update_status(app_state == APP_READY ? "ready" : "standby");
-                        update_bthid_status();
-                        char cur_act[64] = "-1";
-                        read_current_activity(cur_act, sizeof(cur_act));
-                        if (!g_host_pairing && cur_act[0] && strcmp(cur_act, "-1") != 0 && strcasecmp(cur_act, "poweroff") != 0) {
-                            if (!g_host_reconnect_active && !is_null_bd_addr(conn_addr) && !host_manual_disconnect(conn_addr)) {
-                                start_host_reconnect(conn_addr, MAX_HOST_RECONNECT_ATTEMPTS);
-                            }
-                        } else {
-                            log_msg("Host disconnected while Activity is PowerOff, suppressing reconnect");
-                        }
+                        host_open_failed(conn_addr, cid, status);
                         break;
                     }
 
@@ -498,6 +496,7 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                         h->connected = true;
                         h->hid_cid = cid;
                         h->manual_disconnect = false;
+                        h->acl_handle = hid_subevent_connection_opened_get_con_handle(packet);
                     }
                     /* Keep the active link on the chosen target, as everywhere else: a second host
                      * connecting must not take over keys meant for the activity's host */
@@ -535,18 +534,17 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                         unlink("/tmp/bt_pending_pair_device");
                     }
 
-                    if (tlv_impl) {
-                        tlv_impl->store_tag(&tlv_context, TLV_TAG_HIDR, (const uint8_t *)conn_addr, sizeof(bd_addr_t));
-                    }
+                    /* every connection used to append the same address to the key file again */
+                    bt_tlv_store_if_changed(TLV_TAG_HIDR, (const uint8_t *)conn_addr, sizeof(bd_addr_t));
                     /* The pinned host (fallback target for BT devices without an address) is the
                      * last host paired; every connection used to rewrite it, so whichever host
                      * connected last became the default for all devices. It is the only default
                      * host file: bthid_target, a second copy, is no longer written. */
                     if (new_pairing || access("/data/harmony/bthid_host_target", F_OK) != 0) {
-                        FILE *hf = fopen("/data/harmony/bthid_host_target", "w");
-                        if (hf) {
-                            fprintf(hf, "bdaddr=%s\n", bd_addr_to_str(conn_addr));
-                            fclose(hf);
+                        char hline[40];
+                        snprintf(hline, sizeof(hline), "bdaddr=%s\n", bd_addr_to_str(conn_addr));
+                        if (atomic_file_write_str("/data/harmony/bthid_host_target", hline) != 0) {
+                            log_msg("Could not save /data/harmony/bthid_host_target");
                         }
                     }
                     update_status(app_state == APP_READY ? "ready" : "standby");
@@ -556,12 +554,16 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                         gap_start_scan();
                     }
 
-                    wake_key_schedule(cid);
+                    wake_key_schedule(cid, conn_addr);
                     break;
                 }
+                case HID_SUBEVENT_CAN_SEND_NOW:
+                    bt_hid_can_send_now(hid_subevent_can_send_now_get_hid_cid(packet));
+                    break;
                 case HID_SUBEVENT_CONNECTION_CLOSED: {
                     g_host_connecting = false;
                     uint16_t cid = hid_subevent_connection_closed_get_hid_cid(packet);
+                    bt_hid_link_closed(cid);
                     if (cid != 0 && cid == s_wake_key_cid) {
                         /* the buffered wake key was meant for this channel: never send it on a later one */
                         btstack_run_loop_remove_timer(&s_wake_key_timer);
@@ -618,6 +620,28 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
     }
 }
 
+/* A new LE pairing is confirmed only inside the window the user opened from the web UI for that
+ * address (bt_le_pair_window.h). Anything else is declined: a device advertising with the pinned
+ * remote's address must not get a bond without the user asking for it. */
+static void le_pairing_request(hci_con_handle_t handle, bd_addr_t addr, bool numeric) {
+    char msg[160];
+    if (le_pair_window_allows(addr, le_pair_now_s())) {
+        snprintf(msg, sizeof(msg), "SM: Confirming %s pairing request from %s (pairing window open)",
+                 numeric ? "numeric comparison" : "Just Works", bd_addr_to_str(addr));
+        log_msg(msg);
+        if (numeric) {
+            sm_numeric_comparison_confirm(handle);
+        } else {
+            sm_just_works_confirm(handle);
+        }
+        return;
+    }
+    snprintf(msg, sizeof(msg), "SM: LE pairing request from %s declined: no pairing window (pair the remote from the web UI)",
+             bd_addr_to_str(addr));
+    log_msg(msg);
+    sm_bonding_decline(handle);
+}
+
 static void sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size) {
     UNUSED(channel);
     UNUSED(size);
@@ -628,21 +652,33 @@ static void sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
 
     switch (hci_event_packet_get_type(packet)) {
         case SM_EVENT_JUST_WORKS_REQUEST:
-            log_msg("SM: Confirming Just Works pairing request");
-            sm_just_works_confirm(sm_event_just_works_request_get_handle(packet));
+            sm_event_just_works_request_get_address(packet, addr);
+            le_pairing_request(sm_event_just_works_request_get_handle(packet), addr, false);
             break;
         case SM_EVENT_NUMERIC_COMPARISON_REQUEST:
-            sm_numeric_comparison_confirm(sm_event_numeric_comparison_request_get_handle(packet));
+            sm_event_numeric_comparison_request_get_address(packet, addr);
+            le_pairing_request(sm_event_numeric_comparison_request_get_handle(packet), addr, true);
             break;
         case SM_EVENT_PAIRING_COMPLETE: {
             uint8_t status = sm_event_pairing_complete_get_status(packet);
+            sm_event_pairing_complete_get_address(packet, addr);
+            if (status == ERROR_CODE_SUCCESS && !le_pair_window_allows(addr, le_pair_now_s())) {
+                /* Not confirmed by le_pairing_request(): never keep or use such a bond. */
+                char msg[128];
+                snprintf(msg, sizeof(msg), "SMP pairing with %s completed outside the pairing window: bond removed",
+                         bd_addr_to_str(addr));
+                log_msg(msg);
+                gap_delete_bonding((bd_addr_type_t)sm_event_pairing_complete_get_addr_type(packet), addr);
+                gap_disconnect(connection_handle);
+                schedule_reconnect(30000);
+                break;
+            }
             if (status == ERROR_CODE_SUCCESS) {
+                le_pair_window_close();
                 log_msg("SMP pairing & bonding complete! Connecting HIDS...");
-                FILE *tf = fopen(TARGET_FILE, "w");
-                if (tf) {
-                    fprintf(tf, "%s\n", bd_addr_to_str(remote_device.addr));
-                    fclose(tf);
-                }
+                char tline[32];
+                snprintf(tline, sizeof(tline), "%s\n", bd_addr_to_str(remote_device.addr));
+                if (atomic_file_write_str(TARGET_FILE, tline) != 0) log_msg("Could not save " TARGET_FILE);
                 gap_request_connection_parameter_update(connection_handle, 6, 12, 0, 200);
                 app_state = APP_W4_HIDS;
                 hids_host_connect(connection_handle, handle_gatt_client_event, protocol_mode, &hids_cid);
@@ -671,11 +707,23 @@ static void sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
                 update_status("ready");
                 gap_request_connection_parameter_update(connection_handle, 6, 12, 0, 200);
             } else if (status == ERROR_CODE_PIN_OR_KEY_MISSING) {
-                log_msg("Re-encryption failed: key missing on remote. Deleting local bond and re-pairing...");
                 sm_event_reencryption_complete_get_address(packet, addr);
-                addr_type = sm_event_reencryption_complete_get_addr_type(packet);
-                gap_delete_bonding(addr_type, addr);
-                sm_request_pairing(sm_event_reencryption_complete_get_handle(packet));
+                if (le_pair_window_allows(addr, le_pair_now_s())) {
+                    log_msg("Re-encryption failed: key missing on remote. Pairing window open: deleting local bond and re-pairing...");
+                    addr_type = sm_event_reencryption_complete_get_addr_type(packet);
+                    gap_delete_bonding(addr_type, addr);
+                    sm_request_pairing(sm_event_reencryption_complete_get_handle(packet));
+                } else {
+                    /* The bond stays: a device that only claims the remote's address must not be
+                     * able to replace it. A remote that really lost its key is paired again from
+                     * the web UI (scan, pair), which opens the window. */
+                    char msg[160];
+                    snprintf(msg, sizeof(msg), "Re-encryption failed: %s has no key for this Hub. Bond kept; pair the remote again from the web UI",
+                             bd_addr_to_str(addr));
+                    log_msg(msg);
+                    gap_disconnect(connection_handle);
+                    schedule_reconnect(30000);
+                }
             } else {
                 char msg[64];
                 snprintf(msg, sizeof(msg), "Re-encryption failed (status=0x%02x)", status);
@@ -843,6 +891,7 @@ int main(int argc, const char *argv[]) {
     // 8. Classic HID Device service
     hid_device_init(1, hid_descriptor_composite_len, hid_descriptor_composite);
     hid_device_register_packet_handler(&packet_handler);
+    bt_hid_queue_init();
 
     // 9. BLE HID Service Host (for physical remote)
     hids_host_init(hid_descriptor_storage, sizeof(hid_descriptor_storage));

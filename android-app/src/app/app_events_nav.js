@@ -51,7 +51,10 @@ import {
   getDeviceIconSvg,
   getRawDeviceIconSvg
 } from './app_icons_ui.js';
+import { deviceDelayError } from './form_limits.js';
 import { HarmonyAppIconPicker } from './app_icons_picker.js';
+import { showAlert } from './app_icons_ui.js';
+import { deviceUsersOf, deviceUsersText } from './decision_dialogs.js';
 
 export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
   bindNavigationAndDeviceEvents() {
@@ -466,6 +469,12 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
       }
 
       const stat = document.getElementById('devEditStatus');
+      const delayProblem = deviceDelayError('Inter-device delay', idd) || deviceDelayError('Inter-key delay', ikd) ||
+        deviceDelayError('Hold inter-key delay', hikd) || (pod < 0 ? 'Power-on delay must not be negative' : null);
+      if (delayProblem) {
+        if (stat) stat.innerHTML = `<span style="color:var(--danger)">${delayProblem}</span>`;
+        return;
+      }
       if (stat) stat.textContent = 'Saving...';
       try {
         await this.client.saveDeviceDetails({
@@ -745,7 +754,14 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
       const devId = document.getElementById('manageDeviceSelect')?.value;
       if (!devId) return;
       if (!await showConfirm(t('delete_device_all_cmds_confirm'), { title: t('delete_device', 'Delete Device'), okText: t('delete', 'Delete') })) return;
-      await this.client.deleteDevice(devId);
+      try {
+        await this.client.deleteDevice(devId);
+      } catch (err) {
+        const users = deviceUsersOf(err);
+        if (users) await showAlert(deviceUsersText(users), { title: t('device_in_use_title', 'Device in use'), icon: '⚠️' });
+        else alert(`Error: ${err.message}`);
+        return;
+      }
       await this.refreshData();
       this.renderIrView();
     });

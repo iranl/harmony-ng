@@ -5,6 +5,8 @@
 #include "hub_ssdp.h"
 #include "hub_info.h"
 #include "http_server.h"
+#include "http_util.h"
+#include "json_number.h"
 #include "ws_server.h"
 #include "orchestrator.h"
 #include "hw_action.h"
@@ -55,6 +57,8 @@ static int g_config_version = 0;
 /* runactivity requests waiting for their completion frame, one per legacy client */
 typedef struct {
     int fd;
+    unsigned int gen;      /* ws_client_gen() of fd when the request came: a later client on the
+                            * same fd number is someone else */
     char id[80];
     char target[32];       /* the daemon's activity id */
 } hbus_pending_t;
@@ -111,7 +115,7 @@ static void load_remote_id(void) {
         if (root) {
             const cJSON *r = cJSON_GetObjectItemCaseSensitive(root, "remoteId");
             if (r && cJSON_IsNumber(r) && r->valuedouble > 0) {
-                snprintf(g_remote_id, sizeof(g_remote_id), "%ld", (long)r->valuedouble);
+                json_number_text(r, g_remote_id, sizeof(g_remote_id));
             } else if (r && cJSON_IsString(r) && r->valuestring && r->valuestring[0]) {
                 snprintf(g_remote_id, sizeof(g_remote_id), "%s", r->valuestring);
             }
@@ -277,14 +281,46 @@ static void pending_set(int fd, const char *id, const char *target) {
     if (!p) p = pending_for(-1);
     if (!p) return;
     p->fd = fd;
+    p->gen = ws_client_gen(fd);
     snprintf(p->id, sizeof(p->id), "%s", id ? id : "");
     snprintf(p->target, sizeof(p->target), "%s", target ? target : "");
 }
 
 static void pending_clear(hbus_pending_t *p) {
     p->fd = -1;
+    p->gen = 0;
     p->id[0] = '\0';
     p->target[0] = '\0';
+}
+
+/* The entry's client is still the one that asked. A client dropped by the keepalive reaper or a
+ * failed send never reaches this file's read path, and its fd number can belong to a new client
+ * (or an HTTP worker's socket) by now: such an entry is dropped. */
+static int pending_live(hbus_pending_t *p) {
+    if (p->fd < 0) return 0;
+    if (ws_client_gen(p->fd) != p->gen) {
+        pending_clear(p);
+        return 0;
+    }
+    return 1;
+}
+
+/* Requests that can no longer complete: their target was replaced in the queue by a later
+ * request, or the transition was cancelled. Once nothing runs and nothing is queued, an entry
+ * whose target is not the activity the Hub is in is dropped (it used to answer whoever held the
+ * fd at some later start of that activity). */
+static void pending_drop_stale(void) {
+    int any = 0;
+    for (int i = 0; i < WS_MAX_CLIENTS; i++) {
+        if (pending_live(&g_pending[i])) any = 1;
+    }
+    if (!any || orch_is_busy()) return;
+    char queued[32];
+    if (orch_get_queued_activity(queued, sizeof(queued))) return;
+    const char *cur = orch_get_current_activity();
+    for (int i = 0; i < WS_MAX_CLIENTS; i++) {
+        if (g_pending[i].fd >= 0 && strcmp(g_pending[i].target, cur) != 0) pending_clear(&g_pending[i]);
+    }
 }
 
 /* ------------------------------------------------------------------------------------------ */
@@ -293,26 +329,29 @@ static void pending_clear(hbus_pending_t *p) {
 static const char *param_str(const cJSON *params, const char *key, char *buf, size_t cap) {
     const cJSON *j = cJSON_GetObjectItemCaseSensitive(params, key);
     if (j && cJSON_IsString(j) && j->valuestring) return j->valuestring;
-    if (j && cJSON_IsNumber(j)) {
-        snprintf(buf, cap, "%ld", (long)j->valuedouble);
-        return buf;
-    }
+    if (j && cJSON_IsNumber(j)) return json_number_text(j, buf, cap) ? buf : NULL;
     return NULL;
 }
 
 static int activity_exists(const char *id) {
     if (strcmp(id, ORCH_POWEROFF_ID) == 0) return 1;
-    cJSON *root = config_store_get_activities_json();
-    cJSON *list = root ? (cJSON_IsArray(root) ? root : cJSON_GetObjectItemCaseSensitive(root, "activities")) : NULL;
+    cfg_snap_t *snap = NULL;
+    const cJSON *root = config_store_activities_acquire(&snap);
+    const cJSON *list = root ? (cJSON_IsArray(root) ? root : cJSON_GetObjectItemCaseSensitive(root, "activities")) : NULL;
     cJSON *a = NULL;
+    int found = 0;
     cJSON_ArrayForEach(a, list) {
         const cJSON *j = cJSON_GetObjectItemCaseSensitive(a, "id");
         char aid[32] = "";
         if (j && cJSON_IsString(j) && j->valuestring) snprintf(aid, sizeof(aid), "%s", j->valuestring);
-        else if (j && cJSON_IsNumber(j)) snprintf(aid, sizeof(aid), "%ld", (long)j->valuedouble);
-        if (strcmp(aid, id) == 0) return 1;
+        else if (j && cJSON_IsNumber(j)) json_number_text(j, aid, sizeof(aid));
+        if (strcmp(aid, id) == 0) {
+            found = 1;
+            break;
+        }
     }
-    return 0;
+    config_store_release(&snap);
+    return found;
 }
 
 static cJSON *cmd_runactivity(int fd, const char *cmd, const cJSON *id, const cJSON *params) {
@@ -325,7 +364,7 @@ static cJSON *cmd_runactivity(int fd, const char *cmd, const cJSON *id, const cJ
     if (!activity_exists(target)) return reply(cmd, id, 500, "Unknown activity", NULL);
     char idtxt[80] = "";
     if (id && cJSON_IsString(id) && id->valuestring) snprintf(idtxt, sizeof(idtxt), "%s", id->valuestring);
-    else if (id && cJSON_IsNumber(id)) snprintf(idtxt, sizeof(idtxt), "%ld", (long)id->valuedouble);
+    else if (id && cJSON_IsNumber(id)) json_number_text(id, idtxt, sizeof(idtxt));
     /* The request id must be remembered before the orchestrator emits (an empty transition
      * completes inside the call; the bus dispatches it on the next iteration) */
     pending_set(fd, idtxt, target);
@@ -386,19 +425,15 @@ static cJSON *cmd_holdaction(const char *cmd, const cJSON *id, const cJSON *para
 }
 
 /* The running activity's channel device: the first of its devices with a digit command */
-static int channel_device(char *out, size_t cap) {
-    const char *cur = orch_get_current_activity();
-    if (!cur || !cur[0] || strcmp(cur, ORCH_POWEROFF_ID) == 0) return 0;
-    cJSON *aroot = config_store_get_activities_json();
-    cJSON *acts = aroot ? (cJSON_IsArray(aroot) ? aroot : cJSON_GetObjectItemCaseSensitive(aroot, "activities")) : NULL;
-    cJSON *droot = config_store_get_devices_json();
-    cJSON *devs = droot ? (cJSON_IsArray(droot) ? droot : cJSON_GetObjectItemCaseSensitive(droot, "devices")) : NULL;
+static int channel_device_in(const cJSON *aroot, const cJSON *droot, const char *cur, char *out, size_t cap) {
+    const cJSON *acts = aroot ? (cJSON_IsArray(aroot) ? aroot : cJSON_GetObjectItemCaseSensitive(aroot, "activities")) : NULL;
+    const cJSON *devs = droot ? (cJSON_IsArray(droot) ? droot : cJSON_GetObjectItemCaseSensitive(droot, "devices")) : NULL;
     cJSON *a = NULL;
     cJSON_ArrayForEach(a, acts) {
         const cJSON *j = cJSON_GetObjectItemCaseSensitive(a, "id");
         char aid[32] = "";
         if (j && cJSON_IsString(j) && j->valuestring) snprintf(aid, sizeof(aid), "%s", j->valuestring);
-        else if (j && cJSON_IsNumber(j)) snprintf(aid, sizeof(aid), "%ld", (long)j->valuedouble);
+        else if (j && cJSON_IsNumber(j)) json_number_text(j, aid, sizeof(aid));
         if (strcmp(aid, cur) != 0) continue;
         /* the same device list as the configuration object: sequence steps plus deviceIds */
         char ids[16][32];
@@ -410,7 +445,7 @@ static int channel_device(char *out, size_t cap) {
                 const cJSON *ij = cJSON_GetObjectItemCaseSensitive(d, "id");
                 char xid[32] = "";
                 if (ij && cJSON_IsString(ij) && ij->valuestring) snprintf(xid, sizeof(xid), "%s", ij->valuestring);
-                else if (ij && cJSON_IsNumber(ij)) snprintf(xid, sizeof(xid), "%ld", (long)ij->valuedouble);
+                else if (ij && cJSON_IsNumber(ij)) json_number_text(ij, xid, sizeof(xid));
                 if (strcmp(xid, did) != 0) continue;
                 const cJSON *c = NULL;
                 cJSON_ArrayForEach(c, cJSON_GetObjectItemCaseSensitive(d, "commands")) {
@@ -429,6 +464,18 @@ static int channel_device(char *out, size_t cap) {
         return 0;
     }
     return 0;
+}
+
+static int channel_device(char *out, size_t cap) {
+    const char *cur = orch_get_current_activity();
+    if (!cur || !cur[0] || strcmp(cur, ORCH_POWEROFF_ID) == 0) return 0;
+    cfg_snap_t *asnap = NULL, *dsnap = NULL;
+    const cJSON *aroot = config_store_activities_acquire(&asnap);
+    const cJSON *droot = config_store_devices_acquire(&dsnap);
+    int found = channel_device_in(aroot, droot, cur, out, cap);
+    config_store_release(&asnap);
+    config_store_release(&dsnap);
+    return found;
 }
 
 static cJSON *cmd_changechannel(const char *cmd, const cJSON *id, const cJSON *params) {
@@ -463,6 +510,10 @@ void hbus_handle_ws_message(int cfd) {
     if (!buf) return;
     int opcode = 0;
     int len = ws_read_frame(cfd, buf, HBUS_REQ_MAX, &opcode);
+    if (len == WS_READ_AGAIN) { /* the frame is not complete yet: keep the client */
+        free(buf);
+        return;
+    }
     if (len < 0 || opcode == WS_OP_CLOSE) {
         hbus_pending_t *p = pending_for(cfd);
         if (p) pending_clear(p);
@@ -552,7 +603,7 @@ void hbus_event_sink(const hub_event_t *ev, void *user) {
         int tot = (total && cJSON_IsNumber(total)) ? total->valueint : 0;
         if (tot <= 0) return;
         for (int i = 0; i < WS_MAX_CLIENTS; i++) {
-            if (g_pending[i].fd < 0 || strcmp(g_pending[i].target, target) != 0) continue;
+            if (!pending_live(&g_pending[i]) || strcmp(g_pending[i].target, target) != 0) continue;
             cJSON *d = cJSON_CreateObject();
             cJSON_AddNumberToObject(d, "done", done);
             cJSON_AddNumberToObject(d, "total", tot);
@@ -564,15 +615,25 @@ void hbus_event_sink(const hub_event_t *ev, void *user) {
         const cJSON *sj = cJSON_GetObjectItemCaseSensitive(p, "state");
         const cJSON *aj = cJSON_GetObjectItemCaseSensitive(p, "activity");
         int state = (sj && cJSON_IsNumber(sj)) ? sj->valueint : 0;
-        if (state != ORCH_STATE_RUNNING && state != ORCH_STATE_IDLE) return;
         const char *cur = (aj && cJSON_IsString(aj)) ? aj->valuestring : ORCH_POWEROFF_ID;
+        /* A running or idle event that follows another one for the same activity only reports a
+         * change of the sending flag or of the queued request: no transition finished, so the
+         * legacy clients get no second "finished". */
+        static int s_prev_state = -1;
+        static char s_prev_act[32] = "";
+        int settled_before = (s_prev_state == ORCH_STATE_RUNNING || s_prev_state == ORCH_STATE_IDLE) &&
+                             strcmp(s_prev_act, cur) == 0;
+        s_prev_state = state;
+        snprintf(s_prev_act, sizeof(s_prev_act), "%s", cur);
+        if (state != ORCH_STATE_RUNNING && state != ORCH_STATE_IDLE) return;
+        if (settled_before) return;
         char num[32];
         if (strcmp(cur, ORCH_POWEROFF_ID) == 0) snprintf(num, sizeof(num), "-1");
         else hbus_numeric_id(cur, num, sizeof(num));
         g_announced_target[0] = '\0';
         /* Step 4: completion to the requester, once */
         for (int i = 0; i < WS_MAX_CLIENTS; i++) {
-            if (g_pending[i].fd < 0 || strcmp(g_pending[i].target, cur) != 0) continue;
+            if (!pending_live(&g_pending[i]) || strcmp(g_pending[i].target, cur) != 0) continue;
             send_json(g_pending[i].fd, reply_id_str(CMD_START, g_pending[i].id, 200, "OK", NULL));
             pending_clear(&g_pending[i]);
         }
@@ -601,6 +662,7 @@ static void apply_pending_settings(void);
 
 void hbus_tick(void) {
     apply_pending_settings();
+    pending_drop_stale();
     int fds[WS_MAX_CLIENTS];
     int n = 0;
     pthread_mutex_lock(&g_new_lock);
@@ -634,8 +696,7 @@ static void send_http(int fd, int code, const char *reason, const char *ctype, c
     int n = snprintf(hdr, sizeof(hdr),
                      "HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n",
                      code, reason, ctype, blen);
-    send(fd, hdr, (size_t)n, MSG_NOSIGNAL);
-    if (blen) send(fd, body, blen, MSG_NOSIGNAL);
+    if (http_send_all(fd, hdr, (size_t)n) == 0 && blen) http_send_all(fd, body, blen);
 }
 
 static cJSON *provision_reply(const cJSON *req) {
@@ -656,6 +717,39 @@ static cJSON *provision_reply(const cJSON *req) {
     return r;
 }
 
+/* Value of header `name` (case-insensitive) in the request head; 0 when absent */
+static int hbus_header(const char *req, const char *name, char *out, size_t out_len) {
+    size_t nl = strlen(name);
+    const char *line = strstr(req, "\r\n");
+    while (line && line[2] != '\r' && line[2] != '\0') {
+        line += 2;
+        if (strncasecmp(line, name, nl) == 0 && line[nl] == ':') {
+            const char *v = line + nl + 1;
+            while (*v == ' ' || *v == '\t') v++;
+            size_t n = strcspn(v, "\r\n");
+            if (n >= out_len) n = out_len - 1;
+            memcpy(out, v, n);
+            out[n] = '\0';
+            return 1;
+        }
+        line = strstr(line, "\r\n");
+    }
+    return 0;
+}
+
+/* Browsers send Origin with a WebSocket upgrade but do not apply the same-origin policy to it, so
+ * without this check any web page could drive the shim (cross-site WebSocket hijacking). Clients
+ * outside a browser (aioharmony / Home Assistant, scripts) send no Origin and are not affected;
+ * a page served from this host and port itself is allowed. */
+static int hbus_origin_allowed(const char *req) {
+    char origin[256], host[256];
+    if (!hbus_header(req, "Origin", origin, sizeof(origin))) return 1;
+    if (!hbus_header(req, "Host", host, sizeof(host))) return 0;
+    const char *o = strstr(origin, "://");
+    o = o ? o + 3 : origin;
+    return strcasecmp(o, host) == 0;
+}
+
 void hbus_handle_client(int cfd) {
     struct timeval tv = { .tv_sec = 5, .tv_usec = 0 };
     setsockopt(cfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
@@ -666,8 +760,10 @@ void hbus_handle_client(int cfd) {
     }
     size_t total = 0;
     char *hdr_end = NULL;
+    /* Same time limits as port 8089: the two ports share the worker pool */
+    uint64_t hdr_deadline = http_mono_ms() + HTTP_HEADER_DEADLINE_MS;
     while (total < HBUS_REQ_MAX) {
-        ssize_t n = recv(cfd, buf + total, HBUS_REQ_MAX - total, 0);
+        ssize_t n = http_recv_until(cfd, buf + total, HBUS_REQ_MAX - total, hdr_deadline);
         if (n <= 0) break;
         total += (size_t)n;
         buf[total] = '\0';
@@ -696,10 +792,13 @@ void hbus_handle_client(int cfd) {
         if (strcmp(route, "/") != 0) {
             send_http(cfd, 404, "Not Found", "text/plain", "");
             close(cfd);
-        } else if (ws_handle_upgrade(cfd, buf) != 0) {
+        } else if (!hbus_origin_allowed(buf)) {
+            printf("[-] HBUS: WebSocket upgrade from another web origin refused\n");
+            send_http(cfd, 403, "Forbidden", "text/plain", "");
+            close(cfd);
+        } else if (ws_handle_upgrade(cfd, buf, 0 /* no rights on the 8089 command channel */, 1) != 0) {
             close(cfd);
         } else {
-            ws_set_client_legacy(cfd, 1);
             pthread_mutex_lock(&g_new_lock);
             if (g_new_count < WS_MAX_CLIENTS) g_new_clients[g_new_count++] = cfd;
             pthread_mutex_unlock(&g_new_lock);
@@ -715,8 +814,9 @@ void hbus_handle_client(int cfd) {
         char *clp = strcasestr(buf, "Content-Length:");
         if (clp && clp < hdr_end) cl = atol(clp + 15);
         if (cl > 0 && (size_t)cl < HBUS_REQ_MAX - hdr_len) {
+            uint64_t body_deadline = http_mono_ms() + HTTP_BODY_DEADLINE_MS;
             while (total < hdr_len + (size_t)cl) {
-                ssize_t n = recv(cfd, buf + total, hdr_len + (size_t)cl - total, 0);
+                ssize_t n = http_recv_until(cfd, buf + total, hdr_len + (size_t)cl - total, body_deadline);
                 if (n <= 0) break;
                 total += (size_t)n;
             }

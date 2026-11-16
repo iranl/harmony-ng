@@ -5,39 +5,56 @@ import { t } from '../../i18n/index.js';
 import { toast } from '../../components/toast.js';
 import { confirm } from '../../components/confirm.js';
 import { createModal } from '../../components/modal.js';
+import { openLoginModal, credentialsError, MAX_USERNAME_BYTES } from '../../components/login-modal.js';
+
+// One window listener for every Users view: a new view replaces the renderer instead of adding
+// a listener per visit (each kept its detached view alive)
+let renderCurrentAuthCard = null;
+let unauthorizedListening = false;
 
 export function createView() {
   const container = h('div', { className: 'setup-subview-users', style: { display: 'flex', flexDirection: 'column', gap: '16px' } });
 
-  const currentUser = localStorage.getItem('harmony_auth_user') || 'admin';
-  const currentToken = localStorage.getItem('harmony_auth_token');
-
-  // Auth Status Card
-  const authCard = h('div', { className: 'card' }, [
-    h('div', { className: 'card-header' }, [
-      h('h3', { className: 'card-title', text: t('auth_status', 'Session & Authentication') }),
-      h('span', { className: `badge ${currentToken ? 'badge-success' : 'badge-accent'}`, text: currentToken ? 'Authenticated' : 'Standard' }),
-    ]),
-    h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' } }, [
-      h('div', {}, [
-        h('div', { style: { fontWeight: 'bold' }, text: `User: ${currentUser}` }),
-        h('div', { className: 'text-dim', style: { fontSize: '12px' }, text: currentToken ? 'Bearer token active' : 'No authentication token set' }),
+  // Session card: drawn from the client's token, again when the Hub refuses it (401)
+  const authCard = h('div', { className: 'card' });
+  function renderAuthCard() {
+    const currentUser = localStorage.getItem('harmony_auth_user') || 'admin';
+    const currentToken = api.token;
+    authCard.replaceChildren(
+      h('div', { className: 'card-header' }, [
+        h('h3', { className: 'card-title', text: t('auth_status', 'Session & Authentication') }),
+        h('span', { className: `badge ${currentToken ? 'badge-success' : 'badge-accent'}`, text: currentToken ? 'Authenticated' : 'Standard' }),
       ]),
-      h('button', {
-        className: 'btn btn-secondary btn-sm',
-        text: currentToken ? 'Log Out' : 'Log In',
-        onclick: () => {
-          if (currentToken) {
-            api.logout();
-            toast.info('Logged out');
-            setTimeout(() => window.location.reload(), 300);
-          } else {
-            openLoginModal();
-          }
-        },
-      }),
-    ]),
-  ]);
+      h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' } }, [
+        h('div', {}, [
+          h('div', { style: { fontWeight: 'bold' }, text: currentToken ? `User: ${currentUser}` : 'Not logged in' }),
+          h('div', { className: 'text-dim', style: { fontSize: '12px' }, text: currentToken ? 'Bearer token active' : 'No authentication token set' }),
+        ]),
+        h('button', {
+          className: 'btn btn-secondary btn-sm',
+          text: currentToken ? 'Log Out' : 'Log In',
+          onclick: async (e) => {
+            if (currentToken) {
+              e.target.disabled = true;
+              await api.logout();
+              toast.info('Logged out');
+              setTimeout(() => window.location.reload(), 300);
+            } else {
+              openLoginModal();
+            }
+          },
+        }),
+      ]),
+    );
+  }
+  renderAuthCard();
+  renderCurrentAuthCard = () => {
+    if (container.isConnected) renderAuthCard();
+  };
+  if (!unauthorizedListening) {
+    unauthorizedListening = true;
+    window.addEventListener('harmony:unauthorized', () => renderCurrentAuthCard?.());
+  }
 
   // Users Card
   const usersCard = h('div', { className: 'card' }, [
@@ -98,8 +115,12 @@ export function createView() {
                 danger: true,
               });
               if (!ok) return;
-              await api.deleteUser(uname);
-              toast.info('User deleted');
+              try {
+                await api.deleteUser(uname);
+                toast.info('User deleted');
+              } catch (e) {
+                toast.error(e.message);
+              }
               loadUsers();
             },
           }) : null,
@@ -107,8 +128,8 @@ export function createView() {
         listEl.appendChild(row);
       });
       mount.appendChild(listEl);
-    } catch {
-      mount.textContent = 'Authentication endpoint not enabled on Hub.';
+    } catch (e) {
+      mount.textContent = `Cannot load the user accounts: ${e.message}`;
     }
   }
 
@@ -143,8 +164,12 @@ export function createView() {
                 danger: true,
               });
               if (!ok) return;
-              await api.deleteToken(tok.id);
-              toast.info('Token revoked');
+              try {
+                await api.deleteToken(tok.id);
+                toast.info('Token revoked');
+              } catch (e) {
+                toast.error(e.message);
+              }
               loadTokens();
             },
           }),
@@ -152,47 +177,13 @@ export function createView() {
         listEl.appendChild(row);
       });
       mount.appendChild(listEl);
-    } catch {
-      mount.textContent = 'API tokens managed via configuration.';
+    } catch (e) {
+      mount.textContent = `Cannot load the API tokens: ${e.message}`;
     }
   }
 
-  function openLoginModal() {
-    const userInput = h('input', { type: 'text', className: 'form-input', placeholder: 'admin' });
-    const passInput = h('input', { type: 'password', className: 'form-input' });
-    const content = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } }, [
-      h('label', { className: 'form-label', text: 'Username' }),
-      userInput,
-      h('label', { className: 'form-label', text: 'Password' }),
-      passInput,
-    ]);
-
-    createModal({
-      title: 'Log In to Harmony Hub',
-      content,
-      actions: [
-        { label: 'Cancel' },
-        {
-          label: 'Log In',
-          variant: 'primary',
-          onClick: async () => {
-            try {
-              await api.login(userInput.value.trim(), passInput.value);
-              toast.success('Logged in successfully!');
-              setTimeout(() => window.location.reload(), 300);
-              return true;
-            } catch (e) {
-              toast.error(e.message);
-              return false;
-            }
-          },
-        },
-      ],
-    });
-  }
-
   function openAddUserModal() {
-    const userInput = h('input', { type: 'text', className: 'form-input', placeholder: 'newuser' });
+    const userInput = h('input', { type: 'text', className: 'form-input', placeholder: 'newuser', maxlength: MAX_USERNAME_BYTES });
     const passInput = h('input', { type: 'password', className: 'form-input' });
     const roleSelect = h('select', { className: 'form-select' }, [
       h('option', { value: 'user', text: 'User (Control only)' }),
@@ -219,7 +210,9 @@ export function createView() {
           onClick: async () => {
             const username = userInput.value.trim();
             const password = passInput.value;
-            if (!username || !password) return toast.warn('All fields required');
+            if (!username || !password) { toast.warn('All fields required'); return false; }
+            const problem = credentialsError(username, password);
+            if (problem) { toast.warn(problem); return false; }
             await api.saveUser({ username, password, role: roleSelect.value });
             toast.success(`User ${username} created!`);
             loadUsers();
@@ -232,9 +225,16 @@ export function createView() {
 
   function openCreateTokenModal() {
     const nameInput = h('input', { type: 'text', className: 'form-input', placeholder: 'Home Assistant Token' });
+    // Same choice as the legacy UI: a control-only token for scripts that only press keys
+    const roleSelect = h('select', { className: 'form-select' }, [
+      h('option', { value: 'admin', text: 'Admin (Full access)' }),
+      h('option', { value: 'user', text: 'Operator (Control only)' }),
+    ]);
     const content = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } }, [
       h('label', { className: 'form-label', text: 'Token Description' }),
       nameInput,
+      h('label', { className: 'form-label', text: 'Role' }),
+      roleSelect,
     ]);
 
     createModal({
@@ -247,8 +247,8 @@ export function createView() {
           variant: 'primary',
           onClick: async () => {
             const name = nameInput.value.trim();
-            if (!name) return toast.warn('Token name required');
-            const res = await api.createToken(name, 'admin');
+            if (!name) { toast.warn('Token name required'); return false; }
+            const res = await api.createToken(name, roleSelect.value);
             if (res && res.token) {
               promptShowToken(res.token);
             }

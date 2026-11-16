@@ -1,5 +1,5 @@
 // MQTT & Home Assistant Configuration View
-import { h, copyText } from '../../utils/dom.js';
+import { h, copyText, escapeHtml } from '../../utils/dom.js';
 import { api } from '../../api/index.js';
 import { t } from '../../i18n/index.js';
 import { toast } from '../../components/toast.js';
@@ -228,7 +228,7 @@ export function createView() {
     const devSelect = container.querySelector('#ha-helper-dev');
     if (!devSelect) return;
     const devs = getDeviceList();
-    devSelect.innerHTML = devs.map(d => `<option value="${d.id}">${d.name || ('Device ' + d.id)} (ID: ${d.id})</option>`).join('');
+    devSelect.innerHTML = devs.map(d => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name || ('Device ' + d.id))} (ID: ${escapeHtml(d.id)})</option>`).join('');
     if (devs.length > 0) devSelect.value = String(devs[0].id);
     updateCommandsDropdown();
     renderQueue();
@@ -246,7 +246,7 @@ export function createView() {
     }
     cmdSelect.innerHTML = cmds.map(c => {
       const name = typeof c === 'string' ? c : (c.name || '');
-      return `<option value="${name}">${name}</option>`;
+      return `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`;
     }).filter(opt => !opt.includes('value=""')).join('');
   }
 
@@ -284,7 +284,7 @@ export function createView() {
       <div style="display:flex; justify-content:space-between; align-items:center; padding:4px 8px; background:var(--bg-card); border-radius:4px; margin-bottom:4px; border:1px solid var(--border); font-size:12px;">
         <div style="display:flex; align-items:center; gap:8px;">
           <span style="font-family:monospace; color:var(--text-dim); font-size:11px;">#${idx + 1}</span>
-          <strong>${cmd}</strong>
+          <strong>${escapeHtml(cmd)}</strong>
         </div>
         <div style="display:flex; gap:4px;">
           <button type="button" class="btn btn-sm btn-ghost" data-up="${idx}" ${idx === 0 ? 'disabled style="opacity:0.3"' : ''}>▲</button>

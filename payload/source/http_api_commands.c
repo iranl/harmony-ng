@@ -20,6 +20,7 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
          strcmp(clean_path, "/bt/command") == 0) && strcmp(method, "POST") == 0) {
         cJSON *p = parse_request_params(body);
         int success = 0;
+        int save_failed = 0; /* the device was updated but devices.json could not be written */
         if (p) {
             cJSON *j_dev = cJSON_GetObjectItemCaseSensitive(p, "deviceId");
             if (!j_dev) j_dev = cJSON_GetObjectItemCaseSensitive(p, "id");
@@ -51,7 +52,8 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
             int port = (j_port && cJSON_IsNumber(j_port)) ? (int)j_port->valuedouble : 0;
 
             if (dev_id[0] && name[0]) {
-                cJSON *root = config_store_get_devices_json();
+                config_store_lock();
+                cJSON *root = config_store_devices_copy();
                 if (root) {
                     cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
                     if (devs && cJSON_IsArray(devs)) {
@@ -129,19 +131,26 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                     }
                                     cJSON_AddItemToArray(cmds, new_cmd);
                                 }
-                                config_store_save_devices(root);
-                                success = 1;
+                                if (config_store_save_devices(root) == 0) {
+                                    root = NULL;
+                                    success = 1;
+                                } else {
+                                    save_failed = 1;
+                                }
                                 break;
                             }
                         }
                     }
+                    cJSON_Delete(root); /* NULL once the store took it */
                 }
+                config_store_unlock();
             }
             cJSON_Delete(p);
         }
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", success);
-        send_cjson_resp(client_fd, 200, resp);
+        if (save_failed) cJSON_AddStringToObject(resp, "error", "Could not save the devices (flash full?)");
+        send_cjson_resp(client_fd, save_failed ? 500 : 200, resp);
         cJSON_Delete(resp);
         close(client_fd);
         return 1;
@@ -152,6 +161,7 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
         cJSON *p = parse_request_params(body);
         int saved_count = 0;
         int success = 0;
+        int save_failed = 0; /* the device was updated but devices.json could not be written */
         if (p) {
             cJSON *j_dev = cJSON_GetObjectItemCaseSensitive(p, "deviceId");
             if (!j_dev) j_dev = cJSON_GetObjectItemCaseSensitive(p, "id");
@@ -165,7 +175,8 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
             }
 
             if (dev_id[0] && j_cmds && cJSON_IsArray(j_cmds)) {
-                cJSON *root = config_store_get_devices_json();
+                config_store_lock();
+                cJSON *root = config_store_devices_copy();
                 if (root) {
                     cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
                     if (devs && cJSON_IsArray(devs)) {
@@ -228,20 +239,28 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                     }
                                     saved_count++;
                                 }
-                                config_store_save_devices(root);
-                                success = 1;
+                                if (config_store_save_devices(root) == 0) {
+                                    root = NULL;
+                                    success = 1;
+                                } else {
+                                    save_failed = 1;
+                                }
                                 break;
                             }
                         }
                     }
+                    cJSON_Delete(root); /* NULL once the store took it */
                 }
+                config_store_unlock();
             }
             cJSON_Delete(p);
         }
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", success);
-        cJSON_AddNumberToObject(resp, "count", saved_count);
-        send_cjson_resp(client_fd, 200, resp);
+        /* nothing was stored when the save failed: count only what reached the flash */
+        cJSON_AddNumberToObject(resp, "count", success ? saved_count : 0);
+        if (save_failed) cJSON_AddStringToObject(resp, "error", "Could not save the devices (flash full?)");
+        send_cjson_resp(client_fd, save_failed ? 500 : 200, resp);
         cJSON_Delete(resp);
         close(client_fd);
         return 1;
@@ -252,6 +271,7 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
          strcmp(clean_path, "/bt/delete-command") == 0) && strcmp(method, "POST") == 0) {
         cJSON *p = parse_request_params(body);
         int success = 0;
+        int save_failed = 0; /* the command was removed but devices.json could not be written */
         if (p) {
             cJSON *j_dev = cJSON_GetObjectItemCaseSensitive(p, "deviceId");
             if (!j_dev) j_dev = cJSON_GetObjectItemCaseSensitive(p, "id");
@@ -267,7 +287,8 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
             const char *cmd_name = (j_cmd && cJSON_IsString(j_cmd)) ? j_cmd->valuestring : "";
 
             if (dev_id[0] && cmd_name[0]) {
-                cJSON *root = config_store_get_devices_json();
+                config_store_lock();
+                cJSON *root = config_store_devices_copy();
                 if (root) {
                     cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
                     if (devs && cJSON_IsArray(devs)) {
@@ -286,8 +307,12 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                         cJSON *cn = cJSON_GetObjectItemCaseSensitive(c_item, "name");
                                         if (cn && cJSON_IsString(cn) && strcmp(cn->valuestring, cmd_name) == 0) {
                                             cJSON_DeleteItemFromArray(cmds, ci);
-                                            config_store_save_devices(root);
-                                            success = 1;
+                                            if (config_store_save_devices(root) == 0) {
+                                                root = NULL;
+                                                success = 1;
+                                            } else {
+                                                save_failed = 1;
+                                            }
                                             break;
                                         }
                                     }
@@ -296,13 +321,16 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                             }
                         }
                     }
+                    cJSON_Delete(root); /* NULL once the store took it */
                 }
+                config_store_unlock();
             }
             cJSON_Delete(p);
         }
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", success);
-        send_cjson_resp(client_fd, 200, resp);
+        if (save_failed) cJSON_AddStringToObject(resp, "error", "Could not save the devices (flash full?)");
+        send_cjson_resp(client_fd, save_failed ? 500 : 200, resp);
         cJSON_Delete(resp);
         close(client_fd);
         return 1;

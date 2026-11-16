@@ -80,7 +80,7 @@ export class HarmonyAppHarmonySearch extends HarmonyAppBluetooth {
 
     // Populate initial manufacturers in datalist
     const mfgList = getHarmonyManufacturers();
-    mfgDatalist.innerHTML = mfgList.slice(0, 200).map(m => `<option value="${m}"></option>`).join('');
+    mfgDatalist.innerHTML = mfgList.slice(0, 200).map(m => `<option value="${escapeHtml(m)}"></option>`).join('');
 
     let currentModels = [];
     let currentDetail = null;
@@ -160,7 +160,7 @@ export class HarmonyAppHarmonySearch extends HarmonyAppBluetooth {
     mfgInput.addEventListener('input', () => {
       const q = mfgInput.value.trim();
       const matches = searchHarmonyManufacturers(q, 100);
-      mfgDatalist.innerHTML = matches.map(m => `<option value="${m}"></option>`).join('');
+      mfgDatalist.innerHTML = matches.map(m => `<option value="${escapeHtml(m)}"></option>`).join('');
     });
 
     const loadModelsForMfg = async (mfg) => {
@@ -169,11 +169,11 @@ export class HarmonyAppHarmonySearch extends HarmonyAppBluetooth {
       try {
         currentModels = await fetchHarmonyModels(mfg);
         if (modelDatalist) {
-          modelDatalist.innerHTML = currentModels.filter(item => typeof item?.m === 'string' && item.m.trim()).slice(0, 300).map(item => `<option value="${item.m}"></option>`).join('');
+          modelDatalist.innerHTML = currentModels.filter(item => typeof item?.m === 'string' && item.m.trim()).slice(0, 300).map(item => `<option value="${escapeHtml(item.m)}"></option>`).join('');
         }
         if (statusEl) statusEl.textContent = `Found ${currentModels.length} models for ${mfg}. Enter or pick model:`;
       } catch (err) {
-        if (statusEl) statusEl.innerHTML = `<span style="color:var(--danger)">Failed to load models for ${mfg}: ${err.message}</span>`;
+        if (statusEl) statusEl.innerHTML = `<span style="color:var(--danger)">Failed to load models for ${escapeHtml(mfg)}: ${escapeHtml(err.message)}</span>`;
       }
     };
 
@@ -186,7 +186,7 @@ export class HarmonyAppHarmonySearch extends HarmonyAppBluetooth {
       const q = modelInput.value.trim();
       const filtered = searchHarmonyModels(currentModels, q, 100);
       if (modelDatalist) {
-        modelDatalist.innerHTML = filtered.map(item => `<option value="${item.m || ''}"></option>`).join('');
+        modelDatalist.innerHTML = filtered.map(item => `<option value="${escapeHtml(item.m || '')}"></option>`).join('');
       }
     });
 
@@ -208,7 +208,7 @@ export class HarmonyAppHarmonySearch extends HarmonyAppBluetooth {
         const match = currentModels.find(item => typeof item?.m === 'string' && item.m.toLowerCase() === targetModel) ||
           currentModels.find(item => typeof item?.m === 'string' && item.m.toLowerCase().includes(targetModel));
         if (!match || !match.f) {
-          if (statusEl) statusEl.innerHTML = `<span style="color:var(--danger)">Model "${modelName}" not found under ${mfg}.</span>`;
+          if (statusEl) statusEl.innerHTML = `<span style="color:var(--danger)">Model "${escapeHtml(modelName)}" not found under ${escapeHtml(mfg)}.</span>`;
           return;
         }
 
@@ -234,7 +234,7 @@ export class HarmonyAppHarmonySearch extends HarmonyAppBluetooth {
         if (targetDevSel) {
           const devs = this.inventory.devices || [];
           const curDevId = this.selectedIrDeviceId || document.getElementById('manageDeviceSelect')?.value || (devs[0] && devs[0].id);
-          targetDevSel.innerHTML = devs.map(d => `<option value="${d.id}">${d.name || d.id}</option>`).join('');
+          targetDevSel.innerHTML = devs.map(d => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name || d.id)}</option>`).join('');
           if (curDevId && devs.some(d => String(d.id) === String(curDevId))) {
             targetDevSel.value = String(curDevId);
           }
@@ -245,7 +245,7 @@ export class HarmonyAppHarmonySearch extends HarmonyAppBluetooth {
           gridEl.innerHTML = cmds.map((c, i) => `
             <label class="cmd-chip harmony-cmd-item" data-idx="${i}" style="display:inline-flex; align-items:center; gap:6px; background:var(--bg-secondary); border:1px solid var(--border); border-radius:6px; padding:4px 8px; margin:3px; font-size:12px; cursor:pointer; user-select:none;">
               <input type="checkbox" class="harmony-cmd-cb" data-idx="${i}" checked style="cursor:pointer; margin:0;">
-              <span class="cmd-chip-name">${c.name}</span>
+              <span class="cmd-chip-name">${escapeHtml(c.name)}</span>
               ${c.pronto ? `<button type="button" class="btn btn-xs btn-ghost btn-test-archive-cmd" data-idx="${i}" title="Test Blast Pronto Hex" style="padding:1px 5px; font-size:10px; margin-left:2px;">▶ Test</button>` : ''}
             </label>
           `).join('');
@@ -306,7 +306,7 @@ export class HarmonyAppHarmonySearch extends HarmonyAppBluetooth {
 
       importBtn.disabled = true;
       importBtn.textContent = `Importing ${selectedCmds.length} commands...`;
-      if (importStatusEl) importStatusEl.innerHTML = `Importing ${selectedCmds.length} commands into "${targetDev.name}"...`;
+      if (importStatusEl) importStatusEl.innerHTML = `Importing ${selectedCmds.length} commands into "${escapeHtml(targetDev.name)}"...`;
 
       try {
         const targetPort = (targetDev.controlPort !== undefined) ? targetDev.controlPort : ((targetDev.control_port !== undefined) ? targetDev.control_port : 7);
@@ -337,7 +337,7 @@ export class HarmonyAppHarmonySearch extends HarmonyAppBluetooth {
           }
         }
 
-        if (importStatusEl) importStatusEl.innerHTML = `<span style="color:var(--success)">✓ Successfully imported ${cmdPayloads.length} commands into "${targetDev.name}"!</span>`;
+        if (importStatusEl) importStatusEl.innerHTML = `<span style="color:var(--success)">✓ Successfully imported ${cmdPayloads.length} commands into "${escapeHtml(targetDev.name)}"!</span>`;
         await this.refreshData();
         this.renderIrView(targetDevId);
       } catch (err) {

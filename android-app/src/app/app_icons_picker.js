@@ -430,7 +430,7 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
           <div class="icon-preview">
             <img src="${item.url}" data-icon-key="${item.fn}" class="stock-icon-img ${shouldInvert ? 'invert-white' : ''}" loading="lazy" decoding="async" style="width: 26px; height: 26px;" onload="if(window.__harmonyAutoInvert)window.__harmonyAutoInvert(this)" onerror="this.src='/favicon.png'" />
           </div>
-          <div class="icon-title" title="${item.title}">${item.title}</div>
+          <div class="icon-title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</div>
           <div class="icon-filename">${item.fn}</div>
         </div>
       `;

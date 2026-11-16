@@ -4,6 +4,10 @@
 #include "remote_config.h"
 #include "remote_battery.h"
 
+/* Each start of pairing gets a generation; a worker ends as soon as a newer start exists, so a
+ * stop and a new start within its 1 s sleep no longer leave two workers sending requests */
+static volatile unsigned s_pairing_gen;
+
 int rf_send_frame(rf_frame_t *frame) {
     if (g_rf_fd < 0 || !frame) return -1;
     uint8_t out[32];
@@ -39,8 +43,11 @@ void rf_send_sync_query(void) {
     rf_build_frame(&f, g_remote_slot, RF_MSG_SYNC_REQUEST, ++g_tx_seq, 0, payload, 1);
     rf_send_frame(&f);
     link_note_query(f.seq, get_monotonic_ms());
-    printf("[*] RF TX SYNC_REQUEST seq=%d slot=%d (byte1=0x%02X)\n", f.seq, f.dev_slot & 0x0F, f.dev_slot);
-    fflush(stdout);
+    /* Every 800 ms with the screen on: only with debug logging, the log lives in RAM */
+    if (g_log_level >= LOG_LEVEL_DEBUG) {
+        printf("[*] RF TX SYNC_REQUEST seq=%d slot=%d (byte1=0x%02X)\n", f.seq, f.dev_slot & 0x0F, f.dev_slot);
+        fflush(stdout);
+    }
 }
 
 void rf_send_full_sync_request(void) {
@@ -62,9 +69,16 @@ void rf_send_full_sync_request(void) {
     fflush(stdout);
 }
 
-void rf_wake_and_reconnect(void) {
-    /* Re-syncing the CC2544 mid-transfer drops frames, and a sync or OTA proves the link is up */
-    if (g_rf_fd < 0 || g_is_syncing_config || g_is_ota_updating) return;
+/* After rf_wake_for_key() no other re-sync for this long: its caller sends a key frame right
+ * behind the re-sync, and a second re-sync written while that frame is still in the CC2544 can
+ * drop it. The screen wake that follows the key and, after a suspend, the power thread both ask
+ * for a re-sync within these milliseconds; the one for the key already did what they want. */
+#define RF_KEY_RESYNC_HOLD_MS 100
+static pthread_mutex_t s_resync_lock = PTHREAD_MUTEX_INITIALIZER;
+static uint64_t s_resync_hold_until_ms = 0;
+
+/* The reconnect packet to the CC2544, 5 ms for the chip to take it, then a sync query */
+static void rf_resync(void) {
     uint8_t pkt_dongle[10] = {0x12, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
     pthread_mutex_lock(&g_rf_write_mutex);
     if (write(g_rf_fd, pkt_dongle, sizeof(pkt_dongle)) < 0) {}
@@ -73,10 +87,30 @@ void rf_wake_and_reconnect(void) {
     rf_send_sync_query();
 }
 
+void rf_wake_and_reconnect(void) {
+    /* Re-syncing the CC2544 mid-transfer drops frames, and a sync or OTA proves the link is up */
+    if (g_rf_fd < 0 || g_is_syncing_config || g_is_ota_updating) return;
+    pthread_mutex_lock(&s_resync_lock);
+    bool held = get_monotonic_ms() < s_resync_hold_until_ms;
+    pthread_mutex_unlock(&s_resync_lock);
+    if (held) return;
+    rf_resync();
+}
+
+void rf_wake_for_key(void) {
+    if (g_rf_fd < 0 || g_is_syncing_config || g_is_ota_updating) return;
+    /* The hold starts before the re-sync: a wake from another thread must not land between this
+     * re-sync and the key frame either */
+    pthread_mutex_lock(&s_resync_lock);
+    s_resync_hold_until_ms = get_monotonic_ms() + 5 + RF_KEY_RESYNC_HOLD_MS;
+    pthread_mutex_unlock(&s_resync_lock);
+    rf_resync();
+}
+
 static void *rf_pairing_worker(void *arg) {
-    (void)arg;
+    unsigned gen = (unsigned)(uintptr_t)arg;
     int attempts = 0;
-    while (g_running && g_pairing_state == 1 && attempts < 30) {
+    while (g_running && g_pairing_state == 1 && gen == s_pairing_gen && attempts < 30) {
         uint8_t pkt_pair[7] = {0x10, 0xFF, 0x80, 0xB2, 0x01, 0x01, 0x00};
         pthread_mutex_lock(&g_rf_write_mutex);
         if (write(g_rf_fd, pkt_pair, sizeof(pkt_pair)) < 0) {
@@ -86,14 +120,14 @@ static void *rf_pairing_worker(void *arg) {
 
         sleep(1);
         attempts++;
-        if (g_pairing_state != 1) break;
+        if (g_pairing_state != 1 || gen != s_pairing_gen) break;
 
         uint8_t q_hub[7] = {0x10, 0xFF, 0x83, 0xB5, 0x20, 0x00, 0x00};
         pthread_mutex_lock(&g_rf_write_mutex);
         if (write(g_rf_fd, q_hub, sizeof(q_hub)) < 0) {}
         pthread_mutex_unlock(&g_rf_write_mutex);
     }
-    if (g_pairing_state == 1) {
+    if (g_pairing_state == 1 && gen == s_pairing_gen) {
         printf("[-] Pairing timed out after 30s\n");
         g_pairing_state = 3;
         render_screen();
@@ -108,8 +142,13 @@ void rf_start_pairing(void) {
 
     printf("[*] Initiating RF Pairing to Hub...\n");
     pthread_t th;
-    if (pthread_create(&th, NULL, rf_pairing_worker, NULL) == 0) {
+    unsigned gen = ++s_pairing_gen;
+    if (pthread_create(&th, NULL, rf_pairing_worker, (void *)(uintptr_t)gen) == 0) {
         pthread_detach(th);
+    } else {
+        /* No worker: "pairing" would hold back the sync queries and suspends for good */
+        printf("[-] Pairing could not start: no thread\n");
+        g_pairing_state = 3;
     }
     fflush(stdout);
 }
@@ -187,6 +226,8 @@ void rf_perform_unpair_cleanup(bool notify_hub) {
     g_active_activity_name[0] = '\0';
     g_config_version = 0;
     g_unpair_confirm_active = false;
+    /* A progress bar still running would put its target screen over "Not paired" when it ends */
+    g_is_switching_activity = false;
     g_current_view = VIEW_NOT_PAIRED;
 
     printf("[+] Remote unpairing & bonding removal complete. Ready to pair to new hub.\n");
@@ -217,11 +258,24 @@ void rf_send_button_event(uint16_t key_code, int value) {
         strncpy((char *)&payload[20], dev_ctx, 5);
     }
 
+    /* Key event counter (rf_proto.h RF_KEY_COUNTER_OFF): one step per key frame, never reset
+     * while remote_ui runs (a resume from suspend keeps it). Key frames are sent once and not
+     * acknowledged; the Hub counts the gaps. The number and the write stay under one lock: the
+     * main loop sends presses and releases, the repeat thread sends holds, and two frames
+     * written out of order would be counted as lost. */
+    static pthread_mutex_t s_key_lock = PTHREAD_MUTEX_INITIALIZER;
+    static uint8_t s_key_counter = 0;
+    pthread_mutex_lock(&s_key_lock);
+    s_key_counter = rf_key_counter_next(s_key_counter);
+    uint8_t counter = s_key_counter;
+    payload[RF_KEY_COUNTER_OFF] = counter;
     rf_build_frame(&f, g_remote_slot, RF_MSG_BUTTON_PRESS, ++g_tx_seq, 0, payload, sizeof(payload));
     rf_send_frame(&f);
+    pthread_mutex_unlock(&s_key_lock);
 
-    printf("[*] RF TX BUTTON_PRESS: 0x%04X %s %s dev=%s\n", key_code,
-           state == 0x01 ? "press" : (state == 0x02 ? "hold" : "release"), short_name, dev_ctx[0] ? dev_ctx : "none");
+    printf("[*] RF TX BUTTON_PRESS: 0x%04X %s %s dev=%s #%u\n", key_code,
+           state == 0x01 ? "press" : (state == 0x02 ? "hold" : "release"), short_name, dev_ctx[0] ? dev_ctx : "none",
+           counter);
 }
 
 void rf_send_activity_start(const char *act_id) {
@@ -256,20 +310,6 @@ void rf_send_help_answer(const char *dev_id, bool on) {
     rf_build_frame(&f, g_remote_slot, RF_MSG_HELP_ANSWER, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 9);
     rf_send_frame(&f);
     printf("[*] RF TX HELP_ANSWER: %s is %s\n", dev_id, on ? "on" : "off");
-}
-
-void rf_send_device_command(const char *dev_id, const char *cmd) {
-    if (g_rf_fd < 0) return;
-
-    rf_frame_t f;
-    uint8_t payload[25] = {0};
-    strncpy((char *)payload, dev_id, 4);
-    strncpy((char *)&payload[4], cmd, 21);
-    rf_build_frame(&f, g_remote_slot, RF_MSG_DEVICE_CMD_REQUEST, ++g_tx_seq, 0, payload, sizeof(payload));
-
-    rf_send_frame(&f);
-
-    printf("[*] RF TX DEVICE_CMD: dev=%s cmd=%s\n", dev_id, cmd);
 }
 
 void rf_send_screen_button_press(const char *act_id, uint8_t btn_idx, const char *label) {
@@ -311,10 +351,13 @@ int build_combined_activity_sequence(const char *from_id, const char *to_id,
             }
         }
         if (!found_stop && count < max_steps && strcmp(from_id, "-1") != 0) {
+            /* the callers' arrays are not zeroed: terminate what is copied */
             strncpy(out_steps[count].act_id, from_id, sizeof(out_steps[count].act_id) - 1);
+            out_steps[count].act_id[sizeof(out_steps[count].act_id) - 1] = '\0';
             out_steps[count].step_idx = 0x80;
             out_steps[count].delay_ms = 1500;
             strncpy(out_steps[count].name, "Stop old act", sizeof(out_steps[count].name) - 1);
+            out_steps[count].name[sizeof(out_steps[count].name) - 1] = '\0';
             total += 1500;
             count++;
         }
@@ -342,9 +385,11 @@ int build_combined_activity_sequence(const char *from_id, const char *to_id,
         }
         if (found_start && !found_switched && count < max_steps) {
             strncpy(out_steps[count].act_id, to_id, sizeof(out_steps[count].act_id) - 1);
+            out_steps[count].act_id[sizeof(out_steps[count].act_id) - 1] = '\0';
             out_steps[count].step_idx = (uint8_t)count;
             out_steps[count].delay_ms = 0;
             strncpy(out_steps[count].name, "Activity switched", sizeof(out_steps[count].name) - 1);
+            out_steps[count].name[sizeof(out_steps[count].name) - 1] = '\0';
             count++;
         }
     }
@@ -428,7 +473,7 @@ void send_version_report_rf(void) {
     payload[1] = (uint8_t)min;
     payload[2] = (uint8_t)pat;
     payload[3] = (uint8_t)g_config_version;
-    payload[4] = RF_CAP_ACT_DEVICES | RF_CAP_LONG_NAMES | RF_CAP_UNIT_ID;
+    payload[4] = RF_CAP_ACT_DEVICES | RF_CAP_LONG_NAMES | RF_CAP_UNIT_ID | RF_CAP_DEVICE_CMDS;
     rf_build_frame(&f, g_remote_slot, RF_MSG_VERSION_REPORT, ++g_tx_seq, 0, payload, 5);
     rf_send_frame(&f);
     printf("[*] Sent 24h version report over RF: v%u.%u.%u (cfg=%u)\n", maj, min, pat, g_config_version);

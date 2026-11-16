@@ -49,10 +49,14 @@ typedef struct {
     char command[64];
 } orch_toggle_t;
 
-/* Progress callback for WebSocket broadcasts */
+/* Progress callback for WebSocket broadcasts. step_error: 0, or the negative result of the step
+ * the frame reports (its command could not be sent). failed_steps: -1 when the frame does not
+ * report it, else the number of steps of the transition that could not be sent (on the
+ * "Transition completed" frame). */
 typedef void (*orch_progress_cb)(const char *activity_id, orch_state_t state,
                                  int current_step, int total_steps,
-                                 const char *step_desc, void *user_data);
+                                 const char *step_desc, int step_error, int failed_steps,
+                                 void *user_data);
 
 #ifdef __cplusplus
 extern "C" {

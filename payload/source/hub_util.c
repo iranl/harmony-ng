@@ -14,6 +14,8 @@
  */
 
 #include <stdio.h>
+#include "ota_verify.h"
+#include "atomic_file.h"
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
@@ -34,6 +36,10 @@
 #include <linux/ethtool.h>
 
 #include "hub_ntp.h"
+#include "wpa_conf.h"
+#include <signal.h>
+#include <strings.h>
+#include <sys/time.h>
 
 #ifndef SO_BINDTODEVICE
 #define SO_BINDTODEVICE 25
@@ -75,8 +81,13 @@ static int run_mknod(int argc, char **argv) {
         return 1;
     }
     mode_t mode = 0666;
-    if (argv[2][0] == 'c') mode |= S_IFCHR;
-    else if (argv[2][0] == 'b') mode |= S_IFBLK;
+    if (strcmp(argv[2], "c") == 0) mode |= S_IFCHR;
+    else if (strcmp(argv[2], "b") == 0) mode |= S_IFBLK;
+    else {
+        /* any other type used to create a regular file in place of the device node */
+        fprintf(stderr, "%s: type must be c or b, not '%s'\n", argv[0], argv[2]);
+        return 1;
+    }
     unsigned int maj = (unsigned int)atoi(argv[3]);
     unsigned int min = (unsigned int)atoi(argv[4]);
     dev_t dev = ((maj & 0xfff) << 8) | (min & 0xff);
@@ -159,33 +170,33 @@ static int run_eth_fix(int argc, char **argv) {
     memset(&ifr, 0, sizeof(ifr));
     strncpy(ifr.ifr_name, ifname, IFNAMSIZ - 1);
 
-    struct ethtool_value eval;
-
-    eval.cmd = ETHTOOL_STXCSUM;
-    eval.data = 0;
-    ifr.ifr_data = (caddr_t)&eval;
-    if (ioctl(fd, SIOCETHTOOL, &ifr) == 0) {
-        printf("[+] %s: TX checksum offload disabled\n", ifname);
-    } else {
-        perror("[-] ETHTOOL_STXCSUM");
+    /* every offload is switched off on its own; the result says which ones failed (the
+     * success line used to be printed whatever the ioctl calls returned) */
+    static const struct { uint32_t cmd; const char *name; } offloads[] = {
+        { ETHTOOL_STXCSUM, "TX checksum offload" },
+        { ETHTOOL_SRXCSUM, "RX checksum offload" },
+        { ETHTOOL_SSG, "scatter-gather" },
+        { ETHTOOL_STSO, "TCP segmentation offload" },
+    };
+    int failed = 0;
+    for (size_t i = 0; i < sizeof(offloads) / sizeof(offloads[0]); i++) {
+        struct ethtool_value eval;
+        eval.cmd = offloads[i].cmd;
+        eval.data = 0;
+        ifr.ifr_data = (caddr_t)&eval;
+        if (ioctl(fd, SIOCETHTOOL, &ifr) == 0) {
+            printf("[+] %s: %s disabled\n", ifname, offloads[i].name);
+        } else {
+            fprintf(stderr, "[-] %s: could not disable %s: %s\n", ifname, offloads[i].name, strerror(errno));
+            failed++;
+        }
     }
 
-    eval.cmd = ETHTOOL_SRXCSUM;
-    eval.data = 0;
-    ifr.ifr_data = (caddr_t)&eval;
-    ioctl(fd, SIOCETHTOOL, &ifr);
-
-    eval.cmd = ETHTOOL_SSG;
-    eval.data = 0;
-    ifr.ifr_data = (caddr_t)&eval;
-    ioctl(fd, SIOCETHTOOL, &ifr);
-
-    eval.cmd = ETHTOOL_STSO;
-    eval.data = 0;
-    ifr.ifr_data = (caddr_t)&eval;
-    ioctl(fd, SIOCETHTOOL, &ifr);
-
     close(fd);
+    if (failed) {
+        fprintf(stderr, "[-] %s: %d of 4 offload settings could not be changed\n", ifname, failed);
+        return 1;
+    }
     printf("[+] %s: All checksum and segmentation offloads disabled successfully\n", ifname);
     return 0;
 }
@@ -361,7 +372,12 @@ static int run_dhcpd(int argc, char **argv) {
 /* =========================================================================
  * Subcommand: portal / hub_portal
  * ========================================================================= */
+#ifdef TEST_HARNESS
+/* host test build: never touch /etc and never reboot (tests/test_recovery_portal.py) */
+#define WPA_CONF (getenv("HARMONY_PORTAL_WPA_CONF") ? getenv("HARMONY_PORTAL_WPA_CONF") : "/nonexistent/wpa_supplicant.conf")
+#else
 #define WPA_CONF "/etc/wpa_supplicant.conf"
+#endif
 
 static const char *HTML_FORM =
     "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n\r\n"
@@ -425,30 +441,54 @@ static void portal_extract_param(const char *body, const char *name, char *out, 
     }
 }
 
+/* Written to a synced temporary file and renamed: a power cut never leaves an empty config */
 static int portal_save_wifi_config(const char *ssid, const char *psk, int hidden) {
-    FILE *f = fopen(WPA_CONF, "w");
-    if (!f) return -1;
-
-    fprintf(f, "ctrl_interface=/var/run/wpa_supplicant\n");
-    fprintf(f, "update_config=1\n\n");
-    fprintf(f, "network={\n");
-    fprintf(f, "    ssid=\"%s\"\n", ssid);
+    char conf[512];
+    int n;
     if (psk && psk[0]) {
-        fprintf(f, "    psk=\"%s\"\n", psk);
+        n = snprintf(conf, sizeof(conf),
+                     "ctrl_interface=/var/run/wpa_supplicant\nupdate_config=1\n\nnetwork={\n"
+                     "    ssid=\"%s\"\n    psk=\"%s\"\n%s}\n",
+                     ssid, psk, hidden ? "    scan_ssid=1\n" : "");
     } else {
-        fprintf(f, "    key_mgmt=NONE\n");
+        n = snprintf(conf, sizeof(conf),
+                     "ctrl_interface=/var/run/wpa_supplicant\nupdate_config=1\n\nnetwork={\n"
+                     "    ssid=\"%s\"\n    key_mgmt=NONE\n%s}\n",
+                     ssid, hidden ? "    scan_ssid=1\n" : "");
     }
-    if (hidden) {
-        fprintf(f, "    scan_ssid=1\n");
+    if (n < 0 || (size_t)n >= sizeof(conf)) return -1;
+    return atomic_file_write(WPA_CONF, conf, (size_t)n);
+}
+
+/* Reads one request: the header, then the body up to its Content-Length (as far as buf holds).
+ * A body sent in a second segment used to be lost, and the form came back without an error.
+ * The socket has a receive timeout (run_portal), so a client that stops sending ends the read. */
+static ssize_t portal_read_request(int fd, char *buf, size_t cap) {
+    size_t got = 0;
+    buf[0] = '\0';
+    while (got + 1 < cap) {
+        ssize_t n = recv(fd, buf + got, cap - 1 - got, 0);
+        if (n <= 0) break;
+        got += (size_t)n;
+        buf[got] = '\0';
+        char *hdr_end = strstr(buf, "\r\n\r\n");
+        if (!hdr_end) continue;
+        unsigned long clen = 0;
+        for (const char *line = buf; line && line < hdr_end;) {
+            if (strncasecmp(line, "Content-Length:", 15) == 0) clen = strtoul(line + 15, NULL, 10);
+            const char *nl = strstr(line, "\r\n");
+            line = nl ? nl + 2 : NULL;
+        }
+        if (got >= (size_t)(hdr_end + 4 - buf) + clen) break;
     }
-    fprintf(f, "}\n");
-    fclose(f);
-    return 0;
+    return got ? (ssize_t)got : -1;
 }
 
 static int run_portal(int argc, char **argv) {
     int port = (argc > 1) ? atoi(argv[1]) : 80;
     if (port <= 0) port = 80;
+    /* a client that closes before the answer must not end the portal (send() raised SIGPIPE) */
+    signal(SIGPIPE, SIG_IGN);
 
     int srv = socket(AF_INET, SOCK_STREAM, 0);
     if (srv < 0) { perror("socket"); return 1; }
@@ -460,7 +500,11 @@ static int run_portal(int argc, char **argv) {
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_port = htons((uint16_t)port);
+#ifdef TEST_HARNESS
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK); /* a host test never listens on the LAN */
+#else
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
+#endif
 
     if (bind(srv, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
         perror("bind");
@@ -481,9 +525,14 @@ static int run_portal(int argc, char **argv) {
         socklen_t clen = sizeof(client);
         int cfd = accept(srv, (struct sockaddr *)&client, &clen);
         if (cfd < 0) continue;
+        /* one client at a time: one that connects and sends nothing (a browser preconnect, a
+         * stalled captive-portal probe) must not hold the portal for everybody else */
+        struct timeval tmo = { .tv_sec = 5, .tv_usec = 0 };
+        setsockopt(cfd, SOL_SOCKET, SO_RCVTIMEO, &tmo, sizeof(tmo));
+        setsockopt(cfd, SOL_SOCKET, SO_SNDTIMEO, &tmo, sizeof(tmo));
 
         char buf[2048] = {0};
-        ssize_t n = recv(cfd, buf, sizeof(buf) - 1, 0);
+        ssize_t n = portal_read_request(cfd, buf, sizeof(buf));
         if (n <= 0) { close(cfd); continue; }
 
         if (strncmp(buf, "GET ", 4) == 0) {
@@ -498,17 +547,25 @@ static int run_portal(int argc, char **argv) {
             char ssid[128] = {0}, psk[128] = {0}, hid_str[16] = {0};
             portal_extract_param(body, "ssid", ssid, sizeof(ssid));
             portal_extract_param(body, "psk", psk, sizeof(psk));
+            /* values wpa_supplicant cannot take as written here (a line break, a pass phrase
+             * outside 8 to 63 characters, a raw 64 hex digit key): the form is shown again */
+            if (wpa_conf_value_error(ssid, 0) || (psk[0] && (wpa_conf_value_error(psk, 1) || wpa_psk_is_hex(psk)))) ssid[0] = '\0';
             portal_extract_param(body, "hidden", hid_str, sizeof(hid_str));
 
-            if (ssid[0]) {
+            if (ssid[0] && portal_save_wifi_config(ssid, psk, hid_str[0] == '1') != 0) {
+                printf("[-] Could not save the Wi-Fi configuration to %s\n", WPA_CONF);
+            } else if (ssid[0]) {
                 printf("[+] Received Wi-Fi credentials for SSID: '%s'\n", ssid);
-                portal_save_wifi_config(ssid, psk, hid_str[0] == '1');
                 send(cfd, HTML_SAVED, strlen(HTML_SAVED), 0);
                 close(cfd);
 
                 sync();
+#ifndef TEST_HARNESS
                 sleep(2);
-                system("reboot");
+                /* the safe reboot (supervisors and daemons stopped, flash flushed and
+                 * remounted read-only), as the other reboot paths; plain reboot without it */
+                system("(/data/harmony/bin/safe_reboot.sh || reboot) >/dev/null 2>&1 &");
+#endif
                 break;
             }
         }
@@ -551,6 +608,49 @@ static const char *get_progname(const char *path) {
     return p ? p + 1 : path;
 }
 
+/* hub_util ota-verify <manifest.json> <manifest.json.sig> [key=path ...]
+ * Verifies the Ed25519 signature of an OTA manifest with the release keys built into the
+ * firmware, then the SHA-256 of each named file against its manifest entry (key = the entry
+ * name, e.g. hub_ota.tar.gz or bin/mips/hub_daemon). Prints the manifest version on success
+ * (exit 0); prints the reason and exits 1 otherwise. update.sh installs nothing without it. */
+static int run_ota_verify(int argc, char **argv) {
+    if (argc < 3) {
+        fprintf(stderr, "usage: hub_util ota-verify <manifest> <signature> [key=path ...]\n");
+        return 2;
+    }
+    char err[160];
+    char *manifest = ota_load_signed_manifest(argv[1], argv[2], err, sizeof(err));
+    if (!manifest) {
+        fprintf(stderr, "ota-verify: %s\n", err);
+        return 1;
+    }
+    char version[32];
+    if (ota_manifest_version(manifest, version, sizeof(version)) != 0) {
+        fprintf(stderr, "ota-verify: manifest has no valid version\n");
+        free(manifest);
+        return 1;
+    }
+    for (int i = 3; i < argc; i++) {
+        char spec[512];
+        snprintf(spec, sizeof(spec), "%s", argv[i]);
+        char *eq = strchr(spec, '=');
+        if (!eq || eq == spec || !eq[1]) {
+            fprintf(stderr, "ota-verify: bad file argument '%s' (want key=path)\n", argv[i]);
+            free(manifest);
+            return 2;
+        }
+        *eq = '\0';
+        if (ota_manifest_check_file(manifest, spec, eq + 1, err, sizeof(err)) != 0) {
+            fprintf(stderr, "ota-verify: %s\n", err);
+            free(manifest);
+            return 1;
+        }
+    }
+    free(manifest);
+    printf("%s\n", version);
+    return 0;
+}
+
 int main(int argc, char **argv) {
     const char *name = get_progname(argv[0]);
 
@@ -587,6 +687,8 @@ int main(int argc, char **argv) {
             return run_portal(argc - 1, argv + 1);
         if (strcmp(cmd, "sntp") == 0 || strcmp(cmd, "hub_sntp") == 0)
             return run_sntp(argc - 1, argv + 1);
+        if (strcmp(cmd, "ota-verify") == 0)
+            return run_ota_verify(argc - 1, argv + 1);
     }
 
     fprintf(stderr, "Harmony Hub Multi-Call Utility (hub_util)\n");
@@ -599,5 +701,6 @@ int main(int argc, char **argv) {
     fprintf(stderr, "  dhcpd         Minimal DHCP server for recovery AP\n");
     fprintf(stderr, "  portal        Wi-Fi recovery captive portal\n");
     fprintf(stderr, "  sntp          SNTP time synchronization client\n");
+    fprintf(stderr, "  ota-verify    Check a signed OTA manifest and files against it\n");
     return 1;
 }

@@ -8,6 +8,7 @@ import { confirm } from '../../components/confirm.js';
 import { renderDeviceIcon } from '../../icons/render.js';
 import { createModal } from '../../components/modal.js';
 import { openIconPicker } from '../../components/icon-picker.js';
+import { showDeviceInUse } from '../../components/hub-decisions.js';
 
 export function createView() {
   const container = h('div', { className: 'setup-subview-devices', style: { display: 'flex', flexDirection: 'column', gap: '16px' } });
@@ -247,7 +248,7 @@ export function createView() {
       h('div', { className: 'card-header' }, [
         h('h4', { className: 'card-title', style: { color: 'var(--danger)' }, text: t('danger_zone', 'Delete Device') }),
       ]),
-      h('p', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '10px' }, text: 'Removing this device will remove it from all activities and remotes.' }),
+      h('p', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '10px' }, text: t('device_delete_in_use_note', 'A device that activities or remote keys still use cannot be deleted: the Hub lists them so you can change them first.') }),
       h('button', {
         className: 'btn btn-danger',
         text: t('delete_device', 'Delete Device Permanently'),
@@ -265,7 +266,7 @@ export function createView() {
               selectedDevice = null;
               renderDeviceSelector();
             } catch (e) {
-              toast.error(e.message);
+              if (!showDeviceInUse(e)) toast.error(e.message);
             }
           }
         },

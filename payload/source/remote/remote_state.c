@@ -83,6 +83,7 @@ uint32_t g_ota_received_bytes = 0;
 uint16_t g_ota_total_chunks = 0;
 uint16_t g_ota_received_chunks = 0;
 FILE *g_ota_file = NULL;
+pthread_mutex_t g_ota_lock = PTHREAD_MUTEX_INITIALIZER;
 
 FILE *g_icon_rx_file = NULL;
 uint32_t g_icon_rx_bytes = 0;
@@ -314,4 +315,24 @@ int get_active_dev_cmd_item(int filtered_idx, char *out_label, size_t label_len,
         }
     }
     return -1;
+}
+
+bool remote_log_rotate(const char *path, long max_bytes) {
+    struct stat out, cur;
+    fflush(stdout);
+    fflush(stderr);
+    if (fstat(STDOUT_FILENO, &out) != 0 || !S_ISREG(out.st_mode) || out.st_size <= max_bytes) return false;
+    /* Only when stdout is that very file (not a console, not another file) */
+    if (stat(path, &cur) != 0 || cur.st_dev != out.st_dev || cur.st_ino != out.st_ino) return false;
+    struct stat err;
+    bool err_same = fstat(STDERR_FILENO, &err) == 0 && err.st_dev == out.st_dev && err.st_ino == out.st_ino;
+    char old[256];
+    if (snprintf(old, sizeof(old), "%s.1", path) >= (int)sizeof(old) || rename(path, old) != 0) return false;
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_APPEND | O_CLOEXEC, 0644);
+    if (fd < 0) return false;
+    dup2(fd, STDOUT_FILENO);
+    if (err_same) dup2(fd, STDERR_FILENO);
+    if (fd > STDERR_FILENO) close(fd);
+    printf("[*] Log over %ld bytes: the previous part is in %s\n", max_bytes, old);
+    return true;
 }

@@ -62,7 +62,6 @@ cJSON *hub_ws_snapshot_object(int msg_id) {
     cJSON *hub = cJSON_CreateObject();
     struct hub_settings cs;
     config_store_get_settings(&cs);
-    cJSON_AddStringToObject(hub, "hub_id", hub_info_id());
     cJSON_AddStringToObject(hub, "hub_name", cs.hub_name[0] ? cs.hub_name : "Harmony Hub");
     hub_info_add_status_fields(hub, &cs);
     cJSON_DeleteItemFromObjectCaseSensitive(hub, "commit");
@@ -118,7 +117,7 @@ void hub_ws_tick(void) {
 
 void on_orch_progress(const char *activity_id, orch_state_t state,
                       int current_step, int total_steps,
-                      const char *step_desc, void *user_data) {
+                      const char *step_desc, int step_error, int failed_steps, void *user_data) {
     (void)user_data;
     const char *act_id = (activity_id && activity_id[0]) ? activity_id : "-1";
     const char *st_str = (state == ORCH_STATE_STARTING) ? "starting" :
@@ -139,6 +138,9 @@ void on_orch_progress(const char *activity_id, orch_state_t state,
     cJSON_AddNumberToObject(root, "totalSteps", total_steps);
     cJSON_AddStringToObject(root, "desc", desc);
     cJSON_AddStringToObject(root, "stepDesc", desc);
+    /* a step whose command could not be sent, and the count at the end of a transition */
+    if (step_error != 0) cJSON_AddNumberToObject(root, "error", step_error);
+    if (failed_steps >= 0) cJSON_AddNumberToObject(root, "failedSteps", failed_steps);
 
     /* WebSocket clients and MQTT get it from the bus (their sinks) */
     hub_events_emit(HUB_EV_ACTIVITY_PROGRESS, root);

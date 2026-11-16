@@ -7,9 +7,11 @@ Based on build/backup_hub.sh.
 Features:
 - Auto-detects SSH keys (~/.ssh/harmony_owner_*, id_rsa, id_ed25519)
 - Automatically stages RAM BusyBox (/tmp/busybox) if Hub stock BusyBox lacks tar
-- Creates initial GOLDEN backup of stock state (never overwritten)
+- Creates an initial GOLDEN backup per Hub (never overwritten)
 - Creates timestamped rolling backups of /data/harmony, configs, and system files
-- Automatically rotates rolling backups to retain newest 5
+- File names carry the Hub's id (its Wi-Fi MAC), so several Hubs can share one folder
+- Rotates each Hub's rolling backups: the newest 5, plus the newest of each of the
+  8 weeks before them
 """
 
 from __future__ import annotations
@@ -19,8 +21,16 @@ import datetime
 import glob
 import os
 import pathlib
+import re
 import subprocess
 import sys
+import tarfile
+
+# Shared SSH host key policy (tools/ssh_hostkeys.py, next to this file)
+_HK_DIR = pathlib.Path(__file__).resolve().parent
+if str(_HK_DIR) not in sys.path:
+    sys.path.append(str(_HK_DIR))
+import ssh_hostkeys  # noqa: E402
 
 
 def find_default_ssh_key() -> str | None:
@@ -49,11 +59,88 @@ def find_default_ssh_key() -> str | None:
 
 
 def get_ssh_cmd(host: str, user: str = "root", key_path: str | None = None) -> list[str]:
-    cmd = ["ssh", "-q", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no"]
+    # LogLevel=ERROR, not -q: a host key failure must still be printed
+    cmd = ["ssh", "-o", "LogLevel=ERROR", "-o", "BatchMode=yes", *ssh_hostkeys.ssh_options(host)]
     if key_path and os.path.isfile(key_path):
         cmd.extend(["-i", key_path])
     cmd.append(f"{user}@{host}")
     return cmd
+
+
+# What the backups hold. Missing paths are skipped by tar (and its exit code is ignored for
+# that reason); tar_is_complete() still catches a cut stream.
+GOLDEN_PATHS = "/data/resources /etc/passwd /etc/network /etc/TZ /etc/wpa_supplicant.conf /etc/dropbear"
+ROLLING_PATHS = ("/data/harmony /data/resources /data/stock_backup /etc/passwd /etc/network /etc/TZ "
+                 "/etc/wpa_supplicant.conf /etc/dropbear")
+
+# Rotation: the newest KEEP_RECENT rolling backups of a Hub, plus the newest one of each of
+# the KEEP_WEEKS calendar weeks before them (a week that already has one of the newest
+# backups gets no extra one)
+KEEP_RECENT = 5
+KEEP_WEEKS = 8
+
+
+def hub_tag(ssh_base: list[str], hub_host: str) -> str:
+    """A name part that tells Hubs apart: the Wi-Fi MAC (as the Hub's own id falls back to),
+    else the address the tool was given."""
+    res = subprocess.run(ssh_base + ["cat /sys/class/net/ath0/address 2>/dev/null"], capture_output=True, text=True)
+    mac = re.sub(r"[^0-9a-f]", "", (res.stdout or "").strip().lower())
+    if res.returncode == 0 and len(mac) == 12:
+        return mac
+    return re.sub(r"[^A-Za-z0-9.-]", "_", hub_host) or "hub"
+
+
+def backups_to_remove(backups: list[pathlib.Path]) -> list[pathlib.Path]:
+    """Rolling backups of one Hub that rotation deletes (see KEEP_RECENT, KEEP_WEEKS)."""
+    newest_first = sorted(backups, key=lambda p: p.stat().st_mtime, reverse=True)
+
+    def week_of(b: pathlib.Path) -> tuple[int, int]:
+        return datetime.date.fromtimestamp(b.stat().st_mtime).isocalendar()[:2]
+
+    keep = set(newest_first[:KEEP_RECENT])
+    recent_weeks = {week_of(b) for b in keep}
+    weeks_kept: set[tuple[int, int]] = set()
+    for b in newest_first[KEEP_RECENT:]:
+        week = week_of(b)
+        if week not in recent_weeks and week not in weeks_kept and len(weeks_kept) < KEEP_WEEKS:
+            weeks_kept.add(week)
+            keep.add(b)
+    return [b for b in newest_first if b not in keep]
+
+
+def tar_is_complete(path: pathlib.Path) -> bool:
+    """True when every member can be read and the archive ends with tar's end-of-archive
+    blocks. A stream cut by a dropped connection fails one of the two, also when the cut
+    falls on a block boundary, which tarfile alone reads as a shorter, valid archive."""
+    try:
+        with tarfile.open(path, "r:") as tf:
+            for member in tf:
+                if member.isfile():
+                    f = tf.extractfile(member)
+                    while f and f.read(65536):
+                        pass
+            end = tf.offset
+        with open(path, "rb") as f:
+            f.seek(end)
+            trailer = f.read(1024)
+        return len(trailer) == 1024 and trailer == bytes(1024)
+    except (tarfile.TarError, OSError, EOFError):
+        return False
+
+
+def save_archive(ssh_base: list[str], remote_cmd: str, dest: pathlib.Path) -> bool:
+    """Stream a tar from the Hub into dest. The file is written under a temporary name and
+    gets its final name only when ssh succeeded and the archive is complete."""
+    part = dest.with_name(dest.name + ".part")
+    with open(part, "wb") as f_out:
+        res = subprocess.run(ssh_base + [remote_cmd], stdout=f_out, stderr=subprocess.PIPE)
+    if res.returncode != 0 or not tar_is_complete(part):
+        reason = f"ssh exit code {res.returncode}" if res.returncode != 0 else "archive incomplete or unreadable"
+        print(f"[!] Backup to {dest.name} failed ({reason}); nothing was saved.")
+        part.unlink(missing_ok=True)
+        return False
+    part.replace(dest)
+    return True
 
 
 def backup_hub(
@@ -78,15 +165,27 @@ def backup_hub(
             backup_dir = script_dir.parent / "backups"
 
     backup_dir.mkdir(parents=True, exist_ok=True)
-    golden_file = backup_dir / "golden_hub_backup.tar"
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    rolling_file = backup_dir / f"hub_backup_{timestamp}.tar"
 
     if ssh_key is None:
         ssh_key = find_default_ssh_key()
 
     print(f"[*] Connecting to Harmony Hub ({hub_host})...")
     ssh_base = get_ssh_cmd(hub_host, hub_user, ssh_key)
+
+    # The Hub is a MIPS board; the remote (ARM) answers on the same key at 192.168.2.1
+    arch = subprocess.run(ssh_base + ["uname -m"], capture_output=True, text=True)
+    machine = (arch.stdout or "").strip()
+    if arch.returncode != 0 and ssh_hostkeys.report_failure(arch.stderr, hub_host):
+        return False
+    if arch.returncode != 0 or not machine.startswith("mips"):
+        print(f"[-] {hub_host} is not a Harmony Hub (uname -m: {machine or 'no answer'}); nothing was saved. "
+              "For the remote use remote/setup_remote.py --backup.")
+        return False
+
+    tag = hub_tag(ssh_base, hub_host)
+    golden_file = backup_dir / f"golden_hub_backup_{tag}.tar"
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    rolling_file = backup_dir / f"hub_backup_{tag}_{timestamp}.tar"
 
     # Detect tar binary on Hub
     tar_cmd = "tar"
@@ -131,26 +230,29 @@ def backup_hub(
                 print(f"[!] Warning during RAM BusyBox staging: {e}")
 
         if not staged_ram_bb and not dry_run:
-            print("[!] Notice: tar applet not found on Hub BusyBox and no local MIPS BusyBox to stage.")
-            print("    Skipping pre-deployment backup.")
-            return True
+            print("[-] No backup made: the Hub's BusyBox has no tar applet and no MIPS BusyBox could be staged")
+            print("    (build one with build/build_busybox.sh, or put it in payload/bin/busybox).")
+            return False
 
     try:
-        # 1. Golden backup
-        if not golden_file.is_file():
-            print("[*] Creating GOLDEN initial backup of Hub stock state...")
+        # 1. Golden backup. Before backups were named per Hub there was one golden_hub_backup.tar,
+        # taken at the first deploy (the stock state). It holds nothing that names its Hub, so it
+        # is kept as it is, and no new golden backup is made: it would hold today's state, not
+        # the stock one, under a name that says otherwise.
+        legacy_golden = backup_dir / "golden_hub_backup.tar"
+        if not golden_file.is_file() and legacy_golden.is_file():
+            print(f"[+] legacy golden backup kept: {legacy_golden.name}")
+        elif not golden_file.is_file():
+            print(f"[*] Creating the first (GOLDEN) backup of this Hub ({tag})...")
             if dry_run:
                 print(f"    [dry-run] would save golden backup to {golden_file}")
             else:
-                remote_cmd = f"{tar_cmd} -cf - /data/resources /etc/passwd /etc/network /etc/TZ 2>/dev/null || true"
-                with open(golden_file, "wb") as f_out:
-                    res = subprocess.run(ssh_base + [remote_cmd], stdout=f_out, stderr=subprocess.PIPE)
-                if golden_file.stat().st_size > 0:
+                remote_cmd = f"{tar_cmd} -cf - {GOLDEN_PATHS} 2>/dev/null || true"
+                if save_archive(ssh_base, remote_cmd, golden_file):
                     sz_kb = golden_file.stat().st_size // 1024
                     print(f"[+] Golden backup saved to {golden_file.name} ({sz_kb} KB)")
                 else:
-                    print("[!] Golden backup failed or empty, removing empty file.")
-                    golden_file.unlink(missing_ok=True)
+                    print("[!] Golden backup failed; it will be tried again on the next run.")
         else:
             print(f"[+] Golden backup already exists: {golden_file.name}")
 
@@ -159,26 +261,20 @@ def backup_hub(
         if dry_run:
             print(f"    [dry-run] would save rolling backup to {rolling_file}")
         else:
-            remote_cmd = f"{tar_cmd} -cf - /data/harmony /data/resources /etc/passwd /etc/network /etc/TZ 2>/dev/null || true"
-            with open(rolling_file, "wb") as f_out:
-                res = subprocess.run(ssh_base + [remote_cmd], stdout=f_out, stderr=subprocess.PIPE)
-            if rolling_file.stat().st_size > 0:
+            remote_cmd = f"{tar_cmd} -cf - {ROLLING_PATHS} 2>/dev/null || true"
+            if save_archive(ssh_base, remote_cmd, rolling_file):
                 sz_kb = rolling_file.stat().st_size // 1024
                 print(f"[+] Rolling backup saved: {rolling_file.name} ({sz_kb} KB)")
             else:
-                print("[!] Rolling backup failed or empty.")
-                rolling_file.unlink(missing_ok=True)
+                print("[!] Rolling backup failed; older backups were kept.")
                 return False
 
-        # 3. Rotate rolling backups (keep newest 5)
-        rolling_backups = sorted(
-            backup_dir.glob("hub_backup_*.tar"),
-            key=lambda p: p.stat().st_mtime,
-            reverse=True,
-        )
-        if len(rolling_backups) > 5:
-            print("[*] Rotating backups (keeping newest 5)...")
-            for old_b in rolling_backups[5:]:
+        # 3. Rotate this Hub's rolling backups (only archives that passed the check exist)
+        stale = backups_to_remove(list(backup_dir.glob(f"hub_backup_{tag}_*.tar")))
+        if stale:
+            print(f"[*] Rotating backups of {tag} (keeping the newest {KEEP_RECENT} and one per week "
+                  f"for {KEEP_WEEKS} weeks)...")
+            for old_b in stale:
                 if not dry_run:
                     old_b.unlink(missing_ok=True)
                 print(f"    Removed old backup: {old_b.name}")
@@ -196,7 +292,12 @@ def main() -> None:
     parser.add_argument("--key", help="Path to SSH private key")
     parser.add_argument("--backup-dir", type=pathlib.Path, help="Custom local backup directory")
     parser.add_argument("--dry-run", action="store_true", help="Report what would be backed up without saving files")
+    ssh_hostkeys.add_reset_option(parser, "the Hub")
     args = parser.parse_args()
+    # Before any USB or device work: a stop here leaves the device untouched
+    ssh_hostkeys.require_known_hosts()
+    if args.reset_host_key:
+        ssh_hostkeys.reset_host(args.host)
 
     success = backup_hub(
         hub_host=args.host,
@@ -209,4 +310,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    if sys.version_info < (3, 13):
+        sys.exit(f"This tool needs Python 3.13 or newer (this is Python {sys.version.split()[0]}).")
     main()

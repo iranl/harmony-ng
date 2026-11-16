@@ -34,6 +34,8 @@
 #include <sys/inotify.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <time.h>
+#include <sys/time.h>
 
 #define BT_STATUS_FILE "/tmp/hub_btstack_status.json"
 #define RF_API_PORT 8092
@@ -53,8 +55,24 @@ static char *read_small_file(const char *path, size_t max_len) {
     return buf;
 }
 
-/* GET /api/rf/status from hub_rf; returns the parsed body or NULL */
-static cJSON *fetch_rf_status(void) {
+static int rf_api_port(void) {
+#ifdef TEST_HARNESS
+    const char *p = getenv("HARMONY_TEST_RF_PORT"); /* a fake hub_rf in host tests */
+    if (p && atoi(p) > 0) return atoi(p);
+#endif
+    return RF_API_PORT;
+}
+
+static long long now_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+/* GET /api/rf/status from hub_rf; returns the parsed body or NULL. The whole request, connect to
+ * last byte, takes at most 1.5 s (also for an answer that trickles in). */
+cJSON *state_watch_fetch_rf_status(void) {
+    long long deadline = now_ms() + 1500;
     int s = socket(AF_INET, SOCK_STREAM, 0);
     if (s < 0) return NULL;
     struct timeval tv = { .tv_sec = 0, .tv_usec = 500000 };
@@ -63,7 +81,7 @@ static cJSON *fetch_rf_status(void) {
     struct sockaddr_in sin;
     memset(&sin, 0, sizeof(sin));
     sin.sin_family = AF_INET;
-    sin.sin_port = htons(RF_API_PORT);
+    sin.sin_port = htons((uint16_t)rf_api_port());
     sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     if (connect(s, (struct sockaddr *)&sin, sizeof(sin)) != 0) {
         close(s);
@@ -80,8 +98,17 @@ static cJSON *fetch_rf_status(void) {
         close(s);
         return NULL;
     }
-    ssize_t n;
-    while (len < cap && (n = recv(s, buf + len, cap - len, 0)) > 0) len += (size_t)n;
+    ssize_t n = 1;
+    while (len < cap && n > 0) {
+        long long left = deadline - now_ms();
+        if (left <= 0) break;
+        if (left > 500) left = 500;
+        tv.tv_sec = 0;
+        tv.tv_usec = (suseconds_t)(left * 1000);
+        setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        n = recv(s, buf + len, cap - len, 0);
+        if (n > 0) len += (size_t)n;
+    }
     close(s);
     buf[len] = '\0';
     /* Only a 200 carries the status object; an error reply (e.g. while hub_rf restarts) must not
@@ -253,7 +280,7 @@ static void *state_watch_thread(void *arg) {
             if (have) {
                 rf_baseline = 1;
             } else {
-                cJSON *rf = fetch_rf_status();
+                cJSON *rf = state_watch_fetch_rf_status();
                 if (rf) {
                     state_watch_offer_rf_status(rf);
                     rf_baseline = 1;

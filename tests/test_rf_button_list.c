@@ -104,6 +104,25 @@ static void test_many_triggers(void) {
     cJSON_Delete(a);
 }
 
+static void test_keymap_spellings(void) {
+    printf("The action and target spellings the Hub's key map accepts (rf_keymap.c)\n");
+    cJSON *a = acts("{\"10\":{\"Red\":{\"type\":\"command\",\"action\":\"activity_start\",\"targetActivity\":\"11\"},"
+                    "\"Music\":{\"type\":\"command\",\"action\":\"change_activity\",\"activityId\":\"12\"},"
+                    "\"Green\":{\"type\":\"command\",\"action\":\"activity_start\",\"deviceId\":\"13\"},"
+                    "\"PowerOffActivity\":{\"type\":\"command\",\"action\":\"poweroff\"}}}");
+    int n = rf_build_button_list(a, g_out, RF_BUTTON_LIST_MAX);
+    CHECK(n == 4, "three start keys and one stop key (%d entries)", n);
+    CHECK(n >= 1 && g_out[0].atype == 0x02 && strcmp(g_out[0].label, "Red") == 0 && strcmp(g_out[0].ctx, "11") == 0,
+          "targetActivity: Red starts activity 11 (entry: %s -> %s)", n >= 1 ? g_out[0].label : "-", n >= 1 ? g_out[0].ctx : "-");
+    CHECK(n >= 2 && g_out[1].atype == 0x02 && strcmp(g_out[1].label, "Music") == 0 && strcmp(g_out[1].ctx, "12") == 0,
+          "change_activity: Music starts activity 12");
+    CHECK(n >= 3 && g_out[2].atype == 0x02 && strcmp(g_out[2].label, "Green") == 0 && strcmp(g_out[2].ctx, "13") == 0,
+          "deviceId as the last target spelling: Green starts activity 13");
+    CHECK(n >= 4 && g_out[3].atype == 0x03 && strncmp(g_out[3].label, "PowerOffActivity", sizeof(g_out[3].label) - 1) == 0 && strcmp(g_out[3].ctx, "-1") == 0,
+          "poweroff: PowerOffActivity (label cut to %zu characters) is a stop key", sizeof(g_out[3].label) - 1);
+    cJSON_Delete(a);
+}
+
 static void test_empty(void) {
     printf("No map\n");
     int n = rf_build_button_list(NULL, g_out, RF_BUTTON_LIST_MAX);
@@ -116,6 +135,7 @@ int main(void) {
     test_triggers_with_screen_buttons();
     test_cap();
     test_many_triggers();
+    test_keymap_spellings();
     test_empty();
     if (failures) {
         printf("test_rf_button_list: %d FAILED\n", failures);

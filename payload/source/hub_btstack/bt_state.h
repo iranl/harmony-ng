@@ -148,6 +148,7 @@ bool is_debug_log_enabled(void);
 void log_msg(const char *msg);
 void hub_bt_log_debug(const char *msg);
 int parse_bd_addr(const char *str, bd_addr_t addr);
+int bt_tlv_store_if_changed(uint32_t tag, const uint8_t *value, uint32_t len);
 int is_null_bd_addr(const bd_addr_t addr);
 
 #ifdef __cplusplus

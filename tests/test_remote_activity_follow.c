@@ -1,0 +1,174 @@
+/*
+ * test_remote_activity_follow.c - An activity change from the Hub moves the remote to the
+ * activity's screen only while it shows the home (activity list) or an activity screen. In
+ * Settings, pairing or the device browser the page stays (selection, Suspend countdown included),
+ * no progress bar covers it, and the remote's activity is updated so the new one is there when
+ * the user goes back. A switch started on the remote itself still ends on its target screen.
+ *
+ * Frames go through handle_hub_frame_remote() as the RF thread would pass them; the progress bar
+ * end is remote_show_switch_target(), which the main loop calls when it runs out.
+ */
+#define _GNU_SOURCE
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <fcntl.h>
+#include <unistd.h>
+
+#include "remote/remote_state.h"
+#include "remote/remote_ui.h"
+#include "remote/remote_fb.h"
+#include "remote/remote_rf.h"
+#include "remote/remote_rf_sync.h"
+
+static int failures;
+static uint8_t s_seq = 1;
+
+#define CHECK(cond, what) do { \
+        bool ok_ = (cond); \
+        printf("[%s] %s\n", ok_ ? "+" : "-", what); \
+        if (!ok_) failures++; \
+    } while (0)
+
+/* ACTIVITY_SYNC from the Hub, short id format: id, NUL, name at payload[3], query flag at [24] */
+static void hub_activity(const char *id, const char *name, bool query_reply) {
+    uint8_t p[25] = {0};
+    memcpy(p, id, strlen(id) < 2 ? strlen(id) : 2);
+    strncpy((char *)&p[3], name, 20);
+    p[24] = query_reply ? 1 : 0;
+    rf_frame_t rf;
+    rf_build_frame(&rf, 1, RF_MSG_ACTIVITY_SYNC, s_seq++, 0, p, 25);
+    handle_hub_frame_remote(&rf);
+}
+
+static void reset_state(const char *running) {
+    g_is_switching_activity = false;
+    g_initial_sync_received = true;
+    snprintf(g_active_activity_id, sizeof(g_active_activity_id), "%s", running);
+    g_last_switch_target_id[0] = '\0';
+    g_last_switch_completed_ms = 0;
+    g_menu_open = false;
+}
+
+int main(void) {
+    printf("[*] test_remote_activity_follow\n");
+    g_fb_size = FB_SIZE;
+    g_fb_mem = (uint16_t *)calloc(1, FB_SIZE);
+    if (!g_fb_mem) return 1;
+
+    g_activity_count = 3;
+    snprintf(g_activities[0].id, sizeof(g_activities[0].id), "1");
+    snprintf(g_activities[0].name, sizeof(g_activities[0].name), "Watch TV");
+    snprintf(g_activities[1].id, sizeof(g_activities[1].id), "2");
+    snprintf(g_activities[1].name, sizeof(g_activities[1].name), "Play Games");
+    snprintf(g_activities[2].id, sizeof(g_activities[2].id), "3");
+    snprintf(g_activities[2].name, sizeof(g_activities[2].name), "Music");
+    g_screen_on = true;
+    g_rf_link_connected = true;
+    g_remote_slot = 1;
+
+    /* 1. Query reply with another activity while Settings > Power is open */
+    reset_state("1");
+    g_current_view = VIEW_SETTINGS;
+    g_settings_subview = SETTINGS_VIEW_POWER;
+    g_selected_sub_item = 3;
+    hub_activity("2", "Play Games", true);
+    CHECK(g_current_view == VIEW_SETTINGS && g_settings_subview == SETTINGS_VIEW_POWER && g_selected_sub_item == 3,
+          "catch-up in Settings: the page and its selection stay");
+    CHECK(strcmp(g_active_activity_id, "2") == 0, "catch-up in Settings: the new activity is recorded");
+
+    /* 2. The Suspend countdown page keeps counting */
+    reset_state("2");
+    g_current_view = VIEW_SETTINGS;
+    g_settings_subview = SETTINGS_VIEW_SUSPEND;
+    g_suspend_countdown_start_ms = 12345;
+    hub_activity("3", "Music", true);
+    CHECK(g_current_view == VIEW_SETTINGS && g_settings_subview == SETTINGS_VIEW_SUSPEND &&
+          g_suspend_countdown_start_ms == 12345, "catch-up on the Suspend page: the countdown page stays");
+    g_suspend_countdown_start_ms = 0;
+
+    /* 3. Live change while a device's commands are open in the device browser */
+    reset_state("3");
+    g_current_view = VIEW_DEVICE_BROWSER;
+    g_browse_dev = 0;
+    hub_activity("1", "Watch TV", false);
+    CHECK(g_current_view == VIEW_DEVICE_BROWSER && g_browse_dev == 0, "live change in the device browser: the device page stays");
+    CHECK(!g_is_switching_activity, "live change in the device browser: no progress bar over it");
+    CHECK(strcmp(g_active_activity_id, "1") == 0, "live change in the device browser: the new activity is recorded");
+    hub_activity("1", "Watch TV", true);
+    CHECK(g_current_view == VIEW_DEVICE_BROWSER && !g_is_switching_activity, "the next query reply for it changes nothing");
+
+    /* 4. Live change during pairing */
+    reset_state("1");
+    g_current_view = VIEW_PAIRING;
+    hub_activity("-1", "PowerOff", false);
+    CHECK(g_current_view == VIEW_PAIRING && !g_is_switching_activity, "live change during pairing: the pairing page stays");
+
+    /* 4b. A "Not paired" page shown although the radio is paired: the first sync leaves it */
+    reset_state("-1");
+    g_initial_sync_received = false;
+    g_current_view = VIEW_NOT_PAIRED;
+    hub_activity("2", "Play Games", true);
+    CHECK(g_current_view == VIEW_DEVICES, "first sync on the out-of-date \"Not paired\" page: the activity's screen opens");
+
+    /* 5. Home and activity screens follow, as before */
+    reset_state("-1");
+    g_current_view = VIEW_ACTIVITIES;
+    hub_activity("2", "Play Games", true);
+    CHECK(g_current_view == VIEW_DEVICES, "catch-up on home: the activity's screen opens");
+    reset_state("2");
+    g_current_view = VIEW_DEVICES;
+    hub_activity("-1", "PowerOff", true);
+    CHECK(g_current_view == VIEW_ACTIVITIES, "catch-up to PowerOff on an activity screen: home opens");
+
+    /* 6. Live change on home: progress bar, then the activity's screen when the Hub confirms */
+    reset_state("-1");
+    g_current_view = VIEW_ACTIVITIES;
+    hub_activity("3", "Music", false);
+    CHECK(g_is_switching_activity, "live change on home: progress bar shown");
+    hub_activity("3", "Music", true);
+    CHECK(!g_is_switching_activity && g_current_view == VIEW_DEVICES, "Hub confirms it: the activity's screen opens");
+
+    /* 7. A Hub switch whose progress bar ends on a page that does not follow (keys and touch
+          cannot get there while the bar shows; covers a tap handled just before it started) */
+    reset_state("-1");
+    g_current_view = VIEW_DEVICES;
+    hub_activity("1", "Watch TV", false);
+    CHECK(g_is_switching_activity, "live change on an activity screen: progress bar shown");
+    g_current_view = VIEW_SETTINGS;
+    g_settings_subview = SETTINGS_VIEW_DISPLAY;
+    g_is_switching_activity = false; /* the main loop ran out of time on the bar */
+    remote_show_switch_target();
+    CHECK(g_current_view == VIEW_SETTINGS && g_settings_subview == SETTINGS_VIEW_DISPLAY,
+          "end of a Hub switch on a page that does not follow: the page stays");
+
+    /* 8. A switch started on the remote (a hard key mapped to PowerOff, pressed in Settings) */
+    reset_state("2");
+    g_current_view = VIEW_SETTINGS;
+    g_settings_subview = SETTINGS_VIEW_CATEGORIES;
+    trigger_activity_switch("-1", "PowerOff");
+    CHECK(g_is_switching_activity, "own switch from Settings: progress bar shown");
+    hub_activity("-1", "PowerOff", true);
+    CHECK(!g_is_switching_activity && g_current_view == VIEW_ACTIVITIES, "own switch: it ends on its target screen");
+
+    /* 9. The Hub unpairs the remote while a Hub switch's progress bar runs: "Not paired" stays */
+    reset_state("-1");
+    g_current_view = VIEW_ACTIVITIES;
+    hub_activity("2", "Play Games", false);
+    CHECK(g_is_switching_activity, "Hub switch before the unpair: progress bar shown");
+    int saved_fd = g_rf_fd;
+    g_rf_fd = open("/dev/null", O_WRONLY);
+    rf_perform_unpair_cleanup(false);
+    close(g_rf_fd);
+    g_rf_fd = saved_fd;
+    if (g_is_switching_activity) remote_show_switch_target(); /* the main loop at the bar's end */
+    CHECK(!g_is_switching_activity && g_current_view == VIEW_NOT_PAIRED,
+          "unpair during a Hub switch: the bar ends, \"Not paired\" stays");
+
+    if (failures) {
+        printf("[-] test_remote_activity_follow: %d check(s) failed\n", failures);
+        return 1;
+    }
+    printf("[+] test_remote_activity_follow passed\n");
+    return 0;
+}

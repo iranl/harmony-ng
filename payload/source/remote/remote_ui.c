@@ -338,6 +338,10 @@ void render_screen(void) {
     if (!g_fb_mem || !g_screen_on) return;
     pthread_mutex_lock(&g_render_mutex);
 
+    /* Cleared before drawing: the RF and power threads set the flag when they change what the
+       screen shows, and a request made while this frame is drawn needs a frame of its own */
+    g_screen_dirty = false;
+
     int decodes, scales;
     fb_png_work_take(&decodes, &scales);
     transition_t transition = transition_prepare(screen_place());
@@ -355,6 +359,5 @@ void render_screen(void) {
         frame_timing_record(&t);
     }
 
-    g_screen_dirty = false;
     pthread_mutex_unlock(&g_render_mutex);
 }

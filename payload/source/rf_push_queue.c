@@ -34,8 +34,9 @@ static bool is_config_chunk(uint8_t msg_type) {
 
 /* Send a remote its queued config, opened by CONFIG_END clear carrying the chunk total.
    Stops at the first frame the remote never ACKs, so it never gets CONFIG_END complete
-   (and the new version) for a partial config. A remote without device browsing drops
-   device command frames, so they are skipped if it never ACKs the first one.
+   (and the new version) for a partial config. A remote that reports RF_CAP_DEVICE_CMDS ACKs
+   device command frames like any other. One without the bit may predate device browsing and
+   drop them, so they are skipped if it never ACKs the first one.
    Returns the number of device commands delivered, or -1 if the push failed. */
 int push_queue_send(uint8_t slot, uint8_t config_ver, push_queue_t *q) {
     if (q->oom) return -1;
@@ -60,7 +61,8 @@ int push_queue_send(uint8_t slot, uint8_t config_ver, push_queue_t *q) {
         qf->hdr_flag = 0x50 | (qf->seq & 0x0F);
         if (rf_send_config_frame(qf) == 0) {
             if (is_dev_cmd) dev_cmds++;
-        } else if (is_dev_cmd && dev_cmds == 0) {
+        } else if (is_dev_cmd && dev_cmds == 0 && !(slot >= 1 && slot <= MAX_PAIRED_REMOTES &&
+                                                    (g_remote_versions[slot - 1].caps & RF_CAP_DEVICE_CMDS))) {
             printf("[-] Slot %d did not ACK device commands; remote has no device browsing\n", slot);
             skip_dev_cmds = true;
             continue;

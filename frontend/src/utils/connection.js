@@ -16,10 +16,17 @@ class ConnectionMonitor {
 
     // Setup WS status listener
     api.onWsStatus = (connected) => {
+      const wasConnected = store.get('connection.wsConnected');
       store.update({
         'connection.wsConnected': connected,
         'connection.online': connected || store.get('connection.online'),
       });
+      // Events sent while the socket was down are lost: read the state again after a drop
+      if (!connected && wasConnected) this.wsDropped = true;
+      if (connected && this.wsDropped) {
+        this.wsDropped = false;
+        this.refreshData();
+      }
     };
 
     // Setup WS message listener
@@ -89,39 +96,49 @@ class ConnectionMonitor {
     }
   }
 
+  // activity_state (also inside the snapshot): 0 idle, 1 starting, 2 running, 3 stopping
+  applyActivityState(st) {
+    if (!st || typeof st !== 'object') return;
+    const code = typeof st.state === 'number' ? st.state
+      : ({ idle: 0, starting: 1, running: 2, stopping: 3 })[st.stateName ?? st.state];
+    if (code === 1 || code === 3) {
+      store.set('activities.transitioning', true);
+      return;
+    }
+    if (code !== 0 && code !== 2) return;
+    const curId = code === 0 ? '-1' : String(st.activity ?? '-1');
+    this.setCurrentActivity(curId);
+  }
+
+  setCurrentActivity(curId) {
+    const acts = store.get('activities.list') || [];
+    const act = acts.find(a => String(a.id) === curId);
+    store.update({
+      'activities.currentId': curId,
+      'activities.currentName': act ? act.name : (curId === '-1' ? 'PowerOff' : curId),
+      'activities.transitioning': false,
+      'activities.progress': null,
+    });
+  }
+
   handleWsMessage(data) {
     if (!data) return;
 
-    if (data.event === 'activity_changed' || data.event === 'activity_started') {
-      const curId = String(data.id || data.activityId || '-1');
-      const acts = store.get('activities.list') || [];
-      const act = acts.find(a => String(a.id) === curId);
-      store.update({
-        'activities.currentId': curId,
-        'activities.currentName': act ? act.name : (curId === '-1' ? 'PowerOff' : curId),
-        'activities.transitioning': false,
-        'activities.progress': null,
-      });
-    } else if (data.event === 'activity_transition' || data.event === 'activity_progress') {
-      store.update({
-        'activities.transitioning': true,
-        'activities.progress': data,
-      });
+    // Every Hub message carries "type" (hub_events.c); the first frame after a connect is a
+    // snapshot of the current state
+    if (data.type === 'snapshot') {
+      this.applyActivityState(data.activity_state);
+      if (data.rf_status) store.set('rfStatus', data.rf_status);
+      if (data.bt_status) store.set('btStatus', data.bt_status);
+      if (data.mqtt_status) store.set('mqttStatus', data.mqtt_status);
+    } else if (data.type === 'activity_state') {
+      this.applyActivityState(data);
     } else if (data.type === 'activity_progress') {
-      // hub_daemon sends activity progress with "type", not "event": state "running"/2 or
-      // "idle"/0 means the switch finished
+      // state "running"/2 or "idle"/0 means the switch finished
       const actId = String(data.activityId || data.activity || '-1');
       const finished = data.state === 'running' || data.state === 'idle' || data.stateCode === 2 || data.stateCode === 0;
       if (finished) {
-        const curId = (data.state === 'idle' || data.stateCode === 0) ? '-1' : actId;
-        const acts = store.get('activities.list') || [];
-        const act = acts.find(a => String(a.id) === curId);
-        store.update({
-          'activities.currentId': curId,
-          'activities.currentName': act ? act.name : (curId === '-1' ? 'PowerOff' : curId),
-          'activities.transitioning': false,
-          'activities.progress': null,
-        });
+        this.setCurrentActivity((data.state === 'idle' || data.stateCode === 0) ? '-1' : actId);
       } else {
         store.update({
           'activities.transitioning': true,
@@ -132,9 +149,9 @@ class ConnectionMonitor {
       // devices, activities, settings or remote maps changed on the Hub
       clearTimeout(this.configRefreshTimer);
       this.configRefreshTimer = setTimeout(() => this.refreshData(), 800);
-    } else if (data.event === 'rf_status' || data.type === 'rf_status') {
+    } else if (data.type === 'rf_status') {
       store.set('rfStatus', data);
-    } else if (data.event === 'bt_status' || data.type === 'bt_status') {
+    } else if (data.type === 'bt_status') {
       store.set('btStatus', data);
     } else if (data.type === 'mqtt_status') {
       store.set('mqttStatus', data);

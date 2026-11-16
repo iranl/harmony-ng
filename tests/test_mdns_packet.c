@@ -10,6 +10,7 @@
 #include "hub_mdns.h"
 #include "hub_info.h"
 #include "http_auth.h"
+#include "hub_network_util.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -34,6 +35,7 @@ void net_get_network_details(char *i, size_t il, char *g, size_t gl, char *m, si
 void net_get_iface_ip_mask_mac(const char *n, char *ip, size_t il, char *m, size_t ml, char *mac, size_t macl) {
     (void)n; (void)il; (void)ml; (void)macl; ip[0] = m[0] = mac[0] = '\0';
 }
+int net_source_is_local(const struct sockaddr_in *from) { (void)from; return 1; }
 int config_store_get_settings(struct hub_settings *s) { memset(s, 0, sizeof(*s)); s->mdns_enabled = 1; return 0; }
 
 static int g_failures;
@@ -192,6 +194,25 @@ int main(void) {
     st.hub_name[0] = '\0';
     mdns_make_info(&mi, &st, NULL);
     CHECK(strcmp(mi.instance, "Harmony Hub._harmony-ng._tcp.local") == 0, "default name");
+
+    /* a long name with the conflict suffix: the instance label stays within 63 bytes (the suffix
+     * is kept, the name shortened) and the probe and the response can still be built */
+    snprintf(st.hub_name, sizeof(st.hub_name), "%s", "Living Room Harmony Hub next to the big TV in the corner xx");
+    mdns_make_info(&mi, &st, NULL);
+    CHECK(mdns_build_probe(&mi, pkt, sizeof(pkt)) > 0, "long name without a suffix: probe built");
+    mdns_make_info(&mi, &st, "20140101120000-000001");
+    const char *dot = strchr(mi.instance, '.');
+    size_t label = dot ? (size_t)(dot - mi.instance) : strlen(mi.instance);
+    CHECK(label <= 63, "long name with the suffix: instance label at most 63 bytes");
+    CHECK(strstr(mi.instance, " 20140101120000-000001._harmony-ng._tcp.local") != NULL, "the suffix and the service are kept");
+    CHECK(strncmp(mi.instance, "Living Room Harmony Hub", 23) == 0, "the name is shortened, not replaced");
+    CHECK(mdns_build_probe(&mi, pkt, sizeof(pkt)) > 0, "long name with the suffix: probe built");
+    CHECK(mdns_build_response(&mi, MDNS_R_ALL | MDNS_R_ENUM, 0, 0, 0, pkt, sizeof(pkt)) > 0,
+          "long name with the suffix: announcement built");
+    snprintf(st.hub_name, sizeof(st.hub_name), "%s", "A name that is exactly forty-one bytes xx");
+    mdns_make_info(&mi, &st, "20140101120000-000001");
+    CHECK(strcmp(mi.instance, "A name that is exactly forty-one bytes xx 20140101120000-000001._harmony-ng._tcp.local") == 0,
+          "a name that fits is not changed");
 
     if (g_failures) {
         printf("%d check(s) FAILED\n", g_failures);

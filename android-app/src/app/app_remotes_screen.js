@@ -190,7 +190,7 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
     });
     if (sel) {
       sel.innerHTML = '<option value="-1">Off / Idle (Default)</option>' +
-        filteredActs.map(a => `<option value="${a.id}">${a.name || a.label}</option>`).join('');
+        filteredActs.map(a => `<option value="${escapeHtml(a.id)}">${escapeHtml(a.name || a.label)}</option>`).join('');
       if (prevActVal && (prevActVal === '-1' || filteredActs.some(a => String(a.id) === String(prevActVal)))) {
         sel.value = prevActVal;
       }
@@ -214,19 +214,7 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
       }
     }
 
-    try {
-      const m = await this.client.getRFMapping(this.selectedRemoteSlot);
-      if (m) {
-        if (!m.activities) m.activities = {};
-        if (!m.devices) m.devices = {};
-        this.remoteMapData = m;
-      } else {
-        this.remoteMapData = { activities: {}, devices: {} };
-      }
-    } catch (e) {
-      console.warn(`Failed to load slot ${this.selectedRemoteSlot} mappings:`, e);
-      this.remoteMapData = { activities: {}, devices: {} };
-    }
+    await this.loadRemoteMap();
 
     try {
       this.remoteConfig = await this.client.request(`/api/rf/remote-config?slot=${this.selectedRemoteSlot || 1}`).catch(() => null);
@@ -518,9 +506,37 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
     }
   }
 
+  // Reads the slot's key map. Save All posts the whole map and the Hub replaces its file with it,
+  // so after a failed read the editor keeps Save off: an empty map shown here would wipe the slot.
+  // Only a reply from the Hub ({"ok":true,"mappings":[]} = no map yet) starts an empty map.
+  async loadRemoteMap() {
+    const slot = this.selectedRemoteSlot || 1;
+    this.remoteMapLoadError = null;
+    try {
+      const reply = await this.client.getRFMapping(slot);
+      if (!reply || typeof reply !== 'object' || Array.isArray(reply)) throw new Error('unexpected reply');
+      const m = { ...reply }; // a copy: the reply object itself is left as the client returned it
+      delete m.ok; delete m.mappings; // the Hub's reply when it has no map yet
+      if (!m.activities) m.activities = {};
+      if (!m.devices) m.devices = {};
+      this.remoteMapData = m;
+    } catch (e) {
+      console.warn(`Failed to load slot ${slot} mappings:`, e);
+      this.remoteMapLoadError = e?.message || String(e);
+      this.remoteMapData = { activities: {}, devices: {} };
+      showToast(`Cannot load the key map of slot ${slot}: ${this.remoteMapLoadError}. Saving is off until it loads.`, 'danger');
+    }
+    const btn = document.getElementById('remoteSaveAllBtn');
+    if (btn) btn.disabled = Boolean(this.remoteMapLoadError);
+  }
+
   async saveAllRemoteMappings() {
     const btn = document.getElementById('remoteSaveAllBtn');
     const slot = this.selectedRemoteSlot || 1;
+    if (this.remoteMapLoadError) {
+      showToast(`Not saved: the Hub's key map was not loaded (${this.remoteMapLoadError}). Open the slot again to retry.`, 'danger');
+      return;
+    }
     try {
       if (btn) btn.textContent = 'Saving...';
       await this.client.saveRFMapping(this.remoteMapData, slot);
@@ -742,7 +758,7 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
             const text = sbtns[idx].label || `Btn ${idx + 1}`;
             tiles[idx].innerHTML = `
               ${getScreenBtnIconSvg(sbtns[idx].icon, sbtns[idx].label, 11)}
-              <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${text}</span>
+              <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(text)}</span>
             `;
             tiles[idx].setAttribute('title', text);
           }
@@ -783,7 +799,7 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
         sbtns[idx].deviceId = newDevId;
         const d = devs.find(x => String(x.id) === String(newDevId));
         if (cmdSel && d) {
-          cmdSel.innerHTML = (d.commands || []).map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+          cmdSel.innerHTML = (d.commands || []).map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join('');
           sbtns[idx].command = d.commands?.[0]?.name || '';
         }
       });
@@ -809,7 +825,9 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
     let preview;
     let module;
     try {
-      preview = await import(/* @vite-ignore */ new URL('assets/remote_preview.js', document.baseURI).href);
+      // Versioned, because the Hub serves /assets/ as immutable: the loader passes the query on
+      // to the module, its WebAssembly and the themes
+      preview = await import(/* @vite-ignore */ new URL(`assets/remote_preview.js?v=${__REMOTE_RENDERER_VERSION__}`, document.baseURI).href);
       module = await preview.loadHubRenderer(this.client?.baseUrl);
     } catch (e) {
       return; // no renderer in this build: keep the HTML mock-up

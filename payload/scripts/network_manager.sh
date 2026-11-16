@@ -4,8 +4,10 @@
 
 PATH=/cache/bin:/data/harmony/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 CONF=/data/harmony/ethernet.conf
-WPA_CONF=/etc/wpa_supplicant.ath0.conf
-[ -f "$WPA_CONF" ] || WPA_CONF=/etc/wpa_supplicant.conf
+# /etc/wpa_supplicant.conf is the file every writer updates (web UI, recovery portal, backup
+# restore) and the one rcS.local starts wpa_supplicant with; the ath0 copy is only a fallback
+WPA_CONF=/etc/wpa_supplicant.conf
+[ -f "$WPA_CONF" ] || WPA_CONF=/etc/wpa_supplicant.ath0.conf
 
 LOG=/tmp/harmony-network.log
 STATE_FILE=/tmp/harmony_active_net_state
@@ -48,6 +50,8 @@ load_config() {
       key=$(echo "$key" | tr -d ' \t\r\n')
       val=$(echo "$val" | tr -d '\r\n"')
       case "$key" in
+        ETH_ENABLED) case "$val" in 0|1) ETH_ENABLED="$val" ;; esac ;;
+        ETH_FALLBACK_WIFI) case "$val" in 0|1) ETH_FALLBACK_WIFI="$val" ;; esac ;;
         ETH_MODE) ETH_MODE="$val" ;;
         ETH_IP) ETH_IP="$val" ;;
         ETH_NETMASK) ETH_NETMASK="$val" ;;
@@ -58,6 +62,21 @@ load_config() {
   fi
 }
 load_config
+
+# ETH_DNS may list several servers (space or comma separated): one nameserver line each.
+# Only blanks or commas leave /etc/resolv.conf alone (printf wrote an empty "nameserver" line);
+# set -f keeps a "*" in the value from expanding to file names.
+write_resolv_conf() {
+  _resolv=""
+  set -f
+  for _dns in $(echo "$ETH_DNS" | tr ',' ' '); do
+    _resolv="${_resolv}nameserver $_dns
+"
+  done
+  set +f
+  [ -n "$_resolv" ] || return 0
+  printf '%s' "$_resolv" > /etc/resolv.conf
+}
 
 configure_arp_isolation() {
   # Prevent ARP flux and broadcast loops when both eth and wifi are on same subnet
@@ -147,7 +166,7 @@ ensure_wifi() {
           log "Configuring static IP $ETH_IP on ath0..."
           ifconfig ath0 "$ETH_IP" netmask "${ETH_NETMASK:-255.255.255.0}" up 2>/dev/null || true
           [ -n "$ETH_GATEWAY" ] && route add default gw "$ETH_GATEWAY" dev ath0 2>/dev/null || true
-          [ -n "$ETH_DNS" ] && echo "nameserver $ETH_DNS" > /etc/resolv.conf
+          write_resolv_conf
           send_garp "ath0" "$ETH_IP"
         fi
         set_state "ath0:wifi:$ETH_IP"
@@ -259,7 +278,7 @@ start_eth() {
     if [ -n "$ETH_GATEWAY" ]; then
       route add default gw "$ETH_GATEWAY" dev "$eth_if" >> "$LOG" 2>&1
     fi
-    [ -n "$ETH_DNS" ] && echo "nameserver $ETH_DNS" > /etc/resolv.conf
+    write_resolv_conf
     send_garp "$eth_if" "$ETH_IP"
     set_state "$eth_if:ethernet:$ETH_IP"
     stop_recovery_ap 2>/dev/null || true
@@ -530,7 +549,7 @@ migrate_to_ethernet() {
   fi
 
   # Restore DNS if configured
-  [ -n "$ETH_DNS" ] && echo "nameserver $ETH_DNS" > /etc/resolv.conf
+  write_resolv_conf
   [ -f /etc/resolv.conf ] && cp /etc/resolv.conf "/tmp/resolv.conf.$eth_if" 2>/dev/null || true
 
   configure_arp_isolation
@@ -580,7 +599,7 @@ migrate_to_wifi() {
   fi
 
   # Restore DNS if configured
-  [ -n "$ETH_DNS" ] && echo "nameserver $ETH_DNS" > /etc/resolv.conf
+  write_resolv_conf
   [ -f /etc/resolv.conf ] && cp /etc/resolv.conf "/tmp/resolv.conf.ath0" 2>/dev/null || true
 
   configure_arp_isolation
@@ -747,7 +766,11 @@ do_boot() {
     log "Starting Ethernet (USB Host mode)..."
   fi
 
-  if start_eth; then
+  if [ "$ETH_ENABLED" != "1" ]; then
+    # Ethernet turned off in the settings: the USB port stays in device mode
+    log "Ethernet is disabled in the settings; not starting it."
+    false
+  elif start_eth; then
     if is_onboard_eth; then
       log "Onboard Ethernet interface eth1 initialized on boot."
     else
@@ -789,7 +812,8 @@ do_apply() {
     rm -f /var/run/udhcpc.*.pid
   fi
 
-  cur_eth=$(find_eth_interface)
+  cur_eth=""
+  [ "$ETH_ENABLED" = "1" ] && cur_eth=$(find_eth_interface)
   if [ -n "$cur_eth" ]; then
     cfile="/sys/class/net/$cur_eth/carrier"
     if [ -f "$cfile" ] && [ "$(cat "$cfile" 2>/dev/null)" = "1" ]; then
@@ -841,7 +865,6 @@ case "$1" in
     load_config
     echo "ETH_ENABLED=$ETH_ENABLED"
     echo "ETH_FALLBACK_WIFI=$ETH_FALLBACK_WIFI"
-    echo "ETH_USB_SERIAL=$ETH_USB_SERIAL"
     echo "ETH_MODE=$ETH_MODE"
     cat "$STATE_FILE" 2>/dev/null
     ;;

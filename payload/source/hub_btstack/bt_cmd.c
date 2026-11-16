@@ -2,6 +2,81 @@
 #include "bt_pairing.h"
 #include "bt_hid.h"
 #include "bt_remote.h"
+#include "bt_wake_key.h"
+
+#ifndef TLV_DB_PATH
+#define TLV_DB_PATH "/data/harmony/btstack_keys.tlv"
+#endif
+/* A command left in CMD_FILE longer than this is not run: it was written while hub_btstack was
+ * not running (hub_send_btstack_cmd falls back to the file), maybe long ago */
+#define CMD_FILE_MAX_AGE_S 10
+/* A raw report that puts a key or button down and has no release of its own ("RAW", or
+ * "press|" without a release part) is released after this long, like a held key */
+#define HOST_RAW_HOLD_MS 10000
+
+/* Mouse deltas and the wheel are one signed byte each: a larger value wrapped (200 became -56) */
+static int8_t mouse_delta(int v) {
+    if (v > 127) return 127;
+    if (v < -127) return -127;
+    return (int8_t)v;
+}
+
+/* What a report puts down: 1 a keyboard key or modifier, 2 a consumer usage, 4 a mouse button,
+ * 0 nothing (a release, a mouse move, or not a report) */
+static uint8_t report_down_type(const uint8_t *r, int len) {
+    if (len < 3 || r[0] != 0xa1) return 0;
+    if (r[1] == 0x01) {
+        for (int i = 2; i < len; i++) {
+            if (r[i]) return 1;
+        }
+        return 0;
+    }
+    if (r[1] == 0x02) return (r[2] || (len > 3 && r[3])) ? 2 : 0;
+    if (r[1] == 0x03) return r[2] ? 4 : 0;
+    return 0;
+}
+
+/* After a raw report on cid: a "down" with nothing to lift it gets the hold release; a release of
+ * the pending kind on the same channel ends it */
+static void raw_report_sent(const uint8_t *r, int len, uint16_t cid) {
+    uint8_t t = report_down_type(r, len);
+    if (t) {
+        g_host_pending_cid = cid;
+        g_host_pending_release_type = t;
+        arm_host_key_release_timer(HOST_RAW_HOLD_MS);
+        return;
+    }
+    uint8_t kind = (len >= 2 && r[0] == 0xa1) ? (r[1] == 0x03 ? 4 : r[1]) : 0;
+    if (kind && kind == g_host_pending_release_type && cid == g_host_pending_cid) {
+        btstack_run_loop_remove_timer(&g_host_key_release_timer);
+        g_host_pending_release_type = 0;
+    }
+}
+
+/* The address argument of connect_host and disconnect_host: 0 none (empty, or for connect_host
+ * only the duration in seconds that POST /bt/reconnect adds), 1 an address, -1 something that is
+ * not an address. That last case does nothing: it used to mean "every host". */
+static int cmd_addr_arg(const char *arg, bd_addr_t out, bool duration_ok) {
+    while (*arg == ' ') arg++;
+    if (!*arg) return 0;
+    if (parse_bd_addr(arg, out)) return 1;
+    const char *p = arg;
+    while (*p >= '0' && *p <= '9') p++;
+    size_t digits = (size_t)(p - arg);
+    while (*p == ' ') p++;
+    return (duration_ok && *p == '\0' && digits > 0 && digits <= 5) ? 0 : -1;
+}
+
+/* The key store as hub_btstack opened it at start. A restore renames another file over it; the
+ * running BTstack keeps using the old, deleted one (restored pairings unknown, new ones lost). */
+static struct stat s_tlv_at_start;
+static bool s_tlv_at_start_ok = false;
+
+static bool key_store_replaced(void) {
+    struct stat st;
+    if (!s_tlv_at_start_ok || stat(TLV_DB_PATH, &st) != 0) return false;
+    return st.st_ino != s_tlv_at_start.st_ino || st.st_dev != s_tlv_at_start.st_dev;
+}
 
 btstack_timer_source_t cmd_poll_timer;
 static int g_cmd_sock_fd = -1;
@@ -39,6 +114,18 @@ static void pairing_timeout_handler(btstack_timer_source_t *ts) {
     if (g_host_pairing) pairing_mode_off("timeout");
 }
 
+/* The key pipe is read as soon as hub_daemon writes to it. It used to be read only from the
+ * 100 ms command timer: every key waited up to 100 ms, and a press and its release written
+ * within one period reached the host back to back. */
+static btstack_data_source_t g_bthid_fifo_ds;
+static char s_fifo_carry[256]; /* a line cut by the end of a read */
+static size_t s_fifo_carry_len = 0;
+
+static void bthid_fifo_process(btstack_data_source_t *ds, btstack_data_source_callback_type_t callback_type) {
+    (void)ds;
+    if (callback_type == DATA_SOURCE_CALLBACK_READ) poll_bthid_fifo();
+}
+
 void poll_bthid_fifo(void) {
     if (g_bthid_fifo_fd < 0) {
         struct stat st;
@@ -47,12 +134,30 @@ void poll_bthid_fifo(void) {
         chmod(BTHID_FIFO, 0666);
         g_bthid_fifo_fd = open(BTHID_FIFO, O_RDWR | O_NONBLOCK);
         if (g_bthid_fifo_fd < 0) return;
+        btstack_run_loop_set_data_source_fd(&g_bthid_fifo_ds, g_bthid_fifo_fd);
+        btstack_run_loop_set_data_source_handler(&g_bthid_fifo_ds, &bthid_fifo_process);
+        btstack_run_loop_add_data_source(&g_bthid_fifo_ds);
+        btstack_run_loop_enable_data_source_callbacks(&g_bthid_fifo_ds, DATA_SOURCE_CALLBACK_READ);
     }
 
-    char buf[1024];
-    ssize_t n = read(g_bthid_fifo_fd, buf, sizeof(buf) - 1);
+    char buf[1024 + sizeof(s_fifo_carry)];
+    memcpy(buf, s_fifo_carry, s_fifo_carry_len);
+    ssize_t n = read(g_bthid_fifo_fd, buf + s_fifo_carry_len, 1023);
     if (n <= 0) return;
+    n += (ssize_t)s_fifo_carry_len;
+    s_fifo_carry_len = 0;
     buf[n] = 0;
+    /* A read that ends in the middle of a line (more than 1023 bytes were waiting): keep the cut
+     * line for the next read. Its two halves used to run as two commands, each typed to the host
+     * as text. */
+    if (buf[n - 1] != '\n' && buf[n - 1] != '\r') {
+        char *last_nl = strrchr(buf, '\n');
+        if (last_nl && strlen(last_nl + 1) < sizeof(s_fifo_carry)) {
+            s_fifo_carry_len = strlen(last_nl + 1);
+            memcpy(s_fifo_carry, last_nl + 1, s_fifo_carry_len);
+            last_nl[1] = 0;
+        }
+    }
 
     char *save = NULL;
     char *line = strtok_r(buf, "\r\n", &save);
@@ -75,29 +180,39 @@ void poll_bthid_fifo(void) {
                 line = strtok_r(NULL, "\r\n", &save);
                 continue;
             }
+            if (strncmp(line, "TS ", 3) == 0) {
+                /* Key trace: the times of the next command, sent by hub_daemon with debug logging on */
+                bt_hid_trace_begin(line + 3);
+                line = strtok_r(NULL, "\r\n", &save);
+                continue;
+            }
             if (strncmp(line, "TARGET ", 7) == 0) {
                 bd_addr_t t_addr;
-                if (parse_bd_addr(line + 7, t_addr)) {
-                    register_host_target(t_addr, NULL);
-                    for (int i = 0; i < MAX_HOST_CONNS; i++) {
-                        if (memcmp(g_hosts[i].addr, t_addr, 6) == 0) {
-                            g_active_host_idx = i;
-                            if (!g_hosts[i].connected || g_hosts[i].hid_cid == 0) {
-                                if (!g_host_reconnect_active) {
-                                    start_host_reconnect(t_addr, MAX_HOST_RECONNECT_ATTEMPTS);
-                                } else {
-                                    try_connect_host_addr(t_addr);
-                                }
-                            }
-                            break;
+                host_conn_t *th = parse_bd_addr(line + 7, t_addr) ? register_host_target(t_addr, NULL) : NULL;
+                if (th) {
+                    int i = (int)(th - g_hosts);
+                    g_active_host_idx = i;
+                    if (!g_hosts[i].connected || g_hosts[i].hid_cid == 0) {
+                        if (!g_host_reconnect_active) {
+                            start_host_reconnect(t_addr, MAX_HOST_RECONNECT_ATTEMPTS);
+                        } else {
+                            try_connect_host_addr(t_addr);
                         }
                     }
+                } else {
+                    /* An address that does not parse, or no room in the host table: the keys
+                     * that follow are dropped. They used to go to the previous target host. */
+                    g_active_host_idx = BT_HOST_IDX_NONE;
+                    char tmsg[96];
+                    snprintf(tmsg, sizeof(tmsg), "TARGET %.40s cannot be used: its keys are dropped", line + 7);
+                    log_msg(tmsg);
                 }
                 line = strtok_r(NULL, "\r\n", &save);
                 continue;
             }
+            bt_hid_trace_command(line);
             uint16_t cur_cid = get_target_host_hid_cid();
-            if (cur_cid == 0) {
+            if (cur_cid == 0 && g_active_host_idx != BT_HOST_IDX_NONE) {
                 if (!g_host_reconnect_active) {
                     bd_addr_t tgt;
                     if (g_active_host_idx >= 0 && g_active_host_idx < MAX_HOST_CONNS && !is_null_bd_addr(g_hosts[g_active_host_idx].addr)) {
@@ -151,13 +266,13 @@ void poll_bthid_fifo(void) {
                 int btn = 0, dx = 0, dy = 0, wheel = 0;
                 int count = sscanf(line + 6, "%d %d %d %d", &btn, &dx, &dy, &wheel);
                 if (count >= 3) {
-                    g_host_mouse_buttons = (uint8_t)btn;
-                    send_host_mouse_report(g_host_mouse_buttons, (int8_t)dx, (int8_t)dy, (int8_t)wheel);
+                    g_host_mouse_buttons = (uint8_t)(btn & 0x07);
+                    send_host_mouse_report(g_host_mouse_buttons, mouse_delta(dx), mouse_delta(dy), mouse_delta(wheel));
                 }
             } else if (strncmp(line, "MOUSE_MOVE ", 11) == 0) {
                 int dx = 0, dy = 0;
                 if (sscanf(line + 11, "%d %d", &dx, &dy) == 2) {
-                    send_host_mouse_report(g_host_mouse_buttons, (int8_t)dx, (int8_t)dy, 0);
+                    send_host_mouse_report(g_host_mouse_buttons, mouse_delta(dx), mouse_delta(dy), 0);
                 }
             } else if (strncmp(line, "MOUSE_CLICK ", 12) == 0) {
                 const char *p = line + 12;
@@ -187,16 +302,17 @@ void poll_bthid_fifo(void) {
             } else if (strncmp(line, "MOUSE_WHEEL ", 12) == 0) {
                 int w = 0;
                 if (sscanf(line + 12, "%d", &w) == 1) {
-                    send_host_mouse_report(g_host_mouse_buttons, 0, 0, (int8_t)w);
+                    send_host_mouse_report(g_host_mouse_buttons, 0, 0, mouse_delta(w));
                 }
             } else if (strncmp(line, "RAW ", 4) == 0) {
                 uint8_t raw[16];
                 int rlen = parse_hex_bytes(line + 4, raw, sizeof(raw));
                 cur_cid = get_target_host_hid_cid();
                 if (rlen > 0 && cur_cid != 0) {
-                    hid_device_send_interrupt_message(cur_cid, raw, rlen);
+                    bt_hid_send_report(cur_cid, raw, rlen);
                     g_keys_sent++;
                     update_bthid_status();
+                    raw_report_sent(raw, rlen, cur_cid);
                 }
             } else if (strchr(line, '|')) {
                 // Pipe-separated report sequence: press|release
@@ -209,17 +325,16 @@ void poll_bthid_fifo(void) {
                 int rel_len = parse_hex_bytes(rel_str, rel_buf, sizeof(rel_buf));
                 cur_cid = get_target_host_hid_cid();
                 if (cur_cid == 0) {
-                    if (!g_pending_wake_btn[0] && press_len >= 5 && (press_buf[0] == 0xa1 || press_buf[0] == 0xA1)) {
+                    if (press_len >= 5 && press_buf[0] == 0xa1) {
+                        char wake[24] = "";
                         if (press_buf[1] == 0x01 && press_buf[4] != 0) {
-                            snprintf(g_pending_wake_btn, sizeof(g_pending_wake_btn), "KEY %02x %02x", press_buf[2], press_buf[4]);
-                            g_pending_wake_time = time(NULL);
+                            snprintf(wake, sizeof(wake), "KEY %02x %02x", press_buf[2], press_buf[4]);
                         } else if (press_buf[1] == 0x02 && (press_buf[2] != 0 || press_buf[3] != 0)) {
-                            uint16_t usage = press_buf[2] | (press_buf[3] << 8);
-                            snprintf(g_pending_wake_btn, sizeof(g_pending_wake_btn), "CONSUMER %04x", usage);
-                            g_pending_wake_time = time(NULL);
+                            snprintf(wake, sizeof(wake), "CONSUMER %04x", (unsigned)(press_buf[2] | (press_buf[3] << 8)));
                         }
+                        wake_key_keep(wake);
                     }
-                    if (!g_host_reconnect_active) {
+                    if (!g_host_reconnect_active && g_active_host_idx != BT_HOST_IDX_NONE) {
                         bd_addr_t tgt;
                         if (g_active_host_idx >= 0 && g_active_host_idx < MAX_HOST_CONNS && !is_null_bd_addr(g_hosts[g_active_host_idx].addr)) {
                             start_host_reconnect(g_hosts[g_active_host_idx].addr, 20);
@@ -234,13 +349,15 @@ void poll_bthid_fifo(void) {
                         btstack_run_loop_remove_timer(&g_host_key_release_timer);
                         send_host_release_all();
                     }
-                    hid_device_send_interrupt_message(cur_cid, press_buf, press_len);
+                    bt_hid_send_report(cur_cid, press_buf, press_len);
                     if (rel_len > 0) {
                         memcpy(g_host_custom_release_buf, rel_buf, rel_len);
                         g_host_custom_release_len = rel_len;
                         g_host_pending_cid = cur_cid;
                         g_host_pending_release_type = 3;
                         arm_host_key_release_timer(30);
+                    } else {
+                        raw_report_sent(press_buf, press_len, cur_cid);
                     }
                     g_keys_sent++;
                     update_bthid_status();
@@ -250,17 +367,16 @@ void poll_bthid_fifo(void) {
                 int rlen = parse_hex_bytes(line, rep, sizeof(rep));
                 cur_cid = get_target_host_hid_cid();
                 if (cur_cid == 0) {
-                    if (!g_pending_wake_btn[0] && rlen >= 5 && (rep[0] == 0xa1 || rep[0] == 0xA1)) {
+                    if (rlen >= 5 && rep[0] == 0xa1) {
+                        char wake[24] = "";
                         if (rep[1] == 0x01 && rep[4] != 0) {
-                            snprintf(g_pending_wake_btn, sizeof(g_pending_wake_btn), "KEY %02x %02x", rep[2], rep[4]);
-                            g_pending_wake_time = time(NULL);
+                            snprintf(wake, sizeof(wake), "KEY %02x %02x", rep[2], rep[4]);
                         } else if (rep[1] == 0x02 && (rep[2] != 0 || rep[3] != 0)) {
-                            uint16_t usage = rep[2] | (rep[3] << 8);
-                            snprintf(g_pending_wake_btn, sizeof(g_pending_wake_btn), "CONSUMER %04x", usage);
-                            g_pending_wake_time = time(NULL);
+                            snprintf(wake, sizeof(wake), "CONSUMER %04x", (unsigned)(rep[2] | (rep[3] << 8)));
                         }
+                        wake_key_keep(wake);
                     }
-                    if (!g_host_reconnect_active) {
+                    if (!g_host_reconnect_active && g_active_host_idx != BT_HOST_IDX_NONE) {
                         bd_addr_t tgt;
                         if (g_active_host_idx >= 0 && g_active_host_idx < MAX_HOST_CONNS && !is_null_bd_addr(g_hosts[g_active_host_idx].addr)) {
                             start_host_reconnect(g_hosts[g_active_host_idx].addr, 20);
@@ -275,9 +391,9 @@ void poll_bthid_fifo(void) {
                         btstack_run_loop_remove_timer(&g_host_key_release_timer);
                         send_host_release_all();
                     }
-                    hid_device_send_interrupt_message(cur_cid, rep, rlen);
+                    bt_hid_send_report(cur_cid, rep, rlen);
                     g_host_pending_cid = cur_cid;
-                    if (rep[1] == 0x01 && (rlen > 4 && rep[4] != 0)) {
+                    if (rep[1] == 0x01 && report_down_type(rep, rlen) == 1) {
                         g_host_pending_release_type = 1;
                         arm_host_key_release_timer(30);
                     } else if (rep[1] == 0x02 && (rep[2] != 0 || rep[3] != 0)) {
@@ -312,6 +428,15 @@ void execute_btstack_cmd(const char *cmd_in) {
         stop_user_scan();
     } else if (strncasecmp(cmd, "scan", 4) == 0) {
         start_user_scan();
+    } else if (strncasecmp(cmd, "host_forget", 11) == 0) {
+        /* A classic host (POST /api/bt-forget-host). The word does not start with "forget": an
+         * older hub_btstack, which reads any "forget..." as the BLE remote, ignores it. */
+        bd_addr_t tgt;
+        if (cmd_addr_arg(cmd + 11, tgt, false) != 1) {
+            log_msg("host_forget: not a Bluetooth address, ignored");
+            return;
+        }
+        forget_classic_host(tgt);
     } else if (strncasecmp(cmd, "forget", 6) == 0) {
         forget_ble_remote();
     } else if (strncasecmp(cmd, "pair ", 5) == 0) {
@@ -360,11 +485,24 @@ void execute_btstack_cmd(const char *cmd_in) {
     } else if (strncasecmp(cmd, "pair_host_off", 13) == 0) {
         pairing_mode_off("requested");
     } else if (strncasecmp(cmd, "connect_host", 12) == 0) {
-        if (g_host_connecting && (time(NULL) - g_host_connecting_start) < 5) return;
         char *addr_str = cmd + 12;
         while (*addr_str == ' ') addr_str++;
         bd_addr_t tgt;
-        if (parse_bd_addr(addr_str, tgt)) {
+        int has_addr = cmd_addr_arg(addr_str, tgt, true);
+        if (has_addr < 0) {
+            log_msg("connect_host: not a Bluetooth address, ignored");
+            return;
+        }
+        if (g_host_connecting && (time(NULL) - g_host_connecting_start) < 5) {
+            /* Another connection attempt is running: this host waits for its turn instead of
+             * the command being dropped */
+            if (has_addr && !is_host_connected(tgt)) {
+                register_host_target(tgt, NULL);
+                try_connect_host_addr(tgt); /* inside the window it queues the host */
+            }
+            return;
+        }
+        if (has_addr) {
             if (is_host_connected(tgt)) return;
             register_host_target(tgt, NULL);
             start_host_reconnect(tgt, MAX_HOST_RECONNECT_ATTEMPTS);
@@ -386,6 +524,7 @@ void execute_btstack_cmd(const char *cmd_in) {
     } else if (strncasecmp(cmd, "stop_reconnect", 14) == 0) {
         stop_host_reconnect();
         rq_clear(); /* the hosts waiting for their turn stop too */
+        wake_key_drop(NULL); /* and no kept key goes out at a later connection */
     } else if (strncasecmp(cmd, "disconnect_host", 15) == 0) {
         /* A disconnect that was asked for must not be undone by the auto-reconnect on the close
          * event; a key for the host, connect_host or the next activity start reconnects it.
@@ -393,7 +532,12 @@ void execute_btstack_cmd(const char *cmd_in) {
         char *addr_str = cmd + 15;
         while (*addr_str == ' ') addr_str++;
         bd_addr_t tgt;
-        if (parse_bd_addr(addr_str, tgt)) {
+        int has_addr = cmd_addr_arg(addr_str, tgt, false);
+        if (has_addr < 0) {
+            log_msg("disconnect_host: not a Bluetooth address, ignored");
+            return;
+        }
+        if (has_addr) {
             set_host_manual_disconnect(tgt, true);
             rq_remove(tgt);
             /* Stop the reconnect loop only when it is for this host (or for every host); a loop
@@ -434,6 +578,14 @@ void execute_btstack_cmd(const char *cmd_in) {
     } else if (strcasecmp(cmd, "reload_map") == 0) {
         bt_remote_invalidate_map();
         log_msg("BLE remote map invalidated");
+        if (key_store_replaced()) {
+            /* hub_daemon sends reload_map after a restore: start again (the supervisor does)
+             * so that the restored key store is the one in use */
+            log_msg("Key store replaced on disk (restore): restarting to load it");
+            g_running = 0;
+            /* leave the run loop now; cmd_poll_timeout() would also do it within 100 ms */
+            btstack_run_loop_trigger_exit();
+        }
     }
 }
 
@@ -470,6 +622,7 @@ void init_cmd_socket(void) {
         return;
     }
     chmod(CMD_SOCK, 0660);
+    s_tlv_at_start_ok = (stat(TLV_DB_PATH, &s_tlv_at_start) == 0);
 
     btstack_run_loop_set_data_source_fd(&g_cmd_sock_ds, g_cmd_sock_fd);
     btstack_run_loop_set_data_source_handler(&g_cmd_sock_ds, &cmd_sock_process);
@@ -499,7 +652,14 @@ void check_command_file(void) {
         return;
     }
 
-    if (access(CMD_FILE, F_OK) != 0) return;
+    struct stat cst;
+    if (stat(CMD_FILE, &cst) != 0) return;
+    time_t now = time(NULL);
+    if (now - cst.st_mtime > CMD_FILE_MAX_AGE_S || cst.st_mtime - now > CMD_FILE_MAX_AGE_S) {
+        unlink(CMD_FILE);
+        log_msg("Stale command file dropped (written while hub_btstack was not running)");
+        return;
+    }
     FILE *f = fopen(CMD_FILE, "r");
     if (!f) return;
     char cmd[128] = "";

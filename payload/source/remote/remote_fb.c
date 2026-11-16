@@ -1,4 +1,9 @@
 #define STBI_ONLY_PNG
+/* Refuse images wider or taller than this before decoding them. A custom icon is limited in
+   bytes only (16 KB) and a flat PNG compresses about 700:1, so a small file could declare
+   thousands of pixels per side and be decoded (and cached) at that size: 34 MB for 3000x3000.
+   The largest image drawn is the 240x320 wallpaper; icons are drawn at 70 px at most. */
+#define STBI_MAX_DIMENSIONS 512
 #define STBI_NO_FAILURE_STRINGS
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -470,11 +475,21 @@ void load_wallpaper_asset(void) {
     printf("[*] Initialized high-res carbon mesh wallpaper\n");
 }
 
+/* Drops the cached images whose key contains substr (an icon that was replaced). Their pixels
+   are freed and their slots reused: png_cache_add() only appends, so slots that were just
+   cleared stayed taken and the cache filled up after enough icon updates. Called from the RF
+   thread, so it waits for a frame being drawn, which may be using these entries. */
 void fb_invalidate_png_cache(const char *substr) {
     if (!substr) return;
-    for (int i = 0; i < g_png_cache_count; i++) {
+    pthread_mutex_lock(&g_render_mutex);
+    for (int i = 0; i < g_png_cache_count; ) {
         if (strstr(g_png_cache[i].path, substr)) {
-            g_png_cache[i].path[0] = '\0';
+            free(g_png_cache[i].rgba); /* stbi_load() and scale_rgba() memory, both malloc */
+            g_png_cache[i] = g_png_cache[--g_png_cache_count];
+            memset(&g_png_cache[g_png_cache_count], 0, sizeof(g_png_cache[0]));
+        } else {
+            i++;
         }
     }
+    pthread_mutex_unlock(&g_render_mutex);
 }

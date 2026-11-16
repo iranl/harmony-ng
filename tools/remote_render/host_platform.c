@@ -11,6 +11,7 @@ time_t g_host_wall_time = 0;
 time_t ui_wall_time(void) { return g_host_wall_time ? g_host_wall_time : time(NULL); }
 void read_remote_battery(void) {}
 bool is_remote_docked(void) { return strcmp(g_battery_info.powersource, "usb") == 0; }
+bool remote_on_external_power(void) { return is_remote_docked(); }
 void expand_timezone(const char *in, char *out, size_t out_sz) { snprintf(out, out_sz, "%s", in); }
 void fb_set_blank(bool blank) { (void)blank; }
 bool fb_present(const uint16_t *frame, bool wait_vsync) { (void)frame; (void)wait_vsync; return false; }

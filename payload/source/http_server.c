@@ -27,6 +27,8 @@
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <poll.h>
+#include <errno.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
@@ -35,8 +37,10 @@
 #define STATIC_CACHE_MAX_SIZE (384 * 1024)
 
 /* Files served from flash, kept in memory. An entry remembers the file it was read from and
- * is dropped when that file changes, so a Web UI deploy is served without a restart. A
+ * is dropped when that file changes, so a Web UI deploy is served without a restart: the file
+ * is looked at (stat, no data read) at most once every STATIC_CACHE_CHECK_SEC per entry. A
  * request holds an entry while it sends it; a dropped entry is freed by its last user. */
+#define STATIC_CACHE_CHECK_SEC 2
 struct static_cache_entry {
     char rel_path[128];
     int is_gzip;
@@ -46,6 +50,7 @@ struct static_cache_entry {
     char src_path[520];
     time_t src_mtime;
     off_t src_size;
+    time_t checked; /* monotonic seconds of the last look at src_path */
     int users;
     int stale;
 };
@@ -75,6 +80,12 @@ void static_cache_flush(void) {
     pthread_mutex_unlock(&g_static_cache_mutex);
 }
 
+static time_t static_cache_now(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec;
+}
+
 /* The entry for rel_path, held for the caller until static_cache_release(); NULL when there is
    none or its file changed */
 static struct static_cache_entry *static_cache_find(const char *rel_path, int is_gzip) {
@@ -83,6 +94,15 @@ static struct static_cache_entry *static_cache_find(const char *rel_path, int is
     for (int i = 0; i < g_static_cache_count; i++) {
         struct static_cache_entry *e = &g_static_cache[i];
         if (!e->data || e->stale || e->is_gzip != is_gzip || strcmp(e->rel_path, rel_path) != 0) continue;
+        time_t now = static_cache_now();
+        if (now - e->checked >= STATIC_CACHE_CHECK_SEC) {
+            struct stat st;
+            if (stat(e->src_path, &st) != 0 || st.st_mtime != e->src_mtime || st.st_size != e->src_size) {
+                static_cache_drop(e);
+                break;
+            }
+            e->checked = now;
+        }
         e->users++;
         found = e;
         break;
@@ -132,6 +152,7 @@ static void static_cache_insert(const char *rel_path, int is_gzip, const char *m
         slot->mime = mime;
         slot->src_mtime = src->st_mtime;
         slot->src_size = src->st_size;
+        slot->checked = static_cache_now();
         slot->stale = 0;
         slot->users = 0;
     }
@@ -164,6 +185,28 @@ static int is_http_keep_alive(const char *req) {
     }
     if (strcasestr(req, "Connection: keep-alive")) return 1;
     return 0;
+}
+
+/* Largest request body accepted for the request in req (its request line). Every body is read
+ * into memory and copied again by the handlers: the config import and the icon upload keep the
+ * old 2 MB, the saves that carry a whole button map or the web remote layouts get 256 KB,
+ * everything else HTTP_BODY_MAX. */
+#define HTTP_BODY_MAX (64 * 1024)
+#define HTTP_BODY_MAX_MAP (256 * 1024)
+#define HTTP_BODY_MAX_LARGE (2 * 1024 * 1024 - 1)
+static long http_body_limit(const char *req) {
+    static const struct { const char *route; long max; } limits[] = {
+        { "POST /import", HTTP_BODY_MAX_LARGE },
+        { "POST /api/custom-icons", HTTP_BODY_MAX_LARGE },
+        { "POST /api/rf-mapping-save", HTTP_BODY_MAX_MAP },
+        { "POST /api/remote-mapping-save", HTTP_BODY_MAX_MAP },
+        { "POST /api/ui-remote-layout", HTTP_BODY_MAX_MAP },
+    };
+    for (size_t i = 0; i < sizeof(limits) / sizeof(limits[0]); i++) {
+        size_t n = strlen(limits[i].route);
+        if (strncmp(req, limits[i].route, n) == 0 && (req[n] == ' ' || req[n] == '?')) return limits[i].max;
+    }
+    return HTTP_BODY_MAX;
 }
 
 static int serve_static_file(int client_fd, const char *req, const char *path, int keep_alive) {
@@ -212,14 +255,9 @@ static int serve_static_file(int client_fd, const char *req, const char *path, i
             keep_alive ? "keep-alive" : "close",
             keep_alive ? "Keep-Alive: timeout=2, max=64\r\n" : "");
 
-        send(client_fd, header, (size_t)hlen, 0);
-        if (strncmp(req, "HEAD ", 5) != 0 && cached->size > 0) {
-            size_t sent = 0;
-            while (sent < cached->size) {
-                ssize_t s = send(client_fd, cached->data + sent, cached->size - sent, 0);
-                if (s <= 0) break;
-                sent += (size_t)s;
-            }
+        if (http_send_all(client_fd, header, (size_t)hlen) == 0 && strncmp(req, "HEAD ", 5) != 0 &&
+            cached->size > 0) {
+            http_send_all(client_fd, cached->data, cached->size);
         }
         static_cache_release(cached);
         return 1;
@@ -340,21 +378,17 @@ static int serve_static_file(int client_fd, const char *req, const char *path, i
         keep_alive ? "keep-alive" : "close",
         keep_alive ? "Keep-Alive: timeout=2, max=64\r\n" : "");
 
-    send(client_fd, header, (size_t)hlen, 0);
+    if (http_send_all(client_fd, header, (size_t)hlen) != 0) {
+        fclose(f);
+        return 1; /* the client is gone */
+    }
 
     if (fsize > 0 && fsize <= STATIC_CACHE_MAX_SIZE) {
         char *file_buf = (char *)malloc((size_t)fsize);
         if (file_buf) {
             size_t nr = fread(file_buf, 1, (size_t)fsize, f);
             if (nr > 0) {
-                if (strncmp(req, "HEAD ", 5) != 0) {
-                    size_t sent = 0;
-                    while (sent < nr) {
-                        ssize_t s = send(client_fd, file_buf + sent, nr - sent, 0);
-                        if (s <= 0) break;
-                        sent += (size_t)s;
-                    }
-                }
+                if (strncmp(req, "HEAD ", 5) != 0) http_send_all(client_fd, file_buf, nr);
                 struct stat src;
                 if (strncmp(file_path, "/tmp/", 5) != 0 && fstat(fileno(f), &src) == 0) {
                     static_cache_insert(rel_path, is_gzip, mime, file_buf, nr, src_path, &src);
@@ -370,11 +404,27 @@ static int serve_static_file(int client_fd, const char *req, const char *path, i
         char chunk[16384];
         size_t nr;
         while ((nr = fread(chunk, 1, sizeof(chunk), f)) > 0) {
-            if (send(client_fd, chunk, nr, 0) < 0) break;
+            if (http_send_all(client_fd, chunk, nr) != 0) break;
         }
     }
     fclose(f);
     return 1;
+}
+
+/* 1 when the request announces a body that did not arrive whole: the client stopped sending or
+ * closed, the body is larger than what the server reads, or the length is not a number >= 0.
+ * The routes read the body as text, so a NUL byte counts as its end. */
+static int http_body_incomplete(const char *req) {
+    const char *hdr_end = strstr(req, "\r\n\r\n");
+    if (!hdr_end) return 0;
+    const char *cl = strcasestr(req, "Content-Length:");
+    if (!cl || cl > hdr_end) return 0;
+    cl += 15;
+    while (*cl == ' ' || *cl == '\t') cl++;
+    char *end = NULL;
+    long n = strtol(cl, &end, 10);
+    if (end == cl || n < 0) return 1;
+    return strlen(hdr_end + 4) < (size_t)n;
 }
 
 static void http_process_request(int client_fd, const char *req) {
@@ -396,37 +446,60 @@ static void http_process_request(int client_fd, const char *req) {
     const char *body = strstr(req, "\r\n\r\n");
     if (body) body += 4;
 
-    /* Handle CORS OPTIONS preflight */
+    /* Handle CORS OPTIONS preflight: only the Hub's own clients (http_origin_is_allowed) get
+     * an Access-Control-Allow-Origin; any other origin is refused, so its browser never sends
+     * the real request. */
     if (strcmp(method, "OPTIONS") == 0) {
-        char origin_buf[128] = "*";
-        const char *orig_hdr = strcasestr(req, "Origin:");
-        if (orig_hdr) {
-            orig_hdr += 7;
-            while (*orig_hdr == ' ' || *orig_hdr == '\t') orig_hdr++;
-            const char *eol = strpbrk(orig_hdr, "\r\n");
-            size_t olen = eol ? (size_t)(eol - orig_hdr) : strlen(orig_hdr);
-            if (olen > 0 && olen < sizeof(origin_buf) - 1) {
-                memcpy(origin_buf, orig_hdr, olen);
-                origin_buf[olen] = '\0';
-            }
+        char origin_buf[160] = "";
+        char host_buf[160] = "";
+        http_header_value(req, "Origin", origin_buf, sizeof(origin_buf));
+        http_header_value(req, "Host", host_buf, sizeof(host_buf));
+        if (origin_buf[0] && http_request_is_cross_site(req)) {
+            const char *refused =
+                "HTTP/1.1 403 Forbidden\r\n"
+                "Content-Length: 0\r\n"
+                "Connection: close\r\n\r\n";
+            send(client_fd, refused, strlen(refused), 0);
+            close(client_fd);
+            return;
         }
         char opt_resp[512];
         snprintf(opt_resp, sizeof(opt_resp),
             "HTTP/1.1 204 No Content\r\n"
             "Access-Control-Allow-Origin: %s\r\n"
+            "Vary: Origin\r\n"
             "Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS\r\n"
             "Access-Control-Allow-Headers: Authorization, Content-Type, X-Requested-With, Accept, Origin\r\n"
             "Access-Control-Max-Age: 86400\r\n"
             "Content-Length: 0\r\n"
             "Connection: close\r\n\r\n",
-            origin_buf);
+            origin_buf[0] ? origin_buf : "*");
         send(client_fd, opt_resp, strlen(opt_resp), 0);
         close(client_fd);
         return;
     }
 
+    /* Requests from other web sites (a page opened in a browser on the LAN) are refused before
+     * any route runs: forms, images and scripts of another site must not drive the Hub. */
+    if (http_request_is_cross_site(req)) {
+        const char *refused =
+            "HTTP/1.1 403 Forbidden\r\n"
+            "Content-Type: application/json\r\n"
+            "Content-Length: 49\r\n"
+            "Connection: close\r\n\r\n"
+            "{\"ok\":false,\"error\":\"Cross-site request refused\"}";
+        send(client_fd, refused, strlen(refused), 0);
+        close(client_fd);
+        return;
+    }
+
     char client_ip[48] = {0};
-    get_client_ip(client_fd, client_ip, sizeof(client_ip));
+    if (get_client_ip(client_fd, client_ip, sizeof(client_ip)) != 0) {
+        /* Peer address unknown (connection already reset): nobody to answer, and the request
+         * must not run with a guessed address. */
+        close(client_fd);
+        return;
+    }
     char auth_user[MAX_USERNAME_LEN] = {0};
     enum http_role auth_role = http_auth_check_request(req, client_ip, method, auth_user, sizeof(auth_user));
 
@@ -443,15 +516,18 @@ static void http_process_request(int client_fd, const char *req) {
             return;
         }
         if (auth_role == ROLE_USER && !http_auth_is_user_role_permitted(method, clean_path)) {
-            const char *forbidden =
+            static const char forbidden_body[] = "{\"ok\":false,\"error\":\"Forbidden: Admin access required\"}";
+            char forbidden[512];
+            int flen = snprintf(forbidden, sizeof(forbidden),
                 "HTTP/1.1 403 Forbidden\r\n"
                 "Content-Type: application/json\r\n"
                 "Access-Control-Allow-Origin: *\r\n"
                 "Access-Control-Allow-Headers: Authorization, Content-Type, X-Requested-With, Accept, Origin\r\n"
-                "Content-Length: 53\r\n"
+                "Content-Length: %zu\r\n"
                 "Connection: close\r\n\r\n"
-                "{\"ok\":false,\"error\":\"Forbidden: Admin access required\"}";
-            send(client_fd, forbidden, strlen(forbidden), 0);
+                "%s",
+                sizeof(forbidden_body) - 1, forbidden_body);
+            http_send_all(client_fd, forbidden, (size_t)flen);
             close(client_fd);
             return;
         }
@@ -486,12 +562,41 @@ static void http_process_request(int client_fd, const char *req) {
     close(client_fd);
 }
 
+/* Time limits per client, on the monotonic clock. A client that sends its request a byte
+ * every few seconds restarted the 5 s receive timeout with every byte and kept its worker for
+ * as long as it liked; eight such clients took every worker slot and the Hub answered 503 to
+ * everyone else. */
+#define HTTP_IDLE_MS 5000           /* no byte at all */
+#define HTTP_CONN_DEADLINE_MS 30000 /* no new keep-alive request after this */
+
+uint64_t http_mono_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000u + (uint64_t)(ts.tv_nsec / 1000000);
+}
+
+ssize_t http_recv_until(int fd, void *buf, size_t len, uint64_t deadline_ms) {
+    for (;;) {
+        uint64_t now = http_mono_ms();
+        if (now >= deadline_ms) return -1;
+        uint64_t left = deadline_ms - now;
+        struct pollfd pfd = { .fd = fd, .events = POLLIN };
+        int r = poll(&pfd, 1, left > HTTP_IDLE_MS ? HTTP_IDLE_MS : (int)left);
+        if (r < 0 && errno == EINTR) continue;
+        if (r <= 0) return -1; /* idle for HTTP_IDLE_MS, deadline reached, or poll error */
+        ssize_t n = recv(fd, buf, len, MSG_DONTWAIT);
+        if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) continue;
+        return n;
+    }
+}
+
 void http_handle_client(int client_fd) {
     if (client_fd < 0) return;
 
     struct timeval rcv_tv = { .tv_sec = 5, .tv_usec = 0 };
     setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &rcv_tv, sizeof(rcv_tv));
 
+    uint64_t conn_deadline = http_mono_ms() + HTTP_CONN_DEADLINE_MS;
     int req_count = 0;
     while (req_count < 64) {
         char *init_buf = (char *)calloc(1, HTTP_REQ_BUF_SIZE);
@@ -501,8 +606,10 @@ void http_handle_client(int client_fd) {
         }
 
         size_t total_hdr = 0;
+        uint64_t hdr_deadline = http_mono_ms() + HTTP_HEADER_DEADLINE_MS;
         while (total_hdr < HTTP_REQ_BUF_SIZE - 1) {
-            ssize_t n = recv(client_fd, init_buf + total_hdr, HTTP_REQ_BUF_SIZE - 1 - total_hdr, 0);
+            ssize_t n = http_recv_until(client_fd, init_buf + total_hdr, HTTP_REQ_BUF_SIZE - 1 - total_hdr,
+                                        hdr_deadline);
             if (n <= 0) break;
             total_hdr += (size_t)n;
             init_buf[total_hdr] = '\0';
@@ -522,7 +629,13 @@ void http_handle_client(int client_fd) {
          * (hub_rf, hub_btstack) are admin without one, as for every request. */
         if (ws_is_upgrade_req(init_buf)) {
             char ws_ip[48] = {0};
-            get_client_ip(client_fd, ws_ip, sizeof(ws_ip));
+            if (get_client_ip(client_fd, ws_ip, sizeof(ws_ip)) != 0 || http_request_is_cross_site(init_buf)) {
+                /* Unknown peer address (reset connection), or a page of another web site
+                 * opening a WebSocket to the Hub: refuse before any role is given */
+                close(client_fd);
+                free(init_buf);
+                return;
+            }
             char ws_user[MAX_USERNAME_LEN] = {0};
             enum http_role ws_role = http_auth_check_ws_upgrade(init_buf, ws_ip, ws_user, sizeof(ws_user));
             if (ws_role == ROLE_NONE) {
@@ -532,11 +645,10 @@ void http_handle_client(int client_fd) {
             }
             /* A failed upgrade (bad request, no free client slot, send error) leaves the socket
              * unregistered: close it here, nobody else will */
-            if (ws_handle_upgrade(client_fd, init_buf) != 0) {
+            if (ws_handle_upgrade(client_fd, init_buf, (int)ws_role, 0) != 0) {
                 close(client_fd);
-            } else {
-                ws_set_client_role(client_fd, (int)ws_role);
             }
+            /* registered with its role: the main loop owns the socket now, do not touch it */
             free(init_buf);
             return;
         }
@@ -554,14 +666,23 @@ void http_handle_client(int client_fd) {
                 long cl = atol(cl_pos);
                 size_t hdr_len = (size_t)(hdr_end + 4 - init_buf);
                 size_t body_recvd = (total_hdr >= hdr_len) ? (total_hdr - hdr_len) : 0;
+                if (cl > http_body_limit(init_buf)) {
+                    /* Refused before the body is read */
+                    send_json_error(client_fd, 413, "Request body too large");
+                    close(client_fd);
+                    free(init_buf);
+                    return;
+                }
                 if (cl > 0 && cl < 2 * 1024 * 1024 && (size_t)cl > body_recvd) {
                     size_t total_needed = hdr_len + (size_t)cl;
                     dyn_buf = (char *)malloc(total_needed + 1);
                     if (dyn_buf) {
                         memcpy(dyn_buf, init_buf, total_hdr);
                         size_t total_read = total_hdr;
+                        uint64_t body_deadline = http_mono_ms() + HTTP_BODY_DEADLINE_MS;
                         while (total_read < total_needed) {
-                            ssize_t r = recv(client_fd, dyn_buf + total_read, total_needed - total_read, 0);
+                            ssize_t r = http_recv_until(client_fd, dyn_buf + total_read,
+                                                        total_needed - total_read, body_deadline);
                             if (r <= 0) break;
                             total_read += (size_t)r;
                         }
@@ -572,11 +693,25 @@ void http_handle_client(int client_fd) {
             }
         }
 
+        /* A body cut short used to be handled as if it were whole, and some routes saved it */
+        int bad_request = http_body_incomplete(req);
+        char method[16] = {0}, path[256] = {0};
+        int have_target = sscanf(req, "%15s %255s", method, path) == 2;
+        /* Every path is joined to a directory name: one that does not start with '/' named a
+         * file next to the web root ("GET .bak/x" read /cache/www.bak/x) */
+        if (have_target && path[0] != '/') bad_request = 1;
+        if (bad_request) {
+            send_json_error(client_fd, 400, "Bad request");
+            close(client_fd);
+            if (dyn_buf) free(dyn_buf);
+            free(init_buf);
+            return;
+        }
+
         int keep_alive = is_http_keep_alive(req);
         int handled_static = 0;
 
-        char method[16] = {0}, path[256] = {0};
-        if (sscanf(req, "%15s %255s", method, path) == 2) {
+        if (have_target) {
             char clean_path[256] = {0};
             strncpy(clean_path, path, sizeof(clean_path) - 1);
             char *qmark = strchr(clean_path, '?');
@@ -603,7 +738,7 @@ void http_handle_client(int client_fd) {
         if (dyn_buf) free(dyn_buf);
         free(init_buf);
 
-        if (!keep_alive) {
+        if (!keep_alive || http_mono_ms() >= conn_deadline) {
             close(client_fd);
             return;
         }

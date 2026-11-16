@@ -7,12 +7,18 @@
 extern "C" {
 #endif
 
+struct cfg_snap;
+
 /*
- * Returns cached in-memory cJSON root of devices.json.
- * Uses mtime check to reload only when the file on disk changes.
- * NOTE: The returned pointer is BORROWED from cache. DO NOT call cJSON_Delete() on it.
+ * The in-memory devices.json tree, shared read only (config_store_devices_acquire()): no copy,
+ * and a save meanwhile does not change it. Give it back with release_device_list(&snap) on every
+ * path; NULL when out of memory.
+ * The tree is loaded from the file at start, after invalidate_device_list_cache() and on every
+ * save through the API; there is no check of the file on disk, so a devices.json changed by hand
+ * is only seen after POST /api/sync or a restart.
  */
-cJSON *get_device_list_cached(void);
+const cJSON *get_device_list_acquire(struct cfg_snap **snap);
+void release_device_list(struct cfg_snap **snap);
 
 /*
  * Force invalidation of the cached devices.json.

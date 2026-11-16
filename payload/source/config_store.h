@@ -124,8 +124,40 @@ int run_bt_saved_script(const char *type, const char *bdaddr, const char *script
                         int gap_ms, char *out, size_t outlen);
 
 int config_store_init(void);
-cJSON *config_store_get_devices_json(void);
-cJSON *config_store_get_activities_json(void);
+/*
+ * devices.json and activities.json are kept in memory as cJSON trees owned by the config store.
+ * Up to 8 HTTP workers and the main loop use them at the same time. A published tree is never
+ * changed: a save publishes a new one (config_snap.h).
+ *  - a reader shares the current tree, read only, without holding the lock while it reads:
+ *        cfg_snap_t *snap = NULL;
+ *        const cJSON *root = config_store_devices_acquire(&snap);  (NULL when out of memory)
+ *        ... read root ...
+ *        config_store_release(&snap);  (on every path; clears snap, NULL is ignored)
+ *    A save meanwhile does not touch it; the old tree is freed at its last release.
+ *  - a writer holds the lock for the whole change, so no other save can slip in between, and
+ *    changes its own deep copy:
+ *        config_store_lock();
+ *        cJSON *root = config_store_devices_copy();
+ *        ... change root ...
+ *        if (config_store_save_devices(root) == 0) root = NULL;  (the store now owns it)
+ *        cJSON_Delete(root);
+ *        config_store_unlock();
+ * The lock is recursive. Change notices (remote sync flag, config_changed event) go out at the
+ * outermost unlock, with the lock released.
+ */
+void config_store_lock(void);
+void config_store_unlock(void);
+typedef struct cfg_snap cfg_snap_t;
+const cJSON *config_store_devices_acquire(cfg_snap_t **snap);
+const cJSON *config_store_activities_acquire(cfg_snap_t **snap);
+void config_store_release(cfg_snap_t **snap);
+/* References not given back yet (tests check that every acquire was released) */
+int config_store_snapshots_held(void);
+/* A deep copy the caller owns and frees: for a writer, or a reader that changes what it got */
+cJSON *config_store_devices_copy(void);
+cJSON *config_store_activities_copy(void);
+/* Sanitizes and writes the tree and makes it the cached one. Returns 0 when the store took the
+ * tree (the caller must not use or free it any more), -1 when the caller still owns it. */
 int config_store_save_devices(cJSON *devices_json);
 int config_store_save_activities(cJSON *activities_json);
 int config_store_get_settings(struct hub_settings *settings);

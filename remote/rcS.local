@@ -18,12 +18,7 @@ killall -9 watchdog usbhid hal luaworks luadraws lua luajit luajit-2.0.0-beta10 
 # 1. Ensure clean boot state
 rm -f /tmp/remote_stop /tmp/elite_stop /data/reboot_counter 2>/dev/null || true
 
-# 2. Ensure /dev/i2c-1 exists for Clearpad touchscreen & MSP430 RTC
-if [ ! -e /dev/i2c-1 ] && [ -x /data/mknod ]; then
-    /data/mknod /dev/i2c-1 c 89 1 2>/dev/null || true
-fi
-
-# 3. Ensure sync binary and extended BusyBox applets are symlinked
+# 2. Ensure sync binary and extended BusyBox applets are symlinked
 SYNC_BIN=""
 for b in /data/remote_sync /data/elite_sync; do
     if [ -x "$b" ]; then SYNC_BIN="$b"; break; fi
@@ -39,7 +34,7 @@ if [ -x /data/busybox ] && [ ! -L /usr/bin/head ]; then
     done
 fi
 
-# 4. Bring up USB Ethernet & Dropbear SSH in background if USB connected
+# 3. Bring up USB Ethernet & Dropbear SSH in background if USB connected
 chmod -x /usr/bin/usbhid 2>/dev/null || true
 POWERSOURCE="$(cat /sys/devices/platform/i2c_davinci.1/i2c-1/1-0048/tps6507x-juniper/powersource 2>/dev/null)"
 if [ "$POWERSOURCE" = "usb" ] || [ -z "$POWERSOURCE" ]; then
@@ -57,7 +52,7 @@ if [ "$POWERSOURCE" = "usb" ] || [ -z "$POWERSOURCE" ]; then
     fi
 fi
 
-# 5. Launch custom remote runtime supervisor in background
+# 4. Launch custom remote runtime supervisor in background
 if [ -x /data/init.sh ]; then
     /data/init.sh start &
 elif [ -x /data/remote_watchdog.sh ]; then

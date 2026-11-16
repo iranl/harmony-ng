@@ -102,13 +102,6 @@ export function createDevicesApi(client) {
       return this.sendCommand(deviceId, command);
     },
 
-    async sendBtCommand(deviceId, command) {
-      return client.postJson('/api/bt-saved-command', {
-        deviceId: String(deviceId),
-        command: String(command)
-      });
-    },
-
     async captureIr() {
       /* the Hub waits up to 10 s for a button press (plus up to 5 s for an IR send to finish) */
       return client.request('/api/capture', {
@@ -156,10 +149,6 @@ export function createDevicesApi(client) {
       return client.postForm('/ir/delete-command', { deviceId, command });
     },
 
-    async importIrdb(data) {
-      return client.postForm('/ir/irdb-import', data);
-    },
-
     async saveBatchCommands(deviceId, commands) {
       return client.postJson('/api/commands-batch', { deviceId: String(deviceId), commands });
     },
@@ -175,18 +164,6 @@ export function createDevicesApi(client) {
     // Alias for backwards compatibility
     async blastPronto(prontoHex, port = 7, repeats = 1) {
       return this.sendDirectPronto(prontoHex, port, repeats);
-    },
-
-    async sendBatchIr(data) {
-      return client.postJson('/api/ir-batch-send', data);
-    },
-
-    async cancelBatchIr(runId) {
-      return client.postJson('/api/ir-cancel', { runId });
-    },
-
-    async clearLabTarget(deviceId) {
-      return client.postJson('/api/ir-lab-clear', { deviceId });
     }
   };
 }

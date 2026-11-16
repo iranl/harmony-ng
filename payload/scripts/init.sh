@@ -7,6 +7,29 @@ sync_fs() {
   /data/harmony/bin/hub_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || sync 2>/dev/null || true
 }
 
+# / is a union over /data, so these are flash writes: a file is rewritten only when its content
+# changes (every start used to rewrite them), through a temporary name, so a power cut never
+# leaves it empty. Usage: write_if_changed PATH MODE
+write_if_changed() {
+  _wic_new=$(cat)
+  if [ -f "$1" ] && [ "$(cat "$1" 2>/dev/null)" = "$_wic_new" ]; then
+    return 0
+  fi
+  printf '%s\n' "$_wic_new" > "$1.tmp" && chmod "$2" "$1.tmp" && mv -f "$1.tmp" "$1"
+}
+
+# A symlink is replaced only when it does not point there already. Usage: link_if_changed TARGET LINK
+# The stock BusyBox has no readlink (the extended one in /cache/bin has): ls -l tells it then.
+link_target() {
+  readlink "$1" 2>/dev/null || ls -l "$1" 2>/dev/null | sed -n 's/.* -> //p'
+}
+link_if_changed() {
+  if [ -L "$2" ] && [ "$(link_target "$2")" = "$1" ]; then
+    return 0
+  fi
+  ln -sf "$1" "$2"
+}
+
 echo "$(date) harmony init start: $1" >> "$LOG"
 
 case "$1" in
@@ -75,7 +98,7 @@ echo "$$" > /tmp/harmony_watchdog.pid
 ) &
 
 # 0. Neuter watchdog and crash reporting immediately
-touch /etc/nowatchdog 2>/dev/null || true
+[ -e /etc/nowatchdog ] || touch /etc/nowatchdog 2>/dev/null || true
 chmod -x /usr/bin/watchdog 2>/dev/null || true
 killall -9 watchdog 2>/dev/null || true
 
@@ -141,23 +164,24 @@ rm -f /data/bin/sh /data/bin/ash /data/bin/busybox 2>/dev/null || true
 mkdir -p /data/harmony/bin /data/harmony/config 2>/dev/null || true
 if [ -x /cache/bin/busybox ]; then
   /cache/bin/busybox --install -s /cache/bin 2>/dev/null || true
-  ln -sf /cache/bin/busybox /data/harmony/bin/busybox 2>/dev/null || true
+  link_if_changed /cache/bin/busybox /data/harmony/bin/busybox 2>/dev/null || true
 fi
-ln -sf /data/harmony/bin/hub_sync /data/harmony/bin/sync 2>/dev/null || true
-ln -sf /data/harmony/bin/hub_sync /cache/bin/sync 2>/dev/null || true
+link_if_changed /data/harmony/bin/hub_sync /data/harmony/bin/sync 2>/dev/null || true
+link_if_changed /data/harmony/bin/hub_sync /cache/bin/sync 2>/dev/null || true
 
 [ -f /data/harmony/bin/safe_reboot.sh ] && chmod +x /data/harmony/bin/safe_reboot.sh 2>/dev/null || true
-[ -f /data/harmony/safe_reboot.sh ] && ln -sf /data/harmony/safe_reboot.sh /data/harmony/bin/safe_reboot.sh 2>/dev/null || true
+[ -f /data/harmony/safe_reboot.sh ] && link_if_changed /data/harmony/safe_reboot.sh /data/harmony/bin/safe_reboot.sh 2>/dev/null || true
+# the web UI's factory reset runs /data/harmony/bin/factory_reset.sh; the installers put it here
+[ -f /data/harmony/factory_reset.sh ] && link_if_changed /data/harmony/factory_reset.sh /data/harmony/bin/factory_reset.sh 2>/dev/null || true
 
 mkdir -p /etc/profile.d 2>/dev/null || true
-cat <<'EOF' > /etc/profile.d/00-harmony.sh
+write_if_changed /etc/profile.d/00-harmony.sh 644 <<'EOF'
 export PATH=/data/harmony/bin:/cache/bin:$PATH
 EOF
-chmod 644 /etc/profile.d/00-harmony.sh 2>/dev/null || true
 
 for prof in /root/.profile /home/root/.profile; do
   mkdir -p "$(dirname "$prof")" 2>/dev/null || true
-  cat <<'EOF' > "$prof"
+  write_if_changed "$prof" 644 <<'EOF'
 BB_PATH=""
 if [ -x /cache/bin/busybox ]; then
     BB_PATH=/cache/bin/busybox
@@ -171,20 +195,30 @@ if [ -t 0 ] && [ -n "$BB_PATH" ] && [ -z "$BB_EXTENDED" ]; then
 fi
 export PATH=/data/harmony/bin:/cache/bin:$PATH
 EOF
-  chmod 644 "$prof" 2>/dev/null || true
 done
 
-_dropbear_bin=""
-[ -x /data/harmony/bin/dropbear ] && _dropbear_bin=/data/harmony/bin/dropbear
-if [ -n "$_dropbear_bin" ]; then
-  cat <<EOF > /usr/sbin/dropbear
-#!/bin/sh
-export PATH=/data/harmony/bin:/cache/bin:\$PATH
-exec "$_dropbear_bin" -K 300 "\$@"
-EOF
-  chmod 755 /usr/sbin/dropbear
+# SSH: /usr/sbin/dropbear is a copy of /data/harmony/hub_sshd (key logins only), as rcS.local sets
+# it at boot, written only when it differs. A server that already runs keeps its options until it
+# is started again (the next boot).
+_sshd_bin=""
+if [ -s /data/harmony/hub_sshd ] && grep -q '^# harmony-ng hub_sshd$' /data/harmony/hub_sshd 2>/dev/null; then
+  _sshd_bin=$(sh /data/harmony/hub_sshd --binary 2>/dev/null)
+fi
+if [ -n "$_sshd_bin" ] && [ -x "$_sshd_bin" ]; then
+  _sshd_cur=""
+  [ -f /usr/sbin/dropbear ] && [ ! -L /usr/sbin/dropbear ] && _sshd_cur=$(cat /usr/sbin/dropbear 2>/dev/null)
+  if [ "$_sshd_cur" != "$(cat /data/harmony/hub_sshd)" ]; then
+    cp /data/harmony/hub_sshd /usr/sbin/dropbear.new 2>/dev/null && chmod 755 /usr/sbin/dropbear.new &&
+      mv -f /usr/sbin/dropbear.new /usr/sbin/dropbear
+  fi
   if ! ps | grep '[d]ropbear' >/dev/null 2>&1; then
-    /usr/sbin/dropbear
+    # not with this script's ignored SIGHUP: SSH sessions would inherit it. The wrapper directly
+    # when /usr/sbin/dropbear could not be written
+    if [ -x /usr/sbin/dropbear ] && [ -s /usr/sbin/dropbear ]; then
+      (trap - HUP; /usr/sbin/dropbear)
+    else
+      (trap - HUP; sh /data/harmony/hub_sshd)
+    fi
   fi
 fi
 
@@ -345,26 +379,32 @@ echo "$!" >> /tmp/harmony_supervisors.pid
 ) &
 echo "$!" >> /tmp/harmony_supervisors.pid
 
-# 9. Log cap: $LOG lives in tmpfs, which is RAM on a 32 MB Hub. Unbounded, it starved the
-# kernel (12 MB of log, 1 MB free, OOM kills of hub_rf and hub_daemon mid key press). Every
-# writer appends (>>), so truncating in place is safe; the last 64 KB are kept in $LOG.1.
+# 9. Log cap: the logs live in tmpfs, which is RAM on a 32 MB Hub. Unbounded, $LOG starved the
+# kernel (12 MB of log, 1 MB free, OOM kills of hub_rf and hub_daemon mid key press), and the
+# network monitor writes its log every few seconds while the network is down. Every writer
+# appends (>>), so truncating in place is safe; the last 64 KB are kept in <log>.1.
+cap_log() {
+  # stock applets only (ls, awk): /cache and its extended BusyBox may not be there
+  _sz=$(ls -l "$1" 2>/dev/null | awk '{print $5}')
+  [ -n "$_sz" ] || _sz=0
+  if [ "$_sz" -gt 1048576 ] 2>/dev/null; then
+    # keep the last 64 KB in <log>.1 (whole file if dd is missing), then truncate in place
+    if command -v dd >/dev/null 2>&1; then
+      dd if="$1" of="$1.1" bs=1024 skip=$(expr "$_sz" / 1024 - 64) 2>/dev/null || cp "$1" "$1.1" 2>/dev/null
+    else
+      cp "$1" "$1.1" 2>/dev/null
+    fi
+    : > "$1"
+    echo "$(date) log capped: was ${_sz} bytes, last 64 KB in $1.1" >> "$1"
+  fi
+}
 (
   while true; do
-    sleep 300
+    sleep 60
     [ -f /tmp/harmony_stop ] && exit 0
-    # stock applets only (ls, awk): /cache and its extended BusyBox may not be there
-    _sz=$(ls -l "$LOG" 2>/dev/null | awk '{print $5}')
-    [ -n "$_sz" ] || _sz=0
-    if [ "$_sz" -gt 1048576 ] 2>/dev/null; then
-      # keep the last 64 KB in $LOG.1 (whole file if dd is missing), then truncate in place
-      if command -v dd >/dev/null 2>&1; then
-        dd if="$LOG" of="$LOG.1" bs=1024 skip=$(expr "$_sz" / 1024 - 64) 2>/dev/null || cp "$LOG" "$LOG.1" 2>/dev/null
-      else
-        cp "$LOG" "$LOG.1" 2>/dev/null
-      fi
-      : > "$LOG"
-      echo "$(date) log capped: was ${_sz} bytes, last 64 KB in $LOG.1" >> "$LOG"
-    fi
+    for _log in "$LOG" /tmp/harmony-network.log /tmp/harmony-recovery.log; do
+      cap_log "$_log"
+    done
   done
 ) &
 echo "$!" >> /tmp/harmony_supervisors.pid

@@ -3,7 +3,7 @@
  * Comprehensive client-side index search, Pronto hex decoder, and
  * full official Logitech Harmony IR Archive integration (276,236 devices).
  */
-import harmonyManufacturers from './harmony_manufacturers.json';
+import harmonyManufacturers from '../harmony_manufacturers.json';
 
 export const HARMONY_ARCHIVE_CDN = 'https://cdn.jsdelivr.net/gh/pickysysadmin/logitech-harmony-ir-archive@main/';
 export const HARMONY_ARCHIVE_RAW = 'https://raw.githubusercontent.com/pickysysadmin/logitech-harmony-ir-archive/main/';

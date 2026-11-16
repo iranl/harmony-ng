@@ -1,6 +1,7 @@
 import { HarmonyClient } from '../api.js';
 import { getSavedHubs, saveHub, deleteHub, getActiveHub, setActiveHubId } from '../storage.js';
 import { RemoteEngine } from '../remote-engine.js';
+import { forgetBtHostFlow } from './bt_forget.js';
 import {
   getHarmonyManufacturers,
   searchHarmonyManufacturers,
@@ -77,11 +78,11 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
       pairTarget.innerHTML = '<option value="">-- Select Target Device (Required) --</option>' +
         devs.map(d => {
           const isBt = d.type === 'BT' || d.type === 'Bluetooth' || d.isBt;
-          return `<option value="${d.id}">${d.name || d.id}${isBt ? ' (BT)' : ''}</option>`;
+          return `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name || d.id)}${isBt ? ' (BT)' : ''}</option>`;
         }).join('');
     }
     if (saveSel) {
-      saveSel.innerHTML = (this.inventory.devices || []).map(d => `<option value="${d.id}">${d.name || d.id}</option>`).join('');
+      saveSel.innerHTML = (this.inventory.devices || []).map(d => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name || d.id)}</option>`).join('');
     }
 
     try {
@@ -173,15 +174,16 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
           return `
           <div class="queue-row" style="display:flex; justify-content:space-between; align-items:center; padding:8px 10px; background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-sm); margin-bottom:6px; flex-wrap:wrap; gap:8px;">
             <div style="min-width: 180px;">
-              <strong>${resolveHostDeviceName(h)}</strong>
-              <div class="muted mini">${h.addr} • <span style="color:${h.connected ? 'var(--success)' : (h.paired === false ? 'var(--warning)' : 'var(--text-dim)')}">${h.connected ? 'Connected' : (h.paired === false ? 'Not paired (no link key)' : 'Paired')}</span></div>
+              <strong>${escapeHtml(resolveHostDeviceName(h))}</strong>
+              <div class="muted mini">${escapeHtml(h.addr)} • <span style="color:${h.connected ? 'var(--success)' : (h.paired === false ? 'var(--warning)' : 'var(--text-dim)')}">${h.connected ? 'Connected' : (h.paired === false ? 'Not paired (no link key)' : 'Paired')}</span></div>
             </div>
             <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
-              <select class="form-control form-control-sm host-assign-sel" data-addr="${h.addr}" style="font-size:11px; max-width:180px;">
+              <button type="button" class="btn btn-xs btn-danger btn-bt-forget" data-addr="${escapeHtml(h.addr)}" data-name="${escapeHtml(resolveHostDeviceName(h))}">${escapeHtml(t('bt_forget_host', 'Forget'))}</button>
+              <select class="form-control form-control-sm host-assign-sel" data-addr="${escapeHtml(h.addr)}" style="font-size:11px; max-width:180px;">
                 <option value="">-- Assign Device --</option>
-                ${devs.map(d => `<option value="${d.id}" ${assigned && String(assigned.id) === String(d.id) ? 'selected' : ''}>${d.name || d.id}</option>`).join('')}
+                ${devs.map(d => `<option value="${escapeHtml(d.id)}" ${assigned && String(assigned.id) === String(d.id) ? 'selected' : ''}>${escapeHtml(d.name || d.id)}</option>`).join('')}
               </select>
-              <button type="button" class="btn btn-xs btn-secondary btn-bt-disconn" data-addr="${h.addr}" data-connected="${h.connected ? '1' : ''}">${h.connected ? 'Disconnect' : 'Connect'}</button>
+              <button type="button" class="btn btn-xs btn-secondary btn-bt-disconn" data-addr="${escapeHtml(h.addr)}" data-connected="${h.connected ? '1' : ''}">${h.connected ? 'Disconnect' : 'Connect'}</button>
             </div>
           </div>
         `;
@@ -212,6 +214,15 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
             } else {
               await this.client.connectBt(addr);
             }
+            this.loadBtView();
+          });
+        });
+
+        list.querySelectorAll('.btn-bt-forget').forEach(b => {
+          b.addEventListener('click', async () => {
+            const addr = b.getAttribute('data-addr');
+            const name = b.getAttribute('data-name') || addr;
+            if (await forgetBtHostFlow({ client: this.client, addr, name, t, showConfirm, showToast })) await this.refreshData();
             this.loadBtView();
           });
         });
@@ -320,14 +331,14 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
     const hostSel = document.getElementById('btTargetHostSelect');
     const saveSel = document.getElementById('btSaveDeviceSelect');
     if (saveSel) {
-      saveSel.innerHTML = (this.inventory.devices || []).map(d => `<option value="${d.id}">${d.name || d.id}</option>`).join('');
+      saveSel.innerHTML = (this.inventory.devices || []).map(d => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name || d.id)}</option>`).join('');
     }
     try {
       const st = await this.client.getBtStatus();
       const hosts = st?.hosts || (st?.host?.addr ? [st.host] : []);
       if (hostSel) {
         hostSel.innerHTML = '<option value="">Auto (Active Host)</option>' +
-          hosts.map(d => `<option value="${d.addr}">${d.name || d.addr}</option>`).join('');
+          hosts.map(d => `<option value="${escapeHtml(d.addr)}">${escapeHtml(d.name || d.addr)}</option>`).join('');
       }
     } catch { }
     this.renderBtSavedCommands();
@@ -346,12 +357,12 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
       const cmds = (d.commands || []).filter(isMacro);
       return `
         <div style="margin-bottom:12px; background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px;">
-          <strong style="font-size:13px; color:var(--accent);">${d.name} (${d.model || d.id})</strong>
+          <strong style="font-size:13px; color:var(--accent);">${escapeHtml(d.name)} (${escapeHtml(d.model || d.id)})</strong>
           <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;">
             ${cmds.map(c => `
               <div class="pill" style="display:flex; align-items:center; gap:6px; padding:4px 8px;">
-                <span>${c.name}</span>
-                <button type="button" class="btn btn-xs btn-ghost btn-del-bt-cmd" data-dev="${d.id}" data-cmd="${c.name}" style="padding:0 4px; color:var(--danger);" title="Delete macro">×</button>
+                <span>${escapeHtml(c.name)}</span>
+                <button type="button" class="btn btn-xs btn-ghost btn-del-bt-cmd" data-dev="${escapeHtml(d.id)}" data-cmd="${escapeHtml(c.name)}" style="padding:0 4px; color:var(--danger);" title="Delete macro">×</button>
               </div>
             `).join('')}
           </div>

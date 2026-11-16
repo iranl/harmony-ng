@@ -11,11 +11,20 @@ extern volatile sig_atomic_t g_wake_requested;
 extern char g_timezone_str[64];
 
 void set_backlight_level(int level);
-void clearpad_hw_init(void);
-void clearpad_wake(bool full_reset);
-void clearpad_doze(void);
-void clearpad_sleep(void);
 bool is_remote_docked(void);
+/* The power source read now (cradle or USB), for the reboot decision: is_remote_docked() also
+ * counts the debounced charging flag, which stays set for seconds after the remote leaves the
+ * cradle, and a reboot on battery switches the remote off */
+bool remote_on_external_power(void);
+/* Sets the wall clock (TIME_SYNC from the Hub, the RTC at start) and restarts the screen idle
+ * timer with it: that timer runs on the wall clock, so a step would blank the screen at once or
+ * keep it on for as long as the step */
+void remote_set_clock(time_t epoch);
+/* A pairing, an activity switch, a config sync or an RF update is running: no suspend (from any
+ * path) and no idle blank while it does */
+bool remote_suspend_blocked(void);
+/* SIGUSR2 asks for an immediate deep standby; the power thread does it */
+extern volatile sig_atomic_t g_deep_sleep_requested;
 void get_cpu_freq_status(char *out, size_t max_len);
 bool is_night_time(void);
 void fb_set_blank(bool blank);
@@ -35,13 +44,19 @@ void remote_flightlog_context(char *buf, size_t buf_sz);
 #define REMOTE_SUSPEND_AT_ONCE_S 2
 bool remote_deep_standby_due(uint64_t standby_s);
 /* The whole suspend decision with the screen off: never when docked, on USB or charging (the
- * remote stays reachable for RF wake, config pushes and RF updates), never during a config sync
- * or an RF update or an alarm-wake hold, and only on battery once deep standby is due */
+ * remote stays reachable for RF wake, config pushes and RF updates), never while
+ * remote_suspend_blocked() or an alarm-wake hold, and only on battery once deep standby is due */
 bool remote_should_suspend(uint64_t standby_s, uint64_t now_ms);
 /* After an alarm wake the remote stays up until it has reported its battery (or this long),
  * then suspends again: without it a sleeping remote never reported */
 #define REMOTE_ALARM_WAKE_HOLD_MS 8000ULL
 extern uint64_t g_suspend_hold_until_ms;
+/* A hard key pressed with the screen off: radio first (remote_key_wake_radio), then the caller
+ * handles the key, then the screen (remote_key_wake_screen). No suspend starts for this long
+ * after the key, although the screen is still off while the key is handled. */
+#define REMOTE_KEY_WAKE_HOLD_MS 1000ULL
+void remote_key_wake_radio(void);
+void remote_key_wake_screen(void);
 /* Called after a battery report went out: an alarm-wake hold can end now */
 void remote_power_report_sent(void);
 /* After a resume from suspend to RAM that lasted suspended_ms: fresh battery samples, the next

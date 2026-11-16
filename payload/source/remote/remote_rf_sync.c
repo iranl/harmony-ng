@@ -42,7 +42,10 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
     if (f->dev_slot & 0x0F) g_remote_slot = f->dev_slot & 0x0F;
 
     /* Handle OTA and custom Icon streaming frames via modular handler */
-    if (handle_ota_frame(f)) return;
+    pthread_mutex_lock(&g_ota_lock);
+    bool ota_frame = handle_ota_frame(f);
+    pthread_mutex_unlock(&g_ota_lock);
+    if (ota_frame) return;
     if (handle_icon_frame(f)) return;
 
     switch (f->msg_type) {
@@ -50,16 +53,18 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             if (f->payload[24] == 1) link_note_reply(f->seq, get_monotonic_ms()); /* answer to a sync query */
             char act_id[13] = {0};
             char act_name[24] = {0};
+            /* The name ends before payload[24], the query-reply flag (rf_send_hub_activity_sync_slot()
+               writes at most 21 name bytes after a short id and 14 after a long one) */
             if (f->payload[1] == '\0' || f->payload[2] == '\0' || f->payload[0] == '-') {
-                /* Short ID format (1-2 byte ID, up to 22 byte name) */
+                /* Short ID format (1-2 byte ID, up to 21 byte name) */
                 strncpy(act_id, (const char *)&f->payload[0], sizeof(act_id) - 1);
-                strncpy(act_name, (const char *)&f->payload[3], sizeof(act_name) - 1);
+                memcpy(act_name, &f->payload[3], 21);
             } else if (f->payload[10] >= 0x20) {
                 memcpy(act_id, f->payload, 10);
-                memcpy(act_name, &f->payload[10], 15);
+                memcpy(act_name, &f->payload[10], 14);
             } else {
                 memcpy(act_id, f->payload, 12);
-                memcpy(act_name, &f->payload[12], 14);
+                memcpy(act_name, &f->payload[12], 12);
             }
 
             uint64_t now_ms = get_monotonic_ms();
@@ -79,11 +84,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                 g_is_switching_activity = false;
                 g_last_switch_completed_ms = now_ms;
                 strncpy(g_last_switch_target_id, g_switching_target_id, sizeof(g_last_switch_target_id) - 1);
-                if (strcmp(g_switching_target_id, "-1") != 0) {
-                    g_current_view = VIEW_DEVICES;
-                } else {
-                    g_current_view = VIEW_ACTIVITIES;
-                }
+                remote_show_switch_target();
                 g_selected_device_cmd = 0;
                 if (g_screen_on) reset_idle_timer();
                 g_screen_dirty = true;
@@ -95,7 +96,8 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             }
 
             uint8_t is_query_reply = f->payload[24];
-            uint64_t time_since_wake = (s_last_wake_ms > 0) ? (now_ms - s_last_wake_ms) : 999999;
+            /* The wake is stamped with get_boot_ms() (fb_set_blank), which counts the time suspended */
+            uint64_t time_since_wake = (s_last_wake_ms > 0) ? ms_since(get_boot_ms(), s_last_wake_ms) : 999999;
             uint64_t time_since_reconnect = (s_last_reconnect_ms > 0) ? (now_ms - s_last_reconnect_ms) : 999999;
             bool is_wake_or_reconnect = (time_since_wake < 6000 || time_since_reconnect < 6000);
             bool is_state_catchup = (!g_initial_sync_received || is_query_reply == 0x01 || is_wake_or_reconnect);
@@ -108,11 +110,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                 strncpy(g_active_activity_name, act_name, sizeof(g_active_activity_name) - 1);
                 strncpy(g_last_switch_target_id, act_id, sizeof(g_last_switch_target_id) - 1);
                 g_last_switch_completed_ms = now_ms;
-                if (strcmp(act_id, "-1") != 0) {
-                    g_current_view = VIEW_DEVICES;
-                } else {
-                    g_current_view = VIEW_ACTIVITIES;
-                }
+                remote_follow_hub_activity(act_id); /* the user's page stays outside home and activity screens */
                 g_selected_device_cmd = 0;
                 if (g_screen_on) reset_idle_timer();
                 g_screen_dirty = true;
@@ -122,7 +120,15 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             printf("[*] Hub Activity Sync (live change): id=%s name=%s\n", act_id, act_name);
             bool is_recent_same_switch = (strcmp(g_last_switch_target_id, act_id) == 0 && (now_ms - g_last_switch_completed_ms < 20000));
             if (!g_is_switching_activity && !is_recent_same_switch) {
-                trigger_activity_switch_external(act_id, act_name);
+                if (remote_view_follows_hub()) {
+                    trigger_activity_switch_external(act_id, act_name);
+                } else {
+                    /* Settings, pairing or the device browser stay on screen: no progress bar over
+                       them, the new activity is there when the user goes back */
+                    printf("[*] Hub changed the activity while view %d is open: screen kept\n", (int)g_current_view);
+                    strncpy(g_last_switch_target_id, act_id, sizeof(g_last_switch_target_id) - 1);
+                    g_last_switch_completed_ms = now_ms;
+                }
             }
             strncpy(g_active_activity_id, act_id, sizeof(g_active_activity_id) - 1);
             strncpy(g_active_activity_name, act_name, sizeof(g_active_activity_name) - 1);
@@ -151,26 +157,30 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                 init_act_triggers();
                 pthread_mutex_unlock(&g_sync_lock);
                 g_screen_dirty = true;
-            } else if (!g_is_syncing_config) {
+            } else {
+                /* Tested under the lock: the main loop gives up on a stalled sync under it too,
+                   and then restores the saved config; the new version must not be stamped on it */
+                pthread_mutex_lock(&g_sync_lock);
+                bool in_sync = g_is_syncing_config;
+                if (in_sync) {
+                    g_is_syncing_config = false;
+                    g_config_version = version;
+                    g_has_hub_config = true;
+                    g_update_config_available = false;
+                    save_rf_config();
+                    build_activity_list();
+                    if (!has_configured_activities() && g_current_view == VIEW_ACTIVITIES) {
+                        open_device_browser();
+                    }
+                }
+                pthread_mutex_unlock(&g_sync_lock);
                 /* A resend after our ACK was lost is fine to ACK again. Any other "complete"
                    arrived after this remote gave up on the sync; don't stamp its version on
                    the restored config, and leave it unACKed so the Hub reports the failure. */
-                if (version != g_config_version) {
+                if (!in_sync && version != g_config_version) {
                     printf("[-] Ignoring CONFIG_END complete v%d outside a sync\n", version);
                     break;
                 }
-            } else {
-                pthread_mutex_lock(&g_sync_lock);
-                g_is_syncing_config = false;
-                g_config_version = version;
-                g_has_hub_config = true;
-                g_update_config_available = false;
-                save_rf_config();
-                build_activity_list();
-                if (!has_configured_activities() && g_current_view == VIEW_ACTIVITIES) {
-                    open_device_browser();
-                }
-                pthread_mutex_unlock(&g_sync_lock);
                 g_screen_dirty = true;
             }
             rf_frame_t ack;
@@ -351,7 +361,14 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
 
                 /* Check if this button is mapped to an activity start or stop */
                 if (f->payload[2] == 0x00 && (f->payload[24] == 0x02 || f->payload[24] == 0x03)) {
-                    if (g_act_trigger_count < MAX_ACT_TRIGGERS) {
+                    /* a chunk sent again after a lost ACK must not add the trigger a second time */
+                    bool known = false;
+                    for (int t = 0; t < g_act_trigger_count && !known; t++) {
+                        known = g_act_triggers[t].atype == f->payload[24] &&
+                                strcmp(g_act_triggers[t].button_name, g_rf_buttons[idx].label) == 0 &&
+                                strcmp(g_act_triggers[t].target_act_id, g_rf_buttons[idx].context_id) == 0;
+                    }
+                    if (!known && g_act_trigger_count < MAX_ACT_TRIGGERS) {
                         strncpy(g_act_triggers[g_act_trigger_count].button_name, g_rf_buttons[idx].label, sizeof(g_act_triggers[0].button_name) - 1);
                         g_act_triggers[g_act_trigger_count].atype = f->payload[24];
                         strncpy(g_act_triggers[g_act_trigger_count].target_act_id, g_rf_buttons[idx].context_id, sizeof(g_act_triggers[0].target_act_id) - 1);
@@ -377,21 +394,20 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             if (chunk_idx == 0) {
                 g_rf_step_count = 0;
             }
-            if (g_rf_step_count < MAX_RF_STEPS) {
-                g_rf_steps[g_rf_step_count].step_idx = f->payload[1];
-                g_rf_steps[g_rf_step_count].total_steps = f->payload[2];
-                strncpy(g_rf_steps[g_rf_step_count].act_id, (char *)&f->payload[3], 9);
-                g_rf_steps[g_rf_step_count].act_id[9] = '\0';
-                g_rf_steps[g_rf_step_count].delay_ms = (uint16_t)f->payload[12] | ((uint16_t)f->payload[13] << 8);
-                strncpy(g_rf_steps[g_rf_step_count].name, (char *)&f->payload[14], 11);
-                g_rf_steps[g_rf_step_count].name[11] = '\0';
-                g_rf_step_count++;
+            /* Stored at its index: a chunk the Hub sends again after a lost ACK replaces itself
+             * instead of adding the step a second time */
+            if (chunk_idx < MAX_RF_STEPS) {
+                rf_act_step_t *st = &g_rf_steps[chunk_idx];
+                st->step_idx = f->payload[1];
+                st->total_steps = f->payload[2];
+                strncpy(st->act_id, (char *)&f->payload[3], 9);
+                st->act_id[9] = '\0';
+                st->delay_ms = (uint16_t)f->payload[12] | ((uint16_t)f->payload[13] << 8);
+                strncpy(st->name, (char *)&f->payload[14], 11);
+                st->name[11] = '\0';
+                if (chunk_idx >= g_rf_step_count) g_rf_step_count = chunk_idx + 1;
                 printf("[*] Step chunk %d: act=%s step=%d/%d del=%d name='%s'\n",
-                       chunk_idx, g_rf_steps[g_rf_step_count - 1].act_id,
-                       g_rf_steps[g_rf_step_count - 1].step_idx,
-                       g_rf_steps[g_rf_step_count - 1].total_steps,
-                       g_rf_steps[g_rf_step_count - 1].delay_ms,
-                       g_rf_steps[g_rf_step_count - 1].name);
+                       chunk_idx, st->act_id, st->step_idx, st->total_steps, st->delay_ms, st->name);
             }
             rf_frame_t ack;
             rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
@@ -406,13 +422,13 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             if (g_brightness_val > 5) g_brightness_val = 5;
             g_touch_enabled = (f->payload[1] != 0);
             g_gyro_enabled = (f->payload[2] != 0);
-            g_timeout_seconds = ((int)f->payload[3] << 8) | f->payload[4];
+            g_timeout_seconds = rf_clamp_screen_timeout(((int)f->payload[3] << 8) | f->payload[4]);
             /* payload[5..7]: the NAV toggle key and mode of older firmware, ignored */
             g_confirm_activity = (f->payload[8] != 0);
             if (f->payload[9] >= 1 && f->payload[9] <= 3) g_touch_sensitivity = f->payload[9];
 
             /* Extended settings fields */
-            if (f->payload[11] > 0 && f->payload[11] != g_gyro_rate_hz) {
+            if (remote_gyro_rate_valid(f->payload[11]) && f->payload[11] != g_gyro_rate_hz) {
                 g_gyro_rate_hz = f->payload[11];
                 if (g_gyro_fd >= 0) init_gyro_interrupt();
             }
@@ -488,8 +504,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                 /* Only touch the clock and the RTC (an I2C write) when they are off */
                 long drift = (long)time(NULL) - (long)epoch;
                 if (drift > 1 || drift < -1) {
-                    struct timeval tv = { .tv_sec = (time_t)epoch, .tv_usec = 0 };
-                    settimeofday(&tv, NULL);
+                    remote_set_clock((time_t)epoch);
                     set_msp430_rtc(epoch);
                 }
             }
@@ -521,17 +536,16 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             uint8_t uflags = f->payload[19];
             uint8_t hub_ver = f->payload[20];
             g_hub_config_version = hub_ver;
-            if (hub_ver > g_config_version) {
-                g_update_config_available = true;
-            } else {
-                g_update_config_available = false;
-            }
+            /* Any difference means the Hub has another config: its 8-bit version wraps from 255
+             * to 1 and starts at 1 again when its file is lost, so "higher" missed those pushes.
+             * 0 = the Hub reports no version. */
+            g_update_config_available = (hub_ver != 0 && hub_ver != g_config_version);
             if ((uflags & 0x02) && g_hub_ota_version[0]) {
                 g_update_ota_available = (harmony_version_compare(g_hub_ota_version, HARMONY_REMOTE_VERSION) > 0);
             } else if (!(uflags & 0x02)) {
                 g_update_ota_available = false;
             }
-            if (hub_ver > g_config_version && !g_is_syncing_config && !g_is_ota_updating) {
+            if (hub_ver != 0 && hub_ver != g_config_version && !g_is_syncing_config && !g_is_ota_updating) {
                 static uint64_t last_ver_check_ms = 0;
                 uint64_t now_ms = get_monotonic_ms();
                 if (!sync_backoff_active(now_ms) && now_ms - last_ver_check_ms > 8000) {
@@ -557,7 +571,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             uint8_t hub_ver = f->payload[1];
             g_hub_config_version = hub_ver;
             if (uflags & 0x01) {
-                g_update_config_available = (hub_ver > g_config_version);
+                g_update_config_available = (hub_ver != 0 && hub_ver != g_config_version);
             } else {
                 g_update_config_available = false;
             }
@@ -598,10 +612,16 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
         }
 
         case RF_MSG_SLEEP_REQ: {
-            printf("[*] Remote: received SLEEP_REQ from Hub. Suspending to RAM...\n");
             rf_frame_t ack;
             rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
             rf_send_frame(&ack);
+            /* Not in the middle of a config sync or an update (the transfer would be lost), a
+             * pairing or an activity switch: the same gates as every other suspend */
+            if (remote_suspend_blocked()) {
+                printf("[*] Remote: SLEEP_REQ from Hub ignored: a sync, update, pairing or switch is running\n");
+                break;
+            }
+            printf("[*] Remote: received SLEEP_REQ from Hub. Suspending to RAM...\n");
             usleep(50000); /* allow RF ACK TX to complete before suspend */
             fb_set_blank(true);
             read_remote_battery();
@@ -744,10 +764,17 @@ void *rf_rx_worker(void *arg) {
             continue;
         }
 
-        /* Windowed OTA data frames have no message type (header 0x60, see rf_proto.h) */
-        if (g_is_ota_updating && n >= 32 && pkt[0] == 0x20 && pkt[2] == 0x12 && (pkt[4] & 0xE0) == RF_OTA_HDR_DATA) {
-            g_last_hub_frame_ms = get_monotonic_ms();
-            handle_ota_data_frame(pkt);
+        /* Windowed OTA data frames have no message type (header 0x60, see rf_proto.h). Outside OTA
+           mode (remote_ui restarted while the Hub still sends a transfer) one is dropped: the byte
+           where a typed frame has its type is part of the chunk index, and rf_is_valid_frame()
+           below would take it for an unpair notice, a settings push or a sleep request. */
+        if (n >= 32 && pkt[0] == 0x20 && pkt[2] == 0x12 && (pkt[4] & 0xE0) == RF_OTA_HDR_DATA) {
+            if (g_is_ota_updating) {
+                g_last_hub_frame_ms = get_monotonic_ms();
+                pthread_mutex_lock(&g_ota_lock);
+                handle_ota_data_frame(pkt);
+                pthread_mutex_unlock(&g_ota_lock);
+            }
             continue;
         }
 
@@ -808,8 +835,9 @@ void *rf_rx_worker(void *arg) {
                     memcpy(f.payload, &pkt[4], sizeof(f.payload));
                 }
             }
-            /* Not for every chunk: a windowed OTA brings about 250 a second */
-            if (!(g_is_ota_updating && f.msg_type == RF_MSG_OTA_CHUNK)) {
+            /* One line per frame (every sync query is answered) only with debug logging: the log
+               lives in RAM until remote_ui restarts */
+            if (g_log_level >= LOG_LEVEL_DEBUG && !(g_is_ota_updating && f.msg_type == RF_MSG_OTA_CHUNK)) {
                 printf("[*] RF RX -> Hub frame type=0x%02X seq=%d\n", f.msg_type, f.seq);
                 fflush(stdout);
             }
@@ -817,7 +845,7 @@ void *rf_rx_worker(void *arg) {
         } else {
             /* Not a standard frame — check if it's a 0x42 container with embedded data */
             if (n >= 32 && pkt[0] == 0x20 && pkt[2] == 0x42) {
-                printf("[*] RF RX eQuad container (0x42): parsing payload at offset 3\n");
+                if (g_log_level >= LOG_LEVEL_DEBUG) printf("[*] RF RX eQuad container (0x42): parsing payload at offset 3\n");
                 rf_frame_t f;
                 memset(&f, 0, sizeof(f));
                 f.report_id = 0x20;
@@ -844,8 +872,10 @@ void *rf_rx_worker(void *arg) {
                         g_rf_link_connected = true;
                         g_screen_dirty = true;
                     }
-                    printf("[*] RF RX 0x42 -> Hub frame type=0x%02X seq=%d\n", f.msg_type, f.seq);
-                    fflush(stdout);
+                    if (g_log_level >= LOG_LEVEL_DEBUG) {
+                        printf("[*] RF RX 0x42 -> Hub frame type=0x%02X seq=%d\n", f.msg_type, f.seq);
+                        fflush(stdout);
+                    }
                     handle_hub_frame_remote(&f);
                 }
             }

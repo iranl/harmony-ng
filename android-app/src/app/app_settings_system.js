@@ -51,6 +51,7 @@ import {
   getDeviceIconSvg,
   getRawDeviceIconSvg
 } from './app_icons_ui.js';
+import { wifiPassphraseError } from './form_limits.js';
 import { HarmonyAppRemotesRf } from './app_remotes_rf.js';
 import { copyText } from '../clipboard.js';
 
@@ -432,7 +433,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
             ethEl.innerHTML = `<span style="color:var(--success); font-weight:600;">Connected (${devType} Link Up)${ifStr}</span>${ipStr}`;
           } else {
             const devLabel = st.eth_onboard ? 'Onboard RJ45 Port' : 'Adapter Detected';
-            ethEl.innerHTML = `<span style="color:var(--warning);">${devLabel}${ifStr} (Cable Unplugged)</span>`;
+            ethEl.innerHTML = `<span style="color:var(--warning);">${escapeHtml(devLabel)}${escapeHtml(ifStr)} (Cable Unplugged)</span>`;
           }
         } else {
           ethEl.innerHTML = '<span style="color:var(--text-muted);">Not Detected</span>';
@@ -622,6 +623,11 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
       hidden: document.getElementById('wifiHidden')?.checked ? 1 : 0,
       open: document.getElementById('wifiOpen')?.checked ? 1 : 0
     };
+    const passError = wifiPassphraseError(data.password, { open: data.open });
+    if (passError) {
+      if (status) status.innerHTML = `<span style="color:var(--danger)">${passError}</span>`;
+      return;
+    }
 
     const testBtn = document.getElementById('btnWifiTest');
     if (testBtn) testBtn.disabled = true;
@@ -658,6 +664,11 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
       hidden: document.getElementById('wifiHidden')?.checked ? 1 : 0,
       open: document.getElementById('wifiOpen')?.checked ? 1 : 0
     };
+    const passError = wifiPassphraseError(data.password, { open: data.open });
+    if (passError) {
+      if (status) status.innerHTML = `<span style="color:var(--danger)">${passError}</span>`;
+      return;
+    }
 
     const isApplying = (applyMode === 'reconfigure' || applyMode === 'reboot' || applyMode === 'apply');
 
@@ -729,10 +740,15 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
     if (!await showConfirm(confirmMsg, { title: t('title_restore_backup'), okText: t('btn_restore') })) return;
     try {
       if (status) status.textContent = t('restoring_status');
-      await this.client.restoreBackup(target, payload, restoreNet);
+      const reply = await this.client.restoreBackup(target, payload, restoreNet);
       if (status) status.innerHTML = `<span style="color:var(--success)">${t('restored_status')}</span>`;
       alert(t("backup_restore_complete"));
       await this.refreshData();
+      // an import that turned authentication on answers the accounts and tokens to check
+      if (reply?.to_check && typeof this.showSwitchCheck === 'function') {
+        this.pendingSwitchCheck = reply.to_check;
+        await this.showSwitchCheck();
+      }
     } catch (err) {
       if (status) status.innerHTML = `<span style="color:var(--danger)">${t('restore_failed_status')}${err.message}</span>`;
     }

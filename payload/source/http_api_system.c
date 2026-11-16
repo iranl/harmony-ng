@@ -55,6 +55,17 @@ static void get_cache_space_kb(uint64_t *total_kb, uint64_t *free_kb) {
     }
 }
 
+/* /etc is on flash: rewrite only when the content changes (every start applies the settings) */
+static void write_file_if_changed(const char *path, const char *text) {
+    size_t len = 0;
+    char *cur = read_file_text_alloc(path, 4096, &len);
+    int same = cur && len == strlen(text) && memcmp(cur, text, len) == 0;
+    free(cur);
+    if (!same && write_file_content(path, text) != 0) {
+        fprintf(stderr, "[-] Could not write %s\n", path);
+    }
+}
+
 void apply_hub_settings(const struct hub_settings *s) {
     if (!s) return;
     hub_mdns_apply_settings(s);
@@ -64,20 +75,16 @@ void apply_hub_settings(const struct hub_settings *s) {
     if (s->timezone[0]) {
         char posix_tz[64];
         timezone_to_posix(s->timezone, posix_tz, sizeof(posix_tz));
-        FILE *tzf = fopen("/etc/TZ", "w");
-        if (tzf) {
-            fprintf(tzf, "%s\n", posix_tz);
-            fclose(tzf);
-        }
+        char line[80];
+        snprintf(line, sizeof(line), "%s\n", posix_tz);
+        write_file_if_changed("/etc/TZ", line);
         setenv("TZ", posix_tz, 1);
         tzset();
     }
     if (s->ntp_server[0] && !g_dry_run) {
-        FILE *ntpf = fopen("/etc/ntp.conf", "w");
-        if (ntpf) {
-            fprintf(ntpf, "server %s\n", s->ntp_server);
-            fclose(ntpf);
-        }
+        char line[160];
+        snprintf(line, sizeof(line), "server %s\n", s->ntp_server);
+        write_file_if_changed("/etc/ntp.conf", line);
     }
 }
 
@@ -182,6 +189,12 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
 
         cJSON *cfg = config_store_get_mqtt_json();
         if (cfg) {
+            /* never send the stored broker password back: the UI only needs to know there is
+             * one (an empty field on save keeps it) */
+            cJSON *pw = cJSON_GetObjectItemCaseSensitive(cfg, "password");
+            int has_pw = cJSON_IsString(pw) && pw->valuestring && pw->valuestring[0];
+            cJSON_DeleteItemFromObjectCaseSensitive(cfg, "password");
+            cJSON_AddBoolToObject(cfg, "has_password", has_pw);
             cJSON_AddItemToObject(resp, "config", cfg);
         }
         send_cjson_resp(client_fd, 200, resp);
@@ -193,17 +206,18 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
     /* Route: GET /api/logs */
     if (strcmp(clean_path, "/api/logs") == 0 && strcmp(method, "GET") == 0) {
         const char *src = "daemon";
-        if (query) {
-            if (strstr(query, "source=btstack")) src = "btstack";
-            else if (strstr(query, "source=rf")) src = "rf";
-            else if (strstr(query, "source=system")) src = "system";
-            else if (strstr(query, "source=network")) src = "network";
-        }
+        char qsrc[16];
+        http_query_param(query, "source", qsrc, sizeof(qsrc));
+        if (strcmp(qsrc, "btstack") == 0) src = "btstack";
+        else if (strcmp(qsrc, "rf") == 0) src = "rf";
+        else if (strcmp(qsrc, "system") == 0) src = "system";
+        else if (strcmp(qsrc, "network") == 0) src = "network";
 
-        const char *filepath = "/tmp/hub_daemon.log";
+        /* init.sh sends the output of hub_daemon and hub_rf to harmony-init.log (hub_btstack keeps
+         * its own file), the network scripts write harmony-network.log */
+        const char *filepath = "/tmp/harmony-init.log";
         if (strcmp(src, "btstack") == 0) filepath = "/tmp/hub-btstack.log";
-        else if (strcmp(src, "rf") == 0) filepath = "/tmp/harmony-init.log";
-        else if (strcmp(src, "network") == 0) filepath = "/tmp/hub-network.log";
+        else if (strcmp(src, "network") == 0) filepath = "/tmp/harmony-network.log";
 
         char log_buf[16384] = {0};
         if (strcmp(src, "system") == 0) {
@@ -467,9 +481,14 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
             cJSON_DeleteItemFromObject(cfg, "mqttDevices");
             cJSON_DeleteItemFromObject(cfg, "devices");
 
-            config_store_save_mqtt_json(cfg);
+            int save_rc = config_store_save_mqtt_json(cfg);
             cJSON_Delete(cfg);
             cJSON_Delete(params);
+            if (save_rc != 0) {
+                send_json_error(client_fd, 500, "Could not save the MQTT settings (flash full?)");
+                close(client_fd);
+                return 1;
+            }
 
             daemon_sync_mqtt();
 
@@ -512,6 +531,13 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                 cJSON *p_conf = cJSON_GetObjectItemCaseSensitive(params, "confirm");
                 if (p_conf && cJSON_IsString(p_conf) && strcmp(p_conf->valuestring, "RESET") == 0) {
                     cJSON_Delete(params);
+                    /* The installers do not put the script here: say so instead of answering
+                     * "initiated" for a reset that never runs */
+                    if (access("/data/harmony/bin/factory_reset.sh", X_OK) != 0) {
+                        send_json_error(client_fd, 500, "Factory reset script not installed on this Hub");
+                        close(client_fd);
+                        return 1;
+                    }
                     cJSON *resp = cJSON_CreateObject();
                     cJSON_AddBoolToObject(resp, "ok", 1);
                     cJSON_AddStringToObject(resp, "message", "Factory reset initiated. Reverting to stock firmware and rebooting.");
@@ -542,7 +568,24 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                 close(client_fd);
                 return 1;
             } else if (p_act && cJSON_IsString(p_act) && strcmp(p_act->valuestring, "auth") == 0) {
-                int new_auth_enabled = 0;
+                cJSON *j_u = cJSON_GetObjectItemCaseSensitive(params, "authUsername");
+                cJSON *j_p = cJSON_GetObjectItemCaseSensitive(params, "authPassword");
+                const char *uname = (j_u && cJSON_IsString(j_u)) ? j_u->valuestring : "";
+                const char *pass = (j_p && cJSON_IsString(j_p)) ? j_p->valuestring : "";
+                if (strlen(uname) >= MAX_USERNAME_LEN || strchr(uname, ':') || strchr(uname, '\n') || strlen(pass) > 128) {
+                    cJSON_Delete(params);
+                    send_json_error(client_fd, 400, "Username must be shorter than 32 bytes (no ':' or line breaks), password at most 128 bytes");
+                    close(client_fd);
+                    return 1;
+                }
+
+                struct user_account ulist[MAX_HTTP_USERS];
+                int curr_auth_enabled = 0;
+                int ucnt = load_user_accounts(ulist, MAX_HTTP_USERS, &curr_auth_enabled);
+
+                /* A request without authEnabled keeps the current state (a password change alone
+                 * must not turn authentication off) */
+                int new_auth_enabled = curr_auth_enabled;
                 cJSON *j_en = cJSON_GetObjectItemCaseSensitive(params, "authEnabled");
                 if (j_en) {
                     if (cJSON_IsBool(j_en)) new_auth_enabled = cJSON_IsTrue(j_en) ? 1 : 0;
@@ -553,15 +596,6 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                     }
                 }
 
-                cJSON *j_u = cJSON_GetObjectItemCaseSensitive(params, "authUsername");
-                cJSON *j_p = cJSON_GetObjectItemCaseSensitive(params, "authPassword");
-                const char *uname = (j_u && cJSON_IsString(j_u)) ? j_u->valuestring : "";
-                const char *pass = (j_p && cJSON_IsString(j_p)) ? j_p->valuestring : "";
-
-                struct user_account ulist[MAX_HTTP_USERS];
-                int curr_auth_enabled = 0;
-                int ucnt = load_user_accounts(ulist, MAX_HTTP_USERS, &curr_auth_enabled);
-
                 int admin_idx = -1;
                 for (int i = 0; i < ucnt; i++) {
                     if (ulist[i].role == ROLE_ADMIN) {
@@ -571,48 +605,59 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                 }
 
                 if (admin_idx >= 0) {
-                    if (uname[0]) {
-                        strncpy(ulist[admin_idx].username, uname, sizeof(ulist[admin_idx].username) - 1);
-                        ulist[admin_idx].username[sizeof(ulist[admin_idx].username) - 1] = '\0';
-                    }
-                    if (pass[0]) {
-                        strncpy(ulist[admin_idx].password, pass, sizeof(ulist[admin_idx].password) - 1);
-                        ulist[admin_idx].password[sizeof(ulist[admin_idx].password) - 1] = '\0';
-                        compute_ha1(ulist[admin_idx].username, HARMONY_AUTH_REALM, pass, ulist[admin_idx].ha1);
-                    } else if (uname[0] && ulist[admin_idx].password[0]) {
-                        compute_ha1(ulist[admin_idx].username, HARMONY_AUTH_REALM, ulist[admin_idx].password, ulist[admin_idx].ha1);
-                    }
-                } else if (!pass[0]) {
-                    /* No admin account yet and no password given: never invent admin/admin (the
-                     * web UI used to save the moment the checkbox was ticked, before the form was
-                     * filled, and locked its owner out). Enabling needs a password first. */
-                    if (new_auth_enabled) {
+                    int renaming = uname[0] && strcmp(uname, ulist[admin_idx].username) != 0;
+                    if (renaming && !pass[0]) {
+                        /* the stored digest covers the name: without the password the account
+                         * could not log in under either name */
                         cJSON_Delete(params);
-                        send_json_error(client_fd, 400, "Set the admin username and password before enabling authentication");
+                        send_json_error(client_fd, 400, "Give the password to rename the admin account");
                         close(client_fd);
                         return 1;
                     }
-                } else {
-                    if (ucnt < MAX_HTTP_USERS) {
-                        admin_idx = ucnt++;
-                        const char *final_user = uname[0] ? uname : "admin";
-                        const char *final_pass = pass;
-                        strncpy(ulist[admin_idx].username, final_user, sizeof(ulist[admin_idx].username) - 1);
-                        ulist[admin_idx].username[sizeof(ulist[admin_idx].username) - 1] = '\0';
-                        strncpy(ulist[admin_idx].password, final_pass, sizeof(ulist[admin_idx].password) - 1);
-                        ulist[admin_idx].password[sizeof(ulist[admin_idx].password) - 1] = '\0';
-                        compute_ha1(final_user, HARMONY_AUTH_REALM, final_pass, ulist[admin_idx].ha1);
-                        ulist[admin_idx].role = ROLE_ADMIN;
+                    if (renaming || pass[0]) http_auth_drop_user_sessions(ulist[admin_idx].username);
+                    if (renaming) {
+                        memset(ulist[admin_idx].username, 0, sizeof(ulist[admin_idx].username));
+                        strncpy(ulist[admin_idx].username, uname, sizeof(ulist[admin_idx].username) - 1);
                     }
+                    if (pass[0]) {
+                        ulist[admin_idx].password[0] = '\0';
+                        compute_ha1(ulist[admin_idx].username, HARMONY_AUTH_REALM, pass, ulist[admin_idx].ha1);
+                    }
+                } else if (pass[0] && ucnt < MAX_HTTP_USERS) {
+                    admin_idx = ucnt++;
+                    memset(&ulist[admin_idx], 0, sizeof(ulist[admin_idx]));
+                    strncpy(ulist[admin_idx].username, uname[0] ? uname : "admin", sizeof(ulist[admin_idx].username) - 1);
+                    compute_ha1(ulist[admin_idx].username, HARMONY_AUTH_REALM, pass, ulist[admin_idx].ha1);
+                    ulist[admin_idx].role = ROLE_ADMIN;
                 }
 
-                save_user_accounts(ulist, ucnt, new_auth_enabled);
+                /* No admin account and no password given: never invent admin/admin (the web UI
+                 * used to save the moment the checkbox was ticked, before the form was filled).
+                 * Enabling needs an admin account first. */
+                if (new_auth_enabled && admin_idx < 0) {
+                    cJSON_Delete(params);
+                    send_json_error(client_fd, 400, "Set the admin username and password before enabling authentication");
+                    close(client_fd);
+                    return 1;
+                }
+
+                if (!save_user_accounts(ulist, ucnt, new_auth_enabled)) {
+                    cJSON_Delete(params);
+                    send_json_error(client_fd, 500, "Could not save the user accounts (flash full?)");
+                    close(client_fd);
+                    return 1;
+                }
+                if (new_auth_enabled != curr_auth_enabled) http_auth_drop_all_sessions();
                 cJSON_Delete(params);
 
                 cJSON *resp = cJSON_CreateObject();
                 cJSON_AddBoolToObject(resp, "ok", 1);
                 cJSON_AddBoolToObject(resp, "auth_enabled", new_auth_enabled);
                 cJSON_AddStringToObject(resp, "message", "Authentication settings updated");
+                if (!curr_auth_enabled && new_auth_enabled) {
+                    /* turned on: the accounts and tokens to check, but the admin set here */
+                    http_auth_add_switch_check(resp, ulist, ucnt, admin_idx >= 0 ? ulist[admin_idx].username : NULL);
+                }
                 send_cjson_resp(client_fd, 200, resp);
                 cJSON_Delete(resp);
                 close(client_fd);
@@ -670,6 +715,13 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                 s.ntp_server[sizeof(s.ntp_server) - 1] = '\0';
             }
             item = cJSON_GetObjectItemCaseSensitive(p, "timezone");
+            if (item && cJSON_IsString(item) && item->valuestring && !timezone_is_known(item->valuestring)) {
+                /* it used to be stored and silently run as Central European time */
+                cJSON_Delete(p);
+                send_json_error(client_fd, 400, "Unknown timezone: use a name from the list or a POSIX TZ string");
+                close(client_fd);
+                return 1;
+            }
             if (item && cJSON_IsString(item) && item->valuestring) {
                 strncpy(s.timezone, item->valuestring, sizeof(s.timezone) - 1);
                 s.timezone[sizeof(s.timezone) - 1] = '\0';
@@ -689,9 +741,14 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                 if (cJSON_IsBool(item)) s.legacy_enabled = cJSON_IsTrue(item) ? 1 : 0;
                 else if (cJSON_IsNumber(item)) s.legacy_enabled = item->valueint ? 1 : 0;
             }
-            config_store_save_settings(&s);
-            apply_hub_settings(&s);
+            int save_rc = config_store_save_settings(&s);
             cJSON_Delete(p);
+            if (save_rc != 0) {
+                send_json_error(client_fd, 500, "Could not save the settings (flash full?)");
+                close(client_fd);
+                return 1;
+            }
+            apply_hub_settings(&s);
         }
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", 1);
