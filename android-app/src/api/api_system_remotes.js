@@ -485,4 +485,8 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
   async uninstallPlugin(id) {
     return this.postJson('/api/plugins/uninstall', { id });
   }
+
+  async pairPlugin(id, action, host, pin = '', port = 6467) {
+    return this.postJson('/api/plugins/pair', { id, action, host, pin, port });
+  }
 }

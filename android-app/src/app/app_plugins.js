@@ -211,6 +211,9 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
               ${p.device_definition ? `
                 <button type="button" class="btn btn-xs btn-primary btn-plugin-add-dev" data-plugin-id="${escapeHtml(p.id)}" ${!isEnabled ? 'disabled' : ''}>+ Add Device</button>
               ` : ''}
+              ${(p.manifest?.pairing?.supported || p.pairing?.supported) ? `
+                <button type="button" class="btn btn-xs btn-outline btn-plugin-pair-card" data-plugin-id="${escapeHtml(p.id)}" ${!isEnabled ? 'disabled' : ''}>🔗 ${escapeHtml(p.manifest?.pairing?.button_label || p.pairing?.button_label || 'Pair with TV')}</button>
+              ` : ''}
             </div>
             <button type="button" class="btn btn-xs btn-ghost btn-plugin-uninstall" data-plugin-id="${escapeHtml(p.id)}" style="color: var(--danger);">Uninstall</button>
           </div>
@@ -324,6 +327,13 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
       btn.addEventListener('click', () => {
         const id = btn.getAttribute('data-plugin-id');
         this.openAddDeviceForPlugin(id);
+      });
+    });
+
+    container.querySelectorAll('.btn-plugin-pair-card').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-plugin-id');
+        this.openPluginPairingModal(id);
       });
     });
   }
@@ -648,6 +658,9 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
     }
 
     const displayName = plug.device_definition?.display_name || plug.name || plug.id;
+    const pairingDef = plug.manifest?.pairing || plug.pairing;
+    const hasPairing = !!pairingDef?.supported;
+
     wrap.style.display = 'block';
     wrap.innerHTML = `
       <div class="card" style="padding: 12px; background: var(--bg-card); border: 1px solid var(--border);">
@@ -661,8 +674,28 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
             </div>
           `).join('')}
         </div>
+        ${hasPairing ? `
+          <div style="margin-top: 10px; padding: 10px; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 6px; display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+            <div>
+              <div style="font-weight: 600; font-size: 12px; color: var(--text-main);">📺 TV Pairing</div>
+              <div class="muted mini" id="new_plug_pair_status">Pairing is required to control Android TV / Google TV.</div>
+            </div>
+            <button type="button" class="btn btn-xs btn-primary btn-trigger-plug-pair" data-plugin-id="${escapeHtml(plug.id)}" data-input-id="plug_cfg_host">
+              🔗 ${escapeHtml(pairingDef.button_label || 'Pair with TV')}
+            </button>
+          </div>
+        ` : ''}
       </div>
     `;
+
+    wrap.querySelectorAll('.btn-trigger-plug-pair').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const pId = btn.getAttribute('data-plugin-id');
+        const inpId = btn.getAttribute('data-input-id');
+        const hostVal = document.getElementById(inpId)?.value || '';
+        this.openPluginPairingModal(pId, hostVal);
+      });
+    });
   }
 
   handleEditDeviceTypeChanged(selectedType, prefillConfig = null) {
@@ -722,6 +755,9 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
     }
 
     const displayName = plug.device_definition?.display_name || plug.name || plug.id;
+    const pairingDef = plug.manifest?.pairing || plug.pairing;
+    const hasPairing = !!pairingDef?.supported;
+
     wrap.style.display = 'block';
     wrap.innerHTML = `
       <div class="card" style="padding: 10px; background: var(--bg-card); border: 1px solid var(--border); margin-top: 6px;">
@@ -744,7 +780,197 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
             `;
           }).join('')}
         </div>
+        ${hasPairing ? `
+          <div style="margin-top: 10px; padding: 10px; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 6px; display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+            <div>
+              <div style="font-weight: 600; font-size: 12px; color: var(--text-main);">📺 TV Pairing</div>
+              <div class="muted mini" id="edit_plug_pair_status">Pairing is required to control Android TV / Google TV.</div>
+            </div>
+            <button type="button" class="btn btn-xs btn-primary btn-trigger-plug-pair" data-plugin-id="${escapeHtml(plug.id)}" data-input-id="edit_plug_cfg_host">
+              🔗 ${escapeHtml(pairingDef.button_label || 'Pair with TV')}
+            </button>
+          </div>
+        ` : ''}
       </div>
     `;
+
+    wrap.querySelectorAll('.btn-trigger-plug-pair').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const pId = btn.getAttribute('data-plugin-id');
+        const inpId = btn.getAttribute('data-input-id');
+        const hostVal = document.getElementById(inpId)?.value || '';
+        this.openPluginPairingModal(pId, hostVal);
+      });
+    });
+  }
+
+  openPluginPairingModal(pluginId, initialHost = '') {
+    let modal = document.getElementById('pluginPairModal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'pluginPairModal';
+      modal.className = 'modal-overlay';
+      modal.style.cssText = 'display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.65); z-index: 9999; align-items: center; justify-content: center; backdrop-filter: blur(4px);';
+      modal.innerHTML = `
+        <div class="card" style="width: 90%; max-width: 440px; padding: 20px; background: var(--bg-card); border: 1px solid var(--border); box-shadow: 0 10px 25px rgba(0,0,0,0.5); border-radius: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+            <h3 style="margin: 0; font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+              <span>🔗</span> <span id="pairModalTitle">Pair TV Device</span>
+            </h3>
+            <button type="button" class="btn btn-xs btn-ghost" id="pairModalCloseBtn" style="font-size: 16px;">✕</button>
+          </div>
+
+          <div id="pairStep1">
+            <p class="muted mini" style="margin-bottom: 12px;">
+              Make sure your TV is turned on and connected to the same local network.
+            </p>
+            <div style="margin-bottom: 14px;">
+              <label for="pairModalHost" style="font-size: 12px; font-weight: 600; display: block; margin-bottom: 4px;">TV IP Address / Host</label>
+              <input id="pairModalHost" class="form-control" type="text" placeholder="192.168.1.50" />
+            </div>
+            <div id="pairStep1Error" style="display: none; color: var(--danger); font-size: 12px; margin-bottom: 10px;"></div>
+            <div style="display: flex; justify-content: flex-end; gap: 8px;">
+              <button type="button" class="btn btn-sm btn-outline" id="pairModalCancelBtn">Cancel</button>
+              <button type="button" class="btn btn-sm btn-primary" id="pairModalStartBtn">Start Pairing</button>
+            </div>
+          </div>
+
+          <div id="pairStep2" style="display: none;">
+            <div style="text-align: center; margin-bottom: 16px;">
+              <div style="font-size: 28px; margin-bottom: 6px;">📺</div>
+              <div style="font-weight: 600; font-size: 14px; margin-bottom: 4px;">Enter TV Code</div>
+              <div class="muted mini">A 6-character code is shown on your TV screen. Enter it below:</div>
+            </div>
+            <div style="margin-bottom: 18px; text-align: center;">
+              <input id="pairModalPin" class="form-control" type="text" maxlength="6"
+                     style="text-align: center; font-size: 24px; font-family: monospace; letter-spacing: 6px; text-transform: uppercase; max-width: 220px; margin: 0 auto;"
+                     placeholder="XXXXXX" autocomplete="off" />
+            </div>
+            <div id="pairStep2Error" style="display: none; color: var(--danger); font-size: 12px; text-align: center; margin-bottom: 10px;"></div>
+            <div style="display: flex; justify-content: flex-end; gap: 8px;">
+              <button type="button" class="btn btn-sm btn-outline" id="pairModalBackBtn">Back</button>
+              <button type="button" class="btn btn-sm btn-primary" id="pairModalConfirmBtn">Verify Code</button>
+            </div>
+          </div>
+
+          <div id="pairStep3" style="display: none; text-align: center; padding: 10px 0;">
+            <div style="font-size: 32px; color: var(--success); margin-bottom: 8px;">✓</div>
+            <div style="font-weight: 600; font-size: 15px; margin-bottom: 6px;">Successfully Paired!</div>
+            <div class="muted mini" id="pairSuccessMsg" style="margin-bottom: 16px;">Your TV is now authenticated and ready to receive remote commands.</div>
+            <button type="button" class="btn btn-sm btn-primary" id="pairModalDoneBtn" style="min-width: 100px;">Done</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+
+      const closeModal = () => { modal.style.display = 'none'; };
+      modal.querySelector('#pairModalCloseBtn').addEventListener('click', closeModal);
+      modal.querySelector('#pairModalCancelBtn').addEventListener('click', closeModal);
+      modal.querySelector('#pairModalDoneBtn').addEventListener('click', closeModal);
+      modal.querySelector('#pairModalBackBtn').addEventListener('click', () => {
+        modal.querySelector('#pairStep2').style.display = 'none';
+        modal.querySelector('#pairStep1').style.display = 'block';
+      });
+
+      modal.querySelector('#pairModalStartBtn').addEventListener('click', async () => {
+        const host = modal.querySelector('#pairModalHost').value.trim();
+        const errEl = modal.querySelector('#pairStep1Error');
+        errEl.style.display = 'none';
+        if (!host) {
+          errEl.textContent = 'Please enter TV IP address';
+          errEl.style.display = 'block';
+          modal.querySelector('#pairModalHost').focus();
+          return;
+        }
+
+        const startBtn = modal.querySelector('#pairModalStartBtn');
+        startBtn.disabled = true;
+        startBtn.textContent = 'Connecting...';
+        try {
+          const res = await this.client.pairPlugin(modal._currentPluginId, 'start', host);
+          if (res && res.error) throw new Error(res.error);
+          modal.querySelector('#pairStep1').style.display = 'none';
+          modal.querySelector('#pairStep2').style.display = 'block';
+          modal.querySelector('#pairModalPin').value = '';
+          modal.querySelector('#pairStep2Error').style.display = 'none';
+          modal.querySelector('#pairModalPin').focus();
+        } catch (err) {
+          errEl.textContent = `Pairing failed: ${err.message}`;
+          errEl.style.display = 'block';
+        } finally {
+          startBtn.disabled = false;
+          startBtn.textContent = 'Start Pairing';
+        }
+      });
+
+      modal.querySelector('#pairModalConfirmBtn').addEventListener('click', async () => {
+        const host = modal.querySelector('#pairModalHost').value.trim();
+        const pin = modal.querySelector('#pairModalPin').value.trim().toUpperCase();
+        const errEl = modal.querySelector('#pairStep2Error');
+        errEl.style.display = 'none';
+
+        if (pin.length !== 6) {
+          errEl.textContent = 'Please enter the 6-character code from your TV';
+          errEl.style.display = 'block';
+          modal.querySelector('#pairModalPin').focus();
+          return;
+        }
+
+        const confirmBtn = modal.querySelector('#pairModalConfirmBtn');
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = 'Verifying...';
+        try {
+          const res = await this.client.pairPlugin(modal._currentPluginId, 'pin', host, pin);
+          if (res && res.error) throw new Error(res.error);
+          modal.querySelector('#pairStep2').style.display = 'none';
+          modal.querySelector('#pairStep3').style.display = 'block';
+          showToast('TV paired successfully!', 'success');
+
+          ['edit_plug_pair_status', 'new_plug_pair_status'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.innerHTML = `<span style="color: var(--success); font-weight: 600;">✓ Paired with ${escapeHtml(host)}</span>`;
+          });
+        } catch (err) {
+          errEl.textContent = `Verification failed: ${err.message}`;
+          errEl.style.display = 'block';
+        } finally {
+          confirmBtn.disabled = false;
+          confirmBtn.textContent = 'Verify Code';
+        }
+      });
+
+      modal.querySelector('#pairModalPin').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          modal.querySelector('#pairModalConfirmBtn').click();
+        }
+      });
+      modal.querySelector('#pairModalHost').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          modal.querySelector('#pairModalStartBtn').click();
+        }
+      });
+    }
+
+    modal._currentPluginId = pluginId;
+    const plug = (this.installedPlugins || []).find(p => p.id === pluginId);
+    const dispName = plug?.device_definition?.display_name || plug?.name || pluginId;
+    modal.querySelector('#pairModalTitle').textContent = `Pair ${dispName}`;
+
+    let effHost = initialHost;
+    if (!effHost) {
+      effHost = document.getElementById('edit_plug_cfg_host')?.value ||
+                document.getElementById('plug_cfg_host')?.value || '';
+    }
+    modal.querySelector('#pairModalHost').value = effHost;
+    modal.querySelector('#pairStep1').style.display = 'block';
+    modal.querySelector('#pairStep2').style.display = 'none';
+    modal.querySelector('#pairStep3').style.display = 'none';
+    modal.querySelector('#pairStep1Error').style.display = 'none';
+    modal.style.display = 'flex';
+    if (effHost) {
+      modal.querySelector('#pairModalStartBtn').focus();
+    } else {
+      modal.querySelector('#pairModalHost').focus();
+    }
   }
 }
