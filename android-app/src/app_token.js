@@ -17,8 +17,10 @@ export function appTokenName(userAgent = (typeof navigator !== 'undefined' ? nav
   return `${APP_TOKEN_NAME} (${model ? `${model}, ` : ''}${date})`;
 }
 
+const utf8Encoder = new TextEncoder();
+
 function utf8Length(text) {
-  return new TextEncoder().encode(text).length;
+  return utf8Encoder.encode(text).length;
 }
 
 function cutUtf8(text, maxBytes) {
