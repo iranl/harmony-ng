@@ -321,18 +321,7 @@ int rmdir(const char *pathname) {
     return real_rmdir ? real_rmdir(target) : -1;
 }
 
-int chmod(const char *pathname, mode_t mode) {
-    init_real_functions();
-    char resolved[512];
-    int special_type = 0;
-    const char *target = pathname;
-    if (pathname && (strncmp(pathname, "/data/", 6) == 0 || strncmp(pathname, "/cache/", 7) == 0)) {
-        target = resolve_mock_path(pathname, resolved, sizeof(resolved), &special_type);
-    }
-    static int (*real_chmod)(const char *, mode_t) = NULL;
-    if (!real_chmod) real_chmod = dlsym(RTLD_NEXT, "chmod");
-    return real_chmod ? real_chmod(target, mode) : -1;
-}
+
 
 int access(const char *pathname, int mode) {
     init_real_functions();
@@ -376,19 +365,6 @@ int mkdir(const char *pathname, mode_t mode) {
     static int (*real_mkdir)(const char *, mode_t) = NULL;
     if (!real_mkdir) real_mkdir = dlsym(RTLD_NEXT, "mkdir");
     return real_mkdir ? real_mkdir(target, mode) : -1;
-}
-
-DIR *opendir(const char *name) {
-    init_real_functions();
-    char resolved[512];
-    int special_type = 0;
-    const char *target = name;
-    if (name && (strncmp(name, "/data/", 6) == 0 || strncmp(name, "/cache/", 7) == 0)) {
-        target = resolve_mock_path(name, resolved, sizeof(resolved), &special_type);
-    }
-    static DIR *(*real_opendir)(const char *) = NULL;
-    if (!real_opendir) real_opendir = dlsym(RTLD_NEXT, "opendir");
-    return real_opendir ? real_opendir(target) : NULL;
 }
 
 int statvfs(const char *path, struct statvfs *buf) {
