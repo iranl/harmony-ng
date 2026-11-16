@@ -258,8 +258,7 @@ Executes system maintenance operations.
   {
     "action": "mqtt_publish",
     "topic": "harmony/hub/custom",
-    "payload": "{\"test\":1}",
-    "retain": false
+    "payload": "{\"test\":1}"
   }
   ```
 - **Authentication**: `{"action": "auth", "authEnabled": true, "authUsername": "admin", "authPassword": "..."}`
@@ -486,7 +485,9 @@ file compared with the map once more right before the rename: an editor save in 
 read again instead of being overwritten (one in the last instant before the rename can still be
 lost: the editors take no lock). The web remote layouts (`web_remote_layouts.json`) are not
 scanned: the web remote drops buttons of a device that no longer exists by itself.
-- **Request Body**: `{"deviceId": "70321456"}`
+- **Request Body**: `{"deviceId": "70321456"}`. `DELETE` is accepted as well as `POST`, `id` as
+  well as `deviceId` (a string or a number), and the body may also be form fields
+  (`deviceId=70321456`). Without a body the id comes from the query (`?deviceId=` or `?id=`).
 - **Response `200 OK`**: `{"ok": true}` (`{"ok": false}` for an unknown device)
 - **Response `409 Conflict`**: the device is in use; `users` lists what uses it: activities (with
   `name` and the `fields` that name the device), devices whose Bluetooth trigger names it, and per
@@ -1479,7 +1480,6 @@ Exports complete hub configuration bundle or individual configuration elements.
   - `elite_remote_map`
   - `ui_remote_layout`
   - `auth`
-  - `hub_id`
 - Only one export or import runs at a time: another one meanwhile is answered `409`.
 
 ### 9.2 Import Configuration
@@ -1935,7 +1935,8 @@ Harmony Hub supports a multi-tier authentication model:
   while it was off (an account or token made and used, a setting changed) is not undone, and only
   accounts and tokens can be listed. Keep authentication on.
 - If `config/users.json` exists but cannot be read (cut, empty, broken) and `webui_auth.conf` has no
-  account either, every request except from loopback is refused (`401`) until the file is fixed.
+  account either, every request that needs a login (all API routes except `POST /api/auth/token`;
+  the web UI files stay open) is refused (`401`), except from loopback, until the file is fixed.
 - `GET /api/mqtt-status` never returns the stored broker password (`config.has_password` instead).
 
 ```bash
