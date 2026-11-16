@@ -128,7 +128,10 @@ reach the web UI, set the Wi-Fi from a computer over USB, as the stock firmware 
    and the tool prints the Hub's new address (the web UI is then at `http://<address>:8089/`).
    When it does not, the Hub keeps its previous Wi-Fi settings and the tool prints the reason
    (wrong password, network not found, a value the Hub cannot use). The password can also come
-   from the environment variable `HARMONY_WIFI_PASS`.
+   from the environment variable `HARMONY_WIFI_PASS`. For 2 minutes after such an attempt
+   `--status` shows it as the last attempt and the Hub as back on its previous network. Right
+   after Windows set the USB device up again, the Hub may not answer for about a minute: the
+   tool then opens the device again and retries for up to 60 s.
 4. Put the power supply (or the Ethernet adapter) back: the Hub starts again on its network.
 
 On Linux the user needs read and write access to the Hub's `/dev/hidraw*` device (or run the tool

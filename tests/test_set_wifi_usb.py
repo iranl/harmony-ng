@@ -7,7 +7,11 @@
   and exits 1, without waiting for the timeout;
 - a Hub that refuses the request (HidErrorResponse) exits 1 with a clear message;
 - no Hub on USB exits 1; no --ssid and no --status is a usage error;
-- the password is taken from $HARMONY_WIFI_PASS and never printed; an open network sends none.
+- the password is taken from $HARMONY_WIFI_PASS and never printed; an open network sends none;
+- a Hub that does not answer the status yet (about a minute after Windows set the USB device up
+  again) is opened again and asked again until it answers, or until the wait ends (exit 1);
+- after a failed USB attempt the Hub reports "failed" while it is back on its previous network:
+  shown as such, and as reconnecting while it has no network name yet.
 """
 
 from __future__ import annotations
@@ -60,6 +64,41 @@ def run(hub, argv, env=None):
     return rc, out.getvalue()
 
 
+class SilentHub(FakeHub):
+    """Answers the status only after it was opened again `answer_after` times (as after a
+    re-enumeration on Windows)."""
+
+    def __init__(self, answer_after: int):
+        super().__init__({})
+        self.status.update({"ssid": "Home", "connect_status": "connected", "ip_address": "192.0.2.20"})
+        self.answer_after = answer_after
+        self.reopens = 0
+        self.closes = 0
+
+    def get_wifi_status(self):
+        return dict(self.status) if self.reopens >= self.answer_after else {}
+
+    def close(self):
+        self.closes += 1
+        super().close()
+
+
+def reopening(hub, clock_step: float):
+    """Patches for read_status(): connect() opens the same fake again, a clock moving clock_step
+    seconds per reading, and no real sleeping."""
+    def reconnect():
+        hub.reopens += 1
+        return hub
+    now = [0.0]
+
+    def clock():
+        now[0] += clock_step
+        return now[0]
+    return [mock.patch.object(set_wifi_usb, "connect", side_effect=reconnect),
+            mock.patch.object(set_wifi_usb.time, "time", side_effect=clock),
+            mock.patch.object(set_wifi_usb.time, "sleep", lambda s: None)]
+
+
 class SetWifiUsb(unittest.TestCase):
     def test_status_only(self):
         hub = FakeHub({})
@@ -105,6 +144,49 @@ class SetWifiUsb(unittest.TestCase):
         with self.assertRaises(SystemExit) as cm, contextlib.redirect_stderr(io.StringIO()):
             set_wifi_usb.main([])
         self.assertEqual(cm.exception.code, 2)
+
+    def test_status_answer_after_reopening(self):
+        hub = SilentHub(answer_after=3)
+        out = io.StringIO()
+        with contextlib.ExitStack() as stack:
+            for p in reopening(hub, clock_step=1.0):
+                stack.enter_context(p)
+            stack.enter_context(contextlib.redirect_stdout(out))
+            got, st = set_wifi_usb.read_status(hub, wait_s=60)
+        self.assertIs(got, hub)
+        self.assertEqual(st.get("connect_status"), "connected")
+        self.assertEqual(hub.reopens, 3)
+        self.assertEqual(hub.closes, 3, "the device is closed before each new open")
+        self.assertIn("does not answer yet", out.getvalue())
+
+    def test_status_gives_up_after_the_wait(self):
+        hub = SilentHub(answer_after=10**6)
+        out = io.StringIO()
+        with contextlib.ExitStack() as stack:
+            for p in reopening(hub, clock_step=10.0):
+                stack.enter_context(p)
+            stack.enter_context(contextlib.redirect_stdout(out))
+            rc = set_wifi_usb.main(["--status"])
+        self.assertEqual(rc, 1)
+        self.assertIn("did not answer", out.getvalue())
+        self.assertLessEqual(hub.reopens, 7, "stops at the wait, about 60 s")
+
+    def test_failed_attempt_back_on_previous_network(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            set_wifi_usb.show_status({"ssid": "Old", "connect_status": "failed", "ip_address": "192.0.2.5",
+                                      "error_code": "Incorrect Wi-Fi password"})
+        self.assertIn("on its previous network (the last USB attempt failed)", out.getvalue())
+        self.assertIn("Network:  Old", out.getvalue())
+        self.assertIn("Last USB attempt failed: Incorrect Wi-Fi password", out.getvalue())
+
+    def test_failed_attempt_while_reconnecting(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            set_wifi_usb.show_status({"ssid": "", "connect_status": "failed", "ip_address": "0.0.0.0",
+                                      "error_code": "Connection timed out"})
+        self.assertIn("(reconnecting to the previous network)", out.getvalue())
+        self.assertIn("State:    failed", out.getvalue())
 
 
 if __name__ == "__main__":

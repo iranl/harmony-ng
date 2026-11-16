@@ -30,6 +30,10 @@ from tools.harmony_hid import ALL_HUB_PIDS, HarmonyHid, HidErrorResponse  # noqa
 
 WIFI_PASS_ENV = "HARMONY_WIFI_PASS"
 ENCRYPTIONS = ("WPA2-PSK", "WPA-PSK", "NONE")
+# Right after Windows set the Hub's USB device up again (a re-enumeration), the Hub's first
+# answers can be missing for about a minute; a device opened again then answers.
+STATUS_WAIT_S = 60
+STATUS_RETRY_S = 5
 
 
 def connect() -> HarmonyHid | None:
@@ -40,13 +44,43 @@ def connect() -> HarmonyHid | None:
     return None
 
 
+def read_status(hid: HarmonyHid, wait_s: int = STATUS_WAIT_S) -> tuple[HarmonyHid, dict[str, str]]:
+    """The Hub's Wi-Fi status. When it does not answer, the device is closed and opened again
+    every few seconds until wait_s; returns the device in use and the status ({} if none)."""
+    deadline = time.time() + wait_s
+    st = hid.get_wifi_status()
+    told = False
+    while not st and time.time() < deadline:
+        if not told:
+            print(f"[*] The Hub does not answer yet (normal for about a minute after the USB device "
+                  f"was set up again); retrying for up to {wait_s} s...")
+            told = True
+        time.sleep(STATUS_RETRY_S)
+        hid.close()
+        again = connect()
+        if again:
+            hid = again
+            st = hid.get_wifi_status()
+    return hid, st
+
+
 def show_status(st: dict[str, str]) -> None:
     if not st:
         print("[-] The Hub did not answer the Wi-Fi status request.")
         return
-    print(f"    Network:  {st.get('ssid') or '(none)'}")
-    print(f"    State:    {st.get('connect_status') or '?'}")
+    state = st.get("connect_status") or "?"
     ip = st.get("ip_address", "")
+    has_ip = bool(ip) and ip != "0.0.0.0"
+    network = st.get("ssid") or "(none)"
+    if state.lower() == "failed":
+        # harmony-ng reports "failed" for 2 minutes after a USB attempt that did not work, while
+        # the Hub goes back to its previous network (no name yet while it reconnects)
+        if has_ip:
+            state = "on its previous network (the last USB attempt failed)"
+        elif not st.get("ssid"):
+            network = "(reconnecting to the previous network)"
+    print(f"    Network:  {network}")
+    print(f"    State:    {state}")
     print(f"    Address:  {ip if ip and ip != '0.0.0.0' else '(none)'}")
     if st.get("error_code") and st.get("error_code") != "none":
         print(f"    Last USB attempt failed: {st['error_code']}")
@@ -130,9 +164,10 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     try:
         print("[*] Hub found on USB. Current Wi-Fi state:")
-        show_status(hid.get_wifi_status())
+        hid, st = read_status(hid)
+        show_status(st)
         if args.status:
-            return 0
+            return 0 if st else 1
         password = ask_password(args, args.ssid)
         return set_wifi(hid, args.ssid, password, args.encryption, args.wait)
     finally:
