@@ -1,7 +1,7 @@
 export default {
     "account_auth": "Cuenta / Autenticación",
     "auth_check_account": "Cuenta",
-    "auth_check_intro": "La autenticación está activada. Revisa las cuentas y los tokens de acceso del Hub y elimina los que no reconozcas.",
+    "auth_check_intro": "La autenticación está activada. Revise las cuentas y los tokens de acceso del Hub y elimine los que no reconozca.",
     "auth_check_owner_gone": "cuenta eliminada",
     "auth_check_title": "Revisar cuentas y tokens de acceso",
     "auth_check_token": "Token de acceso",
@@ -14,7 +14,7 @@ export default {
     "device_in_use_bt_remote": "Mando Bluetooth: {groups}",
     "device_in_use_bt_trigger": "Disparador Bluetooth de {names}",
     "device_in_use_default_page": "la página predeterminada",
-    "device_in_use_hint": "Quita primero el dispositivo de estos y luego elimínalo.",
+    "device_in_use_hint": "Quite primero el dispositivo de estos y luego elimínelo.",
     "device_in_use_intro": "Este dispositivo todavía se usa:",
     "device_in_use_key_in": "1 tecla en {name}",
     "device_in_use_keys": "{count} teclas",

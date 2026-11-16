@@ -1,7 +1,7 @@
 export default {
     "account_auth": "Konto / Authentifizierung",
     "auth_check_account": "Konto",
-    "auth_check_intro": "Die Anmeldung ist eingeschaltet. Prüfe die Konten und Zugriffstoken auf dem Hub und lösche alle, die du nicht kennst.",
+    "auth_check_intro": "Die Anmeldung ist eingeschaltet. Prüfen Sie die Konten und Zugriffstoken auf dem Hub und löschen Sie alle, die Sie nicht kennen.",
     "auth_check_owner_gone": "Konto gelöscht",
     "auth_check_title": "Konten und Zugriffstoken prüfen",
     "auth_check_token": "Zugriffstoken",
@@ -14,7 +14,7 @@ export default {
     "device_in_use_bt_remote": "Bluetooth-Fernbedienung: {groups}",
     "device_in_use_bt_trigger": "Bluetooth-Auslöser von {names}",
     "device_in_use_default_page": "der Standardseite",
-    "device_in_use_hint": "Entferne das Gerät zuerst dort, dann lösche es.",
+    "device_in_use_hint": "Entfernen Sie das Gerät zuerst dort, dann löschen Sie es.",
     "device_in_use_intro": "Dieses Gerät wird noch verwendet:",
     "device_in_use_key_in": "1 Taste in {name}",
     "device_in_use_keys": "{count} Tasten",
