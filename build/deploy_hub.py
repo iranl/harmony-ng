@@ -95,6 +95,22 @@ def parse_space_reply(reply: str) -> tuple[int | None, int]:
     return avail_kb, old_kb
 
 
+# The Hub has no recovery access point any more. On a Hub deployed with an older release this
+# stops one still running (portal loop, DHCP server, hostapd, ath1) and removes its script, its
+# settings, its log and the hub_util links it used (hub_portal, hub_dhcpd).
+RECOVERY_AP_CLEANUP = (
+    "if [ -f /var/run/hub-recovery-ap.pid ]; then "
+    "_l=$(cat /var/run/hub-recovery-ap.pid 2>/dev/null); [ -n \"$_l\" ] && kill -9 \"$_l\" 2>/dev/null; "
+    "rm -f /var/run/hub-recovery-ap.pid /tmp/hostapd-recovery.conf; "
+    "killall -9 hub_portal hub_dhcpd hostapd 2>/dev/null; "
+    "ifconfig ath1 down 2>/dev/null; wlanconfig ath1 destroy 2>/dev/null; "
+    "fi; "
+    "rm -f /data/harmony/recovery_ap.sh /data/harmony/scripts/recovery_ap.sh /data/harmony/bin/recovery_ap.sh "
+    "/data/harmony/recovery_ap.conf /data/harmony/bin/hub_portal /data/harmony/bin/hub_dhcpd "
+    "/tmp/harmony-recovery.log 2>/dev/null || true"
+)
+
+
 class HubDeployer:
     def __init__(
         self,
@@ -376,7 +392,7 @@ class HubDeployer:
                 "if [ -x /data/harmony/init.sh ]; then /data/harmony/init.sh stop; "
                 "elif [ -x /data/harmony/scripts/init.sh ]; then /data/harmony/scripts/init.sh stop; "
                 "else killall -15 hub_rf 2>/dev/null || true; sleep 1; "
-                "killall -9 hub_rf hub_daemon hub_btstack hub_dhcpd hub_portal hal luaworks luadraws lua 2>/dev/null || true; fi; "
+                "killall -9 hub_rf hub_daemon hub_btstack hal luaworks luadraws lua 2>/dev/null || true; fi; "
                 "for _p in $(ps | grep '/data/codex/' | sed 's/^[ ]*//' | cut -d' ' -f1 2>/dev/null); do [ -n \"$_p\" ] && [ \"$_p\" != \"$$\" ] && kill -9 \"$_p\" 2>/dev/null || true; done; "
                 "for _p in $(ps | grep 'init\\.sh' | sed 's/^[ ]*//' | cut -d' ' -f1 2>/dev/null); do [ -n \"$_p\" ] && [ \"$_p\" != \"$$\" ] && kill -9 \"$_p\" 2>/dev/null || true; done; "
                 "/data/harmony/bin/hub_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || sync 2>/dev/null || true"
@@ -402,6 +418,9 @@ class HubDeployer:
             )
             if not self.dry_skip("move legacy /data/codex files to /data/harmony and remove obsolete files"):
                 self.run_ssh(mig_paths_cmd)
+
+            if not self.dry_skip("remove the recovery access point files (recovery_ap.sh, recovery_ap.conf, hub_portal and hub_dhcpd links)"):
+                self.run_ssh(RECOVERY_AP_CLEANUP)
 
             # Stock config conversion via migrate_hub_configs.py if needed
             has_dev_res = self.run_ssh("[ -f /data/harmony/config/devices.json ] && echo 1 || echo 0")
@@ -456,7 +475,7 @@ class HubDeployer:
             if (self.bin_dir / "hub_util").is_file():
                 self.deploy_file_if_changed(self.bin_dir / "hub_util", "/data/harmony/bin/hub_util", "755")
                 util_setup = (
-                    "for _app in hub_sync sync mknod register_ehci eth_fix hub_dhcpd hub_portal hub_sntp; do "
+                    "for _app in hub_sync sync mknod register_ehci eth_fix hub_sntp; do "
                     "  [ -f /data/harmony/bin/$_app ] && [ ! -L /data/harmony/bin/$_app ] && rm -f /data/harmony/bin/$_app 2>/dev/null; "
                     "  ln -sf /data/harmony/bin/hub_util /data/harmony/bin/$_app 2>/dev/null || true; "
                     "done"
@@ -467,7 +486,7 @@ class HubDeployer:
             else:
                 core_bins = [
                     "hub_daemon", "hub_rf", "hub_sntp", "hub_btstack", "hub_sync",
-                    "hub_dhcpd", "hub_portal", "mknod", "register_ehci", "eth_fix"
+                    "mknod", "register_ehci", "eth_fix"
                 ]
             for b in core_bins:
                 src = self.bin_dir / b

@@ -4,7 +4,9 @@
 The deployer runs in-process with its ssh commands recorded (no network), uploads
 reported as done, and npm replaced: a failed web UI build and a missing npm both end
 the deployment after the services were stopped. The services must then be started again.
-When pidof finds no service at the end, the run must not report success.
+When pidof finds no service at the end, the run must not report success. After the stop,
+the files of the removed recovery access point are deleted and no hub_portal or hub_dhcpd
+link is made.
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ import io
 import pathlib
 import subprocess
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -98,6 +101,24 @@ class DeployHubRestart(unittest.TestCase):
         self.assertIsNot(result, True, out)
         self.assertNotIn("Services started", out)
 
+
+    def test_recovery_ap_leftovers_removed_after_the_stop(self):
+        d = self.make(ui="legacy")
+        d.www_dir = REPO_DIR / "nonexistent_www"
+        with tempfile.TemporaryDirectory() as tmp:
+            d.bin_dir = pathlib.Path(tmp)
+            (d.bin_dir / "hub_util").write_bytes(b"")
+            self.run_deploy(d, lambda cmd: subprocess.CompletedProcess(cmd, 0, "", ""))
+        stop = next((i for i, c in enumerate(self.ssh) if "init.sh stop" in c and "touch /tmp/harmony_stop" in c), None)
+        clean = next((i for i, c in enumerate(self.ssh) if c == deploy_hub.RECOVERY_AP_CLEANUP), None)
+        self.assertIsNotNone(stop, "precondition: the services were stopped")
+        self.assertIsNotNone(clean, "the recovery access point files of an older release were not removed")
+        self.assertGreater(clean, stop)
+        links = [c for c in self.ssh if "ln -sf /data/harmony/bin/hub_util" in c]
+        self.assertTrue(links, "precondition: the hub_util links were made")
+        for c in links:
+            self.assertNotIn("hub_portal", c)
+            self.assertNotIn("hub_dhcpd", c)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
