@@ -67,6 +67,7 @@ int main(void) {
     g_dry_run = 1;
     CHECK(hub_send_btstack_cmd_live("host_forget 00:11:22:33:44:01\n") == 0 && access(HUB_BTSTACK_CMD_FILE, F_OK) != 0, "printed, nothing sent");
     CHECK(hub_send_btstack_cmd_live("") == -1, "an empty command is refused");
+    CHECK(hub_btstack_cmd_dry("") == 1 && hub_btstack_cmd_dry(NULL) == 1, "the dry-run printer takes an empty or missing command (it read before the string)");
 
     if (system("rm -rf " TEST_DIR) != 0) return 1;
     if (s_fail) return 1;

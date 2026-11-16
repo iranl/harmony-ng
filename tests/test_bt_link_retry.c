@@ -13,6 +13,7 @@
  *   - a newer link of the same device replaces the waiting one; one replaced while its request is
  *     out is sent again after that answer, so the older address cannot land last
  *   - a link dropped while its request is out (host forgotten) is not sent again
+ *   - {"ok": true} with a space after the colon is taken (it was no answer)
  *   - at most 8 links wait; a 9th replaces the newest waiting one */
 #define TEST_DIR "/tmp/hng_bt_link_test"
 #define DAEMON_PORT 9241
@@ -218,6 +219,10 @@ int main(void) {
     }
     CHECK(okf == 3 && pending_links() == 0 && retry_pause_ms() == 0,
           "an older hub_daemon's {\"ok\":false} (no such device) ends the link after 3 answers (%d answers)", okf);
+
+    link_bt_device_to_addr("12", "00:11:22:33:44:0C");
+    got = serve_one(ls, "HTTP/1.1 200 OK\r\nContent-Length: 12\r\nConnection: close\r\n\r\n{\"ok\": true}", req, sizeof(req));
+    CHECK(got && pending_links() == 0 && retry_pause_ms() == 0, "{\"ok\": true} with a space links it (it was no answer)");
 
     printf("[-] a link replaced while its request is out\n");
     link_bt_device_to_addr("6", "00:11:22:33:44:06");

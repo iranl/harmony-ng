@@ -384,9 +384,12 @@ static link_result_t link_parse_answer(const char *resp, size_t len) {
     if (code == 404 || code == 400) return LINK_REFUSED;
     if (code != 200) return LINK_NO_ANSWER;
     const char *body = strstr(resp, "\r\n\r\n");
-    if (body && strstr(body, "\"ok\":true")) return LINK_OK;
-    if (body && strstr(body, "\"ok\":false")) return LINK_OK_FALSE;
-    return LINK_NO_ANSWER;
+    if (!body) return LINK_NO_ANSWER;
+    cJSON *j = cJSON_Parse(body + 4);
+    const cJSON *ok = cJSON_GetObjectItemCaseSensitive(j, "ok");
+    link_result_t r = cJSON_IsTrue(ok) ? LINK_OK : cJSON_IsFalse(ok) ? LINK_OK_FALSE : LINK_NO_ANSWER;
+    cJSON_Delete(j);
+    return r;
 }
 
 static void link_exchange_end(link_result_t r) {

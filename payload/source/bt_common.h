@@ -72,6 +72,7 @@ extern int g_dry_run;
 /* Dry run: print the command instead of sending it (1 when printed) */
 static inline int hub_btstack_cmd_dry(const char *cmd) {
     if (!g_dry_run) return 0;
+    if (!cmd || !cmd[0]) return 1;
     printf("[DRY-RUN] BTstack command simulated: %s", cmd);
     if (cmd[strlen(cmd) - 1] != '\n') printf("\n");
     return 1;
