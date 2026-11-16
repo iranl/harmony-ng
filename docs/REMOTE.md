@@ -169,9 +169,9 @@ The Harmony Elite remote features a **1,300 mAh (3.7V Li-ion, ~4.81 Wh)** batter
 
 | Standby Tier | Timeout Range | Hardware State | Wake Triggers |
 | :--- | :--- | :--- | :--- |
-| **Active** | While interacting | Screen ON (PWM 1-5), CPU @ 456 MHz, Clearpad touch active, gyro polling @ 10-50 Hz | N/A |
-| **Light Standby** | **0 – 30 minutes** after screen blank | Screen OFF (`FB_BLANK_POWERDOWN`), Backlight 0, ClearPad touch in its own doze between touches, CPU in WFI, LIS3DH INT1 IRQ active (0 I2C reads) | • **Pickup / Motion** (LIS3DH INT1 hardware IRQ)<br>• **Any Physical Button** |
-| **Deep Standby** | **> 30 minutes** after screen blank | Gyro I2C polling **completely suspended (0 Hz)**, `select()` timeout scaled to 30s, CPU in deep WFI | • **Any Physical Button ONLY** (Power, Activities, Devices, OK, Vol, D-pad, etc.) |
+| **Active** | While interacting | Screen ON (PWM 1-5), CPU @ 456 MHz, Clearpad touch active, gyro polling @ 10-100 Hz (setting) | N/A |
+| **Light Standby** | From the blank until deep standby is due (2 s with the default "at once"; for ever with "never" or while the remote is powered) | Screen OFF (`FB_BLANK_POWERDOWN`), Backlight 0, ClearPad touch in its own doze between touches, CPU in WFI, LIS3DH INT1 IRQ active (0 I2C reads) | • **Pickup / Motion** (LIS3DH INT1 hardware IRQ)<br>• **Any Physical Button**<br>• **Touch and the capacitive keys** (when enabled)<br>• **The Hub over RF** (wake request) |
+| **Deep Standby** | When the Deep standby setting is due (default: 2 s after the blank), on battery only | Kernel suspend to RAM: processor stopped, the MSP430 keeps the keys and the alarm | • **Any Physical Button** (Power, Activities, Devices, OK, Vol, D-pad, etc.)<br>• **The cradle**<br>• **The hourly MSP430 alarm** (reports, then sleeps again) |
 
 Deep standby is the kernel's suspend to RAM, on battery only. The **Deep standby** setting picks
 when it starts after the screen blanks: **at once** (the default since 2026-11, as the stock
