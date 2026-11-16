@@ -192,7 +192,7 @@ While HarmonyNG restores complete local independence and dramatically reduces me
 │       ├── rf_main.c       # hub_rf: CC2544 RF protocol engine (with rf_*.c)
 │       ├── hub_btstack/    # BTstack Bluetooth HID daemon integration
 │       ├── remote/         # Remote framebuffer GUI & input application (remote_ui)
-│       └── hub_util.c      # Multicall utility (sync, mknod, ehci, eth_fix, dhcpd, portal, sntp)
+│       └── hub_util.c      # Multicall utility (sync, mknod, ehci, eth_fix, dhcpd, portal, sntp, ota-verify)
 └── tools/
     ├── factory_reset.py    # Clean revert tool to factory stock firmware
     ├── harmony_firmware.py # SUS firmware check, download, flasher & icon extractor

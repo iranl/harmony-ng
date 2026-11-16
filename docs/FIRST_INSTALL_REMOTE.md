@@ -219,10 +219,7 @@ Both ask for a typed word before they change anything: `tools/factory_reset.py` 
 Both stop the runtime, put back the stock boot script (the saved original, or a clean one), make
 the stock programs executable again, remove the HarmonyNG files and links and reboot. SSH access
 goes with them (the Dropbear files and the boot trigger `/etc/tdeenable`): to get it back, root
-the remote again (section 2). Both send the steps as one command in one SSH login. They differ:
-`tools/factory_reset.py` reports an incomplete reset when a step did not run and flushes with the
-stock BusyBox before the reboot; `deploy_remote.py --factory-reset` also removes `/data/themes`
-and files of older builds (`/data/codex_*`).
+the remote again (section 2).
 
 ---
 
