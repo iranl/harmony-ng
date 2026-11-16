@@ -72,7 +72,7 @@ The tool automatically:
 5. Arms the persistent boot trigger `/tde/enable` -> `/etc/tdeenable`.
 6. Sends reboot signal to `/sys/reboot`.
 7. Hub restarts with Dropbear SSH permanently enabled on port 22 on your local network, for key logins only (the key the tool installs; password logins are refused). A Hub rooted before this change gets key-only SSH from the first boot after harmony-ng is deployed; the server that already runs keeps its options until then.
-8. **Automatically backs up stock partitions**: Streams the entire `/cache` and `/data` partitions to `backups/stock_hub_backup_<timestamp>.tar` and `backups/stock_hub_backup_latest.tar` (uncompressed tar; no gzip is used to avoid memory/CPU exhaustion and BusyBox compression incompatibilities on embedded MIPS).
+8. **Automatically backs up stock partitions**: Streams the entire `/cache` and `/data` partitions to `backups/stock_hub_backup_<timestamp>.tar` and `backups/stock_hub_backup_latest.tar`, and on the first run also `backups/golden_hub_backup.tar` (uncompressed tar; no gzip is used to avoid memory/CPU exhaustion and BusyBox compression incompatibilities on embedded MIPS).
 
 > [!TIP]
 > You can also check, download, or flash Hub firmware at any time with the standalone tool:
@@ -191,6 +191,8 @@ If you ever wish to revert any changes, test official firmware, or recover from 
 
 ### Software Factory Reset (Web UI or SSH)
 The web UI's "Revert to Stock Firmware" and `python tools/factory_reset.py --target hub --hub-ip <YOUR_HUB_IP>` both run the Hub's one reset script, `factory_reset.sh`. It puts back the stock boot files (`/etc/init.d/rcS.local`, `/etc/network/interfaces`) and deletes what harmony-ng keeps on the Hub: devices, activities and button maps, web UI accounts and tokens, the MQTT settings with their password, the Bluetooth keys, the Wi-Fi configuration (back to the stock firmware's copy, so the Hub needs Wi-Fi setup again) and SSH access. Save a backup first (`python tools/backup_hub.py`) to keep any of it.
+
+`tools/factory_reset.py` asks for the typed word `FACTORY-RESET` (`--force` skips the question) and saves a Hub backup before the reset unless `--no-backup` is given. `--target all` resets the Hub and then the remote (`--remote-ip`, default 192.168.2.1), `--key <file>` picks the SSH key. `--restore-backup [file]` resets nothing: it runs `tools/restore_stock.py` with that backup (without a file, the latest).
 
 It removes harmony-ng's data only. The stock firmware's own data stays (`/data/resources` with the devices and activities of the Logitech era, the account ids in `/data/luaworks`), and so do a few harmony-ng leftovers without secrets (`/cache/bin`, `/cache/modules`, `/etc/TZ`, `/etc/ntp.conf`). Use the hardware reset below to wipe everything, for example before the Hub changes hands.
 
