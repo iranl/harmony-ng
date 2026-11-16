@@ -490,6 +490,7 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
             p = NULL;
         }
         int success = 0;
+        int save_failed = 0; /* valid request, devices.json could not be written: 500, not 400 */
         char dev_id_out[32] = {0};
         if (p) {
             cJSON *j_dev = cJSON_GetObjectItemCaseSensitive(p, "deviceId");
@@ -731,6 +732,8 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                 if (config_store_save_devices(root) == 0) {
                     root = NULL;
                     success = 1;
+                } else {
+                    save_failed = 1;
                 }
             }
             cJSON_Delete(root); /* NULL once the store took it */
@@ -743,7 +746,8 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
             cJSON_AddStringToObject(resp, "deviceId", dev_id_out);
             cJSON_AddStringToObject(resp, "id", dev_id_out);
         }
-        send_cjson_resp(client_fd, success ? 200 : 400, resp);
+        if (save_failed) cJSON_AddStringToObject(resp, "error", "Could not save the devices (flash full?)");
+        send_cjson_resp(client_fd, success ? 200 : (save_failed ? 500 : 400), resp);
         cJSON_Delete(resp);
         close(client_fd);
         return 1;

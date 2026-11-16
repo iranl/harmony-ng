@@ -451,6 +451,8 @@ Creates or updates a device definition.
 - **Response `200 OK`**: `{"ok": true}`
 - **Response `400`**: `{"ok": false}` when a timing field is not a number (or numeric string) or a
   delay is out of range.
+- **Response `500`**: `{"ok": false, "error": "..."}` when `devices.json` could not be written (flash
+  full); the stored devices are kept.
 
 ### 3.3 Delete Device
 #### `POST /api/device-delete` or `POST /ir/delete-device`
@@ -490,6 +492,8 @@ Adds or updates a single command for a device.
   }
   ```
 - **Response `200 OK`**: `{"ok": true}`
+- **Response `500`**: `{"ok": false, "error": "..."}` when `devices.json` could not be written (flash
+  full); the stored devices are kept.
 
 ### 3.6 Batch Import Commands
 #### `POST /api/commands-batch` or `POST /ir/commands-batch`
@@ -505,6 +509,8 @@ Imports multiple commands into a device in one atomic write.
   }
   ```
 - **Response `200 OK`**: `{"ok": true, "count": 2}`
+- **Response `500`**: `{"ok": false, "count": 0, "error": "..."}` when `devices.json` could not be
+  written (flash full); nothing was stored.
 
 ### 3.7 Delete Command
 #### `POST /api/command-delete` or `POST /ir/delete-command` or `POST /bt/delete-command`
@@ -517,6 +523,8 @@ Deletes a command by name from a device.
   }
   ```
 - **Response `200 OK`**: `{"ok": true}`
+- **Response `500`**: `{"ok": false, "error": "..."}` when `devices.json` could not be written (flash
+  full); the stored devices are kept.
 
 ### 3.8 Device MQTT Test
 Publishes the MQTT pulse of a device once, the way a command to an MQTT-type device does (8.1,
@@ -639,6 +647,8 @@ Saves activity configuration with start and stop sequence steps.
   }
   ```
 - **Response `200 OK`**: `{"ok": true}`
+- **Response `500`**: `{"ok": false, "error": "..."}` when `activities.json` could not be written
+  (flash full); the stored activities are kept.
 
 ### 4.7 Delete Activity
 #### `POST /api/activity-delete`

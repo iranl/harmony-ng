@@ -7,8 +7,9 @@ hub_daemon_test runs with a file size limit (RLIMIT_FSIZE, SIGXFSZ ignored) stan
 to a full JFFS2 fails with ENOSPC. The saves used to print a cut file over the good one and answer
 success. Checks:
 
-  - a device save whose devices.json does not fit answers failure, devices.json keeps its old
-    bytes, and the daemon still serves the old device;
+  - a device save, a commands batch and an activity save whose file does not fit answer 500
+    (the batch with count 0), the file keeps its old bytes, and the daemon still serves the old
+    device;
   - a mapping save and a remote layout save that do not fit answer 500 and leave the old file;
   - small saves (settings) still work under the same limit, and no temporary file is left;
   - ethernet.conf is replaced by a new file (new inode), not truncated and rewritten in place.
@@ -70,12 +71,34 @@ def full_flash_saves(hub_bin):
         check(dev_before is not None and len(dev_before) > FSIZE_LIMIT, "sample devices.json larger than the limit")
 
         st, r = hub.http_post("/api/device-save", {"deviceId": "1", "name": "Renamed on a full flash"})
-        check(not (isinstance(r, dict) and r.get("ok") is True), "device save answers failure", "%s %s" % (st, r))
+        check(st == 500 and isinstance(r, dict) and r.get("ok") is False,
+              "device save answers 500 (a storage failure, not a bad request)", "%s %s" % (st, r))
         check(read(dev_path) == dev_before, "devices.json keeps its old bytes",
               "%d bytes now" % len(read(dev_path) or b""))
         st, inv = hub.http_get("/api/inventory")
         names = json.dumps(inv) if st == 200 else ""
         check("Renamed on a full flash" not in names, "daemon still serves the old device", str(st))
+
+        st, r = hub.http_post("/api/commands-batch", {"deviceId": "1", "commands": [
+            {"name": "FullFlash%d" % i, "raw": "0000 006D 0002 0000 0016 0041 0016 0041"} for i in range(3)]})
+        check(st == 500 and isinstance(r, dict) and r.get("ok") is False and r.get("count") == 0,
+              "commands batch answers 500 and count 0 when nothing was saved", "%s %s" % (st, r))
+        st, r = hub.http_post("/api/command-save", {"deviceId": "1", "name": "FullFlashOne",
+                                                     "raw": "0000 006D 0002 0000 0016 0041 0016 0041"})
+        check(st == 500 and isinstance(r, dict) and r.get("ok") is False,
+              "command save answers 500 when devices.json does not fit", "%s %s" % (st, r))
+        st, r = hub.http_post("/api/command-delete", {"deviceId": "1", "command": "PowerOn"})
+        check(st == 500 and isinstance(r, dict) and r.get("ok") is False,
+              "command delete answers 500 when devices.json cannot be written", "%s %s" % (st, r))
+        check(read(dev_path) == dev_before, "devices.json still keeps its old bytes")
+
+        act_path = os.path.join(hub.data_dir, "config", "activities.json")
+        act_before = read(act_path)
+        steps = [{"type": "Command", "deviceId": "1", "command": "PowerOn"} for _ in range(80)]
+        st, r = hub.http_post("/api/activity-save", {"id": "1", "name": "Too big", "startSequence": steps})
+        check(st == 500 and isinstance(r, dict) and r.get("ok") is False,
+              "activity save answers 500 when activities.json does not fit", "%s %s" % (st, r))
+        check(read(act_path) == act_before, "activities.json keeps its old bytes")
 
         big_map = json.dumps({"activities": {}, "devices": {}, "pad": "x" * (2 * FSIZE_LIMIT)})
         st, r = hub.http_post("/api/rf-mapping-save", None, raw=big_map.encode())
