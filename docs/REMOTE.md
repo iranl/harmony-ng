@@ -19,15 +19,17 @@ boot
 To push Dropbear, generate SSH keys, enable USB Ethernet, and install the recovery boot script directly over serial:
 ```sh
 pip install pyserial
-python tools/bootstrap_serial.py --port COM3 --ssh-pubkey ~/.ssh/harmony_owner_ed25519.pub
+python remote/bootstrap_serial.py --port COM3 --ssh-pubkey ~/.ssh/harmony_owner_ed25519.pub
 ```
 This utility:
 1. Starts `/usr/bin/usbeth start` on the remote.
 2. Streams base64-encoded static binaries (`dropbear`, `dropbearkey`, `scp`, `remote_sync`) to `/data/`.
 3. Generates Dropbear host keys in `/etc/dropbear/`.
-4. Installs your SSH public key into `/home/root/.ssh/authorized_keys`.
+4. Installs your SSH public key into `/home/root/.ssh/authorized_keys`. Without `--ssh-pubkey` it takes the owner key `setup_remote.py` uses (the newest `~/.ssh/harmony_owner_*.pub`, created when there is none): the stock root password is not known, so without a key nobody could log in.
 5. Installs the emergency-recovery boot script `/etc/init.d/rcS.local`.
-6. Starts Dropbear daemon (`/data/dropbear -R -B`).
+6. Starts Dropbear daemon (`/data/dropbear -R`, key logins only).
+
+How the files get there: the stock firmware has no `base64` or `uudecode`, so the tool decodes the small native decoder (`b64dec_tiny`) with the stock Lua and then each file with it, sends the base64 text in short lines, and checks every file with `md5sum` before it gets its final name. A file that does not arrive intact stops the tool, and the boot script already on the remote is left as it is. The Dropbear multi-call binary goes to `/data/dropbearmulti` (`/data/dropbear`, `/data/dropbearkey` and `/data/scp` link to it), the key also to `/etc/dropbear/authorized_keys` and `/root/.ssh/authorized_keys`, and Dropbear is started for key logins only (without `-B`).
 
 ---
 

@@ -31,6 +31,14 @@ static void keyword_icon_path(const char *icons, const char *keyword, char *out,
     }
 }
 
+/* The requested selection as an index into g_activities: the firmware never stores one outside
+   0..g_activity_count-1, so the shared drawing code does not check it (--select 40 read past
+   the end of the array) */
+static int clamp_activity(int sel) {
+    if (g_activity_count <= 0 || sel < 0) return 0;
+    return sel >= g_activity_count ? g_activity_count - 1 : sel;
+}
+
 static void set_view(const render_options_t *o) {
     const char *v = o->view ? o->view : "activities";
     g_is_syncing_config = false;
@@ -44,7 +52,7 @@ static void set_view(const render_options_t *o) {
         g_charging_page_until_ms = (uint32_t)(get_monotonic_ms() + 60000) | 1;
     } else if (strcmp(v, "menu") == 0 || strcmp(v, "hint") == 0 || strcmp(v, "link") == 0) {
         g_current_view = VIEW_ACTIVITIES;
-        g_selected_activity = o->select;
+        g_selected_activity = clamp_activity(o->select);
         g_menu_open = (strcmp(v, "menu") == 0);
         g_key_hint_pending = (strcmp(v, "hint") == 0);
         g_link_panel_open = (strcmp(v, "link") == 0);
@@ -93,7 +101,7 @@ static void set_view(const render_options_t *o) {
         g_sync_total = o->sync_total;
     } else {
         g_current_view = VIEW_ACTIVITIES;
-        g_selected_activity = o->select;
+        g_selected_activity = clamp_activity(o->select);
     }
 }
 

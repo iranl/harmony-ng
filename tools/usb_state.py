@@ -91,7 +91,7 @@ $pnp = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object {
     )
 } | Select-Object FriendlyName, InstanceId, Status, Class, Problem
 
-$adapters = Get-NetAdapter -ErrorAction SilentlyContinue | Select-Object Name, InterfaceDescription, Status, MacAddress
+$adapters = Get-NetAdapter -ErrorAction SilentlyContinue | Select-Object Name, InterfaceDescription, Status, MacAddress, PnPDeviceID
 $ips = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Select-Object InterfaceAlias, IPAddress, PrefixLength
 
 @{
@@ -118,29 +118,86 @@ $ips = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Sele
     return None, None, [], []
 
 
-def _query_linux_network() -> tuple[Optional[str], Optional[str], bool]:
-    """Query Linux network interfaces for RNDIS/CDC adapters and 192.168.2.x IP."""
-    net_dir = pathlib.Path("/sys/class/net")
+def _vid_pid(text: str) -> Optional[tuple[int, int]]:
+    """(VID, PID) from a Windows instance id such as USB\\VID_0525&PID_A4A2&MI_00\\..."""
+    m = re.search(r"VID_([0-9A-Fa-f]{4})&PID_([0-9A-Fa-f]{4})", text or "")
+    return (int(m.group(1), 16), int(m.group(2), 16)) if m else None
+
+
+def _match_windows_adapter(pnp_dev: Optional[dict], adapters: list[dict]) -> Optional[dict]:
+    """The network adapter of the remote's USB device.
+
+    Phones in USB tethering mode and LTE sticks are RNDIS adapters too ("Remote NDIS based
+    Internet Sharing Device"): the adapter is taken by its PnPDeviceID (same VID/PID as the
+    remote's device). Only when Windows reports no PnPDeviceID at all is the description used."""
+    want = _vid_pid((pnp_dev or {}).get("InstanceId", ""))
+    with_ids = [ad for ad in adapters if ad.get("PnPDeviceID")]
+    if with_ids:
+        for ad in with_ids:
+            got = _vid_pid(ad.get("PnPDeviceID", ""))
+            if got and (got == want or (want is None and got in RNDIS_VID_PIDS)):
+                return ad
+        return None
+    for ad in adapters:
+        ad_lower = f"{ad.get('Name', '')} {ad.get('InterfaceDescription', '')}".lower()
+        if "ndis" in ad_lower or "rndis" in ad_lower or "ethernet gadget" in ad_lower or "acer" in ad_lower:
+            return ad
+    for ad in adapters:
+        ad_desc = ad.get("InterfaceDescription", "").lower()
+        if "usb" in ad_desc or "gadget" in ad_desc:
+            return ad
+    return None
+
+
+def _linux_usb_ids(if_path: pathlib.Path) -> Optional[tuple[int, int]]:
+    """USB (VID, PID) of a network interface, from sysfs, or None when it has none."""
+    dev = if_path / "device"
+    for base in (dev, dev / ".."):
+        try:
+            vid = int((base / "idVendor").read_text().strip(), 16)
+            pid = int((base / "idProduct").read_text().strip(), 16)
+            return vid, pid
+        except (OSError, ValueError):
+            continue
+    return None
+
+
+def _query_linux_network(net_dir: pathlib.Path = pathlib.Path("/sys/class/net")) -> tuple[Optional[str], Optional[str], bool]:
+    """Query Linux network interfaces for the remote's USB Ethernet adapter and 192.168.2.x IP.
+
+    An interface with USB ids is the remote's only when the ids are a gadget's (RNDIS_VID_PIDS):
+    a USB Ethernet dongle or dock (enx...) is not. Interfaces without readable ids fall back to
+    the name and driver."""
     if not net_dir.is_dir():
         return None, None, False
 
     found_if: Optional[str] = None
     found_ip: Optional[str] = None
+    found_by_id = False
 
-    for if_path in net_dir.iterdir():
+    for if_path in sorted(net_dir.iterdir()):
         ifname = if_path.name
         if ifname == "lo":
             continue
 
-        device_driver = if_path / "device" / "driver"
-        driver_name = ""
-        if device_driver.is_symlink() or device_driver.exists():
-            driver_name = device_driver.resolve().name.lower()
-
-        is_rndis = ("rndis" in driver_name or "cdc" in driver_name or
-                    ifname.startswith("usb") or ifname.startswith("enx"))
+        ids = _linux_usb_ids(if_path)
+        if ids is not None:
+            is_rndis = ids in RNDIS_VID_PIDS
+        else:
+            device_driver = if_path / "device" / "driver"
+            driver_name = ""
+            if device_driver.is_symlink() or device_driver.exists():
+                driver_name = device_driver.resolve().name.lower()
+            is_rndis = ("rndis" in driver_name or "cdc" in driver_name or
+                        ifname.startswith("usb") or ifname.startswith("enx"))
+        # An interface matched by its ids wins over one matched by its name
+        if is_rndis and found_by_id and ids is None:
+            continue
 
         if is_rndis:
+            if ids is not None and not found_by_id:
+                found_by_id = True
+                found_ip = None
             found_if = ifname
             try:
                 res = subprocess.run(["ip", "-j", "addr", "show", ifname], capture_output=True, text=True, timeout=3)
@@ -289,21 +346,7 @@ def detect_remote_usb_state(check_firmware: bool = True) -> UsbState:
                 return state
 
             # Find matching network adapter
-            matching_adapter = None
-            for ad in adapters:
-                ad_name = ad.get("Name", "")
-                ad_desc = ad.get("InterfaceDescription", "")
-                ad_lower = f"{ad_name} {ad_desc}".lower()
-                if "ndis" in ad_lower or "rndis" in ad_lower or "ethernet gadget" in ad_lower or "acer" in ad_lower:
-                    matching_adapter = ad
-                    break
-
-            if not matching_adapter and adapters:
-                for ad in adapters:
-                    ad_desc = ad.get("InterfaceDescription", "")
-                    if "usb" in ad_desc.lower() or "gadget" in ad_desc.lower():
-                        matching_adapter = ad
-                        break
+            matching_adapter = _match_windows_adapter(pnp_dev, adapters)
 
             if not matching_adapter:
                 if not (state.http_reachable or state.ssh_reachable):

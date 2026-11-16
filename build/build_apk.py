@@ -49,21 +49,12 @@ def build_apk(release: bool = False, repo_root: pathlib.Path | None = None) -> b
         print(f"[-] Vite build failed with exit code {res.returncode}", file=sys.stderr)
         return False
 
-    # Sync web assets to payload/www
-    print("[+] Syncing web assets to payload/www...")
-    www_dir = repo_root / "payload" / "www"
-    www_dir.mkdir(parents=True, exist_ok=True)
-    dist_dir = android_app_dir / "dist"
-    for item in dist_dir.iterdir():
-        dest = www_dir / item.name
-        if item.is_dir():
-            shutil.copytree(item, dest, dirs_exist_ok=True)
-        else:
-            shutil.copy2(item, dest)
-
-    gzip_script = repo_root / "build" / "gzip_assets.py"
-    if gzip_script.is_file():
-        subprocess.run([sys.executable, str(gzip_script), str(www_dir)], capture_output=True)
+    # The APK is built from android-app/dist. payload/www (the Hub's web UI) is left alone: it
+    # used to get this build copied over it, mixed with whatever was there (the other UI, older
+    # bundles). Build the Hub's web UI with build/build_webui.py.
+    if not (android_app_dir / "dist" / "index.html").is_file():
+        print("[-] Vite build produced no dist/index.html", file=sys.stderr)
+        return False
 
     # 2. Capacitor sync
     print("[2/4] Running Capacitor sync...")

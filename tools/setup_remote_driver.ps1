@@ -147,15 +147,34 @@ if (-not $gadgetFound) {
 Write-Host "[*] Looking for RNDIS / USB Ethernet Network Adapter..." -ForegroundColor Yellow
 $adapter = $null
 
+# The adapter is taken from the remote's own USB device (its PnPDeviceID holds the VID/PID
+# above). Phones in USB tethering mode and LTE sticks are RNDIS adapters too: an adapter found
+# only by its description is used only while the remote's device is present, and never when
+# it has a default route or an address of another network (that is someone's Internet link).
+function Test-OtherNetwork($ad) {
+    if (Get-NetRoute -InterfaceIndex $ad.ifIndex -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue) { return $true }
+    $other = Get-NetIPAddress -InterfaceIndex $ad.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+        Where-Object { $_.IPAddress -notlike "169.254.*" -and $_.IPAddress -notlike "192.168.2.*" }
+    return [bool]$other
+}
+
 for ($i = 0; $i -lt 10; $i++) {
-    $adapter = Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object {
+    $candidates = @(Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object {
         $_.Status -eq "Up" -or $_.Status -eq "Disconnected"
-    } | Where-Object {
-        $_.InterfaceDescription -like "*RNDIS*" -or
-        $_.InterfaceDescription -like "*Ethernet Gadget*" -or
-        $_.InterfaceDescription -like "*Acer*" -or
-        $_.DriverFileName -like "*rndis*"
+    })
+    $adapter = $candidates | Where-Object {
+        $pnpId = [string]$_.PnPDeviceID
+        @($hardwareIds | Where-Object { $pnpId -like "$_*" }).Count -gt 0
     } | Select-Object -First 1
+
+    if (-not $adapter -and $gadgetFound) {
+        $adapter = $candidates | Where-Object {
+            $_.InterfaceDescription -like "*RNDIS*" -or
+            $_.InterfaceDescription -like "*Ethernet Gadget*" -or
+            $_.InterfaceDescription -like "*Acer*" -or
+            $_.DriverFileName -like "*rndis*"
+        } | Where-Object { -not (Test-OtherNetwork $_) } | Select-Object -First 1
+    }
 
     if ($adapter) {
         break

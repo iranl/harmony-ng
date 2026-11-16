@@ -29,6 +29,8 @@ case "$last" in
   *"-cf -"*)
     head -c "$FAKE_TAR_BYTES" "$FAKE_TAR"
     exit "$FAKE_TAR_RC" ;;
+  "uname -m") echo "${FAKE_MACHINE:-mips}" ;;
+  *ath0/address*) echo "${FAKE_MAC:-00:11:22:33:44:55}" ;;
   *) exit 0 ;;
 esac
 """
@@ -78,8 +80,8 @@ class BackupHubCheck(unittest.TestCase):
     def test_complete_backup_saved(self):
         self.assertTrue(self.run_backup(self.full, 0))
         names = self.saved()
-        self.assertIn("golden_hub_backup.tar", names)
-        self.assertEqual(len([n for n in names if n.startswith("hub_backup_")]), 1, names)
+        self.assertIn("golden_hub_backup_001122334455.tar", names)
+        self.assertEqual(len([n for n in names if n.startswith("hub_backup_001122334455_")]), 1, names)
         self.assertFalse([n for n in names if n.endswith(".part")])
 
     def test_stream_cut_inside_member(self):

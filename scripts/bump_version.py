@@ -4,11 +4,16 @@ bump_version.py - Single Source of Truth Version Management
 
 Synchronizes version number across:
   - VERSION (root file)
-  - payload/source/http_server.c (HARMONY_VERSION)
-  - android-app/src/app.js (APP_VERSION)
+  - payload/source/harmony_version.h (HARMONY_VERSION)
+  - android-app/src/app/app_icons_ui.js (APP_VERSION)
   - docs/openapi.yaml (info.version)
   - android-app/package.json ("version")
+  - android-app/package-lock.json (the root package's "version")
   - android-app/android/app/build.gradle (versionName, versionCode)
+
+A file that is missing or whose version line is not found is an error (exit code 1): it
+would otherwise keep its old version while CI's "--sync, then git diff" check sees no
+change. --next prints the next version without changing anything.
 """
 
 import sys
@@ -23,6 +28,7 @@ HARMONY_VERSION_H = REPO_ROOT / "payload" / "source" / "harmony_version.h"
 OPENAPI_YAML = REPO_ROOT / "docs" / "openapi.yaml"
 APP_JS = REPO_ROOT / "android-app" / "src" / "app" / "app_icons_ui.js"
 PACKAGE_JSON = REPO_ROOT / "android-app" / "package.json"
+PACKAGE_LOCK = REPO_ROOT / "android-app" / "package-lock.json"
 BUILD_GRADLE = REPO_ROOT / "android-app" / "android" / "app" / "build.gradle"
 
 def get_current_version():
@@ -46,14 +52,19 @@ def bump_semver(ver_str, part="patch"):
         patch += 1
     return f"{major}.{minor}.{patch}{extra}"
 
-def update_file(path: Path, pattern: str, replacement: str):
+FAILURES = []
+
+
+def update_file(path: Path, pattern: str, replacement: str, count_max: int = 0):
     if not path.exists():
-        print(f"[-] Skipping missing file: {path}")
+        print(f"[-] Missing file: {path}")
+        FAILURES.append(str(path))
         return False
     content = path.read_text(encoding="utf-8")
-    new_content, count = re.subn(pattern, replacement, content)
+    new_content, count = re.subn(pattern, replacement, content, count=count_max)
     if count == 0:
-        print(f"[-] Warning: Pattern '{pattern}' not matched in {path}")
+        print(f"[-] Pattern '{pattern}' not matched in {path}")
+        FAILURES.append(str(path))
         return False
     path.write_text(new_content, encoding="utf-8")
     print(f"[+] Updated {path.relative_to(REPO_ROOT)} ({count} match)")
@@ -87,6 +98,18 @@ def sync_all(new_version, increment_vc=False):
         f'"version": "{new_version}"'
     )
 
+    # 4b. package-lock.json: the root package (top level and packages[""]), not dependencies
+    update_file(
+        PACKAGE_LOCK,
+        r'\A(\{\s*"name"\s*:\s*"[^"]*",\s*"version"\s*:\s*)"[^"]+"',
+        rf'\g<1>"{new_version}"'
+    )
+    update_file(
+        PACKAGE_LOCK,
+        r'("packages"\s*:\s*\{\s*""\s*:\s*\{\s*"name"\s*:\s*"[^"]*",\s*"version"\s*:\s*)"[^"]+"',
+        rf'\g<1>"{new_version}"'
+    )
+
     # 5. OpenAPI spec (info.version; tests/test_openapi.py checks it against the firmware version)
     update_file(
         OPENAPI_YAML,
@@ -95,7 +118,10 @@ def sync_all(new_version, increment_vc=False):
     )
 
     # 6. build.gradle (versionName & optional versionCode increment)
-    if BUILD_GRADLE.exists():
+    if not BUILD_GRADLE.exists():
+        print(f"[-] Missing file: {BUILD_GRADLE}")
+        FAILURES.append(str(BUILD_GRADLE))
+    else:
         content = BUILD_GRADLE.read_text(encoding="utf-8")
         vc_match = re.search(r'versionCode\s+(\d+)', content)
         new_vc = 1
@@ -107,6 +133,9 @@ def sync_all(new_version, increment_vc=False):
         BUILD_GRADLE.write_text(content, encoding="utf-8")
         print(f"[+] Updated {BUILD_GRADLE.relative_to(REPO_ROOT)} (versionName='{new_version}', versionCode={new_vc})")
 
+    if FAILURES:
+        print(f"[-] Version NOT updated in: {', '.join(FAILURES)}")
+        sys.exit(1)
     print(f"[+] Successfully bumped and synced all components to v{new_version}!")
 
 def main():
@@ -114,7 +143,13 @@ def main():
     parser.add_argument("--version", "-v", help="Explicit version string (e.g. 1.3.0)")
     parser.add_argument("--bump", "-b", choices=["patch", "minor", "major"], help="Bump semver part")
     parser.add_argument("--sync", "-s", action="store_true", help="Sync from current VERSION file")
+    parser.add_argument("--next", choices=["patch", "minor", "major"],
+                        help="Print the next version and change nothing (for the release workflow)")
     args = parser.parse_args()
+
+    if args.next:
+        print(bump_semver(get_current_version(), args.next))
+        return
 
     cur = get_current_version()
     print(f"[*] Current repository version: {cur}")

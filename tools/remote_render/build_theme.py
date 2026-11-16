@@ -16,9 +16,13 @@ package OUT/<name>/ is what the remote reads from /data/themes/<name>/:
 --tar DIR also writes each package as DIR/<name>.tar and the list of themes as DIR/index.json,
 for the web UI's screen preview (tools/remote_render/web/remote_preview.js, loadTheme).
 
-Downloads are cached under build/tmp/remote-render/svg; nothing downloaded is committed.
+Downloads are cached under build/tmp/remote-render/svg, keyed by their URL (which carries
+the pinned version), so a version change in icon_sets.json fetches the new files; nothing
+downloaded is committed. Building every theme also removes packages of themes that are no
+longer in remote/themes from the output folder.
 """
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -34,6 +38,11 @@ REPO = os.path.normpath(os.path.join(HERE, "..", ".."))
 THEMES = os.path.join(REPO, "remote", "themes")
 
 LIST_ICON, HERO_ICON = 40, 70  # remote_ui_activities.c, HERO_ICON in remote_ui_activity.c
+
+
+def url_key(url):
+    """A short name part that changes with the URL (and so with a pinned version)"""
+    return hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
 
 
 def fetch(url, cache):
@@ -73,7 +82,7 @@ class Builder:
             self.used.add(src_id)
             return os.path.join(REPO, src["path"].format(name=name)), src.get("pad", 0.0)
         url = src["url"].format(name=name)
-        path, err = fetch(url, os.path.join(self.work, "svg", src_id, name.replace("/", "_")))
+        path, err = fetch(url, os.path.join(self.work, "svg", src_id, f"{url_key(url)}_{name.replace('/', '_')}"))
         if not path:
             raise SystemExit(f"[-] {url}: {err}")
         self.used.add(src_id)
@@ -144,6 +153,16 @@ def build(name, cfg, out_root, builder, themes=THEMES):
     print(out)
 
 
+def remove_stale_packages(out_root, names):
+    """Remove packages of themes that are not built any more. compile_all.sh packs the whole
+    output folder into the remote's update, so a theme deleted from remote/themes stayed in it."""
+    if not os.path.isdir(out_root):
+        return
+    for old in os.listdir(out_root):
+        if old not in names and os.path.isdir(os.path.join(out_root, old)):
+            shutil.rmtree(os.path.join(out_root, old))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("names", nargs="*", help="themes to build (default: every theme in remote/themes)")
@@ -159,6 +178,8 @@ def main():
         raise SystemExit("[-] Cannot build the host renderer (needs a C compiler)")
     builder = Builder(cfg, args.work, renderer)
     names = args.names or sorted(d for d in os.listdir(args.themes) if os.path.isfile(os.path.join(args.themes, d, "sources.json")))
+    if not args.names:
+        remove_stale_packages(args.out, names)
     for name in names:
         build(name, cfg, args.out, builder, args.themes)
     if args.tar:

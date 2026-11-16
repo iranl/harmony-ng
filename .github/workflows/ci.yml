@@ -62,12 +62,15 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build/toolchains
-          key: bootlin-armv5-uclibc-2017.05
+          key: bootlin-armv5-uclibc-2017.05-9afe6d92b2fd
       - name: Install Bootlin ARMv5 uClibc Toolchain
         if: steps.cache-arm-toolchain.outputs.cache-hit != 'true'
         run: |
           mkdir -p build/toolchains
-          curl -sSL "https://toolchains.bootlin.com/downloads/releases/toolchains/armv5-eabi/tarballs/armv5-eabi--uclibc--stable-2017.05-toolchains-1-1.tar.bz2" | tar -xjf - -C build/toolchains/
+          # Pinned by SHA-256 as well as by name (the cache step keeps whatever was fetched once)
+          curl -fsSL -o "$RUNNER_TEMP/toolchain.tar.bz2" "https://toolchains.bootlin.com/downloads/releases/toolchains/armv5-eabi/tarballs/armv5-eabi--uclibc--stable-2017.05-toolchains-1-1.tar.bz2"
+          echo "9afe6d92b2fdb5eee75c90f776374d19aa1203d5679651b289a4030dc9982036  $RUNNER_TEMP/toolchain.tar.bz2" | sha256sum -c -
+          tar -xjf "$RUNNER_TEMP/toolchain.tar.bz2" -C build/toolchains/
       - name: Compile remote_ui
         run: |
           chmod +x build/*.sh
@@ -91,12 +94,15 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build/toolchains
-          key: bootlin-mips32-uclibc-2017.05
+          key: bootlin-mips32-uclibc-2017.05-a75aeb0f82ea
       - name: Install Bootlin MIPS uClibc Toolchain
         if: steps.cache-mips-toolchain.outputs.cache-hit != 'true'
         run: |
           mkdir -p build/toolchains
-          curl -sSL "https://toolchains.bootlin.com/downloads/releases/toolchains/mips32/tarballs/mips32--uclibc--stable-2017.05-toolchains-1-1.tar.bz2" | tar -xjf - -C build/toolchains/
+          # Pinned by SHA-256 as well as by name (the cache step keeps whatever was fetched once)
+          curl -fsSL -o "$RUNNER_TEMP/toolchain.tar.bz2" "https://toolchains.bootlin.com/downloads/releases/toolchains/mips32/tarballs/mips32--uclibc--stable-2017.05-toolchains-1-1.tar.bz2"
+          echo "a75aeb0f82eaeaf1989a7dfdf80219486b5ed1470c29c6f253fbcf824922c29f  $RUNNER_TEMP/toolchain.tar.bz2" | sha256sum -c -
+          tar -xjf "$RUNNER_TEMP/toolchain.tar.bz2" -C build/toolchains/
       - name: Compile Hub MIPS Binaries
         run: |
           chmod +x build/*.sh

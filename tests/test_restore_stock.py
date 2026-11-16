@@ -49,6 +49,7 @@ class FakeHub:
     def __init__(self, root: pathlib.Path):
         self.root = root
         self.commands: list[str] = []
+        self.machine = "mips"
 
     def map(self, cmd: str) -> str:
         # POSIX form: sh would read the backslashes of a Windows path as escapes
@@ -66,6 +67,8 @@ class FakeHub:
             return REAL_RUN(argv, *args, **kwargs)
         cmd = argv[-1]
         self.commands.append(cmd)
+        if cmd == "uname -m":
+            return subprocess.CompletedProcess(argv, 0, self.machine + "\n", "")
         if cmd.startswith("killall") or cmd.startswith("reboot"):
             return subprocess.CompletedProcess(argv, 0, "", "")
         res = REAL_RUN(["sh", "-c", self.map(cmd)], *args, **kwargs)
@@ -152,6 +155,15 @@ class RestoreStock(unittest.TestCase):
         self.assertIn("invalid option", str(ctx.exception))
         self.assertFalse(self.rebooted())
         self.assertFalse(any("dropbear" in c for c in self.hub.commands))
+
+    def test_refuses_a_device_that_is_not_a_hub(self):
+        """The remote answers at 192.168.2.1 with the same key: nothing may be stopped or emptied there."""
+        self.install_busybox("cache/bin/busybox")
+        self.hub.machine = "armv5tejl"
+        with self.assertRaises(RuntimeError):
+            self.restore()
+        self.assertEqual(self.hub.commands, ["uname -m"])
+        self.assertTrue((self.root / "cache" / "www_leftover").exists())
 
 
 if __name__ == "__main__":

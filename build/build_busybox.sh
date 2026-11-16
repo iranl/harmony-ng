@@ -7,15 +7,33 @@ TMP_DIR="$SCRIPT_DIR/tmp"
 BB_VER="1.36.1"
 BB_TAR="busybox-${BB_VER}.tar.bz2"
 BB_URL="https://busybox.net/downloads/${BB_TAR}"
+# Published by busybox.net next to the tarball (${BB_URL}.sha256)
+BB_SHA256="b8cc24c9574d809e7279c3be349795c5d5ceb6fdf19ca709f80cde50e47de314"
 
 mkdir -p "$TMP_DIR" "$REPO_ROOT/payload/bin" "$REPO_ROOT/remote/bin"
 
 TARGET="${1:-all}"
 
-# Ensure archive downloaded
+bb_tar_ok() {
+    echo "$BB_SHA256  $1" | sha256sum -c - >/dev/null 2>&1
+}
+
+# Ensure archive downloaded and intact. A cached copy that does not match (an HTTP error page
+# saved under the tarball's name, a cut download) is fetched again; a download that does not
+# match stops the build. The file gets its name only after the check.
+if [ -f "$TMP_DIR/$BB_TAR" ] && ! bb_tar_ok "$TMP_DIR/$BB_TAR"; then
+    echo "[!] Cached $BB_TAR does not match its SHA-256; downloading it again."
+    rm -f "$TMP_DIR/$BB_TAR"
+fi
 if [ ! -f "$TMP_DIR/$BB_TAR" ]; then
     echo "[-] Downloading BusyBox ${BB_VER}..."
-    curl -sSL -o "$TMP_DIR/$BB_TAR" "$BB_URL"
+    curl -fsSL -o "$TMP_DIR/$BB_TAR.part" "$BB_URL"
+    if ! bb_tar_ok "$TMP_DIR/$BB_TAR.part"; then
+        rm -f "$TMP_DIR/$BB_TAR.part"
+        echo "[!] $BB_URL does not match SHA-256 $BB_SHA256" >&2
+        exit 1
+    fi
+    mv -f "$TMP_DIR/$BB_TAR.part" "$TMP_DIR/$BB_TAR"
 fi
 
 build_mips() {
