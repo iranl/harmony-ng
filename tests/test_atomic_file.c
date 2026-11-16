@@ -91,6 +91,16 @@ int main(void) {
     snprintf(path, sizeof(path), "%s/missing_dir/file", dir);
     CHECK(atomic_file_write_str(path, "x") == -1, "missing directory reported");
 
+    printf("[-] symbolic link written through\n");
+    char real[128], link[128];
+    snprintf(real, sizeof(real), "%s/real.conf", dir);
+    snprintf(link, sizeof(link), "%s/link.conf", dir);
+    CHECK(atomic_file_write_str(real, "target\n") == 0 && symlink(real, link) == 0, "link made");
+    CHECK(atomic_file_write_str(link, "through\n") == 0, "write to the link");
+    struct stat lst;
+    CHECK(lstat(link, &lst) == 0 && S_ISLNK(lst.st_mode), "link is still a link");
+    CHECK(read_eq(real, "through\n"), "target got the new content");
+
     snprintf(path, sizeof(path), "rm -rf %s", dir);
     if (system(path) != 0) return 1;
     if (failed) {
