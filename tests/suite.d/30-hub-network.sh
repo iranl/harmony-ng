@@ -1,15 +1,15 @@
 # Hub network services and Hub shell scripts (network, update, maintenance)
 
-# Wi-Fi values written as typed, checked before use, one Wi-Fi test at a time
+# Wi-Fi values written as typed, checked before use, one Wi-Fi test at a time (wifi_config.c)
 build_test -Wall -O2 -pthread -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_wpa_conf" "$SCRIPT_DIR/test_wpa_conf.c" \
-    "$REPO_ROOT/payload/source/hub_network_util.c" "$REPO_ROOT/payload/source/cJSON.c" -ldl -lm && "$BUILD_DIR/test_wpa_conf"
+    "$REPO_ROOT/payload/source/hub_network_util.c" "$REPO_ROOT/payload/source/wifi_config.c" "$REPO_ROOT/payload/source/cJSON.c" -ldl -lm && "$BUILD_DIR/test_wpa_conf"
 # Wi-Fi and static Ethernet settings the Hub cannot use get 400 (daemon on a private mock root, port 9143)
 python3 "$SCRIPT_DIR/test_network_settings_api.py"
 # network_manager.sh: Ethernet settings read, DNS list, wpa_supplicant configuration file
 python3 "$SCRIPT_DIR/test_network_manager_sh.py"
 # mDNS and SSDP answer unicast queries only from senders on the Hub's own links
 build_test -Wall -O2 -pthread -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_net_source_local" "$SCRIPT_DIR/test_net_source_local.c" \
-    "$REPO_ROOT/payload/source/hub_network_util.c" "$REPO_ROOT/payload/source/cJSON.c" -lm && "$BUILD_DIR/test_net_source_local"
+    "$REPO_ROOT/payload/source/hub_network_util.c" "$REPO_ROOT/payload/source/wifi_config.c" "$REPO_ROOT/payload/source/cJSON.c" -lm && "$BUILD_DIR/test_net_source_local"
 # update.sh: the token is one header argument, one apply at a time (sandbox, stub busybox)
 python3 "$SCRIPT_DIR/test_update_sh.py"
 # update-apply refused while one runs (409), update-check writes only on change (port 9145)

@@ -87,6 +87,7 @@ build_daemon() {
         payload/source/http_api_custom_icons.c \
         payload/source/http_api_network.c \
         payload/source/hub_network_util.c \
+        payload/source/wifi_config.c \
         payload/source/http_api_remotes.c \
         payload/source/http_api_ota.c \
         payload/source/http_api_backup.c \

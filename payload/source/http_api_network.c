@@ -1,10 +1,10 @@
 #include "http_api_network.h"
 #include "hub_network_util.h"
-#include "atomic_file.h"
 #include "http_util.h"
 #include "config_store.h"
 #include "cJSON.h"
 #include "wpa_conf.h"
+#include "wifi_config.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -248,9 +248,7 @@ int http_api_network_handle(int client_fd, const char *method, const char *clean
             const char *raw_ssid = (p_ssid && cJSON_IsString(p_ssid)) ? p_ssid->valuestring : "";
             if (raw_ssid[0]) {
                 /* written as typed: wpa_supplicant reads a quoted value without escapes */
-                char esc_ssid[128] = {0};
                 char esc_pass[128] = {0};
-                snprintf(esc_ssid, sizeof(esc_ssid), "%s", raw_ssid);
 
                 int is_open = (p_open && ((cJSON_IsBool(p_open) && cJSON_IsTrue(p_open)) || (cJSON_IsNumber(p_open) && p_open->valueint == 1) || (cJSON_IsString(p_open) && strcmp(p_open->valuestring, "1") == 0)));
                 int is_hidden = (p_hid && ((cJSON_IsBool(p_hid) && cJSON_IsTrue(p_hid)) || (cJSON_IsNumber(p_hid) && p_hid->valueint == 1) || (cJSON_IsString(p_hid) && strcmp(p_hid->valuestring, "1") == 0)));
@@ -291,44 +289,17 @@ int http_api_network_handle(int client_fd, const char *method, const char *clean
                     }
                 }
 
-                char wpa_buf[1024];
-                if (is_open) {
-                    snprintf(wpa_buf, sizeof(wpa_buf),
-                        "ctrl_interface=/var/run/wpa_supplicant\n"
-                        "update_config=1\n\n"
-                        "network={\n"
-                        "\tssid=\"%s\"\n"
-                        "\tkey_mgmt=NONE\n"
-                        "%s"
-                        "}\n",
-                        esc_ssid,
-                        is_hidden ? "\tscan_ssid=1\n" : "");
-                } else {
-                    snprintf(wpa_buf, sizeof(wpa_buf),
-                        "ctrl_interface=/var/run/wpa_supplicant\n"
-                        "update_config=1\n\n"
-                        "network={\n"
-                        "\tssid=\"%s\"\n"
-                        "\tpsk=%s%s%s\n"
-                        "%s"
-                        "}\n",
-                        esc_ssid, wpa_psk_quote(esc_pass), esc_pass, wpa_psk_quote(esc_pass),
-                        is_hidden ? "\tscan_ssid=1\n" : "");
-                }
-
-                /* both or neither: a failed second write puts the first file back */
-                if (atomic_file_write_pair("/etc/wpa_supplicant.conf", "/etc/wpa_supplicant.ath0.conf",
-                                           wpa_buf, 16384) != 0) {
+                /* both files or neither (wifi_config.c); a failed save keeps the old ones */
+                int reboot_after = strcmp(app_mode, "reboot") == 0;
+                if (wifi_config_save(raw_ssid, esc_pass, is_open, is_hidden, should_apply && !reboot_after) != 0) {
                     cJSON_Delete(params);
                     send_json_error(client_fd, 500, "Could not save the Wi-Fi settings (flash full?)");
                     close(client_fd);
                     return 1;
                 }
 
-                if (strcmp(app_mode, "reboot") == 0) {
+                if (reboot_after) {
                     system("/data/harmony/bin/safe_reboot.sh 2>/dev/null || (killall -9 hub_rf hub_btstack 2>/dev/null; /data/harmony/bin/hub_sync 2>/dev/null; sleep 2; reboot -f) &");
-                } else if (should_apply) {
-                    system("/usr/sbin/wpa_cli -i ath0 reconfigure 2>/dev/null || killall -HUP wpa_supplicant 2>/dev/null &");
                 }
 
                 cJSON_Delete(params);
