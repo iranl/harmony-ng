@@ -576,8 +576,9 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
       const devId = this.selectedIrDeviceId || sel?.value;
       if (!devId) return;
       this.selectedIrDeviceId = String(devId);
+      const curDev = (this.inventory?.devices || []).find(d => String(d.id) === String(devId));
       const name = document.getElementById('editDevName')?.value.trim();
-      const type = document.getElementById('editDevType')?.value.trim();
+      const type = curDev?.type || document.getElementById('editDevType')?.value.trim() || 'IR';
       const mfg = document.getElementById('editDevMfg')?.value.trim();
       const model = document.getElementById('editDevModel')?.value.trim();
       const icon = document.getElementById('editDevIcon')?.value.trim();
@@ -600,7 +601,6 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
         btTrigCmdName = parts.slice(1).join(':');
       }
 
-      const curDev = (this.inventory?.devices || []).find(d => String(d.id) === String(devId));
       let pluginDef = this.getPluginForType(type) || (curDev?.plugin ? (this.installedPlugins || []).find(p => p.id === curDev.plugin) : null);
       let pluginId = curDev?.plugin || pluginDef?.id || (type && type.startsWith('plugin:') ? type.substring(7) : null);
       let pluginCfg = null;
@@ -879,6 +879,7 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
       let mode = document.getElementById('editCmdType')?.value;
       if (devType === 'BT') mode = 'bt';
       else if (devType === 'MQTT') mode = 'mqtt';
+      else if (devType === 'PLUGIN') mode = 'plugin';
       const raw = document.getElementById('editCmdPayload')?.value.trim();
       const repeats = Number(document.getElementById('editCmdRepeats')?.value) || 3;
       const port = Number(document.getElementById('editCmdPort')?.value) || 0;
@@ -894,7 +895,7 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
           raw,
           mode
         };
-        if (mode !== 'bt' && mode !== 'mqtt') {
+        if (mode !== 'bt' && mode !== 'mqtt' && mode !== 'plugin') {
           payloadData.repeats = repeats;
           payloadData.port = port;
         }

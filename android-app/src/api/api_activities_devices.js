@@ -34,7 +34,9 @@ export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
     const rawDevs = data.devices || (Array.isArray(data) ? data : []);
     const normalized = rawDevs.map(dev => {
       const rawCmds = dev.commands || [];
-      const cleanType = dev.type === 'BT' ? 'BT' : (dev.type === 'MQTT' ? 'MQTT' : 'IR');
+      const rawType = dev.type || '';
+      const isPluginDev = !!dev.plugin || rawType.startsWith('plugin:') || !!dev.config;
+      const cleanType = isPluginDev ? rawType : rawType === 'BT' ? 'BT' : rawType === 'MQTT' ? 'MQTT' : (rawType || 'IR');
       const isBt = cleanType === 'BT';
       const isMqtt = cleanType === 'MQTT';
       const hostAddr = dev.bdaddr || dev.btHost || '';
@@ -63,9 +65,11 @@ export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
         powerOnSequence: dev.powerOnSequence || [],
         powerOffSequence: dev.powerOffSequence || [],
         isBt: isBt,
-        mqttEnabled: isMqtt || !!dev.mqttEnabled,
+        mqttEnabled: (isPluginDev || isBt) ? false : (isMqtt || !!dev.mqttEnabled),
         mqttTopic: dev.mqttTopic || '{base_topic}/button/{device}/{command}',
         mqttPulseMs: Number(dev.mqttPulseMs !== undefined ? dev.mqttPulseMs : 1000),
+        plugin: dev.plugin || '',
+        config: dev.config || null,
         commands: rawCmds.map((c, idx) => {
           if (typeof c === 'string') return { name: c, keyCode: '', raw: '' };
           const kCode = c.keyCode || '';

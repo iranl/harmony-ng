@@ -48,6 +48,9 @@ int plugin_mgr_install_from_url(const char *url, char *err_msg, size_t err_msg_s
 /* Install a dev version of a plugin by downloading raw files from repository URL */
 int plugin_mgr_install_dev_raw(const char *url, char *err_msg, size_t err_msg_sz);
 
+/* Pull committed files for an installed plugin directly from git repo without release */
+int plugin_mgr_pull(const char *plugin_id, char *err_msg, size_t err_msg_sz);
+
 /* Resolve whether type or plugin identifier corresponds to an installed plugin.
    Matches plugin_id, "plugin:<id>", or device_type / display_name from any installed plugin's device_definition.
    Writes resolved plugin_id to out_id (if not NULL) up to out_sz. Returns 1 if resolved, 0 otherwise. */

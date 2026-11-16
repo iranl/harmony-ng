@@ -207,6 +207,7 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
                 ? `<button type="button" class="btn btn-xs btn-outline btn-plugin-stop" data-plugin-id="${escapeHtml(p.id)}">Stop</button>`
                 : `<button type="button" class="btn btn-xs btn-outline btn-plugin-start" data-plugin-id="${escapeHtml(p.id)}" ${!isEnabled ? 'disabled' : ''}>Start</button>`
               }
+              <button type="button" class="btn btn-xs btn-outline btn-plugin-pull-dev" data-plugin-id="${escapeHtml(p.id)}" title="Pull latest committed files directly from git repository without a release">⟳ Pull from Git (Dev)</button>
               ${p.device_definition ? `
                 <button type="button" class="btn btn-xs btn-primary btn-plugin-add-dev" data-plugin-id="${escapeHtml(p.id)}" ${!isEnabled ? 'disabled' : ''}>+ Add Device</button>
               ` : ''}
@@ -218,6 +219,26 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
     }).join('');
 
     // Bind action buttons
+    container.querySelectorAll('.btn-plugin-pull-dev').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.getAttribute('data-plugin-id');
+        btn.disabled = true;
+        btn.textContent = 'Pulling...';
+        showToast(`Pulling files for '${id}' from repository...`, 'info');
+        try {
+          const res = await this.client.postJson('/api/plugins/pull', { id });
+          if (res && res.error) throw new Error(res.error);
+          showToast(`Plugin '${id}' updated from repository!`, 'success');
+          await this.refreshPluginsList();
+        } catch (err) {
+          showToast(`Pull failed: ${err.message}`, 'error');
+        } finally {
+          btn.disabled = false;
+          btn.textContent = '⟳ Pull from Git (Dev)';
+        }
+      });
+    });
+
     container.querySelectorAll('.plugin-enable-toggle').forEach(input => {
       input.addEventListener('change', async (e) => {
         const id = input.getAttribute('data-plugin-id');

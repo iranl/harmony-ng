@@ -163,6 +163,37 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
         return 1;
     }
 
+    /* 5b. POST /api/plugins/pull - Pull latest committed files directly from repo */
+    if (strcmp(path, "/api/plugins/pull") == 0 && strcmp(method, "POST") == 0) {
+        char err[128] = "Unknown error";
+        int rc = -1;
+        cJSON *json = body ? cJSON_Parse(body) : NULL;
+        if (json) {
+            cJSON *j_id = cJSON_GetObjectItemCaseSensitive(json, "id");
+            const char *id = (j_id && cJSON_IsString(j_id)) ? j_id->valuestring : "";
+            if (id[0]) {
+                rc = plugin_mgr_pull(id, err, sizeof(err));
+            } else {
+                snprintf(err, sizeof(err), "Missing plugin id");
+            }
+            cJSON_Delete(json);
+        } else {
+            snprintf(err, sizeof(err), "Invalid JSON body");
+        }
+
+        if (rc == 0) {
+            cJSON *resp = cJSON_CreateObject();
+            cJSON_AddBoolToObject(resp, "ok", 1);
+            cJSON_AddStringToObject(resp, "message", "Plugin files updated directly from repository");
+            send_cjson_resp(client_fd, 200, resp);
+            cJSON_Delete(resp);
+        } else {
+            send_json_error(client_fd, 400, err);
+        }
+        close(client_fd);
+        return 1;
+    }
+
     /* 6. POST /api/plugins/action - Control plugin lifecycle */
     if (strcmp(path, "/api/plugins/action") == 0 && strcmp(method, "POST") == 0) {
         cJSON *json = body ? cJSON_Parse(body) : NULL;

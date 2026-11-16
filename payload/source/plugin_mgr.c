@@ -686,6 +686,18 @@ int plugin_mgr_install_dev_raw(const char *url, char *err_msg, size_t err_msg_sz
     return 0;
 }
 
+int plugin_mgr_pull(const char *plugin_id, char *err_msg, size_t err_msg_sz) {
+    if (!plugin_id || !is_safe_plugin_id(plugin_id)) {
+        if (err_msg) snprintf(err_msg, err_msg_sz, "Invalid plugin ID");
+        return -1;
+    }
+
+    /* Build raw github manifest URL for this plugin */
+    char raw_url[512];
+    snprintf(raw_url, sizeof(raw_url), "https://raw.githubusercontent.com/iranl/harmony-ng-plugins/main/%s/manifest.json", plugin_id);
+    return plugin_mgr_install_dev_raw(raw_url, err_msg, err_msg_sz);
+}
+
 int plugin_mgr_resolve_device_plugin(const char *type_or_plugin, char *out_id, size_t out_sz) {
     if (!type_or_plugin || !type_or_plugin[0]) return 0;
 
