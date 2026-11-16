@@ -27,8 +27,8 @@ Setting up HarmonyNG takes just a few minutes. Pre-built release bundles contain
 
 | Target | Installation Guide | Requirements |
 | :--- | :--- | :--- |
-| **Harmony Hub** | [**Harmony Hub Installation Guide**](docs/FIRST_INSTALL_HUB.md) | Harmony Hub (Standard `046D:C129` or Pro 2400 `046D:C132`), Micro-USB cable, PC (Windows, macOS, or Linux) with Python 3.11 or newer |
-| **Harmony Touchscreen Remotes** | [**Harmony Remote Installation Guide**](docs/FIRST_INSTALL_REMOTE.md) | Harmony Elite, 950, Ultimate or Pro 2400 Remote (Skin 116), Micro-USB cable, PC with Python 3.11 or newer *(tested on a Harmony Ultimate, 2013; Ultimate Home, Touch and Pro 2400 supported, untested on physical hardware)* |
+| **Harmony Hub** | [**Harmony Hub Installation Guide**](docs/FIRST_INSTALL_HUB.md) | Harmony Hub (Standard `046D:C129` or Pro 2400 `046D:C132`), Micro-USB cable, PC (Windows, macOS, or Linux) with Python 3.13 or newer |
+| **Harmony Touchscreen Remotes** | [**Harmony Remote Installation Guide**](docs/FIRST_INSTALL_REMOTE.md) | Harmony Elite, 950, Ultimate or Pro 2400 Remote (Skin 116), Micro-USB cable, PC with Python 3.13 or newer *(tested on a Harmony Ultimate, 2013; Ultimate Home, Touch and Pro 2400 supported, untested on physical hardware)* |
 | **Harmony Companion & Smart Control** | [**RF Remotes Guide**](docs/REMOTE.md#harmony-companion--smart-control-screenless-remotes) | Harmony Companion or Smart Control remote; pairs directly over 2.4 GHz RF (no USB connection or rooting needed) |
 | **Android Companion App** | [Download APK from Releases](https://github.com/iranl/harmony-ng/releases) | Android phone or tablet (Android 6 or newer) |
 | **Web UI** | Pre-installed on Hub at `http://<hub-ip>:8089` | Modern web browser |
@@ -237,7 +237,7 @@ python3 build/build_webui.py --ui legacy
 ```
 
 The host tools (`build/deploy_hub.py`, `remote/setup_remote.py`, `remote/deploy_remote.py` and
-the Python tools in `tools/`) need Python 3.11 or newer and stop with a message on an older one.
+the Python tools in `tools/`) need Python 3.13 or newer and stop with a message on an older one.
 
 `python build/deploy_hub.py <HUB_IP>` copies the built binaries and scripts to a Hub over SSH
 and builds and copies the web UI. Options:
@@ -249,11 +249,15 @@ and builds and copies the web UI. Options:
 
 ```bash
 python -m pip install pyyaml aioharmony==1.0.8
-./tests/run_mock_suite.sh
+./tests/run_mock_suite.sh     # firmware tests
+./tests/run_host_tools.sh     # host tools tests
 ```
 
-This is the host test suite CI runs (with Python 3.11 and 3.13). It needs `gcc` and builds a
-test build of `hub_daemon` for the PC; no Hub or remote is needed.
+CI runs both on Python 3.13, as two jobs. The firmware tests run on every change: they need
+`gcc`, build `hub_daemon` and the other firmware code for the PC and run it against mock
+hardware. The host tools tests (install, deploy, backup, recovery, migration and build tools)
+run when a `.py` file or `build/`, `remote/`, `scripts/` or `tools/` changes. Neither needs a
+Hub or a remote.
 
 ---
 
