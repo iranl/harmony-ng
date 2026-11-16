@@ -123,7 +123,7 @@ export function createRemoteView(options = {}) {
       }),
       hasBt ? h('button', {
         className: `subtab-btn ${activeSubTab === 'bt' ? 'active' : ''}`,
-        text: 'BT Input',
+        text: t('tab_bt_input', 'BT Input'),
         onclick: () => switchSubTab('bt'),
       }) : null,
     ]);
@@ -206,15 +206,15 @@ export function createRemoteView(options = {}) {
       type: 'text',
       className: 'form-input',
       value: btn ? (btn.label || btn.command) : '',
-      placeholder: 'Button label',
+      placeholder: t('btn_label', 'Button Label'),
     });
 
     const modalBody = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } }, [
-      h('label', { className: 'form-label', text: 'Device' }),
+      h('label', { className: 'form-label', text: t('device', 'Device') }),
       devSelect,
-      h('label', { className: 'form-label', text: 'Command' }),
+      h('label', { className: 'form-label', text: t('command_label', 'Command') }),
       cmdSelect,
-      h('label', { className: 'form-label', text: 'Label' }),
+      h('label', { className: 'form-label', text: t('label', 'Label') }),
       labelInput,
     ]);
 
@@ -340,7 +340,8 @@ export function createRemoteView(options = {}) {
       numpadButtons.map(btnText => {
         return h('button', {
           className: 'keypad-btn',
-          text: btnText,
+          // the label is translated; the command sent stays the key's name
+          text: btnText === 'Clear' ? t('clear', 'Clear') : btnText === 'Enter' ? t('keypad_enter', 'Enter') : btnText,
           onclick: async () => {
             engine.triggerHaptic();
             // Send to best device
@@ -364,7 +365,7 @@ export function createRemoteView(options = {}) {
     const devices = store.get('devices') || [];
     const btDev = devices.find(d => d.type === 'BT' || d.isBt);
     if (!btDev) {
-      mainArea.appendChild(h('div', { className: 'card', text: 'No Bluetooth device connected in this activity.' }));
+      mainArea.appendChild(h('div', { className: 'card', text: t('no_bt_device_in_activity', 'No Bluetooth device connected in this activity.') }));
       return;
     }
     const btView = createBtInputView(btDev);

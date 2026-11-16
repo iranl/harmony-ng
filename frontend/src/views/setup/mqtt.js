@@ -5,72 +5,8 @@ import { t } from '../../i18n/index.js';
 import { toast } from '../../components/toast.js';
 import { store } from '../../store.js';
 
-export function createView() {
-  const container = h('div', { className: 'setup-subview-mqtt', style: { display: 'flex', flexDirection: 'column', gap: '16px' } });
-
-  let mqttData = null;
-
-  const card = h('div', { className: 'card' }, [
-    h('div', { className: 'card-header' }, [
-      h('h3', { className: 'card-title', text: t('mqtt_config', 'MQTT & Home Assistant') }),
-      h('span', { id: 'mqtt-status-badge', className: 'badge', text: 'Checking...' }),
-    ]),
-    h('p', { className: 'text-dim', style: { fontSize: '13px', marginBottom: '14px' }, text: t('remote_mqtt_help', 'Mirror physical Harmony remote button presses to MQTT for Home Assistant automations.') }),
-    h('form', { id: 'mqtt-form', onsubmit: (e) => saveMqtt(e) }, [
-      h('div', { className: 'form-group' }, [
-        h('label', { className: 'form-label', text: 'Broker Host / IP' }),
-        h('input', { id: 'mqtt-host', type: 'text', className: 'form-input', placeholder: '192.168.1.100 or homeassistant.local' }),
-      ]),
-      h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' } }, [
-        h('div', { className: 'form-group' }, [
-          h('label', { className: 'form-label', text: 'Port' }),
-          h('input', { id: 'mqtt-port', type: 'number', className: 'form-input', value: 1883 }),
-        ]),
-        h('div', { className: 'form-group' }, [
-          h('label', { className: 'form-label', text: 'Base Topic' }),
-          h('input', { id: 'mqtt-basetopic', type: 'text', className: 'form-input', value: 'harmony/hub' }),
-        ]),
-      ]),
-      h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' } }, [
-        h('div', { className: 'form-group' }, [
-          h('label', { className: 'form-label', text: 'Username' }),
-          h('input', { id: 'mqtt-user', type: 'text', className: 'form-input' }),
-        ]),
-        h('div', { className: 'form-group' }, [
-          h('label', { className: 'form-label', text: 'Password' }),
-          h('input', { id: 'mqtt-pass', type: 'password', className: 'form-input', placeholder: 'Leave blank to keep current' }),
-        ]),
-      ]),
-      h('div', { className: 'card', style: { marginTop: '10px', padding: '12px', background: 'rgba(0,0,0,0.2)' } }, [
-        h('div', { className: 'card-title', style: { fontSize: '13px', marginBottom: '8px' }, text: 'Home Assistant MQTT discovery' }),
-        h('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginBottom: '6px' } }, [
-          h('input', { id: 'mqtt-ha-discovery', type: 'checkbox', checked: true }),
-          h('span', { style: { fontSize: '13px' }, text: 'Create Home Assistant entities automatically (activity select, sensors, buttons)' }),
-        ]),
-        h('div', { className: 'form-group' }, [
-          h('label', { className: 'form-label', text: 'Discovery prefix' }),
-          h('input', { id: 'mqtt-discovery-prefix', type: 'text', className: 'form-input', value: 'homeassistant' }),
-        ]),
-      ]),
-      h('div', { className: 'help', style: { marginTop: '10px', fontSize: '12px' },
-        text: 'MQTT v2: retained state topics (hub, activity_state, bt, rf, config, inventory) and the cmd channel under the base topic; remote button events on <base>/remote/<slot>/button. The harmony-ng Home Assistant integration does not need the discovery entities.' }),
-      h('button', {
-        type: 'submit',
-        className: 'btn btn-primary',
-        style: { marginTop: '14px' },
-        text: t('save_settings', 'Save MQTT Configuration'),
-      }),
-    ]),
-  ]);
-
-  // Home Assistant Send Command Script (scripts.yaml) Card
-  const scriptCard = h('details', { className: 'card', style: { marginTop: '10px' } }, [
-    h('summary', { style: { fontSize: '13px', fontWeight: '700', color: 'var(--accent)', cursor: 'pointer' }, text: 'Home Assistant Send Command Script (scripts.yaml)' }),
-    h('div', { className: 'text-dim', style: { fontSize: '12px', marginTop: '8px' }, html: 'Copy and paste this script into your Home Assistant <code>scripts.yaml</code> to trigger any IR or Bluetooth command with queued concurrency, delays, and hold/pulse time:' }),
-    h('pre', {
-      className: 'mini',
-      style: { marginTop: '8px', fontFamily: 'monospace', background: 'var(--bg-dark, rgba(0,0,0,0.3))', padding: '10px', borderRadius: 'var(--radius-sm, 6px)', border: '1px solid var(--border)', overflowX: 'auto', color: 'var(--text-bright, #fff)', fontSize: '11px', lineHeight: '1.45' },
-      text: `harmony_send_command:
+// Home Assistant script (scripts.yaml): a code sample, shown as it is.
+const HA_SCRIPT_YAML = `harmony_send_command:
   alias: "Harmony Hub Send Command"
   description: "Send IR/BT command to device via Harmony Hub MQTT"
   mode: queued
@@ -130,9 +66,76 @@ export function createView() {
             'hold_secs': hold_secs | default(0, true) | float,
             'num_repeats': num_repeats | default(1, true) | int
           } | combine({'device_id': device_id} if device_id is defined and device_id != '' else {'device': device})) | to_json }}
-    `
+`;
+
+export function createView() {
+  const container = h('div', { className: 'setup-subview-mqtt', style: { display: 'flex', flexDirection: 'column', gap: '16px' } });
+
+  let mqttData = null;
+
+  const card = h('div', { className: 'card' }, [
+    h('div', { className: 'card-header' }, [
+      h('h3', { className: 'card-title', text: t('mqtt_config', 'MQTT & Home Assistant') }),
+      h('span', { id: 'mqtt-status-badge', className: 'badge', text: t('checking', 'Checking...') }),
+    ]),
+    h('p', { className: 'text-dim', style: { fontSize: '13px', marginBottom: '14px' }, text: t('remote_mqtt_help', 'Mirror physical Harmony remote button presses to MQTT for Home Assistant automations.') }),
+    h('form', { id: 'mqtt-form', onsubmit: (e) => saveMqtt(e) }, [
+      h('div', { className: 'form-group' }, [
+        h('label', { className: 'form-label', text: t('broker_host_ip', 'Broker Host / IP') }),
+        h('input', { id: 'mqtt-host', type: 'text', className: 'form-input', placeholder: t('mqtt_host_placeholder', '192.168.1.100 or homeassistant.local') }),
+      ]),
+      h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' } }, [
+        h('div', { className: 'form-group' }, [
+          h('label', { className: 'form-label', text: t('port', 'Port') }),
+          h('input', { id: 'mqtt-port', type: 'number', className: 'form-input', value: 1883 }),
+        ]),
+        h('div', { className: 'form-group' }, [
+          h('label', { className: 'form-label', text: t('base_topic', 'Base Topic') }),
+          h('input', { id: 'mqtt-basetopic', type: 'text', className: 'form-input', value: 'harmony/hub' }),
+        ]),
+      ]),
+      h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' } }, [
+        h('div', { className: 'form-group' }, [
+          h('label', { className: 'form-label', text: t('username', 'Username') }),
+          h('input', { id: 'mqtt-user', type: 'text', className: 'form-input' }),
+        ]),
+        h('div', { className: 'form-group' }, [
+          h('label', { className: 'form-label', text: t('password', 'Password') }),
+          h('input', { id: 'mqtt-pass', type: 'password', className: 'form-input', placeholder: t('placeholder_leave_blank', 'Leave blank to keep current') }),
+        ]),
+      ]),
+      h('div', { className: 'card', style: { marginTop: '10px', padding: '12px', background: 'rgba(0,0,0,0.2)' } }, [
+        h('div', { className: 'card-title', style: { fontSize: '13px', marginBottom: '8px' }, text: t('ha_mqtt_discovery', 'Home Assistant MQTT discovery') }),
+        h('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginBottom: '6px' } }, [
+          h('input', { id: 'mqtt-ha-discovery', type: 'checkbox', checked: true }),
+          h('span', { style: { fontSize: '13px' }, text: t('ha_discovery_create_entities', 'Create Home Assistant entities automatically (activity select, sensors, buttons)') }),
+        ]),
+        h('div', { className: 'form-group' }, [
+          h('label', { className: 'form-label', text: t('discovery_prefix_lbl', 'Discovery prefix') }),
+          h('input', { id: 'mqtt-discovery-prefix', type: 'text', className: 'form-input', value: 'homeassistant' }),
+        ]),
+      ]),
+      h('div', { className: 'help', style: { marginTop: '10px', fontSize: '12px' },
+        text: t('mqtt_v2_help', 'MQTT v2: retained state topics (hub, activity_state, bt, rf, config, inventory) and the cmd channel under the base topic; remote button events on {topic}. The harmony-ng Home Assistant integration does not need the discovery entities.', { topic: '<base>/remote/<slot>/button' }) }),
+      h('button', {
+        type: 'submit',
+        className: 'btn btn-primary',
+        style: { marginTop: '14px' },
+        text: t('save_settings', 'Save MQTT Configuration'),
+      }),
+    ]),
+  ]);
+
+  // Home Assistant Send Command Script (scripts.yaml) Card
+  const scriptCard = h('details', { className: 'card', style: { marginTop: '10px' } }, [
+    h('summary', { style: { fontSize: '13px', fontWeight: '700', color: 'var(--accent)', cursor: 'pointer' }, text: t('ha_send_command_script', 'Home Assistant Send Command Script (scripts.yaml)') }),
+    h('div', { className: 'text-dim', style: { fontSize: '12px', marginTop: '8px' }, html: t('ha_script_copy_help', 'Copy and paste this script into your Home Assistant {file} to trigger any IR or Bluetooth command with queued concurrency, delays, and hold/pulse time:', { file: '<code>scripts.yaml</code>' }) }),
+    h('pre', {
+      className: 'mini',
+      style: { marginTop: '8px', fontFamily: 'monospace', background: 'var(--bg-dark, rgba(0,0,0,0.3))', padding: '10px', borderRadius: 'var(--radius-sm, 6px)', border: '1px solid var(--border)', overflowX: 'auto', color: 'var(--text-bright, #fff)', fontSize: '11px', lineHeight: '1.45' },
+      text: HA_SCRIPT_YAML,
     }),
-    h('div', { className: 'text-dim', style: { fontSize: '11px', marginTop: '6px' }, html: 'Example HA automation action: <code>action: script.harmony_send_command</code> with <code>device_id: "72918237"</code> (or by name <code>device: "Samsung TV"</code>) and <code>command: ["PowerToggle"]</code>.' })
+    h('div', { className: 'text-dim', style: { fontSize: '11px', marginTop: '6px' }, html: t('ha_script_example_help', 'Example HA automation action: {action} with {device_id} (or by name {device}) and {command}.', { action: '<code>action: script.harmony_send_command</code>', device_id: '<code>device_id: "72918237"</code>', device: '<code>device: "Samsung TV"</code>', command: '<code>command: ["PowerToggle"]</code>' }) })
   ]);
 
   // Home Assistant Automation Action Builder Card
@@ -141,65 +144,65 @@ export function createView() {
 
   const builderCard = h('div', { className: 'card', style: { marginTop: '10px' } }, [
     h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' } }, [
-      h('h3', { className: 'card-title', style: { margin: 0, fontSize: '15px', color: 'var(--accent)' }, text: 'Home Assistant Automation Action Builder' }),
+      h('h3', { className: 'card-title', style: { margin: 0, fontSize: '15px', color: 'var(--accent)' }, text: t('ha_action_builder', 'Home Assistant Automation Action Builder') }),
       h('span', { className: 'badge', style: { fontSize: '10px' }, text: 'script.harmony_send_command' })
     ]),
-    h('p', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '12px' }, html: 'Build ready-to-use <code>script.harmony_send_command</code> automation actions for Home Assistant (HA 2024.8+). Select a device, queue commands, adjust timing parameters, and copy the generated YAML.' }),
+    h('p', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '12px' }, html: t('ha_action_builder_help', 'Build ready-to-use {script} automation actions for Home Assistant (HA 2024.8+). Select a device, queue commands, adjust timing parameters, and copy the generated YAML.', { script: '<code>script.harmony_send_command</code>' }) }),
     h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' } }, [
       h('div', { className: 'form-group' }, [
-        h('label', { className: 'form-label', style: { fontSize: '12px', fontWeight: '600' }, text: 'Target Device' }),
+        h('label', { className: 'form-label', style: { fontSize: '12px', fontWeight: '600' }, text: t('target_device', 'Target Device') }),
         h('select', { id: 'ha-helper-dev', className: 'form-input form-input-sm', onchange: () => onDeviceChanged() })
       ]),
       h('div', { className: 'form-group' }, [
-        h('label', { className: 'form-label', style: { fontSize: '12px', fontWeight: '600' }, text: 'Add Command' }),
+        h('label', { className: 'form-label', style: { fontSize: '12px', fontWeight: '600' }, text: t('add_command_step', 'Add Command') }),
         h('div', { style: { display: 'flex', gap: '6px' } }, [
           h('select', { id: 'ha-helper-cmd', className: 'form-input form-input-sm', style: { flex: 1 } }),
-          h('button', { type: 'button', className: 'btn btn-primary btn-sm', text: '+ Add', onclick: () => addCommand() })
+          h('button', { type: 'button', className: 'btn btn-primary btn-sm', text: `+ ${t('add', 'Add')}`, onclick: () => addCommand() })
         ])
       ])
     ]),
     h('div', { style: { marginTop: '10px' } }, [
       h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' } }, [
         h('label', { style: { fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', color: 'var(--text-dim)' } }, [
-          'Command Sequence (',
+          `${t('command_sequence', 'Command Sequence')} (`,
           h('span', { id: 'ha-helper-count', text: '0' }),
           ')'
         ]),
-        h('button', { type: 'button', className: 'btn btn-sm btn-secondary', style: { fontSize: '10px', color: 'var(--danger)', padding: '2px 6px' }, text: 'Clear Sequence', onclick: () => clearQueue() })
+        h('button', { type: 'button', className: 'btn btn-sm btn-secondary', style: { fontSize: '10px', color: 'var(--danger)', padding: '2px 6px' }, text: t('clear_sequence', 'Clear Sequence'), onclick: () => clearQueue() })
       ]),
       h('div', { id: 'ha-helper-queue', style: { minHeight: '48px', maxHeight: '180px', overflowY: 'auto', background: 'var(--bg-dark, rgba(0,0,0,0.2))', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm, 6px)', padding: '6px' } })
     ]),
     h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginTop: '10px' } }, [
       h('div', { className: 'form-group' }, [
-        h('label', { className: 'form-label', style: { fontSize: '11px' }, text: 'Delay (s)' }),
+        h('label', { className: 'form-label', style: { fontSize: '11px' }, text: t('delay_sec', 'Delay (s)') }),
         h('input', { id: 'ha-helper-delay', type: 'number', className: 'form-input form-input-sm', value: 0.4, step: 0.1, min: 0, oninput: () => updateYaml() })
       ]),
       h('div', { className: 'form-group' }, [
-        h('label', { className: 'form-label', style: { fontSize: '11px' }, text: 'Hold (s)' }),
+        h('label', { className: 'form-label', style: { fontSize: '11px' }, text: t('hold_s', 'Hold (s)') }),
         h('input', { id: 'ha-helper-hold', type: 'number', className: 'form-input form-input-sm', value: 0, step: 0.1, min: 0, oninput: () => updateYaml() })
       ]),
       h('div', { className: 'form-group' }, [
-        h('label', { className: 'form-label', style: { fontSize: '11px' }, text: 'Repeats' }),
+        h('label', { className: 'form-label', style: { fontSize: '11px' }, text: t('repeats_lbl', 'Repeats') }),
         h('input', { id: 'ha-helper-repeats', type: 'number', className: 'form-input form-input-sm', value: 1, min: 1, max: 50, oninput: () => updateYaml() })
       ])
     ]),
     h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '14px', marginTop: '10px', fontSize: '11px' } }, [
       h('label', { style: { display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer' } }, [
         h('input', { id: 'ha-helper-indent', type: 'checkbox', checked: true, onchange: () => updateYaml() }),
-        h('span', { text: 'Indent for automation sequence (6 spaces)' })
+        h('span', { text: t('indent_automation_sequence', 'Indent for automation sequence (6 spaces)') })
       ]),
       h('label', { style: { display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer' } }, [
         h('input', { id: 'ha-helper-use-id', type: 'checkbox', checked: true, onchange: () => updateYaml() }),
-        h('span', { text: 'Use Device ID (recommended)' })
+        h('span', { text: t('use_device_id_recommended', 'Use Device ID (recommended)') })
       ])
     ]),
     h('div', { style: { marginTop: '12px' } }, [
       h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' } }, [
-        h('label', { style: { fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', color: 'var(--text-dim)' }, text: 'Generated YAML' }),
+        h('label', { style: { fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', color: 'var(--text-dim)' }, text: t('generated_yaml', 'Generated YAML') }),
         h('div', { style: { display: 'flex', gap: '6px', alignItems: 'center' } }, [
           h('span', { id: 'ha-helper-status', className: 'text-dim', style: { fontSize: '11px' } }),
-          h('button', { id: 'btn-ha-test', type: 'button', className: 'btn btn-secondary btn-sm', text: '▶ Test on Hub', onclick: () => testSequence() }),
-          h('button', { id: 'btn-ha-copy', type: 'button', className: 'btn btn-primary btn-sm', text: '📋 Copy YAML', onclick: () => copyYaml() })
+          h('button', { id: 'btn-ha-test', type: 'button', className: 'btn btn-secondary btn-sm', text: `▶ ${t('test_on_hub', 'Test on Hub')}`, onclick: () => testSequence() }),
+          h('button', { id: 'btn-ha-copy', type: 'button', className: 'btn btn-primary btn-sm', text: `📋 ${t('copy_yaml', 'Copy YAML')}`, onclick: () => copyYaml() })
         ])
       ]),
       h('pre', {
@@ -228,7 +231,7 @@ export function createView() {
     const devSelect = container.querySelector('#ha-helper-dev');
     if (!devSelect) return;
     const devs = getDeviceList();
-    devSelect.innerHTML = devs.map(d => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name || ('Device ' + d.id))} (ID: ${escapeHtml(d.id)})</option>`).join('');
+    devSelect.innerHTML = devs.map(d => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name || t('device_fallback_name', 'Device {id}', { id: d.id }))} (ID: ${escapeHtml(d.id)})</option>`).join('');
     if (devs.length > 0) devSelect.value = String(devs[0].id);
     updateCommandsDropdown();
     renderQueue();
@@ -241,7 +244,7 @@ export function createView() {
     const dev = getSelectedDevice();
     const cmds = dev?.commands || [];
     if (!cmds.length) {
-      cmdSelect.innerHTML = '<option value="">No commands available</option>';
+      cmdSelect.innerHTML = `<option value="">${escapeHtml(t('no_commands_available', 'No commands available'))}</option>`;
       return;
     }
     cmdSelect.innerHTML = cmds.map(c => {
@@ -277,7 +280,7 @@ export function createView() {
     if (countEl) countEl.textContent = haQueue.length;
     if (!queueEl) return;
     if (!haQueue.length) {
-      queueEl.innerHTML = '<div class="text-dim" style="text-align:center; padding:10px; font-size:12px;">No commands added yet. Pick a command above and click "+ Add".</div>';
+      queueEl.innerHTML = `<div class="text-dim" style="text-align:center; padding:10px; font-size:12px;">${escapeHtml(t('ha_queue_empty', 'No commands added yet. Pick a command above and click "+ Add".'))}</div>`;
       return;
     }
     queueEl.innerHTML = haQueue.map((cmd, idx) => `
@@ -383,14 +386,14 @@ export function createView() {
     if (!yamlEl?.textContent) return;
     try {
       if (!(await copyText(yamlEl.textContent))) throw new Error('clipboard unavailable');
-      if (copyBtn) copyBtn.textContent = '✓ Copied!';
-      if (statusEl) statusEl.textContent = 'Copied to clipboard';
+      if (copyBtn) copyBtn.textContent = `✓ ${t('copied_excl', 'Copied!')}`;
+      if (statusEl) statusEl.textContent = t('copied_to_clipboard', 'Copied to clipboard');
       setTimeout(() => {
-        if (copyBtn) copyBtn.textContent = '📋 Copy YAML';
+        if (copyBtn) copyBtn.textContent = `📋 ${t('copy_yaml', 'Copy YAML')}`;
         if (statusEl) statusEl.textContent = '';
       }, 2000);
     } catch {
-      toast.error('Failed to copy to clipboard');
+      toast.error(t('copy_clipboard_failed', 'Failed to copy to clipboard'));
     }
   }
 
@@ -399,34 +402,34 @@ export function createView() {
     const testBtn = container.querySelector('#btn-ha-test');
     const statusEl = container.querySelector('#ha-helper-status');
     if (!dev?.id) {
-      toast.error('Select a device first');
+      toast.error(t('select_device_first_short', 'Select a device first'));
       return;
     }
     if (!haQueue.length) {
-      toast.error('Add commands first');
+      toast.error(t('add_commands_first', 'Add commands first'));
       return;
     }
     const delaySecs = parseFloat(container.querySelector('#ha-helper-delay')?.value) || 0.4;
     const repeats = parseInt(container.querySelector('#ha-helper-repeats')?.value, 10) || 1;
 
     if (testBtn) testBtn.disabled = true;
-    if (statusEl) statusEl.textContent = 'Running sequence...';
+    if (statusEl) statusEl.textContent = t('running_sequence', 'Running sequence...');
     try {
       for (let r = 0; r < repeats; r++) {
         for (let i = 0; i < haQueue.length; i++) {
           const cmd = haQueue[i];
-          if (statusEl) statusEl.textContent = `Cmd ${i + 1}/${haQueue.length}: ${cmd}`;
+          if (statusEl) statusEl.textContent = t('sequence_step_status', 'Cmd {n}/{total}: {command}', { n: i + 1, total: haQueue.length, command: cmd });
           await api.sendCommand(dev.id, cmd);
           if (i < haQueue.length - 1 || r < repeats - 1) {
             await new Promise(res => setTimeout(res, Math.max(50, delaySecs * 1000)));
           }
         }
       }
-      if (statusEl) statusEl.textContent = 'Sequence complete';
+      if (statusEl) statusEl.textContent = t('sequence_complete', 'Sequence complete');
       setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 2500);
     } catch (err) {
       toast.error(err.message);
-      if (statusEl) statusEl.textContent = 'Execution failed';
+      if (statusEl) statusEl.textContent = t('execution_failed', 'Execution failed');
     } finally {
       if (testBtn) testBtn.disabled = false;
     }
@@ -439,10 +442,10 @@ export function createView() {
       if (badge) {
         if (mqttData.connected) {
           badge.className = 'badge badge-success';
-          badge.textContent = 'Connected';
+          badge.textContent = t('connected', 'Connected');
         } else {
           badge.className = 'badge badge-danger';
-          badge.textContent = 'Disconnected';
+          badge.textContent = t('disconnected', 'Disconnected');
         }
       }
 
@@ -463,7 +466,7 @@ export function createView() {
     } catch (e) {
       if (badge) {
         badge.className = 'badge badge-danger';
-        badge.textContent = 'Error';
+        badge.textContent = t('error', 'Error');
       }
     }
   }
@@ -481,9 +484,9 @@ export function createView() {
     };
 
     try {
-      toast.info('Saving MQTT config...');
+      toast.info(t('saving_mqtt_config', 'Saving MQTT config...'));
       await api.saveMqtt(payload);
-      toast.success('MQTT configuration saved!');
+      toast.success(t('mqtt_config_saved', 'MQTT configuration saved!'));
       loadMqtt();
     } catch (err) {
       toast.error(err.message);
@@ -501,7 +504,7 @@ export function createView() {
     const badge = container.querySelector('#mqtt-status-badge');
     if (!badge || !st) return;
     badge.className = st.connected ? 'badge badge-success' : 'badge badge-danger';
-    badge.textContent = st.connected ? 'Connected' : (st.enabled ? 'Disconnected' : 'Disabled');
+    badge.textContent = st.connected ? t('connected', 'Connected') : (st.enabled ? t('disconnected', 'Disconnected') : t('disabled', 'Disabled'));
   });
   return container;
 }
