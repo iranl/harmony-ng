@@ -9,6 +9,29 @@
 #include <string.h>
 #include <unistd.h>
 
+/* true while the progress bar shows a switch the Hub started, not this remote */
+static volatile bool s_switch_from_hub = false;
+
+bool remote_view_follows_hub(void) {
+    /* "Not paired" is left too, as before: an activity from the Hub means the remote is paired
+       and that page is out of date (shown when the chip's pairing reply was missed at start) */
+    return g_current_view == VIEW_ACTIVITIES || g_current_view == VIEW_DEVICES ||
+           g_current_view == VIEW_NOT_PAIRED;
+}
+
+static void show_activity_screen(const char *act_id) {
+    g_current_view = (act_id && act_id[0] && strcmp(act_id, "-1") != 0) ? VIEW_DEVICES : VIEW_ACTIVITIES;
+}
+
+void remote_show_switch_target(void) {
+    if (s_switch_from_hub && !remote_view_follows_hub()) return;
+    show_activity_screen(g_switching_target_id);
+}
+
+void remote_follow_hub_activity(const char *act_id) {
+    if (remote_view_follows_hub()) show_activity_screen(act_id);
+}
+
 void trigger_activity_switch(const char *id, const char *name) {
     if (!g_rf_link_connected) {
         printf("[!] Cannot switch activity '%s': Hub RF connection lost\n", name ? name : "");
@@ -17,6 +40,7 @@ void trigger_activity_switch(const char *id, const char *name) {
         render_screen();
         return;
     }
+    s_switch_from_hub = false;
     g_is_switching_activity = true;
     strncpy(g_switching_target_id, id ? id : "-1", sizeof(g_switching_target_id) - 1);
     strncpy(g_switching_target_name, name ? name : "Activity", sizeof(g_switching_target_name) - 1);
@@ -36,6 +60,7 @@ void trigger_activity_switch(const char *id, const char *name) {
 }
 
 void trigger_activity_switch_external(const char *id, const char *name) {
+    s_switch_from_hub = true;
     g_is_switching_activity = true;
     strncpy(g_switching_target_id, id ? id : "-1", sizeof(g_switching_target_id) - 1);
     strncpy(g_switching_target_name, name ? name : "Activity", sizeof(g_switching_target_name) - 1);

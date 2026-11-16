@@ -11,7 +11,7 @@ Expected standby battery life on a fully charged battery is **~3 days**. This is
 | Subsystem | Active Power | Standby (0-30m) | Deep Standby (>30m) | Optimization Mechanism |
 | :--- | :--- | :--- | :--- | :--- |
 | **LCD & Backlight** (`ap3156_backlight`) | ~120 - 180 mA | 0 mA | 0 mA | `FB_BLANK_POWERDOWN` (`val=4`) + PWM backlight to 0. |
-| **Touchscreen** (Synaptics Clearpad) | ~11 mA | < 0.5 mA | < 0.5 mA | `clearpad_sleep()` writes `0x01` to F01 control reg `0x35`. |
+| **Touchscreen** (Synaptics Clearpad) | ~11 mA | in its own doze (not measured) | in its own doze (not measured) | Left to the kernel's `clearpad` driver, which never puts it into sleep mode (section 2). |
 | **Buttons LED** (`tps6507x:white`) | ~35 mA | 0 mA | 0 mA | Button LEDs disabled when screen blanks or daytime. |
 | **Accelerometer / Gyro** (`i2c-1/1-0019`) | ~15 mA | ~4.0 mA (1-5 Hz) | 0 mA (0 Hz) | Suspended after 30 min; 0 I2C bus transactions. |
 | **CC2544 2.4GHz RF** (`/dev/rfspi`) | ~18 - 24 mA | < 0.5 mA | < 0.5 mA | Radio idle in PM2 sleep; wakes on button event. |
@@ -33,31 +33,13 @@ This properly cuts power to the display controller, saving ~68.5 mA and extendin
 
 ---
 
-## 2. Touchscreen Sleep Mode (`clearpad_sleep()`)
+## 2. Touchscreen: left to the kernel driver
 
-When the remote is in standby, touchscreen taps should not wake the remote (accidental pocket/table touches). The Synaptics Clearpad capacitive matrix sensor consumes ~10.5 mA while actively scanning for finger contact.
+The Synaptics Clearpad capacitive sensor consumes ~10.5 mA while actively scanning for finger contact.
 
-### Fix:
-When entering standby (`fb_set_blank(true)`), `remote_ui` issues an SMBus byte write over I2C bus 1 to the Clearpad controller (`0x20`):
-```c
-static void clearpad_sleep(void) {
-    int fd = open("/dev/i2c-1", O_RDWR);
-    if (fd >= 0) {
-        if (ioctl(fd, I2C_SLAVE_FORCE, 0x20) >= 0) {
-            union i2c_smbus_data data;
-            struct i2c_smbus_ioctl_data args;
-            data.byte = 0x01; /* 0x01 = Sleep Mode */
-            args.read_write = I2C_SMBUS_WRITE;
-            args.command = 0x35; /* F01 Control Register */
-            args.size = I2C_SMBUS_BYTE_DATA;
-            args.data = &data;
-            ioctl(fd, I2C_SMBUS, &args);
-        }
-        close(fd);
-    }
-}
-```
-Upon screen wake (`fb_set_blank(false)`), the Clearpad input event descriptor is re-polled, instantly restoring full multi-touch sensitivity.
+`remote_ui` does not write to the touch controller. The kernel's `clearpad` driver owns the controller: at a suspend it masks the touch interrupt, at the resume it reads the controller once and unmasks it. Nobody puts the controller into its sleep mode, on stock either; it dozes by itself between touches. With the screen off and the remote awake (light standby) a touch wakes the screen when touch is enabled in Settings.
+
+Older builds wrote the controller's registers over raw I2C (`/dev/i2c-1`, address `0x20`) at every blank, wake and suspend, next to the kernel driver. The one before a suspend put the sensor into its sleep mode. Those writes only ran on remotes where `/dev/i2c-1` had been created by hand, and touch worked the same without them, so they were removed. On remotes that had the node the controller now stays in its doze during a suspend, as on stock and on every other remote, so deep standby may draw slightly more there (not measured).
 
 ---
 
@@ -97,6 +79,6 @@ The remote's UI and input dispatch thread runs an event-driven `select()` loop m
 | **Light Standby** | 0 – 30 minutes | • **Motion / Pickup** (LIS3DH INT1 hardware IRQ)<br>• **Any Physical Button** | LIS3DH INT1 (Hardware IRQ only, 0 I2C reads) |
 | **Deep Standby** | > 30 minutes | • **Any Physical Button** (Power, Activities, Devices, OK, Vol, etc.)<br>• **Placing on Dock** (cradle connect) | None (Hardware IRQ only) |
 
-*Note: Touchscreen glass tap does not wake the remote in either standby mode because Clearpad is powered down to prevent accidental activation.*
+*Note: In light standby a touch on the glass wakes the screen when touch is enabled in Settings. A suspended remote (deep standby) does not wake on touch.*
 
 ---

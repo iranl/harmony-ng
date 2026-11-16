@@ -84,11 +84,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                 g_is_switching_activity = false;
                 g_last_switch_completed_ms = now_ms;
                 strncpy(g_last_switch_target_id, g_switching_target_id, sizeof(g_last_switch_target_id) - 1);
-                if (strcmp(g_switching_target_id, "-1") != 0) {
-                    g_current_view = VIEW_DEVICES;
-                } else {
-                    g_current_view = VIEW_ACTIVITIES;
-                }
+                remote_show_switch_target();
                 g_selected_device_cmd = 0;
                 if (g_screen_on) reset_idle_timer();
                 g_screen_dirty = true;
@@ -114,11 +110,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                 strncpy(g_active_activity_name, act_name, sizeof(g_active_activity_name) - 1);
                 strncpy(g_last_switch_target_id, act_id, sizeof(g_last_switch_target_id) - 1);
                 g_last_switch_completed_ms = now_ms;
-                if (strcmp(act_id, "-1") != 0) {
-                    g_current_view = VIEW_DEVICES;
-                } else {
-                    g_current_view = VIEW_ACTIVITIES;
-                }
+                remote_follow_hub_activity(act_id); /* the user's page stays outside home and activity screens */
                 g_selected_device_cmd = 0;
                 if (g_screen_on) reset_idle_timer();
                 g_screen_dirty = true;
@@ -128,7 +120,15 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             printf("[*] Hub Activity Sync (live change): id=%s name=%s\n", act_id, act_name);
             bool is_recent_same_switch = (strcmp(g_last_switch_target_id, act_id) == 0 && (now_ms - g_last_switch_completed_ms < 20000));
             if (!g_is_switching_activity && !is_recent_same_switch) {
-                trigger_activity_switch_external(act_id, act_name);
+                if (remote_view_follows_hub()) {
+                    trigger_activity_switch_external(act_id, act_name);
+                } else {
+                    /* Settings, pairing or the device browser stay on screen: no progress bar over
+                       them, the new activity is there when the user goes back */
+                    printf("[*] Hub changed the activity while view %d is open: screen kept\n", (int)g_current_view);
+                    strncpy(g_last_switch_target_id, act_id, sizeof(g_last_switch_target_id) - 1);
+                    g_last_switch_completed_ms = now_ms;
+                }
             }
             strncpy(g_active_activity_id, act_id, sizeof(g_active_activity_id) - 1);
             strncpy(g_active_activity_name, act_name, sizeof(g_active_activity_name) - 1);

@@ -226,6 +226,8 @@ void rf_perform_unpair_cleanup(bool notify_hub) {
     g_active_activity_name[0] = '\0';
     g_config_version = 0;
     g_unpair_confirm_active = false;
+    /* A progress bar still running would put its target screen over "Not paired" when it ends */
+    g_is_switching_activity = false;
     g_current_view = VIEW_NOT_PAIRED;
 
     printf("[+] Remote unpairing & bonding removal complete. Ready to pair to new hub.\n");

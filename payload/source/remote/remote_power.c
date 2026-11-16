@@ -76,82 +76,6 @@ void set_backlight_level(int level) {
     }
 }
 
-void clearpad_wake(bool full_reset) {
-    (void)full_reset;
-    int fd = open("/dev/i2c-1", O_RDWR);
-    if (fd >= 0) {
-        if (ioctl(fd, I2C_SLAVE_FORCE, 0x20) >= 0) {
-            union i2c_smbus_data data;
-            struct i2c_smbus_ioctl_data args;
-
-            data.byte = 0x00;
-            args.read_write = I2C_SMBUS_WRITE;
-            args.command = 0x35;
-            args.size = I2C_SMBUS_BYTE_DATA;
-            args.data = &data;
-            ioctl(fd, I2C_SMBUS, &args);
-
-            data.byte = 0x07;
-            args.command = 0x36;
-            ioctl(fd, I2C_SMBUS, &args);
-
-            args.read_write = I2C_SMBUS_READ;
-            args.command = 0x14;
-            ioctl(fd, I2C_SMBUS, &args);
-        }
-        close(fd);
-    }
-}
-
-void clearpad_hw_init(void) {
-    clearpad_wake(false);
-    printf("[+] Synaptics Clearpad initialized via I2C\n");
-}
-
-void clearpad_doze(void) {
-    int fd = open("/dev/i2c-1", O_RDWR);
-    if (fd >= 0) {
-        if (ioctl(fd, I2C_SLAVE_FORCE, 0x20) >= 0) {
-            union i2c_smbus_data data;
-            struct i2c_smbus_ioctl_data args;
-
-            data.byte = 0x00; /* Operating Mode: automatic hardware doze when untouched */
-            args.read_write = I2C_SMBUS_WRITE;
-            args.command = 0x35;
-            args.size = I2C_SMBUS_BYTE_DATA;
-            args.data = &data;
-            ioctl(fd, I2C_SMBUS, &args);
-
-            data.byte = 0x07;
-            args.command = 0x36;
-            ioctl(fd, I2C_SMBUS, &args);
-
-            args.read_write = I2C_SMBUS_READ;
-            args.command = 0x14;
-            ioctl(fd, I2C_SMBUS, &args);
-        }
-        close(fd);
-    }
-}
-
-void clearpad_sleep(void) {
-    int fd = open("/dev/i2c-1", O_RDWR);
-    if (fd >= 0) {
-        if (ioctl(fd, I2C_SLAVE_FORCE, 0x20) >= 0) {
-            union i2c_smbus_data data;
-            struct i2c_smbus_ioctl_data args;
-
-            data.byte = 0x01;
-            args.read_write = I2C_SMBUS_WRITE;
-            args.command = 0x35;
-            args.size = I2C_SMBUS_BYTE_DATA;
-            args.data = &data;
-            ioctl(fd, I2C_SMBUS, &args);
-        }
-        close(fd);
-    }
-}
-
 bool is_remote_docked(void) {
     return (strcmp(g_battery_info.powersource, "cradle") == 0 ||
             strcmp(g_battery_info.powersource, "usb") == 0 ||
@@ -224,7 +148,6 @@ void fb_set_blank(bool blank) {
         s_last_wake_ms = now_ms;
         uint64_t sleep_sec = s_last_blank_time_ms > 0 ? (now_ms - s_last_blank_time_ms) / 1000 : 0;
         set_backlight_level(g_brightness_val);
-        clearpad_wake(false);
         read_remote_battery();
         rf_wake_and_reconnect();
         g_screen_dirty = true;
@@ -237,7 +160,6 @@ void fb_set_blank(bool blank) {
     } else {
         s_last_blank_time_ms = now_ms;
         set_backlight_level(0);
-        clearpad_doze();
         if (g_gyro_fd >= 0) {
             struct input_event ev[16];
             while (read(g_gyro_fd, ev, sizeof(ev)) > 0) {}
@@ -583,7 +505,6 @@ static void forced_deep_standby(void) {
     uint64_t now_ms = get_boot_ms();
     s_last_blank_time_ms = (now_ms > 2000000) ? (now_ms - 2000000) : 1;
     log_power_debug("[*] Forcing IMMEDIATE Deep Standby via SIGUSR2\n");
-    clearpad_sleep();
     enter_kernel_suspend();
 }
 
@@ -669,7 +590,6 @@ void *power_manager(void *arg) {
                     if (remote_should_suspend(standby_s, now_ms) && still_idle_for_suspend()) {
                         log_power_debug("[*] Standby time %llus reached deep standby (%s), suspending to RAM...\n",
                                         (unsigned long long)standby_s, g_deep_standby_min < 0 ? "at once" : "timeout");
-                        clearpad_sleep();
                         enter_kernel_suspend();
                         usleep(100000);
                     } else {
@@ -728,7 +648,7 @@ void reset_idle_timer(void) {
 }
 
 /* A hard key pressed while the screen is off goes to the Hub before the screen is lit: the unblank
- * (display, backlight, touch controller, battery reading, flight recorder) and the first frame
+ * (display, backlight, battery reading, flight recorder) and the first frame
  * take far longer than the key, and all of it used to run before the key was sent.
  * remote_key_wake_radio() is the part the key needs: the idle timer and the radio. The caller
  * then handles the key and calls remote_key_wake_screen(). */

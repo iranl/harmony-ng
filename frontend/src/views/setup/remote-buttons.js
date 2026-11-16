@@ -8,6 +8,7 @@ import { store } from '../../store.js';
 import { toast } from '../../components/toast.js';
 import { confirm } from '../../components/confirm.js';
 import { loadRemoteRenderer, setRendererTheme } from '../../remote/remote-renderer.js';
+import { defaultBinding } from './remote-key-fallback.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -136,11 +137,6 @@ function keyLegend(k) {
   return svg('text', { x: cx, y: cy, class: 'eb-label', 'font-size': k.size || 20, text: k.text });
 }
 
-// The Hub falls back to these when the running activity doesn't bind a key
-function defaultBindings(acts) {
-  return acts['-1'] ?? acts.default ?? acts['53591842'] ?? Object.values(acts)[0];
-}
-
 function actionOf(b) {
   const a = b.action || b.type || '';
   if (a === 'device_cmd' || a === 'command' || (!a && b.command && (b.deviceId || b.targetDevice))) return 'command';
@@ -191,9 +187,15 @@ export function createButtonEditor() {
       if (same) return { source: 'name', text: `${deviceName(ctxId())} › ${same}` };
       return { source: 'none', text: 'Nothing' };
     }
-    const own = acts[ctxId()]?.[keyId];
+    const ownEntry = acts[ctxId()];
+    const own = ownEntry?.[keyId];
+    // A key bound to something that is not a binding (null in a hand-edited map) stops the Hub
+    // there: it sends nothing and does not look at the defaults
+    if (ctxId() !== '-1' && ownEntry && Object.hasOwn(ownEntry, keyId) && !(own && typeof own === 'object')) {
+      return { source: 'none', text: 'Nothing' };
+    }
     if (own && ctxId() !== '-1') return { source: 'here', binding: own, text: describe(own) };
-    const def = defaultBindings(acts)?.[keyId];
+    const def = defaultBinding(acts, keyId);
     if (def) return { source: ctxId() === '-1' && acts['-1'] ? 'here' : 'default', binding: def, text: describe(def) };
     return { source: 'none', text: 'Nothing' };
   }
@@ -210,6 +212,8 @@ export function createButtonEditor() {
     const entry = (map[kind][ctxId()] = map[kind][ctxId()] || {});
     if (binding) entry[keyId] = binding;
     else delete entry[keyId];
+    // An empty entry would count as an activity entry for the Hub's fallback (and bind nothing)
+    if (!Object.keys(entry).length) delete map[kind][ctxId()];
     dirty = true;
     refresh();
   }
@@ -511,7 +515,7 @@ export function createButtonEditor() {
       return same ? `${deviceName(ctxId())} › ${same}` : null;
     }
     if (ctxId() === '-1') return null;
-    const def = defaultBindings(map.activities || {})?.[keyId];
+    const def = defaultBinding(map.activities || {}, keyId);
     return def ? describe(def) : null;
   }
 
@@ -538,7 +542,7 @@ export function createButtonEditor() {
     const own = isDevice ? map.devices?.[ctxId()]?.[selected] : map.activities?.[ctxId()]?.[selected];
     const mode = own ? (isDevice ? 'command' : actionOf(own)) : (isDefaults ? 'none' : 'inherit');
 
-    const fallback = isDevice ? sameNameCommand(ctxId(), selected) : (isDefaults ? null : defaultBindings(map.activities || {})?.[selected]);
+    const fallback = isDevice ? sameNameCommand(ctxId(), selected) : (isDefaults ? null : defaultBinding(map.activities || {}, selected));
     const modes = isDevice
       ? [['inherit', `Use the command of the same name${fallback ? ` (${fallback})` : ' (none)'}`], ['command', 'Send a command']]
       : [
