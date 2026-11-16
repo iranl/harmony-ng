@@ -73,8 +73,8 @@ Harmony Hub also accepts built-in connection keywords:
 
 | Action | Command Value | Description |
 |:---|:---|:---|
-| **Connect** | `Connect` or `BT_CONNECT` | Connects or reconnects to the paired Bluetooth host |
-| **Disconnect** | `Disconnect` or `BT_DISCONNECT` | Disconnects the active Bluetooth HID session |
+| **Connect** | `Connect` or `BT_CONNECT` | Connects (or reconnects) the Hub to the Bluetooth host of this command's device |
+| **Disconnect** | `Disconnect` or `BT_DISCONNECT` | Closes the link to the Bluetooth host of this command's device |
 
 ### Removing a paired host
 **Forget** next to a host in the web UI's Bluetooth host list (or `POST /api/bt-forget-host`,
