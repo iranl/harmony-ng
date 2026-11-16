@@ -5,7 +5,8 @@ Route checks of hub_daemon (port 9101, own mock root, clients bound to 127.0.0.2
  1  the key map and layout saves refuse a body their readers would not load (not JSON, not an
     object, empty, larger than the readers take) and keep the stored file
  2  custom icons: an image over 16 KB is refused (was saved cut), the number of icons is
-    limited, and delete removes only icons the upload route made (not a stock icon)
+    limited, and delete removes only icons the upload route made (not a stock icon) and, with
+    them, only their own older name
  3  query parameters are matched by their whole name and end at '&' (logs source, rf-mapping
     slot, device delete id)
  4  GET /api/logs reads the files the Hub writes (harmony-init.log, harmony-network.log)
@@ -140,6 +141,23 @@ def test_icons():
         st, _ = raw("DELETE", "/api/custom-icons?filename=custom_ok%s.png&_=1" % tag)
         check(st == 200 and not os.path.exists(os.path.join(custom, "custom_ok%s.png" % tag)),
               "uploaded icon deleted (extra query parameter)", str(st))
+
+        # The older name of the same icon goes with it; another icon that shares the part after
+        # the first '_' stays (deleting "activity_watch_tv.png" removed "watch_tv.png")
+        for n in ("activity_watch_tv%s.png" % tag, "watch_tv%s.png" % tag,
+                  "activity_77%s.png" % tag, "77%s.png" % tag):
+            with open(os.path.join(custom, n), "wb") as f:
+                f.write(PNG_SIG + b"\0" * 10)
+        st, _ = raw("DELETE", "/api/custom-icons?filename=activity_watch_tv%s.png" % tag)
+        check(st == 200 and not os.path.exists(os.path.join(custom, "activity_watch_tv%s.png" % tag)),
+              "icon deleted by file name", str(st))
+        check(os.path.exists(os.path.join(custom, "watch_tv%s.png" % tag)),
+              "other icon sharing the name after '_' kept")
+        st, _ = raw("DELETE", "/api/custom-icons?id=77%s&type=activity" % tag)
+        check(st == 200 and not os.path.exists(os.path.join(custom, "activity_77%s.png" % tag))
+              and not os.path.exists(os.path.join(custom, "77%s.png" % tag)),
+              "icon deleted by id, its older name too", str(st))
+        os.unlink(os.path.join(custom, "watch_tv%s.png" % tag))
 
         for i in range(128):
             with open(os.path.join(custom, "custom_fill_%03d.png" % i), "wb") as f:

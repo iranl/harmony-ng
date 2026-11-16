@@ -390,9 +390,10 @@ int http_api_custom_icons_handle(int client_fd, const char *method, const char *
     /* Route: DELETE /api/custom-icons */
     if (strcmp(clean_path, "/api/custom-icons") == 0 && strcmp(method, "DELETE") == 0) {
         char fn[64] = {0};
+        char id_val[32] = {0};
         http_query_param(query, "filename", fn, sizeof(fn));
         if (!fn[0]) {
-            char id_val[32] = {0}, type_val[32] = {0};
+            char type_val[32] = {0};
             http_query_param(query, "id", id_val, sizeof(id_val));
             http_query_param(query, "type", type_val, sizeof(type_val));
             if (id_val[0]) snprintf(fn, sizeof(fn), "%s_%s.png", type_val[0] ? type_val : "activity", id_val);
@@ -415,9 +416,15 @@ int http_api_custom_icons_handle(int client_fd, const char *method, const char *
             unlink(path_buf);
         }
 
-        const char *under = strchr(fn, '_');
-        if (under) {
-            snprintf(path_buf, sizeof(path_buf), "/data/harmony/custom_icons/%s", under + 1);
+        /* The same icon under its older name: "<id>.png" for an icon deleted by id and type (older
+         * firmware saved it so), "<name>.png" for "custom_<name>.png" (the icon registry takes
+         * both). The part after the first '_' of any other name can be a different icon:
+         * deleting "activity_watch_tv.png" by file name removed "watch_tv.png". */
+        char legacy[64] = {0};
+        if (id_val[0]) snprintf(legacy, sizeof(legacy), "%s.png", id_val);
+        else if (strncmp(fn, "custom_", 7) == 0) snprintf(legacy, sizeof(legacy), "%s", fn + 7);
+        if (legacy[0] && strcmp(legacy, fn) != 0 && custom_icon_name_ok(legacy)) {
+            snprintf(path_buf, sizeof(path_buf), "/data/harmony/custom_icons/%s", legacy);
             unlink(path_buf);
         }
 
