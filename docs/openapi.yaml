@@ -1030,7 +1030,8 @@ paths:
                 deviceId: "1"
                 users:
                   - {type: activity, id: "10", name: Watch TV, fields: [startSequence]}
-                  - {type: remote_map, slot: 1, count: 1, keys: [activities/10/VolumeUp]}
+                  - {type: remote_map, slot: 1, count: 1, keys: [activities/10/VolumeUp],
+                     groups: [{type: activity, id: "10", name: Watch TV, count: 1}]}
 
   /api/device-commands:
     get:

@@ -58,6 +58,8 @@ def config_dir():
     m = json.load(open(os.path.join(SAMPLE_CONFIG, "remote_slot1_map.json")))
     m["devices"]["6"] = {"Play": {"type": "command", "action": "device_cmd", "deviceId": "6", "command": "Play"}}
     m["devices"]["3"] = {"Play": {"type": "command", "action": "device_cmd", "deviceId": "3", "command": "Play"}}
+    # device 7's page binds a key to device 4
+    m["devices"]["7"] = {"Z": {"type": "command", "action": "device_cmd", "deviceId": "4", "command": "Menu"}}
     m["activities"]["11"]["screen_buttons"] = [{"label": "Old", "deviceId": "4", "command": "Menu"}]
     m["activities"]["12"] = {"A": {"type": "command", "action": "device_cmd", "deviceId": "3", "command": "Play"}}
     m["activities"]["99"] = {"X": {"type": "command", "action": "device_cmd", "deviceId": "4", "command": "Menu"}}
@@ -133,6 +135,9 @@ def main():
             check(len(maps) == 1 and maps[0].get("slot") == 1 and "activities/10/VolumeUp" in keys
                   and "activities/11/VolumeDown" in keys and not any(k.startswith("devices/1") for k in keys),
                   "slot 1 key bindings listed, not the device's own page", str(maps))
+            groups = sorted((g.get("type"), g.get("id"), g.get("name"), g.get("count")) for g in (maps[0].get("groups", []) if maps else []))
+            check(groups == [("activity", "10", "Watch TV", 2), ("activity", "11", "Media Player", 2)],
+                  "keys counted per activity, with its name", str(maps))
             check("1" in device_ids(hub), "device 1 still there")
 
             print("[-] a device only in an activity's device list")
@@ -157,8 +162,13 @@ def main():
             maps = users_of(r, "remote_map")
             check(st == 409 and len(devs) == 1 and devs[0].get("id") == "5" and devs[0].get("field") == "btTriggerDeviceId",
                   "Bluetooth trigger of device 5 listed", "%s %s" % (st, r))
-            check(len(maps) == 1 and maps[0].get("keys") == ["activities/11/screen_buttons/0"],
-                  "screen button listed; not a deleted activity's section, not the unpaired slot 2", str(maps))
+            check(len(maps) == 1 and sorted(maps[0].get("keys", [])) == ["activities/11/screen_buttons/0", "devices/7/Z"],
+                  "screen button and another device's page listed; not a deleted activity's section, not the unpaired slot 2",
+                  str(maps))
+            groups = sorted((maps[0].get("groups") if maps else []) or [], key=lambda g: g.get("id"))
+            check(groups == [{"type": "activity", "id": "11", "name": "Media Player", "count": 1},
+                             {"type": "device_page", "id": "7", "name": "Ble Target", "count": 1}],
+                  "a screen button counts as a key of its activity; a device page is named", str(maps))
 
             print("[-] a device bound on the Bluetooth remote")
             st, r = hub.http_post("/api/device-delete", {"deviceId": "7"})
@@ -193,7 +203,7 @@ def main():
                                                                          "remote_id": "20141001120000-000002"}}) as hub:
             st, r = hub.http_post("/api/device-delete", {"deviceId": "4"})
             maps = {u.get("slot"): u.get("keys") for u in users_of(r, "remote_map")}
-            check(st == 409 and maps == {1: ["activities/11/screen_buttons/0"]}, "slot 1 counted: its file names a remote",
+            check(st == 409 and 1 in maps and "activities/11/screen_buttons/0" in maps[1], "slot 1 counted: its file names a remote",
                   "%s %s" % (st, r))
         with HubHarness(port=PORT, config_dir=cfg, env={"HARMONY_TEST_RF_PORT": str(RF_PORT)},
                         extra_data_files={"remote_slot1_version.json": {"slot": 1, "version": "2.4.2"}}) as hub:

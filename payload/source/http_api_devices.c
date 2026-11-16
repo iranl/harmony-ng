@@ -156,18 +156,16 @@ static int stale_section(const char *path, const cJSON *act_ids, const cJSON *de
         return 0;
     }
     if (strchr(id, '/')) return 0;
-    const cJSON *e;
-    cJSON_ArrayForEach(e, ids) {
-        if (cJSON_IsString(e) && strcmp(e->valuestring, id) == 0) return 0;
-    }
-    return 1;
+    return cJSON_GetObjectItemCaseSensitive(ids, id) == NULL; /* ids: id -> name */
 }
 
-/* Key bindings of a remote map that name the device, as "activities/10/VolumeUp". The map's own
- * page for the device ("devices/<id>") belongs to the device and is not counted, nor are the
- * sections of activities that no longer exist. */
+/* Key bindings of a remote map that name the device, as "activities/10/VolumeUp", counted per
+ * section ("activities/10", "devices/5") in groups. The map's own page for the device
+ * ("devices/<id>") belongs to the device and is not counted, nor are the sections of activities
+ * that no longer exist. */
 static void map_keys_using(const cJSON *j, const char *dev_id, const char *path, int depth,
-                           const cJSON *act_ids, const cJSON *dev_ids, cJSON *keys, int *count) {
+                           const cJSON *act_ids, const cJSON *dev_ids, cJSON *keys, int *count,
+                           const char *group, cJSON *groups) {
     const cJSON *c;
     int idx = 0;
     cJSON_ArrayForEach(c, j) {
@@ -181,9 +179,15 @@ static void map_keys_using(const cJSON *j, const char *dev_id, const char *path,
             names_device(c, dev_id)) {
             if (*count < DEVICE_USER_KEYS_MAX) cJSON_AddItemToArray(keys, cJSON_CreateString(path));
             (*count)++;
+            const char *g = group ? group : path;
+            cJSON *n = cJSON_GetObjectItemCaseSensitive(groups, g);
+            if (n) cJSON_SetNumberValue(n, n->valuedouble + 1);
+            else cJSON_AddNumberToObject(groups, g, 1);
             continue;
         }
-        if (cJSON_IsObject(c) || cJSON_IsArray(c)) map_keys_using(c, dev_id, sub, depth + 1, act_ids, dev_ids, keys, count);
+        if (cJSON_IsObject(c) || cJSON_IsArray(c)) {
+            map_keys_using(c, dev_id, sub, depth + 1, act_ids, dev_ids, keys, count, depth == 1 ? sub : group, groups);
+        }
     }
 }
 
@@ -195,18 +199,47 @@ static void add_map_users(cJSON *users, const char *file, const char *type, int 
     free(txt);
     if (!map) return;
     cJSON *keys = cJSON_CreateArray();
+    cJSON *groups = cJSON_CreateObject();
     int count = 0;
-    map_keys_using(map, dev_id, "", 0, act_ids, dev_ids, keys, &count);
+    map_keys_using(map, dev_id, "", 0, act_ids, dev_ids, keys, &count, NULL, groups);
     cJSON_Delete(map);
     if (count == 0) {
         cJSON_Delete(keys);
+        cJSON_Delete(groups);
         return;
     }
+    /* per section, with its name, for a message people can read: "46 keys in TV (DTT)" */
+    cJSON *ga = cJSON_CreateArray();
+    const cJSON *g;
+    cJSON_ArrayForEach(g, groups) {
+        cJSON *o = cJSON_CreateObject();
+        const char *sec = g->string;
+        if (strncmp(sec, "activities/", 11) == 0) {
+            const char *aid = sec + 11;
+            int fallback = strcmp(aid, "-1") == 0 || strcmp(aid, "default") == 0;
+            cJSON_AddStringToObject(o, "type", fallback ? "no_activity" : "activity");
+            cJSON_AddStringToObject(o, "id", aid);
+            const cJSON *nm = cJSON_GetObjectItemCaseSensitive(act_ids, aid);
+            if (cJSON_IsString(nm)) cJSON_AddStringToObject(o, "name", nm->valuestring);
+        } else if (strncmp(sec, "devices/", 8) == 0) {
+            cJSON_AddStringToObject(o, "type", "device_page");
+            cJSON_AddStringToObject(o, "id", sec + 8);
+            const cJSON *nm = cJSON_GetObjectItemCaseSensitive(dev_ids, sec + 8);
+            if (cJSON_IsString(nm)) cJSON_AddStringToObject(o, "name", nm->valuestring);
+        } else {
+            cJSON_AddStringToObject(o, "type", "other");
+            cJSON_AddStringToObject(o, "id", sec);
+        }
+        cJSON_AddNumberToObject(o, "count", g->valuedouble);
+        cJSON_AddItemToArray(ga, o);
+    }
+    cJSON_Delete(groups);
     cJSON *u = cJSON_CreateObject();
     cJSON_AddStringToObject(u, "type", type);
     if (slot > 0) cJSON_AddNumberToObject(u, "slot", slot);
     cJSON_AddNumberToObject(u, "count", count);
     cJSON_AddItemToObject(u, "keys", keys);
+    cJSON_AddItemToObject(u, "groups", ga);
     cJSON_AddItemToArray(users, u);
 }
 
@@ -258,15 +291,18 @@ static int slot_version_file_counts(int slot, int require_remote) {
  * do not count either. Read without the configuration lock (the maps are not under it). */
 static cJSON *device_map_users(const char *dev_id) {
     cJSON *users = cJSON_CreateArray();
-    cJSON *act_ids = cJSON_CreateArray();
-    cJSON *dev_ids = cJSON_CreateArray();
+    cJSON *act_ids = cJSON_CreateObject(); /* id -> name */
+    cJSON *dev_ids = cJSON_CreateObject();
     cJSON *devs_root = config_store_devices_copy();
     const cJSON *devs = devs_root ? cJSON_GetObjectItemCaseSensitive(devs_root, "devices") : (const cJSON *)0;
     const cJSON *d;
     cJSON_ArrayForEach(d, devs) {
         char did[64];
         id_text(cJSON_GetObjectItemCaseSensitive(d, "id"), did, sizeof(did));
-        if (did[0]) cJSON_AddItemToArray(dev_ids, cJSON_CreateString(did));
+        const cJSON *nm = cJSON_GetObjectItemCaseSensitive(d, "name");
+        if (did[0] && !cJSON_GetObjectItemCaseSensitive(dev_ids, did)) {
+            cJSON_AddStringToObject(dev_ids, did, cJSON_IsString(nm) && nm->valuestring ? nm->valuestring : did);
+        }
     }
     cJSON_Delete(devs_root);
     cJSON *acts_root = config_store_activities_copy();
@@ -276,7 +312,10 @@ static cJSON *device_map_users(const char *dev_id) {
     cJSON_ArrayForEach(a, acts) {
         char aid[64];
         id_text(cJSON_GetObjectItemCaseSensitive(a, "id"), aid, sizeof(aid));
-        if (aid[0]) cJSON_AddItemToArray(act_ids, cJSON_CreateString(aid));
+        const cJSON *nm = cJSON_GetObjectItemCaseSensitive(a, "name");
+        if (aid[0] && !cJSON_GetObjectItemCaseSensitive(act_ids, aid)) {
+            cJSON_AddStringToObject(act_ids, aid, cJSON_IsString(nm) && nm->valuestring ? nm->valuestring : aid);
+        }
     }
     cJSON_Delete(acts_root);
 

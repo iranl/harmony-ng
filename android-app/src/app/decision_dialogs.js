@@ -84,27 +84,59 @@ export function askToCheck(client, toCheck, currentUser = '') {
   });
 }
 
-// Text for a device delete refused with 409: what still uses the device
-export function deviceUsersText(users) {
+const FIELD_WORDS = {
+  deviceIds: ['device_field_device_list', 'device list'],
+  startSequence: ['device_field_start_steps', 'start steps'],
+  stopSequence: ['device_field_stop_steps', 'stop steps'],
+  powerOnSequence: ['device_field_power_steps', 'power steps'],
+  powerOffSequence: ['device_field_power_steps', 'power steps'],
+};
+
+function fieldWord(f) {
+  const k = FIELD_WORDS[f];
+  return k ? t(k[0], k[1]) : f;
+}
+
+// "46 keys in TV (DTT)", "1 key in the Receiver page"
+function keysIn(g) {
+  let where = g.name || g.id;
+  if (g.type === 'device_page') where = t('device_in_use_page', 'the {name} page').replace('{name}', g.name || g.id);
+  else if (g.type === 'no_activity') where = t('device_in_use_default_page', 'the default page');
+  const tmpl = g.count === 1 ? t('device_in_use_key_in', '1 key in {name}') : t('device_in_use_keys_in', '{count} keys in {name}');
+  return tmpl.replace('{count}', g.count).replace('{name}', where);
+}
+
+// The 409 "users" of a refused device delete as lines people can read
+export function deviceUsersLines(users) {
   const lines = [];
-  for (const u of users || []) {
-    if (u.type === 'activity') {
-      lines.push(t('device_in_use_activity', 'Activity {name} ({id}): {fields}')
-        .replace('{name}', u.name || '').replace('{id}', u.id).replace('{fields}', (u.fields || []).join(', ')));
-    } else if (u.type === 'device') {
-      lines.push(t('device_in_use_device', 'Device {name} ({id}): Bluetooth trigger')
-        .replace('{name}', u.name || '').replace('{id}', u.id));
-    } else if (u.type === 'remote_map' || u.type === 'bt_remote_map') {
-      const keys = (u.keys || []).join(', ') + ((u.count || 0) > (u.keys || []).length ? ', ...' : '');
-      const tmpl = u.type === 'remote_map'
-        ? t('device_in_use_map', 'Remote slot {slot}: {count} keys ({keys})')
-        : t('device_in_use_bt_map', 'Bluetooth remote: {count} keys ({keys})');
-      lines.push(tmpl.replace('{slot}', u.slot).replace('{count}', u.count).replace('{keys}', keys));
-    }
+  const acts = (users || []).filter((u) => u.type === 'activity');
+  if (acts.length) {
+    const fields = [];
+    for (const a of acts) for (const f of a.fields || []) if (!fields.includes(fieldWord(f))) fields.push(fieldWord(f));
+    lines.push(t('device_in_use_activities', 'Activities: {names} ({fields})')
+      .replace('{names}', acts.map((a) => a.name || a.id).join(', ')).replace('{fields}', fields.join(', ')));
   }
-  lines.push('');
-  lines.push(t('device_in_use_hint', 'Remove the device from these first, then delete it.'));
-  return lines.join('\n');
+  const devs = (users || []).filter((u) => u.type === 'device');
+  if (devs.length) {
+    lines.push(t('device_in_use_bt_trigger', 'Bluetooth trigger of {names}').replace('{names}', devs.map((d) => d.name || d.id).join(', ')));
+  }
+  for (const u of users || []) {
+    if (u.type !== 'remote_map' && u.type !== 'bt_remote_map') continue;
+    const groups = Array.isArray(u.groups) && u.groups.length
+      ? u.groups.map(keysIn).join(', ')
+      : t('device_in_use_keys', '{count} keys').replace('{count}', u.count); /* a Hub without groups */
+    const tmpl = u.type === 'remote_map'
+      ? t('device_in_use_slot', 'Remote slot {slot}: {groups}')
+      : t('device_in_use_bt_remote', 'Bluetooth remote: {groups}');
+    lines.push(tmpl.replace('{slot}', u.slot).replace('{groups}', groups));
+  }
+  return lines;
+}
+
+// Text for a device delete refused with 409: what still uses the device, and what to do
+export function deviceUsersText(users) {
+  return [t('device_in_use_intro', 'This device is still used:'), ...deviceUsersLines(users), '',
+    t('device_in_use_hint', 'Remove the device from these first, then delete it.')].join('\n');
 }
 
 // The users list of a refused device delete, or null for any other error

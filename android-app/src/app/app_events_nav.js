@@ -751,7 +751,7 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
         await this.client.deleteDevice(devId);
       } catch (err) {
         const users = deviceUsersOf(err);
-        if (users) await showAlert(`${err.message}\n\n${deviceUsersText(users)}`, { title: t('device_in_use_title', 'Device in use'), icon: '⚠️' });
+        if (users) await showAlert(deviceUsersText(users), { title: t('device_in_use_title', 'Device in use'), icon: '⚠️' });
         else alert(`Error: ${err.message}`);
         return;
       }

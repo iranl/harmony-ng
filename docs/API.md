@@ -488,8 +488,13 @@ lost: the editors take no lock). The web remote layouts (`web_remote_layouts.jso
 scanned: the web remote drops buttons of a device that no longer exists by itself.
 - **Request Body**: `{"deviceId": "70321456"}`
 - **Response `200 OK`**: `{"ok": true}` (`{"ok": false}` for an unknown device)
-- **Response `409 Conflict`**: the device is in use; `users` lists what uses it (key bindings at
-  most 32 per map, `count` gives the total):
+- **Response `409 Conflict`**: the device is in use; `users` lists what uses it: activities (with
+  `name` and the `fields` that name the device), devices whose Bluetooth trigger names it, and per
+  remote map the key bindings (`keys`: paths, at most 32, `count`: the total) and `groups`: the
+  bindings counted per section, with its name (`type` `activity`, `device_page` for another device's
+  page, `no_activity` for the default page `-1`/`default`, `other`). A screen button counts as a key
+  of its activity. Both web UIs show this as text, e.g. "Activities: Shield TV, Xbox (device list,
+  start steps)", "Remote slot 1: 46 keys in TV (DTT)":
   ```json
   {
     "ok": false,
@@ -498,8 +503,10 @@ scanned: the web remote drops buttons of a device that no longer exists by itsel
     "users": [
       {"type": "activity", "id": "10", "name": "Watch TV", "fields": ["startSequence", "stopSequence"]},
       {"type": "device", "id": "5", "name": "Receiver", "field": "btTriggerDeviceId"},
-      {"type": "remote_map", "slot": 1, "count": 2, "keys": ["activities/10/VolumeUp", "activities/10/VolumeDown"]},
-      {"type": "bt_remote_map", "count": 1, "keys": ["activities/10/OK"]}
+      {"type": "remote_map", "slot": 1, "count": 2, "keys": ["activities/10/VolumeUp", "activities/10/VolumeDown"],
+       "groups": [{"type": "activity", "id": "10", "name": "Watch TV", "count": 2}]},
+      {"type": "bt_remote_map", "count": 1, "keys": ["activities/10/OK"],
+       "groups": [{"type": "activity", "id": "10", "name": "Watch TV", "count": 1}]}
     ]
   }
   ```

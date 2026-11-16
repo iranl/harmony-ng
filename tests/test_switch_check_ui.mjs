@@ -137,5 +137,39 @@ const toCheck = {
   assert.equal(await showPendingSwitchCheck(api), null, 'new UI: not again after that');
   console.log('    ok   new UI flow: restore, list kept, names only before the login, dialog for an admin');
 }
+// "Device in use" (409 "users" of a refused device delete) as text people can read, both UIs
+{
+  const users = [
+    { type: 'activity', id: '1', name: 'Shield TV', fields: ['deviceIds', 'startSequence'] },
+    { type: 'activity', id: '2', name: 'TV (DTT)', fields: ['deviceIds'] },
+    { type: 'activity', id: '3', name: 'Xbox', fields: ['deviceIds', 'startSequence'] },
+    { type: 'device', id: '5', name: 'Receiver', field: 'btTriggerDeviceId' },
+    { type: 'remote_map', slot: 1, count: 47, keys: ['activities/2/Menu', 'activities/2/screen_buttons/0'],
+      groups: [{ type: 'activity', id: '2', name: 'TV (DTT)', count: 46 }, { type: 'device_page', id: '7', name: 'Shield', count: 1 }] },
+    { type: 'bt_remote_map', count: 2, keys: ['activities/-1/OK'], groups: [{ type: 'no_activity', id: '-1', count: 2 }] },
+  ];
+  const expected = [
+    'Activities: Shield TV, TV (DTT), Xbox (device list, start steps)',
+    'Bluetooth trigger of Receiver',
+    'Remote slot 1: 46 keys in TV (DTT), 1 key in the Shield page',
+    'Bluetooth remote: 2 keys in the default page',
+  ];
+  const legacy = await import('../android-app/src/app/decision_dialogs.js');
+  const fresh = await import('../frontend/src/components/hub-decisions.js');
+  assert.deepEqual(legacy.deviceUsersLines(users), expected, 'legacy: readable lines');
+  assert.deepEqual(fresh.deviceUsersLines(users), expected, 'new UI: readable lines');
+  const text = legacy.deviceUsersText(users);
+  assert.ok(text.startsWith('This device is still used:\n') && text.endsWith('Remove the device from these first, then delete it.'),
+    'legacy: intro and hint around the lines');
+  assert.ok(!/activities\/|deviceIds|startSequence/.test(text), 'legacy: no raw paths or field names');
+  const older = [{ type: 'remote_map', slot: 2, count: 3, keys: ['activities/2/A'] }];
+  assert.deepEqual(fresh.deviceUsersLines(older), ['Remote slot 2: 3 keys'], 'a Hub without groups: the count');
+  body.children = [];
+  fresh.showDeviceInUse(Object.assign(new Error('Device is in use'), { status: 409, data: { users } }));
+  const shown = [...body.walk()].map(n => n.textContent);
+  assert.ok(shown.includes('This device is still used:') && expected.every(l => shown.includes(l)) && !shown.includes('Device is in use'),
+    'new UI: the dialog shows the readable lines');
+  console.log('    ok   device in use: readable lines in both UIs');
+}
 console.log('    all passed');
 process.exit(0);
