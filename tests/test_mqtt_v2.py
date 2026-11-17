@@ -76,9 +76,15 @@ def main():
             sub = MockClient("127.0.0.1", broker.port, "observer")
             sub.subscribe(BASE + "/#")
             sub.subscribe("homeassistant/#")
-            # wait for the daemon to connect and publish
+            # wait for the daemon to connect and publish: config and the discovery topics come
+            # after the inventory index, so wait for every retained topic this block reads
+            needed = [BASE + t for t in ("/status", "/hub", "/activity_state", "/config", "/inventory/index", "/inventory/1")]
+            needed += ["homeassistant/%s/harmony-test_%s/config" % k for k in (
+                ("select", "activity"), ("sensor", "activity_id"), ("sensor", "ip"), ("sensor", "firmware"),
+                ("sensor", "ir_devices"), ("sensor", "ir_commands"), ("button", "power_off"), ("button", "sync"),
+                ("button", "remote_2_sleep"))]
             deadline = time.time() + 10
-            while time.time() < deadline and (BASE + "/inventory/index") not in broker.retained:
+            while time.time() < deadline and not all(t in broker.retained for t in needed):
                 time.sleep(0.1)
             r = broker.retained
             check(r.get(BASE + "/status") == b"online", "status online retained", str(r.get(BASE + "/status")))
@@ -196,7 +202,10 @@ def main():
             check(m is not None, "index republished with a new inventory_version", str(m))
             m2 = sub.wait_for(BASE + "/inventory/1", 5, lambda p: (jload(p) or {}).get("name") == "Living Room TV 2")
             check(m2 is not None, "changed device chunk republished", str(m2))
-            check(retained_json(broker, BASE + "/config")["inventory_version"] != version_before, "config carries the new version")
+            # config is published after the index: wait for it too
+            m3 = sub.wait_for(BASE + "/config", 5, lambda p: (jload(p) or {}).get("inventory_version") != version_before)
+            check(m3 is not None and retained_json(broker, BASE + "/config")["inventory_version"] != version_before,
+                  "config carries the new version (published and retained)", str(m3))
 
             print("[-] 5.3 command channel")
             cmd = MockClient("127.0.0.1", broker.port, "commander")
