@@ -149,6 +149,14 @@ class Wrapper(unittest.TestCase):
         self.s.run(self.wrapper)
         self.assertEqual(self.s.started(), [f"{self.s.root}/data/harmony/bin/dropbearmulti dropbear -s -g -K 300"])
 
+    def test_update_package_binary_preferred_over_usb_root_binary(self):
+        self.s.fake_server("data/dropbearmulti")
+        self.s.fake_server("data/harmony/bin/dropbearmulti")
+        res = self.s.run(self.wrapper, "--binary")
+        self.assertEqual(res.stdout.strip(), f"{self.s.root}/data/harmony/bin/dropbearmulti")
+        self.s.run(self.wrapper)
+        self.assertEqual(self.s.started(), [f"{self.s.root}/data/harmony/bin/dropbearmulti dropbear -s -g -K 300"])
+
     def test_serial_guide_binary_but_never_the_root_tools_boot_script(self):
         multi = self.s.root / "usr" / "sbin" / "dropbearmulti"
         self.s.write(multi, f'#!/bin/sh\necho "boot script ran" >> "{self.s.argv_file}"\n')

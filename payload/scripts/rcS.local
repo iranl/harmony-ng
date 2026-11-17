@@ -25,11 +25,17 @@ if [ -n "$_sshd_bin" ] && [ -x "$_sshd_bin" ]; then
 		cp "$_sshd_src" /usr/sbin/dropbear.new 2>/dev/null && chmod 755 /usr/sbin/dropbear.new &&
 			mv -f /usr/sbin/dropbear.new /usr/sbin/dropbear
 	fi
-elif [ ! -s /usr/sbin/dropbear ] && [ -x /data/dropbearmulti ] && [ -s /data/dropbearmulti ]; then
-	# no usable wrapper and /usr/sbin/dropbear missing, empty or a dangling link: never boot
-	# without SSH while the server binary is there
-	printf '#!/bin/sh\nexec /data/dropbearmulti dropbear -s -g -K 300 "$@"\n' > /usr/sbin/dropbear.new &&
-		chmod 755 /usr/sbin/dropbear.new && mv -f /usr/sbin/dropbear.new /usr/sbin/dropbear
+elif [ ! -s /usr/sbin/dropbear ]; then
+	_fb=""
+	if [ -x /data/harmony/bin/dropbearmulti ] && [ -s /data/harmony/bin/dropbearmulti ]; then
+		_fb=/data/harmony/bin/dropbearmulti
+	elif [ -x /data/dropbearmulti ] && [ -s /data/dropbearmulti ]; then
+		_fb=/data/dropbearmulti
+	fi
+	if [ -n "$_fb" ]; then
+		printf '#!/bin/sh\nexec %s dropbear -s -g -K 300 "$@"\n' "$_fb" > /usr/sbin/dropbear.new &&
+			chmod 755 /usr/sbin/dropbear.new && mv -f /usr/sbin/dropbear.new /usr/sbin/dropbear
+	fi
 fi
 
 # 1. Reboot counter emergency check
@@ -91,6 +97,8 @@ EOF
 	# directly when that file is not usable)
 	if [ -s /usr/sbin/dropbear ] && [ -x /usr/sbin/dropbear ]; then
 		/usr/sbin/dropbear
+	elif [ -x /data/harmony/bin/dropbearmulti ] && [ -s /data/harmony/bin/dropbearmulti ]; then
+		/data/harmony/bin/dropbearmulti dropbear -s -g -K 300
 	elif [ -x /data/dropbearmulti ] && [ -s /data/dropbearmulti ]; then
 		/data/dropbearmulti dropbear -s -g -K 300
 	fi
