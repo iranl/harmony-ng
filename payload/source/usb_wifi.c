@@ -516,6 +516,9 @@ int usbwifi_main(int argc, char **argv) {
     }
     signal(SIGPIPE, SIG_IGN);
 
+    /* a Wi-Fi test cut short (this program killed, the power cut): previous files back */
+    wifi_config_recover();
+
     int ls = socket(AF_INET, SOCK_STREAM, 0);
     if (ls < 0) {
         perror("usbwifi: socket");

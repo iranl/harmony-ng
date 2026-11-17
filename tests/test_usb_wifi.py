@@ -8,8 +8,9 @@ frames, exactly as usbhid relays the USB reports. The PC side is tools/harmony_h
 (HarmonyHid with a transport that writes the frames to that socket), so provision_wifi() and
 get_wifi_status() are tested unchanged against the applet. wpa_cli is a shell script: a
 network whose password is "goodpassword" (or an open one named "OpenNet") connects, the
-password "wrongpassword" fails the handshake, any other never connects. Nothing on the host's
-network is touched; the applet listens on 127.0.0.1 only.
+password "wrongpassword" fails the handshake, any other never connects; wpa_supplicant (a
+script too) answers only once started when the file "no_supplicant" exists. Nothing on the
+host's network is touched; the applet listens on 127.0.0.1 only.
 
 Checks: status before a set (stock keys, no password); a set with a wrong password is
 acknowledged, the status says failed with the reason, both configuration files keep their old
@@ -21,6 +22,12 @@ reset are refused with stock's error answer (byte 2 = 0xFF); malformed and unkno
 the parse and handle codes; ping answers; a new connection from usbhid replaces the old one and
 is counted in the state file; the password never appears in the status or the log; the DHCP
 client is asked for a new lease after a good set.
+
+Previous settings really kept: with no Wi-Fi file before, a failed set removes the candidate
+again (and drops it from wpa_supplicant); an applet killed in the middle of a test leaves its
+copies and a mark on flash, and the next start puts the previous files back (also after a
+power cut, which clears the lock in /tmp), with or without previous files. A Hub on which
+wpa_supplicant does not run (no network stored) gets it started for the test.
 """
 
 from __future__ import annotations
@@ -54,8 +61,8 @@ ssid=$(sed -n 's/^[[:space:]]*ssid="\(.*\)"$/\1/p' "$CONF" 2>/dev/null)
 psk=$(sed -n 's/^[[:space:]]*psk="\(.*\)"$/\1/p' "$CONF" 2>/dev/null)
 open=$(grep -c 'key_mgmt=NONE' "$CONF" 2>/dev/null)
 case "$3" in
-  ping) echo PONG ;;
-  reconfigure) echo OK ;;
+  ping) [ -f "$ROOT/no_supplicant" ] || echo PONG ;;
+  reconfigure|remove_network|disconnect) echo OK ;;
   status)
     if [ -f "$ROOT/no_wpa" ]; then exit 1; fi
     if [ "$psk" = "goodpassword" ] || [ "$psk" = "oldpassword1" ] || { [ "$open" = 1 ] && [ "$ssid" = "OpenNet" ]; }; then
@@ -72,6 +79,14 @@ case "$3" in
     fi
     ;;
 esac
+'''
+
+
+FAKE_SUPPLICANT = r'''#!/bin/sh
+# fake wpa_supplicant: records how it was started and starts answering wpa_cli
+ROOT="@ROOT@"
+echo "$*" >> "$ROOT/supplicant.log"
+rm -f "$ROOT/no_supplicant"
 '''
 
 
@@ -136,8 +151,17 @@ class UsbWifi(unittest.TestCase):
         cli = self.root / "usr" / "sbin" / "wpa_cli"
         cli.write_text(FAKE_WPA_CLI.replace("@ROOT@", str(self.root)))
         cli.chmod(0o755)
+        sup = self.root / "usr" / "sbin" / "wpa_supplicant"
+        sup.write_text(FAKE_SUPPLICANT.replace("@ROOT@", str(self.root)))
+        sup.chmod(0o755)
         self.env = dict(os.environ, HARMONY_WIFI_ROOT=str(self.root), HARMONY_WIFI_TEST_WAIT="2")
         self.log = open(self.root / "applet.log", "w+")
+        self.transports = []
+        self.dhcp = None
+        self.start_applet()
+
+    def start_applet(self, wait: str = "2") -> None:
+        self.env["HARMONY_WIFI_TEST_WAIT"] = wait
         self.proc = subprocess.Popen([str(self.bin), "usbwifi", "--port", str(PORT), "--verbose"],
                                      env=self.env, stdout=self.log, stderr=subprocess.STDOUT)
         for _ in range(100):
@@ -146,8 +170,6 @@ class UsbWifi(unittest.TestCase):
                 break
             except OSError:
                 time.sleep(0.05)
-        self.transports = []
-        self.dhcp = None
 
     def tearDown(self):
         for t in self.transports:
@@ -298,6 +320,103 @@ class UsbWifi(unittest.TestCase):
         self.assertTrue(hid.provision_wifi("NewNet", "goodpassword"))
         self.assertEqual(hid.get_wifi_status().get("connect_status"), "connected")
         self.assertFalse(lock.exists(), "the lock is released after the set")
+
+    # ---- the previous settings, really kept ----
+
+    def paths(self) -> tuple[pathlib.Path, pathlib.Path]:
+        return self.root / "etc" / "wpa_supplicant.conf", self.root / "etc" / "wpa_supplicant.ath0.conf"
+
+    def leftovers(self) -> list[str]:
+        return sorted(p.name for p in (self.root / "etc").iterdir() if "pretest" in p.name)
+
+    def test_no_previous_config_failed_set_removes_candidate(self):
+        for p in self.paths():
+            p.unlink()
+        hid = self.hid()
+        self.assertTrue(hid.provision_wifi("NewNet", "wrongpassword"))
+        self.assertEqual(hid.get_wifi_status().get("connect_status"), "failed")
+        for p in self.paths():
+            self.assertFalse(p.exists(), f"{p.name}: the failed candidate (and its password) stayed")
+        self.assertEqual(self.leftovers(), [])
+        self.assertIn("remove_network all", (self.root / "wpa_cli.log").read_text(),
+                      "the candidate was not dropped from the running wpa_supplicant")
+
+    def test_only_the_ath0_file_before(self):
+        conf, ath0 = self.paths()
+        conf.unlink()
+        hid = self.hid()
+        self.assertTrue(hid.provision_wifi("FarAway", "unreachable1"))
+        self.assertFalse(conf.exists(), "a file that did not exist was created")
+        self.assertEqual(ath0.read_text(), OLD_CONF)
+
+    def test_supplicant_not_running_is_started(self):
+        for p in self.paths():
+            p.unlink()
+        (self.root / "no_supplicant").write_text("")
+        hid = self.hid()
+        self.assertTrue(hid.provision_wifi("NewNet", "goodpassword"))
+        st = hid.get_wifi_status()
+        self.assertEqual(st.get("connect_status"), "connected", st)
+        started = (self.root / "supplicant.log").read_text()
+        self.assertIn(f"-s -iath0 -c {self.root}/etc/wpa_supplicant.conf", started)
+        conf, ath0 = self.confs()
+        self.assertIn('ssid="NewNet"', conf)
+        self.assertEqual(conf, ath0)
+        self.assertEqual(self.leftovers(), [])
+
+    def interrupt_test(self) -> None:
+        """An applet with a long test wait is killed while its test runs"""
+        self.proc.kill()
+        self.proc.wait()
+        self.start_applet(wait="60")
+        hid = self.hid()
+        hid.dev.sock.settimeout(120)
+        payload = b"ssid,FarAway\npassword,unreachable1\nencryption,WPA2-PSK\n"
+        handle = hid.open_file_write("/sys/wifi/connect", size=len(payload))
+        for f in build_primary_frames(0x03, 9, [encode_param_byte(handle), encode_param_byte(2)]):
+            hid.dev.write_report(f)
+        hid.dev.write_report(bytes([0x00, len(payload)]) + payload)
+        conf, _ = self.paths()
+        for _ in range(100):
+            if conf.exists() and "FarAway" in conf.read_text():
+                break
+            time.sleep(0.05)
+        self.assertIn("FarAway", conf.read_text(), "the test did not start")
+        self.proc.kill()
+        self.proc.wait()
+
+    def test_killed_mid_test_restored_at_start(self):
+        self.interrupt_test()
+        self.assertIn("FarAway", self.paths()[0].read_text())
+        self.assertIn("wpa_supplicant.pretest", self.leftovers(), "no mark left on flash")
+        self.assertTrue((self.root / "tmp" / "harmony_wifi_test.lock").exists())
+        self.start_applet()
+        self.assertEqual(self.confs(), (OLD_CONF, OLD_CONF), "the previous files are back")
+        self.assertEqual(self.leftovers(), [])
+        self.assertFalse((self.root / "tmp" / "harmony_wifi_test.lock").exists())
+        self.assertIn("interrupted Wi-Fi test was undone", self.applet_log())
+        self.assertTrue((self.root / "wpa_cli.log").read_text().rstrip().endswith("reconfigure"))
+
+    def test_power_cut_mid_test_without_previous_files(self):
+        for p in self.paths():
+            p.unlink()
+        self.interrupt_test()
+        (self.root / "tmp" / "harmony_wifi_test.lock").unlink()  # /tmp is RAM: gone after a power cut
+        self.start_applet()
+        for p in self.paths():
+            self.assertFalse(p.exists(), f"{p.name}: the candidate of the cut test stayed")
+        self.assertEqual(self.leftovers(), [])
+
+    def test_recovery_waits_for_a_live_test(self):
+        mark = self.root / "etc" / "wpa_supplicant.pretest"
+        mark.write_text("conf=0\nath0=0\n")
+        lock = self.root / "tmp" / "harmony_wifi_test.lock"
+        lock.write_text(f"{os.getpid()}\n")  # a live test runs
+        self.proc.kill()
+        self.proc.wait()
+        self.start_applet()
+        self.assertEqual(self.confs(), (OLD_CONF, OLD_CONF), "the live test's files were touched")
+        self.assertTrue(mark.exists())
 
     # ---- everything else is refused ----
 

@@ -19,6 +19,7 @@
 #include "http_api_remotes.h"
 #include "hub_key_channel.h"
 #include "harmony_version.h"
+#include "wifi_config.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -214,6 +215,8 @@ int main(int argc, char **argv) {
 
     /* 1. Hardware, Config Store & Orchestrator Core */
     config_store_init();
+    /* a Wi-Fi test (web UI or USB setup) cut short by a kill or a power cut: previous files back */
+    wifi_config_recover();
     /* Rewrite VERSION only when it differs: every daemon start wrote it to flash */
     char cur_ver[64] = {0};
     FILE *cvf = fopen("/data/harmony/VERSION", "r");
