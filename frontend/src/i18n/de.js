@@ -1241,4 +1241,8 @@ export default {
     "b25_key_ch_down": "Kanal runter",
     "b25_key_watchlist": "Merkliste",
     "pairing_state_off": "Aus",
+    "icons_archive_and_list_failed": "Das Symbolarchiv konnte nicht geladen werden, und die Symbolliste ist nicht lesbar",
+    "harmony_detail_http_error": "Gerätedetails konnten nicht geladen werden: HTTP {status}",
+    "harmony_codeset_http_error": "Codesatz konnte nicht geladen werden: HTTP {status}",
+    "harmony_no_codeset": "Kein Codesatz angegeben",
 };

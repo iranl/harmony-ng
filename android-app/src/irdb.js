@@ -4,7 +4,7 @@
  * full official Logitech Harmony IR Archive integration (276,236 devices).
  */
 import harmonyManufacturers from './harmony_manufacturers.json';
-import { t } from './i18n.js';
+import { t, tf } from './i18n.js';
 
 export const HARMONY_ARCHIVE_CDN = 'https://cdn.jsdelivr.net/gh/pickysysadmin/logitech-harmony-ir-archive@main/';
 export const HARMONY_ARCHIVE_RAW = 'https://raw.githubusercontent.com/pickysysadmin/logitech-harmony-ir-archive/main/';
@@ -78,19 +78,19 @@ export async function fetchHarmonyDeviceDetail(mfg, filename) {
   if (!r.ok) {
     r = await fetch(`${HARMONY_ARCHIVE_RAW}devices/${encodeURIComponent(mfg)}/${encodeURIComponent(filename)}`);
   }
-  if (!r.ok) throw new Error(`Failed to load device details: HTTP ${r.status}`);
+  if (!r.ok) throw new Error(tf('harmony_detail_http_error', { status: r.status }));
   return r.json();
 }
 
 export async function fetchHarmonyCodeset(codesetPath) {
-  if (!codesetPath) throw new Error('No codeset specified');
+  if (!codesetPath) throw new Error(t('harmony_no_codeset'));
   const cleanPath = codesetPath.replace(/^\//, '');
   const url = `${HARMONY_ARCHIVE_CDN}${cleanPath}`;
   let r = await fetch(url);
   if (!r.ok) {
     r = await fetch(`${HARMONY_ARCHIVE_RAW}${cleanPath}`);
   }
-  if (!r.ok) throw new Error(`Failed to load codeset: HTTP ${r.status}`);
+  if (!r.ok) throw new Error(tf('harmony_codeset_http_error', { status: r.status }));
   return r.json();
 }
 

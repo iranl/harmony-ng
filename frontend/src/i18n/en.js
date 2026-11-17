@@ -1241,4 +1241,8 @@ export default {
     "b25_key_ch_down": "Channel Down",
     "b25_key_watchlist": "Watchlist",
     "pairing_state_off": "Off",
+    "icons_archive_and_list_failed": "Could not download the icon archive, and the icon list cannot be read",
+    "harmony_detail_http_error": "Failed to load device details: HTTP {status}",
+    "harmony_codeset_http_error": "Failed to load codeset: HTTP {status}",
+    "harmony_no_codeset": "No codeset specified",
 };

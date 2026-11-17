@@ -1241,4 +1241,8 @@ export default {
     "b25_key_ch_down": "Canale giù",
     "b25_key_watchlist": "Lista dei preferiti",
     "pairing_state_off": "Disattivato",
+    "icons_archive_and_list_failed": "Impossibile scaricare l'archivio delle icone e l'elenco delle icone non è leggibile",
+    "harmony_detail_http_error": "Impossibile caricare i dettagli del dispositivo: HTTP {status}",
+    "harmony_codeset_http_error": "Impossibile caricare il set di codici: HTTP {status}",
+    "harmony_no_codeset": "Nessun set di codici indicato",
 };

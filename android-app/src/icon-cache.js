@@ -5,7 +5,7 @@
  * instant in-memory Blob URLs, and automatic Hub/OTA sync.
  */
 
-import { t } from './i18n.js';
+import { t, tf } from './i18n.js';
 
 const DB_NAME = 'harmony_icons_db';
 const DB_VERSION = 1;
@@ -299,13 +299,13 @@ export async function syncIconsFromHub(baseUrl, client, onProgress = null) {
 
   // Fallback: Individual downloads via /api/icons
   if (!client || typeof client.getIcons !== 'function') {
-    throw new Error('Could not download icon archive and client.getIcons is unavailable');
+    throw new Error(t('icons_archive_and_list_failed'));
   }
 
   if (onProgress) onProgress({ status: 'listing', percent: 10, message: t('icons_progress_listing') });
   const iconList = await client.getIcons();
   if (!Array.isArray(iconList) || iconList.length === 0) {
-    throw new Error('Hub reports no icons available');
+    throw new Error(t('icons_none_on_hub'));
   }
 
   let done = 0;
@@ -342,7 +342,7 @@ export async function syncIconsFromOta(onProgress = null) {
   if (onProgress) onProgress({ status: 'downloading', percent: 20, message: t('icons_progress_downloading_ota') });
   const res = await fetch(otaUrl);
   if (!res.ok) {
-    throw new Error(`OTA mirror returned HTTP ${res.status}`);
+    throw new Error(tf('icons_ota_http_error', { status: res.status }));
   }
   const buf = await res.arrayBuffer();
   if (onProgress) onProgress({ status: 'extracting', percent: 60, message: t('icons_progress_unpacking') });

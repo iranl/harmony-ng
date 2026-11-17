@@ -1241,4 +1241,8 @@ export default {
     "b25_key_ch_down": "Kanaal omlaag",
     "b25_key_watchlist": "Kijklijst",
     "pairing_state_off": "Uit",
+    "icons_archive_and_list_failed": "Het pictogramarchief kon niet worden gedownload en de pictogramlijst is niet leesbaar",
+    "harmony_detail_http_error": "Apparaatgegevens laden mislukt: HTTP {status}",
+    "harmony_codeset_http_error": "Codeset laden mislukt: HTTP {status}",
+    "harmony_no_codeset": "Geen codeset opgegeven",
 };

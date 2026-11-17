@@ -406,7 +406,7 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
           }
         }
         document.getElementById('iconPickerModal').style.display = 'none';
-        showToast(tf('selected_icon', { name: this.formatIconDisplayName(iconVal) }), 'info', 1800);
+        showToast(tf('selected_icon_toast', { name: this.formatIconDisplayName(iconVal) }), 'info', 1800);
       });
     }
   }

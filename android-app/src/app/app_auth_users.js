@@ -471,7 +471,7 @@ export function showTokenOwners(listEl, tokens) {
     const meta = btn.parentNode && btn.parentNode.querySelector('.mini.muted');
     if (!tok || !meta) return;
     const span = document.createElement('span');
-    span.textContent = ` • ${t('token_owner', 'Owner: {owner}').replace('{owner}', tok.owner || '-')}`;
+    span.textContent = ` • ${tf('token_owner', { owner: tok.owner || '-' }, 'Owner: {owner}')}`;
     meta.appendChild(span);
   });
 }

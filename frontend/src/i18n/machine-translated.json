@@ -526,7 +526,11 @@
     "device_in_use_keys",
     "device_in_use_keys_in",
     "device_in_use_page",
-    "device_in_use_slot"
+    "device_in_use_slot",
+    "icons_archive_and_list_failed",
+    "harmony_detail_http_error",
+    "harmony_codeset_http_error",
+    "harmony_no_codeset"
   ],
   "fr": [
     "confirm_btn",
@@ -1054,7 +1058,11 @@
     "device_in_use_keys",
     "device_in_use_keys_in",
     "device_in_use_page",
-    "device_in_use_slot"
+    "device_in_use_slot",
+    "icons_archive_and_list_failed",
+    "harmony_detail_http_error",
+    "harmony_codeset_http_error",
+    "harmony_no_codeset"
   ],
   "nl": [
     "confirm_btn",
@@ -1582,7 +1590,11 @@
     "device_in_use_keys",
     "device_in_use_keys_in",
     "device_in_use_page",
-    "device_in_use_slot"
+    "device_in_use_slot",
+    "icons_archive_and_list_failed",
+    "harmony_detail_http_error",
+    "harmony_codeset_http_error",
+    "harmony_no_codeset"
   ],
   "es": [
     "confirm_btn",
@@ -2110,7 +2122,11 @@
     "device_in_use_keys",
     "device_in_use_keys_in",
     "device_in_use_page",
-    "device_in_use_slot"
+    "device_in_use_slot",
+    "icons_archive_and_list_failed",
+    "harmony_detail_http_error",
+    "harmony_codeset_http_error",
+    "harmony_no_codeset"
   ],
   "it": [
     "confirm_btn",
@@ -2638,6 +2654,10 @@
     "device_in_use_keys",
     "device_in_use_keys_in",
     "device_in_use_page",
-    "device_in_use_slot"
+    "device_in_use_slot",
+    "icons_archive_and_list_failed",
+    "harmony_detail_http_error",
+    "harmony_codeset_http_error",
+    "harmony_no_codeset"
   ]
 }

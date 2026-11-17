@@ -299,7 +299,7 @@ export async function syncIconsFromHub(baseUrl, client, onProgress = null) {
 
   // Fallback: Individual downloads via /api/icons
   if (!client || typeof client.getIcons !== 'function') {
-    throw new Error('Could not download icon archive and client.getIcons is unavailable');
+    throw new Error(t('icons_archive_and_list_failed', 'Could not download the icon archive, and the icon list cannot be read'));
   }
 
   if (onProgress) onProgress({ status: 'listing', percent: 10, message: t('icons_fetching_list', 'Fetching icon list from Hub...') });

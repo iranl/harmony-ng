@@ -1241,4 +1241,8 @@ export default {
     "b25_key_ch_down": "Chaîne -",
     "b25_key_watchlist": "Liste de favoris",
     "pairing_state_off": "Désactivé",
+    "icons_archive_and_list_failed": "Impossible de télécharger l'archive des icônes, et la liste des icônes est illisible",
+    "harmony_detail_http_error": "Impossible de charger les détails de l'appareil : HTTP {status}",
+    "harmony_codeset_http_error": "Impossible de charger le jeu de codes : HTTP {status}",
+    "harmony_no_codeset": "Aucun jeu de codes indiqué",
 };

@@ -136,7 +136,7 @@ export function createView() {
                   const name = hItem.name || bdaddr;
                   const ok = await confirm.ask({
                     title: t('bt_forget_host_title', 'Forget Bluetooth host'),
-                    message: t('bt_forget_host_confirm', 'Forget {name} ({addr})?').split('{name}').join(name).split('{addr}').join(bdaddr),
+                    message: t('bt_forget_host_confirm', 'Forget {name} ({addr})?', { name, addr: bdaddr }),
                     confirmText: t('bt_forget_host', 'Forget'),
                     danger: true,
                   });
