@@ -204,7 +204,8 @@ def main():
             check(m2 is not None, "changed device chunk republished", str(m2))
             # config is published after the index: wait for it too
             m3 = sub.wait_for(BASE + "/config", 5, lambda p: (jload(p) or {}).get("inventory_version") != version_before)
-            check(m3 is not None, "config carries the new version", str(m3))
+            check(m3 is not None and retained_json(broker, BASE + "/config")["inventory_version"] != version_before,
+                  "config carries the new version (published and retained)", str(m3))
 
             print("[-] 5.3 command channel")
             cmd = MockClient("127.0.0.1", broker.port, "commander")

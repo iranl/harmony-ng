@@ -268,6 +268,9 @@ class MockClient:
         self.sock.sendall(b"\x10" + _enc_len(len(payload)) + payload)
         t, data = _read_packet(self.sock)
         assert t == 0x20 and data[1] == 0, "CONNACK"
+        # the timeout is for the connect only: the reader waits as long as the test does (a quiet
+        # topic for longer than the timeout used to end the reader, and the client heard nothing more)
+        self.sock.settimeout(None)
         self.running = True
         self.thread = threading.Thread(target=self._reader, daemon=True)
         self.thread.start()
@@ -336,6 +339,13 @@ class MockClient:
         self.running = False
         try:
             self.sock.sendall(b"\xE0\x00")
+        except OSError:
+            pass
+        try:
+            self.sock.shutdown(socket.SHUT_RDWR)  # wakes the reader, which has no timeout
+        except OSError:
+            pass
+        try:
             self.sock.close()
         except OSError:
             pass
