@@ -72,6 +72,10 @@ where it reaches the screen. When a text must stay as it is:
 - `tests/test_frontend_views_translated.mjs` builds the new UI's setup pages in English and in
   German and fails on a heading, label or button that reads the same in both; a word that is the
   same in German ("Name", "Status", "Port") goes into its `SAME_OK` list.
+- `tests/test_webui_rows_translated.mjs` draws pages of both UIs from sample Hub data (users,
+  tokens, Bluetooth hosts, the lists of a refused device delete) in a second language and fails
+  when an English text of a translated key is left on the page, or when a name holding `$&` or
+  `{name}` is not shown as typed.
 
 ## Machine translations still to check
 
@@ -101,7 +105,10 @@ node frontend/scripts/i18n-check.js android-app   # legacy UI
 The checker fails (exit code 1) when a key is missing in one of the language files, when a key
 the code uses (`t()`, `tf()`, `tfHtml()`, `ui.t()` for a translate function passed in an options
 object, both keys of `t(cond ? 'a' : 'b')`, table fields named `...Key`, `data-i18n*`) does not exist, when a translation has other placeholders than the English
-text, or when `machine-translated.json` names a key that does not exist. It prints how many
+text, when a call's values do not match the placeholders of the English text (a value the text has
+no `{name}` for, or a `{name}` the call gives no value; checked for calls that pass an object
+literal, e.g. `tf('key', { name })`), or when `machine-translated.json` names a key that does not
+exist. It prints how many
 machine translations each language still has, and lists the calls whose key is computed in some
 other way (it cannot check those). The test suite runs it for both UIs (`tests/suite.d/86-i18n.sh`)
 together with the tests named above.

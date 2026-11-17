@@ -1,6 +1,7 @@
 // frontend/scripts/i18n-check.js fails on: a translation that loses, adds or repeats a
 // {placeholder}; a key missing in one language file; a key asked for through tf(), tfHtml(), ui.t() or
-// t(cond ? 'a' : 'b') that does not exist; a machine-translated.json entry naming an unknown key.
+// t(cond ? 'a' : 'b') that does not exist; a call whose values do not match the {placeholders} of the
+// English text; a machine-translated.json entry naming an unknown key.
 // Works on a copy of the new UI's language files in a temporary folder: no browser, no Hub.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -89,6 +90,31 @@ await t.check('tf(), tfHtml(), t(cond ? a : b) and ui.t() keys are checked', asy
     assert.equal(r.code, 1, r.out);
     for (const k of ['a', 'b', 'c', 'd', 'e']) assert.match(r.out, new RegExp(`no_such_key_${k}`));
     assert.doesNotMatch(r.out, /not_a_key_f/, 'obj.t() other than ui.t() counted as a translation');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+await t.check('a call whose values do not match the {placeholders} of the English text fails', async () => {
+  const dir = makeApp();
+  try {
+    const en = (await import(join(dir, 'src/i18n/en.js'))).default;
+    const plain = Object.keys(en).find(k => !/\{/.test(en[k]));
+    const one = Object.keys(en).find(k => /^[^{]*\{([a-z_]+)\}[^{]*$/.test(en[k]));
+    const ph = en[one].match(/\{([a-z_]+)\}/)[1];
+    // a value the text has no {name} for (never shown), a {name} without a value (shown as is),
+    // and a call that fills the text right (not reported)
+    writeFileSync(join(dir, 'src/probe.js'), [
+      `tf('${plain}', { name: x });`,
+      `t('${one}', 'fallback', {\n  other: y,\n});`,
+      `t('${one}', { ${ph}: z(a, b) });`,
+      `tfHtml('${one}', { ...vars });`,
+      '',
+    ].join('\n'));
+    const r = run(dir);
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, new RegExp(`probe.js:1: ${plain} gets \\{name\\}, the English text has no such placeholder`));
+    assert.match(r.out, new RegExp(`probe.js:2: ${one} gets \\{other\\}`));
+    assert.match(r.out, new RegExp(`probe.js:2: ${one} gives no value for \\{${ph}\\}`));
+    assert.doesNotMatch(r.out, /probe\.js:[34]:/, 'a right call or a spread was reported');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
