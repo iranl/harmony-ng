@@ -54,6 +54,23 @@ static void switch_to(const char *id) {
 
 static const char *g_other_copy = NULL;
 
+/* Reader for the stress check: copies what the getter returns, the way the HTTP handlers do,
+ * while main() switches between "-1" and "12". A copy made without the lock can catch the
+ * buffer halfway through a switch: "11" ("1" of "12" over the "-" of "-1"). */
+static volatile int g_stress_stop = 0;
+static long g_stress_reads = 0, g_stress_torn = 0;
+
+static void *stress_reader(void *arg) {
+    (void)arg;
+    while (!g_stress_stop) {
+        char copy[32];
+        snprintf(copy, sizeof(copy), "%s", orch_get_current_activity());
+        if (strcmp(copy, "-1") != 0 && strcmp(copy, "12") != 0) g_stress_torn++;
+        g_stress_reads++;
+    }
+    return NULL;
+}
+
 static void *other_thread(void *arg) {
     (void)arg;
     g_other_copy = orch_get_current_activity();
@@ -76,6 +93,14 @@ int main(void) {
     pthread_join(t, NULL);
     const char *mine = orch_get_current_activity();
     check(g_other_copy != NULL && g_other_copy != mine, "each thread gets its own copy");
+
+    pthread_t r;
+    assert(pthread_create(&r, NULL, stress_reader, NULL) == 0);
+    for (int i = 0; i < 1000000; i++) switch_to((i & 1) ? "12" : "-1");
+    g_stress_stop = 1;
+    pthread_join(r, NULL);
+    printf("    %ld reads during 1000000 switches, %ld not a whole id\n", g_stress_reads, g_stress_torn);
+    check(g_stress_reads > 0 && g_stress_torn == 0, "a read during switches always gets a whole id");
 
     if (g_fails) {
         printf("[!] %d check(s) failed\n", g_fails);
