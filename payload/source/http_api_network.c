@@ -354,8 +354,9 @@ int http_api_network_handle(int client_fd, const char *method, const char *clean
                 else if (cJSON_IsString(p_fb)) eth_fb = (strcmp(p_fb->valuestring, "0") != 0 && strcasecmp(p_fb->valuestring, "false") != 0);
             }
 
-            /* Unlike the other fields, usb_wifi_setup left out keeps the stored value: the web UI
-             * does not send it, and an Ethernet save must not turn the USB setup back on */
+            /* Unlike the other fields, usb_wifi_setup left out keeps the stored value: the web UIs
+             * send it only after reading the stored value, and an Ethernet save from an older
+             * client must not turn the USB setup back on */
             int usb_wifi = wifi_usb_setup_setting(config_store_path("ethernet.conf"));
             if (p_usb) {
                 if (cJSON_IsBool(p_usb)) usb_wifi = cJSON_IsTrue(p_usb);

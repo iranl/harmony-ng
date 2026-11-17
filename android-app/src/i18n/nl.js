@@ -997,6 +997,8 @@ export default {
     "save_failed": "Opslaan mislukt: ",
     "save_hub_btn": "Hub opslaan",
     "save_ip_settings": "IP-instellingen opslaan",
+    "usb_wifi_setup_lbl": "Wi-Fi-instelling via USB",
+    "usb_wifi_setup_desc": "Een computer aan de USB-poort van de Hub kan de netwerknaam lezen en het Wi-Fi-netwerk instellen (tools/set_wifi_usb.py). Zet dit uit als anderen een kabel op de Hub kunnen aansluiten. Wordt opgeslagen met de knoppen voor de IP-instellingen hieronder en geldt meteen.",
     "save_layout_hub_title": "Deze indeling opslaan op de hub als standaard voor alle apparaten",
     "save_logging": "Logboekinstelling opslaan",
     "save_mqtt": "MQTT opslaan",

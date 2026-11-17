@@ -997,6 +997,8 @@ export default {
     "save_failed": "Échec de l'enregistrement : ",
     "save_hub_btn": "Enregistrer le Hub",
     "save_ip_settings": "Enregistrer paramètres IP",
+    "usb_wifi_setup_lbl": "Configuration Wi-Fi par USB",
+    "usb_wifi_setup_desc": "Un ordinateur branché sur le port USB du Hub peut lire le nom du réseau et configurer le Wi-Fi (tools/set_wifi_usb.py). Désactivez-le si d'autres personnes peuvent brancher un câble sur le Hub. Enregistré avec les boutons des paramètres IP ci-dessous, appliqué immédiatement.",
     "save_layout_hub_title": "Enregistrer cette disposition sur le hub par défaut pour tous les appareils",
     "save_logging": "Enregistrer paramètres de journalisation",
     "save_mqtt": "Enregistrer MQTT",

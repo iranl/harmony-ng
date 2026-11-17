@@ -145,8 +145,10 @@ refused. The same works in the Hub's emergency boot mode (after more than five f
 
 Like the stock firmware, the Hub answers any computer on its USB port without a login: it can
 read the network name and address and set another network (each failed attempt takes the Hub off
-Wi-Fi for about 12 s). To turn the USB setup off, send `"usb_wifi_setup": false` with
-`POST /api/ethernet-save` (API.md 8.3), or put `USB_WIFI_SETUP=0` in
+Wi-Fi for about 12 s). To turn the USB setup off, clear the "Wi-Fi setup over USB" switch in
+the web UI (Network page; in the legacy web UI it sits in the Ethernet & IP settings and is
+saved with them), send `"usb_wifi_setup": false` with `POST /api/ethernet-save` (API.md 8.3),
+or put `USB_WIFI_SETUP=0` in
 `/data/harmony/ethernet.conf`. Requests are then refused at once; from the next start of the Hub
 services or boot `hub_usbwifi` is not started and the boot does not wait for a computer (so
 Ethernet over USB always starts). With it off and no Wi-Fi network, the way back is an Ethernet

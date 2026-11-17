@@ -997,6 +997,8 @@ export default {
     "save_failed": "Error al guardar: ",
     "save_hub_btn": "Guardar Hub",
     "save_ip_settings": "Guardar ajustes IP",
+    "usb_wifi_setup_lbl": "Configuración Wi-Fi por USB",
+    "usb_wifi_setup_desc": "Un ordenador conectado al puerto USB del Hub puede leer el nombre de la red y configurar el Wi-Fi (tools/set_wifi_usb.py). Desactívelo si otras personas pueden conectar un cable al Hub. Se guarda con los botones de ajustes IP de abajo y se aplica al momento.",
     "save_layout_hub_title": "Guardar este diseño en el Hub como predeterminado para todos los dispositivos",
     "save_logging": "Guardar ajuste de registro",
     "save_mqtt": "Guardar MQTT",

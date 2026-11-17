@@ -54,12 +54,60 @@ export function createView() {
     h('div', { id: 'wifi-scan-results', style: { marginTop: '12px' } }),
   ]);
 
+  // Wi-Fi setup over USB (USB_WIFI_SETUP in ethernet.conf). The save route rewrites the whole
+  // Ethernet file, so the stored Ethernet values the Hub reported are sent back unchanged. The
+  // switch stays disabled until those values are loaded.
+  let netConfig = null;
+  const usbToggle = h('input', { id: 'usb-wifi-setup-toggle', type: 'checkbox', onchange: () => saveUsbWifiSetup() });
+  usbToggle.disabled = true;
+  const usbCard = h('div', { className: 'card' }, [
+    h('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' } }, [
+      usbToggle,
+      h('span', { style: { fontWeight: '600' }, text: t('usb_wifi_setup_lbl', 'Wi-Fi setup over USB') }),
+    ]),
+    h('div', { className: 'text-dim', style: { fontSize: '12px', marginTop: '6px' }, text: t('usb_wifi_setup_desc', "A computer connected to the Hub's USB port can read the network name and set the Wi-Fi network (tools/set_wifi_usb.py). Turn this off if others can plug a cable into the Hub. It applies at once.") }),
+  ]);
+
+  async function saveUsbWifiSetup() {
+    if (!netConfig) return;
+    const on = usbToggle.checked;
+    const c = netConfig;
+    usbToggle.disabled = true;
+    try {
+      await api.saveEthernet({
+        apply: 'save',
+        eth_enabled: c.eth_enabled === false ? 0 : 1,
+        eth_fallback_wifi: c.eth_fallback_wifi === false ? 0 : 1,
+        eth_mode: c.eth_mode || 'dhcp',
+        eth_ip: c.eth_ip || '',
+        eth_netmask: c.eth_netmask || '',
+        eth_gateway: c.eth_gateway || '',
+        eth_dns: c.eth_dns || '',
+        usb_wifi_setup: on ? 1 : 0,
+      });
+      netConfig = { ...c, usb_wifi_setup: on };
+      toast.success(on
+        ? t('usb_wifi_setup_turned_on', 'Wi-Fi setup over USB turned on')
+        : t('usb_wifi_setup_turned_off', 'Wi-Fi setup over USB turned off'));
+    } catch (err) {
+      usbToggle.checked = !on;
+      toast.error(err.message);
+    } finally {
+      usbToggle.disabled = false;
+    }
+  }
+
   async function loadNetStatus() {
     const mount = container.querySelector('#net-status-mount');
     if (!mount) return;
     try {
       const net = await api.getNetworkStatus();
       mount.innerHTML = '';
+      if (net.config && typeof net.config.usb_wifi_setup === 'boolean') {
+        netConfig = net.config;
+        usbToggle.checked = net.config.usb_wifi_setup;
+        usbToggle.disabled = false;
+      }
 
       const grid = h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '8px' } }, [
         h('div', { className: 'card', style: { margin: 0, padding: '8px' } }, [
@@ -140,6 +188,7 @@ export function createView() {
 
   container.appendChild(statusCard);
   container.appendChild(wifiCard);
+  container.appendChild(usbCard);
   loadNetStatus();
 
   return container;

@@ -997,6 +997,8 @@ export default {
     "save_failed": "Save failed: ",
     "save_hub_btn": "Save Hub",
     "save_ip_settings": "Save IP Settings",
+    "usb_wifi_setup_lbl": "Wi-Fi setup over USB",
+    "usb_wifi_setup_desc": "A computer connected to the Hub's USB port can read the network name and set the Wi-Fi network (tools/set_wifi_usb.py). Turn this off if others can plug a cable into the Hub. Saved with the IP settings buttons below; it applies at once.",
     "save_layout_hub_title": "Save this layout to Hub as default for all devices",
     "save_logging": "Save Logging Setting",
     "save_mqtt": "Save MQTT",

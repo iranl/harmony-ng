@@ -491,6 +491,13 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
         if (st.config.eth_netmask && document.getElementById('ethNetmask')) document.getElementById('ethNetmask').value = st.config.eth_netmask;
         if (st.config.eth_gateway && document.getElementById('ethGateway')) document.getElementById('ethGateway').value = st.config.eth_gateway;
         if (st.config.eth_dns && document.getElementById('ethDns')) document.getElementById('ethDns').value = st.config.eth_dns;
+        // Wi-Fi setup over USB: on unless the Hub says it is off. Marked as loaded, so a save
+        // sends it only when the stored value was read (a failed load must not turn it back on)
+        const usbToggle = document.getElementById('usbWifiSetupToggle');
+        if (usbToggle && typeof st.config.usb_wifi_setup === 'boolean') {
+          usbToggle.checked = st.config.usb_wifi_setup;
+          usbToggle.dataset.loaded = '1';
+        }
       }
 
       // Ensure IP assignment mode select toggles static fields
@@ -524,6 +531,8 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
       eth_gateway: document.getElementById('ethGateway')?.value.trim(),
       eth_dns: document.getElementById('ethDns')?.value.trim()
     };
+    const usbToggle = document.getElementById('usbWifiSetupToggle');
+    if (usbToggle && usbToggle.dataset.loaded === '1') data.usb_wifi_setup = usbToggle.checked ? 1 : 0;
     try {
       if (status) status.textContent = t('saving_ip_settings');
       await this.client.saveEthernet(data);

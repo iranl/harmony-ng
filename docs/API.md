@@ -2047,7 +2047,7 @@ its stored value: `eth_enabled` and `eth_fallback_wifi` become on, `eth_mode` `d
 `eth_netmask` `255.255.255.0`, `eth_ip`, `eth_gateway` and `eth_dns` empty (in `dhcp` mode an
 address that is not a valid IPv4 address is stored empty too; in `static` mode it is refused, see
 `400` below). Send every field each time. The one exception is `usb_wifi_setup`: left out, it
-keeps its stored value (the web UI does not send it). The settings are
+keeps its stored value (the web UIs send it only after reading the stored value, so an older client cannot turn it back on). The settings are
 applied (`network_manager.sh apply`) only when `apply` is `apply`, `1`, `reconfigure` or
 `restart`; without it they take effect at the next network restart.
 - **Request Body**:

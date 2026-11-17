@@ -997,6 +997,8 @@ export default {
     "save_failed": "Salvataggio non riuscito: ",
     "save_hub_btn": "Salva Hub",
     "save_ip_settings": "Salva impostazioni IP",
+    "usb_wifi_setup_lbl": "Configurazione Wi-Fi via USB",
+    "usb_wifi_setup_desc": "Un computer collegato alla porta USB dell'Hub può leggere il nome della rete e impostare il Wi-Fi (tools/set_wifi_usb.py). Disattivalo se altre persone possono collegare un cavo all'Hub. Si salva con i pulsanti delle impostazioni IP qui sotto e vale subito.",
     "save_layout_hub_title": "Salva questo layout nell'hub come predefinito per tutti i dispositivi",
     "save_logging": "Salva impostazioni log",
     "save_mqtt": "Salva MQTT",

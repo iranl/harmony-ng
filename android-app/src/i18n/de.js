@@ -997,6 +997,8 @@ export default {
     "save_failed": "Speichern fehlgeschlagen: ",
     "save_hub_btn": "Hub speichern",
     "save_ip_settings": "IP-Einstellungen speichern",
+    "usb_wifi_setup_lbl": "WLAN-Einrichtung über USB",
+    "usb_wifi_setup_desc": "Ein Computer am USB-Anschluss des Hubs kann den Netzwerknamen lesen und das WLAN einstellen (tools/set_wifi_usb.py). Schalten Sie dies aus, wenn andere ein Kabel an den Hub anschließen können. Wird mit den Schaltflächen für die IP-Einstellungen unten gespeichert und gilt sofort.",
     "save_layout_hub_title": "Dieses Layout im Hub als Standard für alle Geräte speichern",
     "save_logging": "Protokollierungseinstellung speichern",
     "save_mqtt": "MQTT speichern",
