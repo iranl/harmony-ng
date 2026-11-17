@@ -55,6 +55,55 @@ static void get_cache_space_kb(uint64_t *total_kb, uint64_t *free_kb) {
     }
 }
 
+static uint64_t get_directory_size_bytes(const char *path) {
+    DIR *d = opendir(path);
+    if (!d) return 0;
+    uint64_t total = 0;
+    struct dirent *de;
+    char subpath[512];
+    while ((de = readdir(d)) != NULL) {
+        if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0) continue;
+        snprintf(subpath, sizeof(subpath), "%s/%s", path, de->d_name);
+        struct stat st;
+        if (lstat(subpath, &st) == 0) {
+            if (S_ISDIR(st.st_mode)) {
+                total += get_directory_size_bytes(subpath);
+            } else {
+                total += (uint64_t)st.st_size;
+            }
+        }
+    }
+    closedir(d);
+    return total;
+}
+
+static uint64_t get_stock_resources_kb(void) {
+    uint64_t bytes = get_directory_size_bytes("/data/resources");
+    return (bytes > 0) ? ((bytes + 1023) / 1024) : 0;
+}
+
+static int empty_directory_contents(const char *path) {
+    DIR *d = opendir(path);
+    if (!d) return -1;
+    struct dirent *de;
+    char subpath[512];
+    while ((de = readdir(d)) != NULL) {
+        if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0) continue;
+        snprintf(subpath, sizeof(subpath), "%s/%s", path, de->d_name);
+        struct stat st;
+        if (lstat(subpath, &st) == 0) {
+            if (S_ISDIR(st.st_mode)) {
+                empty_directory_contents(subpath);
+                rmdir(subpath);
+            } else {
+                unlink(subpath);
+            }
+        }
+    }
+    closedir(d);
+    return 0;
+}
+
 /* /etc is on flash: rewrite only when the content changes (every start applies the settings) */
 static void write_file_if_changed(const char *path, const char *text) {
     size_t len = 0;
@@ -371,6 +420,10 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
         cJSON_AddNumberToObject(st, "cache_used_kb", (double)(cache_total_kb > cache_free_kb ? cache_total_kb - cache_free_kb : 0));
         cJSON_AddNumberToObject(st, "cache_percent_free", cache_total_kb ? (double)(cache_free_kb * 100 / cache_total_kb) : 0);
 
+        uint64_t stock_res_kb = get_stock_resources_kb();
+        cJSON_AddNumberToObject(st, "stock_resources_kb", (double)stock_res_kb);
+        cJSON_AddBoolToObject(st, "can_empty_stock_resources", stock_res_kb > 0);
+
         send_cjson_resp(client_fd, 200, st);
         cJSON_Delete(st);
         close(client_fd);
@@ -552,6 +605,25 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                     close(client_fd);
                     return 1;
                 }
+            } else if (p_act && cJSON_IsString(p_act) &&
+                       (strcmp(p_act->valuestring, "clean_stock_resources") == 0 ||
+                        strcmp(p_act->valuestring, "empty_stock_resources") == 0)) {
+                cJSON_Delete(params);
+                uint64_t before_kb = get_stock_resources_kb();
+                empty_directory_contents("/data/resources");
+                sync();
+                uint64_t after_kb = get_stock_resources_kb();
+                uint64_t freed_kb = (before_kb > after_kb) ? (before_kb - after_kb) : 0;
+
+                cJSON *resp = cJSON_CreateObject();
+                cJSON_AddBoolToObject(resp, "ok", 1);
+                cJSON_AddNumberToObject(resp, "freed_kb", (double)freed_kb);
+                cJSON_AddNumberToObject(resp, "stock_resources_kb", (double)after_kb);
+                cJSON_AddStringToObject(resp, "message", "Stock resources emptied successfully");
+                send_cjson_resp(client_fd, 200, resp);
+                cJSON_Delete(resp);
+                close(client_fd);
+                return 1;
             } else if (p_act && cJSON_IsString(p_act) && strcmp(p_act->valuestring, "mqtt_publish") == 0) {
                 cJSON *j_top = cJSON_GetObjectItemCaseSensitive(params, "topic");
                 cJSON *j_pay = cJSON_GetObjectItemCaseSensitive(params, "payload");

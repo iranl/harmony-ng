@@ -1249,4 +1249,10 @@ export default {
     "harmony_detail_http_error": "No se pudieron cargar los detalles del dispositivo: HTTP {status}",
     "harmony_codeset_http_error": "No se pudo cargar el conjunto de códigos: HTTP {status}",
     "harmony_no_codeset": "No se indicó ningún conjunto de códigos",
+"empty_stock_resources": "Vaciar recursos originales (~250 kB)",
+    "clean_stock_resources_title": "Vaciar recursos originales",
+    "clean_stock_resources_confirm": "¿Seguro que desea vaciar /data/resources? Esto eliminará los archivos de configuración originales de Logitech y liberará unos ~{kb} kB de memoria flash.",
+    "freed_stock_resources_toast": "¡Se liberaron ~{kb} kB de almacenamiento flash!",
+    "empty_stock_resources_btn": "Vaciar recursos originales (~{kb} kB)",
+    "stock_resources_empty": "Recursos originales vacíos (0 kB)",
 };

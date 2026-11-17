@@ -74,6 +74,29 @@ export function createView() {
         },
       }),
       h('button', {
+        className: 'btn btn-secondary',
+        id: 'btn-empty-stock-res',
+        text: t('empty_stock_resources', 'Empty Stock Resources (~250 kB)'),
+        onclick: async () => {
+          const disk = await api.getSystemDisk().catch(() => null);
+          const kb = disk?.stock_resources_kb || 251;
+          const ok = await confirm.ask({
+            title: t('clean_stock_resources_title', 'Empty Stock Resources'),
+            message: t('clean_stock_resources_confirm', `Are you sure you want to empty /data/resources? This will delete stock Logitech config files and free about ~${kb} kB of flash memory.`),
+            danger: true,
+          });
+          if (ok) {
+            try {
+              const res = await api.cleanStockResources();
+              toast.success(t('freed_stock_resources_toast', `Freed ~${res?.freed_kb || kb} kB of flash storage!`));
+              loadSystemInfo();
+            } catch (e) {
+              toast.error(e.message);
+            }
+          }
+        },
+      }),
+      h('button', {
         className: 'btn btn-danger',
         text: `⚠️ ${t('reboot_hub', 'Reboot Hub')}`,
         onclick: async () => {
@@ -168,6 +191,13 @@ export function createView() {
       ]);
 
       statsMount.appendChild(grid);
+
+      const emptyResBtn = container.querySelector('#btn-empty-stock-res');
+      if (emptyResBtn && disk) {
+        const kb = disk.stock_resources_kb ?? 0;
+        emptyResBtn.textContent = kb > 0 ? t('empty_stock_resources_btn', `Empty Stock Resources (~${kb} kB)`) : t('stock_resources_empty', 'Stock Resources Empty (0 kB)');
+        emptyResBtn.disabled = (kb === 0);
+      }
     } catch (e) {
       statsMount.textContent = t('error_msg', 'Error: {error}', { error: e.message });
     }

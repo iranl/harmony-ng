@@ -126,6 +126,7 @@ class HubDeployer:
         dry_run: bool = False,
         no_backup: bool = False,
         stage_remote_ota: bool = False,
+        clean_stock_resources: bool = False,
     ):
         self.hub_host = hub_host
         self.hub_user = hub_user
@@ -136,6 +137,7 @@ class HubDeployer:
         self.dry_run = dry_run
         self.no_backup = no_backup
         self.stage_remote_ota = stage_remote_ota
+        self.clean_stock_resources = clean_stock_resources
 
         self.deploy_failures: list[str] = []
         self.remote_hashes: dict[str, str] = {}
@@ -500,6 +502,16 @@ class HubDeployer:
             elif self.dry_run:
                 print("    [dry-run] /data/harmony/config/devices.json exists: stock config would not be imported")
 
+            if self.clean_stock_resources:
+                has_stock = self.run_ssh("[ -d /data/resources ] && [ -n \"$(ls -A /data/resources 2>/dev/null)\" ] && echo 1 || echo 0").stdout.strip() == "1"
+                if has_stock:
+                    if self.dry_skip("empty /data/resources to reclaim ~250 kB of flash storage"):
+                        pass
+                    else:
+                        print("[*] Emptying /data/resources to reclaim ~250 kB of flash storage...")
+                        self.run_ssh("rm -rf /data/resources/* /data/resources/.* 2>/dev/null || true; mkdir -p /data/resources 2>/dev/null || true; /data/harmony/bin/hub_sync 2>/dev/null || sync 2>/dev/null || true")
+                        print("[+] /data/resources emptied successfully.")
+
             # Query remote hashes for core binaries and configs
             self.query_remote_hashes(
                 "/data/harmony/bin/* /data/harmony/* /data/harmony/config/* /cache/www/* "
@@ -795,6 +807,7 @@ def main() -> None:
     parser.add_argument("--no-backup", action="store_true", help="Skip pre-deployment backup")
     parser.add_argument("--stage-remote-ota", action="store_true", help="Stage local remote_ui.ota.gz into Hub /tmp/remote_ui.ota.gz (RAM tmpfs) for offline testing")
     ssh_hostkeys.add_reset_option(parser, "the Hub")
+    parser.add_argument("--clean-stock-resources", action="store_true", help="Empty /data/resources to reclaim ~250 kB of flash storage")
 
     args = parser.parse_args()
     target_host = args.flag_host or args.host
@@ -823,6 +836,7 @@ def main() -> None:
         dry_run=args.dry_run,
         no_backup=args.no_backup,
         stage_remote_ota=args.stage_remote_ota,
+        clean_stock_resources=args.clean_stock_resources,
     )
     success = deployer.deploy()
     sys.exit(0 if success else 1)

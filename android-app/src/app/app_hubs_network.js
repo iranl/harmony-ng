@@ -251,6 +251,51 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
     }
   }
 
+  async cleanStockResources() {
+    const disk = await this.client.getSystemDisk().catch(() => null);
+    const kb = disk?.stock_resources_kb || 251;
+    const msg = tf('clean_stock_resources_confirm', { kb }) || `Are you sure you want to empty /data/resources? This will delete stock Logitech config files and free about ~${kb} kB of flash memory.`;
+    if (!await showConfirm(msg, {
+      title: t('clean_stock_resources_title', 'Empty Stock Resources'),
+      okText: t('empty_resources', 'Empty Resources'),
+      danger: true
+    })) return;
+
+    try {
+      const res = await this.client.cleanStockResources();
+      showToast(tf('freed_stock_resources_toast', { kb: res?.freed_kb || kb }) || `Freed ~${res?.freed_kb || kb} kB of flash storage!`, 'success');
+      await this.refreshStockResources();
+      if (typeof this.refreshDiskSpace === 'function') await this.refreshDiskSpace();
+    } catch (err) {
+      showToast(t('clean_resources_failed', 'Failed to empty stock resources: ') + err.message, 'error');
+    }
+  }
+
+  async refreshStockResources() {
+    const badge = document.getElementById('stockResourcesBadge');
+    const detail = document.getElementById('stockResourcesDetail');
+    const btn = document.getElementById('btnCleanStockResources');
+    if (!badge && !btn) return;
+
+    try {
+      const disk = await this.client.getSystemDisk();
+      const kb = disk?.stock_resources_kb ?? 0;
+      if (badge) {
+        badge.textContent = `${kb} kB`;
+        badge.className = `badge ${kb > 0 ? 'warning' : 'ok'}`;
+      }
+      if (detail) {
+        detail.textContent = kb > 0 ? tf('stock_resources_used', { kb }) : t('stock_resources_empty');
+      }
+      if (btn) {
+        btn.disabled = (kb === 0);
+        btn.textContent = kb > 0 ? tf('empty_stock_resources_btn', { kb }) : t('stock_resources_cleaned');
+      }
+    } catch {
+      if (badge) badge.textContent = t('unknown');
+    }
+  }
+
   setupFactoryResetModal() {
     const modal = document.getElementById('factoryResetModal');
     const btnOpen = document.getElementById('btnFactoryResetHub');
