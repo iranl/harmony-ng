@@ -2006,7 +2006,7 @@ Tests the connection to an AP by switching to it: the Hub writes the network to 
   }
   ```
 - **Response `200 OK`**: `{"ok": true, "message": "Wi-Fi test connection successful"}`
-- **Response `400 Bad Request`**: `{"ok": false, "error": "Incorrect Wi-Fi password"}`. Other texts: `"Connection timed out (AP unreachable or handshake failed)"`, `"Another Wi-Fi test is running, try again in a few seconds"`, `"wpa_supplicant is not running on ath0"`, and the reason when the SSID or the password cannot be used (see `POST /api/wifi-save`).
+- **Response `400 Bad Request`**: `{"ok": false, "error": "Incorrect Wi-Fi password"}`. The Hub reports a wrong password when the key handshake starts and fails twice, or never completes. Other texts: `"Wi-Fi network not found (check the name; 2.4 GHz networks only)"` (the network was never seen), `"Connection timed out (AP unreachable or handshake failed)"`, `"Another Wi-Fi test is running, try again in a few seconds"`, and the reason when the SSID or the password cannot be used (see `POST /api/wifi-save`).
 
 #### `POST /api/wifi-save` or `POST /wifi`
 Saves Wi-Fi credentials to `/etc/wpa_supplicant.conf` and `/etc/wpa_supplicant.ath0.conf`.

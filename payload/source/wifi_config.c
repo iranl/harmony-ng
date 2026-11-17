@@ -326,30 +326,48 @@ static int wifi_test_run(const char *ssid, const char *psk, int is_open, int hid
         wifi_start_supplicant(conf);
     }
 
+    /* wpa_supplicant 0.7.2 (the Hub's) never reports a wrong key in "status": a wrong pass phrase
+     * shows as the key handshake starting (4WAY_HANDSHAKE) and the state falling back to
+     * SCANNING or DISCONNECTED, once every few seconds (seen on a Hub, 2026-11-17). Two such
+     * drops end the test as a wrong password; a handshake seen but never completed at the end
+     * counts too. A network that never gets past scanning is reported as not found. */
     int connected = 0;
+    int wrong_key = 0;
+    int saw_assoc = 0, in_handshake = 0, handshake_drops = 0;
     int wait_s = wifi_wait_seconds();
     snprintf(cmd, sizeof(cmd), "%s -i ath0 status 2>/dev/null", cli);
-    for (int t = 0; t < wait_s; t++) {
+    for (int t = 0; t < wait_s && !connected && !wrong_key; t++) {
         sleep(1);
         FILE *f_st = popen(cmd, "r");
-        if (f_st) {
-            char st_line[128];
-            int is_completed = 0;
-            int wrong_key = 0;
-            while (fgets(st_line, sizeof(st_line), f_st)) {
-                if (strstr(st_line, "wpa_state=COMPLETED")) is_completed = 1;
-                if (strstr(st_line, "WRONG_KEY") || strstr(st_line, "auth_failures")) wrong_key = 1;
+        if (!f_st) continue;
+        char st_line[128];
+        char state[32] = "";
+        while (fgets(st_line, sizeof(st_line), f_st)) {
+            if (strncmp(st_line, "wpa_state=", 10) == 0) {
+                snprintf(state, sizeof(state), "%s", st_line + 10);
+                state[strcspn(state, "\r\n")] = '\0';
             }
-            pclose(f_st);
-            if (wrong_key) {
-                if (err_msg && err_len) snprintf(err_msg, err_len, "Incorrect Wi-Fi password");
-                break;
-            }
-            if (is_completed) {
-                connected = 1;
-                break;
-            }
+            if (strstr(st_line, "WRONG_KEY") || strstr(st_line, "auth_failures")) wrong_key = 1;
         }
+        pclose(f_st);
+        if (strcmp(state, "COMPLETED") == 0) {
+            connected = 1;
+        } else if (strcmp(state, "4WAY_HANDSHAKE") == 0 || strcmp(state, "GROUP_HANDSHAKE") == 0) {
+            saw_assoc = 1;
+            in_handshake = 1;
+        } else if (strcmp(state, "ASSOCIATING") == 0 || strcmp(state, "ASSOCIATED") == 0 ||
+                   strcmp(state, "AUTHENTICATING") == 0) {
+            saw_assoc = 1;
+        } else if (in_handshake && (strcmp(state, "SCANNING") == 0 || strcmp(state, "DISCONNECTED") == 0)) {
+            in_handshake = 0;
+            if (++handshake_drops >= 2) wrong_key = 1;
+        }
+    }
+    if (!connected && !is_open && (handshake_drops > 0 || in_handshake)) wrong_key = 1;
+    if (wrong_key) connected = 0;
+    if (!connected && err_msg && err_len && !err_msg[0]) {
+        if (wrong_key) snprintf(err_msg, err_len, "Incorrect Wi-Fi password");
+        else if (!saw_assoc) snprintf(err_msg, err_len, "Wi-Fi network not found (check the name; 2.4 GHz networks only)");
     }
 
     if (!connected) {

@@ -78,6 +78,18 @@ case "$3" in
     elif [ "$psk" = "wrongpassword" ]; then
       echo "wpa_state=4WAY_HANDSHAKE"
       echo "auth_failures=1"
+    elif [ "$psk" = "hubwrongkey" ]; then
+      # what wpa_supplicant 0.7.2 on a Hub shows for a wrong key (2026-11-17): the handshake
+      # starts and the state falls back to scanning, again and again; no WRONG_KEY, no counter
+      n=$(cat "$ROOT/status_calls" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$ROOT/status_calls"
+      case $((n % 4)) in
+        1) echo "wpa_state=SCANNING" ;;
+        2|3) echo "bssid=02:00:00:00:00:01"; echo "wpa_state=4WAY_HANDSHAKE" ;;
+        0) echo "wpa_state=SCANNING" ;;
+      esac
+    elif [ "$psk" = "neverdone12" ]; then
+      echo "bssid=02:00:00:00:00:01"
+      echo "wpa_state=ASSOCIATING"
     else
       echo "wpa_state=SCANNING"
     fi
@@ -264,7 +276,7 @@ class UsbWifi(unittest.TestCase):
         # wpa_supplicant was pointed back at the old network
         self.assertGreaterEqual((self.root / "wpa_cli.log").read_text().count("reconfigure"), 2)
 
-    def test_timeout_keeps_old_config(self):
+    def test_network_not_found_keeps_old_config(self):
         hid = self.hid()
         t0 = time.time()
         self.assertTrue(hid.provision_wifi("FarAway", "unreachable1"))
@@ -272,7 +284,32 @@ class UsbWifi(unittest.TestCase):
         self.assertEqual(self.confs(), (OLD_CONF, OLD_CONF))
         st = hid.get_wifi_status()
         self.assertEqual(st.get("connect_status"), "failed")
+        self.assertIn("network not found", st.get("error_code", ""))
+
+    def test_timeout_keeps_old_config(self):
+        hid = self.hid()
+        self.assertTrue(hid.provision_wifi("SlowNet", "neverdone12"))
+        self.assertEqual(self.confs(), (OLD_CONF, OLD_CONF))
+        st = hid.get_wifi_status()
+        self.assertEqual(st.get("connect_status"), "failed")
         self.assertIn("timed out", st.get("error_code", ""))
+
+    def test_wrong_key_seen_as_handshake_drops(self):
+        """The Hub's wpa_supplicant never says WRONG_KEY: two handshakes that fall back to
+        scanning are a wrong password, reported before the test wait runs out"""
+        self.proc.kill()
+        self.proc.wait()
+        self.start_applet(wait="20")
+        hid = self.hid()
+        hid.dev.sock.settimeout(60)
+        t0 = time.time()
+        self.assertTrue(hid.provision_wifi("NewNet", "hubwrongkey"))
+        self.assertLess(time.time() - t0, 15, "ended at the second drop, not at the 20 s wait")
+        self.assertEqual(self.confs(), (OLD_CONF, OLD_CONF))
+        st = hid.get_wifi_status()
+        self.assertEqual(st.get("connect_status"), "failed")
+        self.assertIn("Incorrect Wi-Fi password", st.get("error_code", ""))
+        self.assertNotIn("hubwrongkey", self.applet_log())
 
     def test_bad_input_refused_without_writing(self):
         cases = [
