@@ -46,7 +46,7 @@ echo "[+] ps5_wake binary built: $(ls -lh "$PLUGINS_ROOT/ps5-wake/bin/ps5_wake" 
 # 4. Build android-tv
 echo "[*] Compiling android-tv with BearSSL..."
 mkdir -p "$PLUGINS_ROOT/android-tv/bin"
-$CC -Wall -Os -s -I"$BEARSSL_DIR/inc" "$PLUGINS_ROOT/android-tv/android_tv.c" "$BEARSSL_DIR/libbearssl.a" -lpthread -o "$PLUGINS_ROOT/android-tv/bin/android_tv"
+$CC -Wall -Os -s -I"$BEARSSL_DIR/inc" "$PLUGINS_ROOT/android-tv/android_tv.c" "$BEARSSL_DIR/libbearssl.a" -o "$PLUGINS_ROOT/android-tv/bin/android_tv"
 $STRIP "$PLUGINS_ROOT/android-tv/bin/android_tv"
 echo "[+] android_tv binary built: $(ls -lh "$PLUGINS_ROOT/android-tv/bin/android_tv" | awk '{print $5}')"
 

@@ -212,14 +212,16 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
         cJSON *j_pin = cJSON_GetObjectItemCaseSensitive(json, "pin");
         cJSON *j_port = cJSON_GetObjectItemCaseSensitive(json, "port");
 
-        const char *id = (j_id && cJSON_IsString(j_id)) ? j_id->valuestring : "";
-        const char *act = (j_act && cJSON_IsString(j_act)) ? j_act->valuestring : "start";
-        const char *host = (j_host && cJSON_IsString(j_host)) ? j_host->valuestring : "";
-        const char *pin = (j_pin && cJSON_IsString(j_pin)) ? j_pin->valuestring : "";
+        /* Copy strings to local buffers before freeing JSON (avoid use-after-free) */
+        char id[64] = "", act[32] = "start", host[64] = "", pin[32] = "";
+        if (j_id && cJSON_IsString(j_id)) strncpy(id, j_id->valuestring, sizeof(id) - 1);
+        if (j_act && cJSON_IsString(j_act)) strncpy(act, j_act->valuestring, sizeof(act) - 1);
+        if (j_host && cJSON_IsString(j_host)) strncpy(host, j_host->valuestring, sizeof(host) - 1);
+        if (j_pin && cJSON_IsString(j_pin)) strncpy(pin, j_pin->valuestring, sizeof(pin) - 1);
         int port = (j_port && cJSON_IsNumber(j_port)) ? j_port->valueint : 6467;
+        cJSON_Delete(json);
 
         if (!id[0] || !host[0]) {
-            cJSON_Delete(json);
             send_json_error(client_fd, 400, "Missing plugin id or host");
             close(client_fd);
             return 1;
@@ -231,6 +233,14 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
             usleep(200000);
         }
 
+        int is_pin = (strcasecmp(act, "pin") == 0 || strcasecmp(act, "finish_pair") == 0);
+        const char *fwd_action = is_pin ? "finish_pair" : "start_pair";
+
+        /* Clear stale status file before new attempt */
+        char stat_path[128];
+        snprintf(stat_path, sizeof(stat_path), "/tmp/plugins/%s.status", id);
+        unlink(stat_path);
+
         /* Forward pairing command to plugin unix socket */
         char sock_path[128];
         snprintf(sock_path, sizeof(sock_path), "/tmp/plugins/%s.sock", id);
@@ -241,9 +251,6 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
             memset(&sun, 0, sizeof(sun));
             sun.sun_family = AF_UNIX;
             strncpy(sun.sun_path, sock_path, sizeof(sun.sun_path) - 1);
-
-            int is_pin = (strcasecmp(act, "pin") == 0 || strcasecmp(act, "finish_pair") == 0);
-            const char *fwd_action = is_pin ? "finish_pair" : "start_pair";
 
             cJSON *cmd_obj = cJSON_CreateObject();
             cJSON_AddStringToObject(cmd_obj, "plugin_id", id);
@@ -262,13 +269,7 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
             close(s);
         }
 
-        cJSON_Delete(json);
-
         /* Wait up to 5 seconds for status file update */
-        char stat_path[128];
-        snprintf(stat_path, sizeof(stat_path), "/tmp/plugins/%s.status", id);
-
-        int is_pin = (strcasecmp(act, "pin") == 0 || strcasecmp(act, "finish_pair") == 0);
         cJSON *res_obj = NULL;
         for (int i = 0; i < 50; i++) {
             usleep(100000); /* 100ms * 50 = 5s max */
