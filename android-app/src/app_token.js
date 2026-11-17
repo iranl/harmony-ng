@@ -2,9 +2,9 @@
 // Hub, and only that token is kept in the Hub profile. The web UI in a browser keeps its session
 // login (api_system_remotes.js login()).
 import { getSavedHubs, saveHub, forgetStoredPasswords } from './storage.js';
-import { t } from './i18n.js';
+import { t, tf } from './i18n.js';
 
-export const APP_TOKEN_NAME = 'Android app';
+export const APP_TOKEN_NAME = 'Android app';  // i18n-ok: token name stored on the Hub
 
 // "Android app (<phone model>, <date>)": an admin can tell the phones apart in the token list.
 // The Hub keeps names of up to 63 bytes.
@@ -59,7 +59,7 @@ async function hubCall(baseUrl, path, { method = 'GET', token = null, body, time
     try { data = await res.json(); } catch { /* no JSON body */ }
     return { status: res.status, data: data || {} };
   } catch (err) {
-    if (err && err.name === 'AbortError') throw new Error('Connection timed out. Check IP and network.');
+    if (err && err.name === 'AbortError') throw new Error(t('conn_timed_out_check_ip'));
     throw err;
   } finally {
     clearTimeout(timer);
@@ -81,7 +81,7 @@ export async function createAppToken(baseUrl, username, password, { timeout = 60
     method: 'POST', body: { username, password }, timeout
   });
   if (login.status !== 200 || !login.data.ok || !login.data.access_token) {
-    throw new Error(login.data.error || `Login failed (HTTP ${login.status})`);
+    throw new Error(login.data.error || tf('login_failed_http', { status: login.status }));
   }
   const session = login.data.access_token;
   const user = login.data.username || username;
@@ -100,7 +100,7 @@ export async function createAppToken(baseUrl, username, password, { timeout = 60
       return { token: session, tokenId: null, username: user, role: login.data.role || 'user', oldRevoked };
     }
     if ((made.status !== 201 && made.status !== 200) || !made.data.token) {
-      throw new Error(made.data.error || `Cannot create an access token (HTTP ${made.status})`);
+      throw new Error(made.data.error || tf('token_create_failed_http', { status: made.status }));
     }
     return { token: made.data.token, tokenId: made.data.id || null, username: user, role: made.data.role || login.data.role || 'user', oldRevoked };
   } catch (err) {
@@ -125,7 +125,7 @@ export async function checkLogin(baseUrl, username, password, { timeout = 4000 }
   if (me.status === 200 && me.data.auth_enabled === false) return { ok: true, authOff: true };
   const login = await hubCall(baseUrl, '/api/auth/token', { method: 'POST', body: { username, password }, timeout });
   if (login.status !== 200 || !login.data.access_token) {
-    return { ok: false, error: login.data.error || `Login failed (HTTP ${login.status})` };
+    return { ok: false, error: login.data.error || tf('login_failed_http', { status: login.status }) };
   }
   await hubCall(baseUrl, '/api/auth/logout', { method: 'POST', token: login.data.access_token, timeout }).catch(() => {});
   return { ok: true };

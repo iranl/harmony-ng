@@ -13,6 +13,9 @@ function loadSearchFn(relPath) {
   let code = fs.readFileSync(fullPath, 'utf-8');
   // Strip imports and exports to allow standalone node testing without bundler
   code = code.replace(/import\s+harmonyManufacturers\s+from\s+[^;]+;/, 'const harmonyManufacturers = [];');
+  // the translate function: irdb.js imports it, the test gives the English fallback text
+  code = code.replace(/^import\s*\{\s*t(\s*,\s*tf)?\s*\}\s*from\s*[^;]+;/m,
+    'const t = (k, fallback) => fallback ?? k; const tf = (k) => k;');
   code = code.replace(/export\s+(async\s+)?function/g, '$1function');
   code = code.replace(/export\s+const/g, 'const');
   code = code.replace(/export\s+let/g, 'let');

@@ -1,3 +1,6 @@
+// Error texts are translated; code that needs the kind of error reads err.status, not the text.
+import { t, tf } from '../i18n.js';
+
 export class HarmonyClientCore {
   constructor(hub) {
     this.wsPendingReqs = new Map();
@@ -149,7 +152,9 @@ export class HarmonyClientCore {
         if (typeof window !== 'undefined' && window.dispatchEvent) {
           window.dispatchEvent(new CustomEvent('harmony:unauthorized'));
         }
-        throw new Error('Authentication failed. Check hub credentials.');
+        const authErr = new Error(t('auth_failed_check_credentials'));
+        authErr.status = 401;
+        throw authErr;
       }
       const text = await res.text();
       let j;
@@ -161,14 +166,14 @@ export class HarmonyClientCore {
       }
 
       if (!res.ok) {
-        let errMsg = `Hub returned HTTP ${res.status}`;
+        let errMsg = null;
         if (j && (j.error || j.message || j.reply)) {
           errMsg = j.error || j.message || j.reply;
         } else if (text && text.length < 200 && !text.includes('<!DOCTYPE')) {
           errMsg = text;
         }
-        if (res.status === 409 && errMsg.startsWith('Hub returned')) {
-          errMsg = 'Activity switch already in progress';
+        if (!errMsg) {
+          errMsg = res.status === 409 ? t('activity_switch_in_progress') : tf('hub_returned_http', { status: res.status });
         }
         // the reply stays readable for a caller that shows more than the message (lists of a 409)
         const httpErr = new Error(errMsg);
@@ -181,7 +186,7 @@ export class HarmonyClientCore {
     } catch (err) {
       clearTimeout(timeout);
       if (err.name === 'AbortError') {
-        throw new Error('Connection timed out. Check IP and network.');
+        throw new Error(t('conn_timed_out_check_ip'));
       }
       throw err;
     }
@@ -221,7 +226,7 @@ export class HarmonyClientCore {
   async testConnection() {
     try {
       if (!this.baseUrl && !this.hub.host) {
-        return { ok: false, error: 'No hub configured' };
+        return { ok: false, error: t('hub_not_configured') };
       }
       const data = await this.getHealth();
       return { ok: true, data };
@@ -231,7 +236,8 @@ export class HarmonyClientCore {
         const data = await this.request('/api/status', { timeout: 3000 });
         return { ok: true, data };
       } catch (innerErr) {
-        return { ok: false, error: innerErr.message };
+        // status: a 401 is recognised by its code, not by the (translated) text
+        return { ok: false, error: innerErr.message, status: innerErr.status };
       }
     }
   }

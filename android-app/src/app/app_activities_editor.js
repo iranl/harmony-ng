@@ -17,7 +17,7 @@ import {
   sourceLabel,
   safeImportName
 } from '../irdb.js';
-import { t, setLanguage, getInitialLanguage } from '../i18n.js';
+import { t, setLanguage, getInitialLanguage, tf } from '../i18n.js';
 import iconMetadata from '../icon-metadata.json';
 import {
   initIconCache,
@@ -97,14 +97,14 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
     }
 
     if (act) {
-      if (titleEl) titleEl.textContent = `Edit Activity: ${act.name}`;
+      if (titleEl) titleEl.textContent = tf('edit_activity_name', { name: act.name });
       if (idInput) idInput.value = act.id;
       if (nameInput) nameInput.value = act.name || '';
       if (typeSelect) typeSelect.value = act.type || 'Custom';
       if (orderInput) orderInput.value = act.order || 1;
       if (delBtn) delBtn.style.display = (String(act.id) === '-1') ? 'none' : 'block';
     } else {
-      if (titleEl) titleEl.textContent = 'Create New Activity';
+      if (titleEl) titleEl.textContent = t('create_new_activity');
       if (idInput) idInput.value = '';
       if (nameInput) nameInput.value = '';
       if (typeSelect) typeSelect.value = 'Custom';
@@ -120,7 +120,7 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
         <div id="actDevOrderedList" class="queue-list" style="min-height: 40px; max-height: 180px; margin-bottom: 6px;"></div>
         <div id="actAddDevControls" style="display: flex; gap: 6px; align-items: center; margin-top: 4px;">
           <select id="actAddDevSelect" class="form-control" style="flex: 1;"></select>
-          <button type="button" id="actAddDevBtn" class="btn btn-xs btn-secondary">+ Add Device</button>
+          <button type="button" id="actAddDevBtn" class="btn btn-xs btn-secondary">${t('add_device_btn')}</button>
         </div>
         <div class="muted mini" style="margin-top: 4px;">${t('act_start_stop_order_hint')}</div>
       `;
@@ -154,7 +154,7 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
         if (placeholder) placeholder.remove();
 
         const d = (this.inventory.devices || []).find(x => String(x.id) === String(did));
-        const name = d ? (d.name || d.model || d.id) : `Device ${did}`;
+        const name = d ? (d.name || d.model || d.id) : tf('device_n', { id: did });
         const devIconSvg = d ? getDeviceIconSvg(d.type, d.manufacturer, d.model, d.icon || d.Icon || '', 16) : '';
         const row = document.createElement('div');
         row.className = 'queue-row act-dev-row';
@@ -165,9 +165,9 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
           <span style="display:inline-flex;align-items:center;margin-right:2px;">${devIconSvg}</span>
           <span style="flex:1;font-weight:600;font-size:13px;">${escapeHtml(name)}</span>
           <div style="display:flex;gap:4px;">
-            <button type="button" class="btn btn-xs btn-ghost btn-dev-up" title="Power on earlier">↑</button>
-            <button type="button" class="btn btn-xs btn-ghost btn-dev-down" title="Power on later">↓</button>
-            <button type="button" class="btn btn-xs btn-danger btn-dev-del" title="Remove device">✕</button>
+            <button type="button" class="btn btn-xs btn-ghost btn-dev-up" title="${t('power_on_earlier')}">↑</button>
+            <button type="button" class="btn btn-xs btn-ghost btn-dev-down" title="${t('power_on_later')}">↓</button>
+            <button type="button" class="btn btn-xs btn-danger btn-dev-del" title="${t('remove_device')}">✕</button>
           </div>
         `;
         row.querySelector('.btn-dev-up').addEventListener('click', () => {
@@ -186,7 +186,7 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
           row.remove();
           updateDevNums();
           if (!listWrap.querySelectorAll('.act-dev-row').length) {
-            listWrap.innerHTML = '<div class="muted mini no-devs-msg" style="padding: 8px;">No participating devices configured.</div>';
+            listWrap.innerHTML = `<div class="muted mini no-devs-msg" style="padding: 8px;">${t('no_part_devices')}</div>`;
           }
           refreshAddDevControls();
         });
@@ -202,7 +202,7 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
       };
 
       if (!partDevIds.length) {
-        listWrap.innerHTML = '<div class="muted mini no-devs-msg" style="padding: 8px;">No participating devices configured.</div>';
+        listWrap.innerHTML = `<div class="muted mini no-devs-msg" style="padding: 8px;">${t('no_part_devices')}</div>`;
       } else {
         partDevIds.forEach(did => renderDevRow(did));
       }
@@ -248,7 +248,7 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
     if (!cont) return;
     cont.innerHTML = '';
     if (!steps || !steps.length) {
-      cont.innerHTML = '<div class="muted mini" style="padding: 8px;">No steps configured.</div>';
+      cont.innerHTML = `<div class="muted mini" style="padding: 8px;">${t('no_steps_configured')}</div>`;
       return;
     }
     steps.forEach((st, idx) => {
@@ -282,9 +282,9 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
     row.innerHTML = `
       <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: 1;">
         <select class="form-control step-type-select" style="width: 100px; font-size: 12px; padding: 4px 6px;">
-          <option value="Command" ${(!isDelay && !isSwitched) ? 'selected' : ''}>Command</option>
-          <option value="Delay" ${isDelay ? 'selected' : ''}>Delay</option>
-          <option value="Switched" ${isSwitched ? 'selected' : ''}>Switched</option>
+          <option value="Command" ${(!isDelay && !isSwitched) ? 'selected' : ''}>${t('step_type_command')}</option>
+          <option value="Delay" ${isDelay ? 'selected' : ''}>${t('step_type_delay')}</option>
+          <option value="Switched" ${isSwitched ? 'selected' : ''}>${t('step_type_switched')}</option>
         </select>
         <select class="form-control step-dev-select" style="max-width: 130px; font-size: 12px; padding: 4px 6px; display: ${(!isDelay && !isSwitched) ? 'block' : 'none'};">
           ${devices.map(d => `<option value="${escapeHtml(d.id)}" ${String(d.id) === initDevId ? 'selected' : ''}>${escapeHtml(d.name || d.model || d.id)}</option>`).join('')}
@@ -292,18 +292,18 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
         <span class="step-dev-icon" style="display: ${(!isDelay && !isSwitched) ? 'inline-flex' : 'none'}; align-items: center;"></span>
         <select class="form-control step-cmd-select" style="flex: 1; min-width: 120px; font-size: 12px; padding: 4px 6px; display: ${(!isDelay && !isSwitched) ? 'block' : 'none'};"></select>
         <div class="step-delay-wrap" style="display: ${isDelay ? 'inline-flex' : 'none'}; align-items: center; gap: 4px;">
-          <span class="muted mini" style="font-size: 11px;">Wait:</span>
+          <span class="muted mini" style="font-size: 11px;">${t('step_wait_label')}</span>
           <input type="number" class="form-control step-delay-input" min="50" max="60000" step="50" value="${initDelay > 0 ? initDelay : 1000}" style="width: 75px; font-size: 12px; padding: 4px 6px;">
           <span class="muted mini" style="font-size: 11px;">ms</span>
         </div>
         <div class="step-switched-wrap" style="display: ${isSwitched ? 'inline-flex' : 'none'}; align-items: center;">
-          <span class="badge subtle mini" style="font-size: 11px; color: var(--accent);">[Activity Switched - Screen Updates Early]</span>
+          <span class="badge subtle mini" style="font-size: 11px; color: var(--accent);">${t('step_switched_badge')}</span>
         </div>
       </div>
       <div style="display: flex; gap: 3px; align-items: center;">
-        <button type="button" class="btn btn-xs btn-ghost btn-step-up" title="Move up">↑</button>
-        <button type="button" class="btn btn-xs btn-ghost btn-step-down" title="Move down">↓</button>
-        <button type="button" class="btn btn-xs btn-danger btn-step-del" title="Delete">✕</button>
+        <button type="button" class="btn btn-xs btn-ghost btn-step-up" title="${t('move_up')}">↑</button>
+        <button type="button" class="btn btn-xs btn-ghost btn-step-down" title="${t('move_down')}">↓</button>
+        <button type="button" class="btn btn-xs btn-danger btn-step-del" title="${t('delete')}">✕</button>
       </div>
     `;
 
@@ -324,7 +324,7 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
       const cmds = this.deviceCommandsMap[selectedId] || [];
       cmdSel.innerHTML = '';
       if (!cmds.length) {
-        cmdSel.innerHTML = '<option value="">(No commands)</option>';
+        cmdSel.innerHTML = `<option value="">${t('no_commands_paren')}</option>`;
       } else {
         cmds.forEach(c => {
           const cName = c.name || c;
@@ -372,7 +372,7 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
     });
     row.querySelector('.btn-step-del').addEventListener('click', () => {
       row.remove();
-      if (!cont.children.length) cont.innerHTML = '<div class="muted mini" style="padding: 8px;">No steps configured.</div>';
+      if (!cont.children.length) cont.innerHTML = `<div class="muted mini" style="padding: 8px;">${t('no_steps_configured')}</div>`;
     });
 
     cont.appendChild(row);
@@ -462,14 +462,14 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
     };
 
     try {
-      if (statusEl) statusEl.textContent = 'Saving activity...';
+      if (statusEl) statusEl.textContent = t('saving_activity');
       await this.client.saveActivity(actObj);
-      if (statusEl) statusEl.textContent = 'Saved successfully!';
+      if (statusEl) statusEl.textContent = t('saved_successfully');
       document.getElementById('actEditorBox').style.display = 'none';
       await this.refreshData();
       await this.loadActivitiesView();
     } catch (err) {
-      if (statusEl) statusEl.textContent = 'Error: ' + err.message;
+      if (statusEl) statusEl.textContent = tf('error_msg', { error: err.message });
     }
   }
 

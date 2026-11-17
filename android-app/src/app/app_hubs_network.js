@@ -18,7 +18,7 @@ import {
   sourceLabel,
   safeImportName
 } from '../irdb.js';
-import { t, setLanguage, getInitialLanguage } from '../i18n.js';
+import { t, setLanguage, getInitialLanguage, tf } from '../i18n.js';
 import iconMetadata from '../icon-metadata.json';
 import {
   initIconCache,
@@ -58,7 +58,7 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
   async showSoftwareVersions() {
     const log = document.getElementById('updateLog');
     try {
-      if (log) log.textContent = 'Fetching current system & update status...';
+      if (log) log.textContent = t('fetching_system_update_status');
       const [sys, stat, rfStat] = await Promise.all([
         this.client.getSystemInfo().catch(() => ({})),
         this.client.getUpdateStatus().catch(() => ({})),
@@ -106,24 +106,24 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
       if (rfStat?.slots && Array.isArray(rfStat.slots)) {
         for (const s of rfStat.slots) {
           if (s.active && s.sw_version && s.sw_version !== 'unknown' && s.sw_version !== 'N/A') {
-            remotesInfo += `Remote (Slot ${s.slot} - ${s.model || 'unknown'}): v${s.sw_version}\n`;
+            remotesInfo += tf('ver_remote_slot', { slot: s.slot, model: s.model || t('unknown_lc'), version: s.sw_version }) + '\n';
           }
         }
       }
 
       if (log) {
-        log.textContent = `Hub Firmware: ${sys.firmware || stat.fw_version || '4.15.600'}\n` +
-          `Hub WebUI: v${this.appVersion || APP_VERSION}\n` +
-          `Hub Daemon: v${sys.version || stat.current_version || APP_VERSION}\n` +
-          `Commit: ${stat.commit || sys.commit || 'dev'}\n` +
-          `Build: ${stat.build_time || sys.build_time || 'Release'}\n` +
+        log.textContent = tf('ver_hub_firmware', { value: sys.firmware || stat.fw_version || '4.15.600' }) + '\n' +
+          tf('ver_hub_webui', { value: this.appVersion || APP_VERSION }) + '\n' +
+          tf('ver_hub_daemon', { value: sys.version || stat.current_version || APP_VERSION }) + '\n' +
+          tf('ver_commit', { value: stat.commit || sys.commit || 'dev' }) + '\n' +
+          tf('ver_build', { value: stat.build_time || sys.build_time || 'Release' }) + '\n' +
           remotesInfo +
-          `Local Hub Version: ${localVer}\n` +
-          `Online Version: ${remoteVer || 'Up to date'}\n` +
-          `Status: ${hasUpdate ? '⚠️ Update available' : '✓ Up to date'}`;
+          tf('ver_local_hub', { value: localVer }) + '\n' +
+          tf('ver_online', { value: remoteVer || t('up_to_date') }) + '\n' +
+          tf('ver_status', { value: hasUpdate ? `⚠️ ${t('update_available_short')}` : `✓ ${t('up_to_date')}` });
       }
     } catch (err) {
-      if (log) log.textContent = 'Failed to fetch version info: ' + err.message;
+      if (log) log.textContent = tf('version_info_failed', { error: err.message });
     }
   }
 
@@ -132,7 +132,7 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
     const repoInput = document.getElementById('updateRepo')?.value.trim() || '';
     const tokenInput = document.getElementById('updateToken')?.value.trim() || '';
     try {
-      if (log) log.textContent = 'Checking update repository and GitHub releases...';
+      if (log) log.textContent = t('checking_update_repo');
       let remoteVer = '';
       try {
         const ghHeaders = { 'Accept': 'application/vnd.github.v3+json' };
@@ -158,14 +158,15 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
       const res = await this.client.checkUpdate(true, repoInput, tokenInput, remoteVer);
       const stat = await this.client.getUpdateStatus().catch(() => ({}));
       if (log) {
-        const displayRemote = remoteVer ? `v${remoteVer}` : (stat.remote_version || res.remote_version || 'unknown');
+        const displayRemote = remoteVer ? `v${remoteVer}` : (stat.remote_version || res.remote_version || t('unknown_lc'));
         const curVer = stat.current_version || APP_VERSION;
         const targetVer = remoteVer || (stat.remote_version ? stat.remote_version.replace(/^v/, '') : (res.remote_version ? res.remote_version.replace(/^v/, '') : ''));
         const hasUpdate = Boolean(targetVer && curVer && this.isVersionOlder(curVer, targetVer));
-        log.textContent = `Local: v${curVer} | Remote: ${displayRemote}\nStatus: ${hasUpdate ? `⚠️ Update available to install (${displayRemote})!` : '✓ Hub is up to date'}`;
+        log.textContent = tf('update_check_result', { local: curVer, remote: displayRemote }) + '\n' +
+          tf('ver_status', { value: hasUpdate ? `⚠️ ${tf('update_available_install', { version: displayRemote })}` : `✓ ${t('hub_is_up_to_date')}` });
       }
     } catch (err) {
-      if (log) log.textContent = 'Update check failed: ' + err.message;
+      if (log) log.textContent = tf('update_check_failed_msg', { error: err.message });
     }
   }
 
@@ -173,16 +174,16 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
     const repo = document.getElementById('updateRepo')?.value.trim();
     const token = document.getElementById('updateToken')?.value.trim();
     const log = document.getElementById('updateLog');
-    if (!await showConfirm(t('update_confirm', 'Download and apply update? Hub services will restart.'), { title: 'Software Update', okText: 'Update' })) return;
+    if (!await showConfirm(t('update_confirm', 'Download and apply update? Hub services will restart.'), { title: t('software_update'), okText: t('update_btn') })) return;
     try {
-      this.showUpdatingOverlay('Hub is downloading and applying software update...');
+      this.showUpdatingOverlay(t('hub_downloading_update'));
       if (log) log.textContent = t('update_applying', 'Applying software update...\nHub is downloading package and will reboot automatically.');
 
       await this.client.applyUpdate(token, repo);
 
       const statusEl = document.getElementById('hubUpdatingStatusText');
-      if (statusEl) statusEl.textContent = 'Hub is updated and is rebooting...';
-      if (log) log.textContent = 'Hub is updated and is rebooting. Please wait for reconnection...';
+      if (statusEl) statusEl.textContent = t('hub_updated_rebooting');
+      if (log) log.textContent = t('hub_updated_rebooting_wait');
 
       this.pollTimerActive = true;
       let attempts = 0;
@@ -194,7 +195,7 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
           clearInterval(pollTimer);
           this.pollTimerActive = false;
           this.hideUpdatingOverlay();
-          if (log) log.textContent += '\nUpdate wait timed out. Please refresh the page.';
+          if (log) log.textContent += '\n' + t('update_wait_timed_out');
           return;
         }
 
@@ -202,20 +203,20 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
           const stat = await this.client.getUpdateStatus();
           if (!stat || stat.updating) {
             sawDrop = true;
-            if (statusEl) statusEl.textContent = 'Hub is rebooting...';
+            if (statusEl) statusEl.textContent = t('hub_is_rebooting');
             return;
           }
           if (sawDrop || attempts >= 5) {
             clearInterval(pollTimer);
             this.pollTimerActive = false;
             this.hideUpdatingOverlay();
-            if (log) log.textContent = `Hub is updated and reboot complete!\nVersion: v${stat.current_version || stat.version || ''}`;
+            if (log) log.textContent = tf('hub_updated_reboot_complete_ver', { version: stat.current_version || stat.version || '' });
             showToast(t('hub_updating_status', 'Hub is updated and reboot complete!'), 'success', 5000);
             await this.refreshData();
           }
         } catch (_) {
           sawDrop = true;
-          if (statusEl) statusEl.textContent = 'Hub is rebooting... Reconnecting...';
+          if (statusEl) statusEl.textContent = t('hub_rebooting_reconnecting');
         }
       }, 3000);
     } catch (err) {
@@ -230,9 +231,9 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
     const status = document.getElementById('sysActionStatus');
     try {
       await this.client.saveSystemAction('rediscover');
-      if (status) status.innerHTML = '<span style="color:var(--success)">Discovery triggered!</span>';
+      if (status) status.innerHTML = `<span style="color:var(--success)">${t('discovery_triggered')}</span>`;
     } catch (err) {
-      if (status) status.innerHTML = `<span style="color:var(--danger)">Error: ${escapeHtml(err.message)}</span>`;
+      if (status) status.innerHTML = `<span style="color:var(--danger)">${escapeHtml(tf('error_msg', { error: err.message }))}</span>`;
     }
   }
 
@@ -241,7 +242,7 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
       showToast(t("reboot_blocked_ota"), 'warning');
       return;
     }
-    if (!await showConfirm(t('reboot_confirm', 'Are you sure you want to reboot the Harmony Hub?'), { title: 'Reboot Hub', okText: 'Reboot' })) return;
+    if (!await showConfirm(t('reboot_confirm', 'Are you sure you want to reboot the Harmony Hub?'), { title: t('reboot_hub'), okText: t('reboot') })) return;
     try {
       await this.client.rebootHub();
       alert(t('reboot_sent', 'Reboot command sent to hub. Reconnecting in 30 seconds...'));
@@ -320,7 +321,7 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
 
     const hubs = await getSavedHubs();
     if (!hubs.length) {
-      list.innerHTML = '<div class="muted" style="padding: 16px;">No saved hubs yet. Click "+ Add Hub".</div>';
+      list.innerHTML = `<div class="muted" style="padding: 16px;">${escapeHtml(t('no_saved_hubs_yet'))}</div>`;
       return;
     }
 
@@ -331,13 +332,13 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
           <div>
             <div style="display: flex; align-items: center; gap: 8px;">
               <strong>${escapeHtml(h.name)}</strong>
-              ${isCur ? '<span class="badge ok">Active</span>' : ''}
+              ${isCur ? `<span class="badge ok">${t('active_lc')}</span>` : ''}
             </div>
             <div class="muted mini">${escapeHtml(h.host)}:${escapeHtml(h.port || 8080)}</div>
           </div>
           <div style="display: flex; gap: 6px;">
-            ${!isCur ? `<button type="button" class="btn btn-xs btn-primary btn-select-hub" data-id="${h.id}">Connect</button>` : ''}
-            <button type="button" class="btn btn-xs btn-secondary btn-edit-hub" data-id="${h.id}">Edit</button>
+            ${!isCur ? `<button type="button" class="btn btn-xs btn-primary btn-select-hub" data-id="${h.id}">${t('connect')}</button>` : ''}
+            <button type="button" class="btn btn-xs btn-secondary btn-edit-hub" data-id="${h.id}">${t('edit')}</button>
             <button type="button" class="btn btn-xs btn-danger btn-delete-hub" data-id="${h.id}">✕</button>
           </div>
         </div>
@@ -393,7 +394,7 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
 
     if (box) box.style.display = 'block';
     if (btnScan) btnScan.disabled = true;
-    if (btnLabel) btnLabel.textContent = 'Scanning...';
+    if (btnLabel) btnLabel.textContent = t('scanning_ellipsis');
     if (btnIcon) btnIcon.textContent = '⏳';
 
     this._cancelScan = false;
@@ -445,8 +446,8 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
 
     for (const subnet of subnetList) {
       if (this._cancelScan) break;
-      if (title) title.textContent = `Scanning ${subnet}.1 – ${subnet}.254 on port 8089...`;
-      if (sub) sub.textContent = `Checking /health endpoint (${foundCount} found so far)`;
+      if (title) title.textContent = tf('scanning_subnet_port', { subnet: subnet });
+      if (sub) sub.textContent = tf('checking_health_found', { count: foundCount });
 
       const ips = [];
       for (let i = 1; i <= 254; i++) {
@@ -473,7 +474,7 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
             await saveHub(foundHub);
             foundCount++;
 
-            showToast(t('found_hub', 'Found Harmony Hub: {name} ({ip})').replace('{name}', hubName).replace('{ip}', ip), 'success', 3000);
+            showToast(tf('found_hub', { name: hubName, ip: ip }, 'Found Harmony Hub: {name} ({ip})'), 'success', 3000);
             await this.renderHubsList();
 
             if (autoSelect || !this.activeHub || !this.activeHub.host) {
@@ -492,11 +493,11 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
     this.isScanningNetwork = false;
     if (box) box.style.display = 'none';
     if (btnScan) btnScan.disabled = false;
-    if (btnLabel) btnLabel.textContent = 'Scan Network';
+    if (btnLabel) btnLabel.textContent = t('scan_network');
     if (btnIcon) btnIcon.textContent = '🔍';
 
     if (foundCount > 0) {
-      showToast(t('scan_complete_added', 'Network scan complete! Added {count} Harmony Hub(s).').replace('{count}', foundCount), 'success');
+      showToast(tf('scan_complete_added', { count: foundCount }, 'Network scan complete! Added {count} Harmony Hub(s).'), 'success');
       await this.renderHubsList();
     } else if (!this._cancelScan) {
       showToast(t("scan_complete_none"), 'warning');
@@ -513,7 +514,7 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
     const btnScan = document.getElementById('btnScanHubs');
     if (btnScan) btnScan.disabled = false;
     const btnLabel = document.getElementById('scanHubsLabel');
-    if (btnLabel) btnLabel.textContent = 'Scan Network';
+    if (btnLabel) btnLabel.textContent = t('scan_network');
     const btnIcon = document.getElementById('scanHubsIcon');
     if (btnIcon) btnIcon.textContent = '🔍';
   }
@@ -566,7 +567,7 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
 
     modal.innerHTML = `
       <div class="card" style="width:100%;max-width:380px;">
-        <h3 style="font-size:16px;margin-bottom:12px;">${isEdit ? 'Edit Hub Profile' : 'Add New Harmony Hub'}</h3>
+        <h3 style="font-size:16px;margin-bottom:12px;">${isEdit ? t('edit_hub_profile') : t('add_new_harmony_hub')}</h3>
         <label>${t('hub_name', 'Hub Name')}</label><input id="hubFormName" class="form-control" value="${escapeHtml(h.name || '')}">
         <label>${t('ip_address_host_lbl', 'IP Address / Host')}</label><input id="hubFormHost" class="form-control" value="${escapeHtml(h.host || '')}">
         <label>${t('http_port_lbl', 'HTTP Port')}</label><input id="hubFormPort" type="number" class="form-control" value="${escapeHtml(h.port || 8089)}">
@@ -576,10 +577,10 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
         <div id="hubTestStatus" class="subtle" style="margin-top:8px;"></div>
         <div class="actions" style="margin-top:14px;display:flex;justify-content:space-between;">
           <div style="display:flex;gap:6px;">
-            <button type="button" id="btnHubSave" class="btn btn-sm btn-primary">Save Hub</button>
-            <button type="button" id="btnHubTest" class="btn btn-sm btn-secondary">Test</button>
+            <button type="button" id="btnHubSave" class="btn btn-sm btn-primary">${t('save_hub_btn')}</button>
+            <button type="button" id="btnHubTest" class="btn btn-sm btn-secondary">${t('test')}</button>
           </div>
-          <button type="button" id="btnHubCancel" class="btn btn-sm btn-ghost">Cancel</button>
+          <button type="button" id="btnHubCancel" class="btn btn-sm btn-ghost">${t('cancel')}</button>
         </div>
       </div>
     `;
@@ -590,7 +591,7 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
 
     modal.querySelector('#btnHubTest').onclick = async () => {
       const stat = modal.querySelector('#hubTestStatus');
-      stat.textContent = 'Testing connection...';
+      stat.textContent = t('testing_connection');
       const c = new HarmonyClient({
         host: modal.querySelector('#hubFormHost').value.trim(),
         port: Number(modal.querySelector('#hubFormPort').value) || 8089,
@@ -601,7 +602,7 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
       // ended at once (nothing is kept)
       c.testConnection = withLoginCheck(c, modal.querySelector('#hubFormUser').value.trim(), modal.querySelector('#hubFormPass').value);
       const res = await c.testConnection();
-      if (res.ok) stat.innerHTML = '<span style="color:var(--success)">✓ Connected!</span>';
+      if (res.ok) stat.innerHTML = `<span style="color:var(--success)">✓ ${t('connected_excl')}</span>`;
       else stat.innerHTML = `<span style="color:var(--danger)">✗ ${escapeHtml(res.error)}</span>`;
     };
 

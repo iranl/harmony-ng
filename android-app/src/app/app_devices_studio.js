@@ -17,7 +17,7 @@ import {
   sourceLabel,
   safeImportName
 } from '../irdb.js';
-import { t, setLanguage, getInitialLanguage } from '../i18n.js';
+import { t, setLanguage, getInitialLanguage, tf } from '../i18n.js';
 import iconMetadata from '../icon-metadata.json';
 import {
   initIconCache,
@@ -53,60 +53,66 @@ import {
 } from './app_icons_ui.js';
 import { HarmonyAppActivitiesSim } from './app_activities_sim.js';
 
+// category and desc are the English texts; categoryKey and descKey translate them when shown
 export const BT_STANDARD_KEY_PRESETS = [
   {
     category: 'Navigation & Core',
+    categoryKey: 'btkey_cat_navigation',
     keys: [
-      { name: 'Select', code: 'HID:07:0028', desc: 'Enter / OK' },
-      { name: 'DirectionUp', code: 'HID:07:0052', desc: 'Up Arrow' },
-      { name: 'DirectionDown', code: 'HID:07:0051', desc: 'Down Arrow' },
-      { name: 'DirectionLeft', code: 'HID:07:0050', desc: 'Left Arrow' },
-      { name: 'DirectionRight', code: 'HID:07:004F', desc: 'Right Arrow' },
-      { name: 'Back', code: 'HID:0C:0224', desc: 'Android / Apple Return' },
-      { name: 'Home', code: 'HID:0C:0223', desc: 'AC Home Screen' },
-      { name: 'Menu', code: 'HID:0C:0040', desc: 'Context / App Menu' },
-      { name: 'Escape', code: 'HID:07:0029', desc: 'Cancel / Exit' },
-      { name: 'PowerToggle', code: 'HID:0C:0030', desc: 'Power On / Standby' },
-      { name: 'Search', code: 'HID:0C:0221', desc: 'Voice Search / Assistant' },
-      { name: 'Tab', code: 'HID:07:002B', desc: 'Tab Key' },
-      { name: 'Space', code: 'HID:07:002C', desc: 'Spacebar' },
-      { name: 'Backspace', code: 'HID:07:002A', desc: 'Backspace' }
+      { name: 'Select', code: 'HID:07:0028', desc: 'Enter / OK', descKey: 'btkey_desc_enter_ok' },
+      { name: 'DirectionUp', code: 'HID:07:0052', desc: 'Up Arrow', descKey: 'btkey_desc_up' },
+      { name: 'DirectionDown', code: 'HID:07:0051', desc: 'Down Arrow', descKey: 'btkey_desc_down' },
+      { name: 'DirectionLeft', code: 'HID:07:0050', desc: 'Left Arrow', descKey: 'btkey_desc_left' },
+      { name: 'DirectionRight', code: 'HID:07:004F', desc: 'Right Arrow', descKey: 'btkey_desc_right' },
+      { name: 'Back', code: 'HID:0C:0224', desc: 'Android / Apple Return', descKey: 'btkey_desc_back' },
+      { name: 'Home', code: 'HID:0C:0223', desc: 'AC Home Screen', descKey: 'btkey_desc_home' },
+      { name: 'Menu', code: 'HID:0C:0040', desc: 'Context / App Menu', descKey: 'btkey_desc_menu' },
+      { name: 'Escape', code: 'HID:07:0029', desc: 'Cancel / Exit', descKey: 'btkey_desc_escape' },
+      { name: 'PowerToggle', code: 'HID:0C:0030', desc: 'Power On / Standby', descKey: 'btkey_desc_power' },
+      { name: 'Search', code: 'HID:0C:0221', desc: 'Voice Search / Assistant', descKey: 'btkey_desc_search' },
+      { name: 'Tab', code: 'HID:07:002B', desc: 'Tab Key', descKey: 'btkey_desc_tab' },
+      { name: 'Space', code: 'HID:07:002C', desc: 'Spacebar', descKey: 'btkey_desc_space' },
+      { name: 'Backspace', code: 'HID:07:002A', desc: 'Backspace', descKey: 'btkey_desc_backspace' }
     ]
   },
   {
     category: 'Media & Playback',
+    categoryKey: 'btkey_cat_media',
     keys: [
-      { name: 'Play', code: 'HID:0C:00B0', desc: 'Play' },
-      { name: 'Pause', code: 'HID:0C:00B1', desc: 'Pause' },
-      { name: 'PlayPause', code: 'HID:0C:00CD', desc: 'Play / Pause Toggle' },
-      { name: 'Stop', code: 'HID:0C:00B7', desc: 'Stop Playback' },
-      { name: 'NextTrack', code: 'HID:0C:00B5', desc: 'Skip Forward' },
-      { name: 'PreviousTrack', code: 'HID:0C:00B6', desc: 'Skip Backward' },
-      { name: 'FastForward', code: 'HID:0C:00B3', desc: 'Fast Forward' },
-      { name: 'Rewind', code: 'HID:0C:00B4', desc: 'Scan Backward' }
+      { name: 'Play', code: 'HID:0C:00B0', desc: 'Play', descKey: 'play' },
+      { name: 'Pause', code: 'HID:0C:00B1', desc: 'Pause', descKey: 'pause' },
+      { name: 'PlayPause', code: 'HID:0C:00CD', desc: 'Play / Pause Toggle', descKey: 'btkey_desc_playpause' },
+      { name: 'Stop', code: 'HID:0C:00B7', desc: 'Stop Playback', descKey: 'btkey_desc_stop' },
+      { name: 'NextTrack', code: 'HID:0C:00B5', desc: 'Skip Forward', descKey: 'btkey_desc_next' },
+      { name: 'PreviousTrack', code: 'HID:0C:00B6', desc: 'Skip Backward', descKey: 'btkey_desc_prev' },
+      { name: 'FastForward', code: 'HID:0C:00B3', desc: 'Fast Forward', descKey: 'btkey_desc_ff' },
+      { name: 'Rewind', code: 'HID:0C:00B4', desc: 'Scan Backward', descKey: 'btkey_desc_rewind' }
     ]
   },
   {
     category: 'Audio & Volume',
+    categoryKey: 'btkey_cat_audio',
     keys: [
-      { name: 'VolumeUp', code: 'HID:0C:00E9', desc: 'Volume +' },
-      { name: 'VolumeDown', code: 'HID:0C:00EA', desc: 'Volume -' },
-      { name: 'Mute', code: 'HID:0C:00E2', desc: 'Mute Audio' }
+      { name: 'VolumeUp', code: 'HID:0C:00E9', desc: 'Volume +', descKey: 'btkey_desc_vol_up' },
+      { name: 'VolumeDown', code: 'HID:0C:00EA', desc: 'Volume -', descKey: 'btkey_desc_vol_down' },
+      { name: 'Mute', code: 'HID:0C:00E2', desc: 'Mute Audio', descKey: 'btkey_desc_mute' }
     ]
   },
   {
     category: 'TV & Guide',
+    categoryKey: 'btkey_cat_tv_guide',
     keys: [
-      { name: 'ChannelUp', code: 'HID:0C:009C', desc: 'Channel Up' },
-      { name: 'ChannelDown', code: 'HID:0C:009D', desc: 'Channel Down' },
-      { name: 'Info', code: 'HID:0C:008D', desc: 'Program Guide / Info' },
-      { name: 'PageUp', code: 'HID:07:004B', desc: 'Page Up' },
-      { name: 'PageDown', code: 'HID:07:004E', desc: 'Page Down' },
-      { name: 'ContextMenu', code: 'HID:07:0065', desc: 'Application Context Menu' }
+      { name: 'ChannelUp', code: 'HID:0C:009C', desc: 'Channel Up', descKey: 'btn_channel_up' },
+      { name: 'ChannelDown', code: 'HID:0C:009D', desc: 'Channel Down', descKey: 'btn_channel_down' },
+      { name: 'Info', code: 'HID:0C:008D', desc: 'Program Guide / Info', descKey: 'btkey_desc_info' },
+      { name: 'PageUp', code: 'HID:07:004B', desc: 'Page Up', descKey: 'btn_page_up' },
+      { name: 'PageDown', code: 'HID:07:004E', desc: 'Page Down', descKey: 'btn_page_down' },
+      { name: 'ContextMenu', code: 'HID:07:0065', desc: 'Application Context Menu', descKey: 'btkey_desc_context_menu' }
     ]
   },
   {
     category: 'Numeric Keypad',
+    categoryKey: 'btkey_cat_numeric',
     keys: [
       { name: 'Number0', code: 'HID:07:0027', desc: '0' },
       { name: 'Number1', code: 'HID:07:001E', desc: '1' },
@@ -129,7 +135,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
 
     const devs = this.inventory.devices || [];
     if (!devs.length) {
-      cont.innerHTML = '<div class="card"><div class="muted">No devices stored. Go to IR Setup to add one.</div></div>';
+      cont.innerHTML = `<div class="card"><div class="muted">${t('studio_no_devices_stored')}</div></div>`;
       return;
     }
 
@@ -211,7 +217,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     }
     if (!dev) {
       const nameEl = document.getElementById('curDevName');
-      if (nameEl) nameEl.textContent = 'No Devices Found';
+      if (nameEl) nameEl.textContent = t('no_devices_found');
       return;
     }
     this.selectedIrDeviceId = String(dev.id);
@@ -229,8 +235,8 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     const countEl = document.getElementById('curDevCmdCount');
     const portEl = document.getElementById('curDevPortSelect');
     const mqttTopicInput = document.getElementById('devMqttTopic');
-    if (nameEl) nameEl.textContent = dev.name || 'Device ' + dev.id;
-    if (detailsEl) detailsEl.textContent = `Type: ${dev.type || 'Appliance'} • Brand: ${dev.manufacturer || 'Unknown'} • Model: ${dev.model || 'Unknown'}`;
+    if (nameEl) nameEl.textContent = dev.name || tf('device_n', { id: dev.id });
+    if (detailsEl) detailsEl.textContent = tf('studio_device_details_line', { type: dev.type || t('device_type_appliance'), brand: dev.manufacturer || t('unknown'), model: dev.model || t('unknown') });
     if (countEl) countEl.textContent = (dev.commands || []).length;
     if (portEl) {
       const p = (dev.controlPort !== undefined) ? dev.controlPort : 7;
@@ -265,10 +271,10 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
       const hasHost = Boolean(hostAddr && hostAddr !== '00:00:00:00:00:00');
 
       if (btHostAddrText) {
-        btHostAddrText.textContent = hasHost ? hostAddr : 'None (Unpaired)';
+        btHostAddrText.textContent = hasHost ? hostAddr : t('none_unpaired');
       }
       if (btBadge) {
-        btBadge.textContent = hasHost ? 'Paired' : 'Unpaired';
+        btBadge.textContent = hasHost ? t('host_paired') : t('unpaired_state');
         btBadge.className = hasHost ? 'badge badge-success mini' : 'badge subtle mini';
       }
       if (connBtn) connBtn.style.display = hasHost ? 'inline-block' : 'none';
@@ -284,11 +290,11 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
           if (hasHost && btBadge) {
             const isConn = (activeHost.connected && activeHost.addr && activeHost.addr.toLowerCase() === hostAddr.toLowerCase()) ||
               hosts.some(h => h.connected && h.addr && h.addr.toLowerCase() === hostAddr.toLowerCase());
-            btBadge.textContent = isConn ? 'Connected' : 'Paired';
+            btBadge.textContent = isConn ? t('connected') : t('host_paired');
             btBadge.className = isConn ? 'badge ok mini' : 'badge badge-secondary mini';
             if (connBtn) {
               connBtn.disabled = isConn;
-              connBtn.textContent = isConn ? 'Connected' : 'Connect';
+              connBtn.textContent = isConn ? t('connected') : t('connect');
             }
             if (disconnBtn) {
               disconnBtn.disabled = !isConn;
@@ -297,7 +303,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
           if (knownHostRow && knownHostSel) {
             if (hosts.length > 0) {
               knownHostRow.style.display = 'flex';
-              knownHostSel.innerHTML = '<option value="">-- Link with Known Host --</option>' +
+              knownHostSel.innerHTML = `<option value="">${t('link_known_host_opt')}</option>` +
                 hosts.map(h => `<option value="${escapeHtml(h.addr)}">${escapeHtml(h.name || h.addr)} (${escapeHtml(h.addr)})</option>`).join('');
             } else {
               knownHostRow.style.display = 'none';
@@ -325,7 +331,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
       }
       const btTrigSel = document.getElementById('curDevBtTriggerCmd');
       if (btTrigSel) {
-        let html = '<option value="">None (Fallback to Button Press)</option>';
+        let html = `<option value="">${t('opt_none_fallback')}</option>`;
         const allDevs = this.inventory?.devices || [];
         allDevs.forEach(d => {
           const cmds = (this.deviceCommandsMap && this.deviceCommandsMap[d.id]) || d.commands || [];
@@ -335,7 +341,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
             else if (d.type === 'BT' || d.type === 'Bluetooth' || d.isBt) typeLabel = 'Bluetooth';
             else if (d.type) typeLabel = d.type;
             else typeLabel = 'IR';
-            html += `<optgroup label="${escapeHtml(d.name || d.id || 'Device')} (${typeLabel})">`;
+            html += `<optgroup label="${escapeHtml(d.name || d.id || t('device_default'))} (${typeLabel})">`;
             cmds.forEach(c => {
               const cName = typeof c === 'string' ? c : (c.name || '');
               if (cName) {
@@ -426,7 +432,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     }
     if (mqttBadge) {
       mqttBadge.className = isMqttEn ? 'badge badge-success mini' : 'badge badge-secondary mini';
-      mqttBadge.textContent = isMqttEn ? 'Enabled' : 'Disabled';
+      mqttBadge.textContent = isMqttEn ? t('enabled_lbl') : t('disabled');
     }
 
     this.renderStudioCommandsList(dev);
@@ -440,7 +446,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     const cmds = (dev.commands || []).filter(c => !filter || c.name.toLowerCase().includes(filter));
 
     if (cmds.length === 0) {
-      listEl.innerHTML = `<div class="muted mini" style="padding: 12px; text-align: center;">${(dev.commands || []).length === 0 ? 'No commands saved yet. Add one on the right.' : 'No commands match filter.'}</div>`;
+      listEl.innerHTML = `<div class="muted mini" style="padding: 12px; text-align: center;">${(dev.commands || []).length === 0 ? t('no_cmds_saved_add_right') : t('no_cmds_match_filter')}</div>`;
       return;
     }
 
@@ -452,12 +458,12 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
         <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: var(--bg-card); border-radius: var(--radius-sm); margin-bottom: 4px; border: 1px solid var(--border);">
           <div style="display: flex; align-items: center; gap: 6px;">
             <strong style="font-size: 13px; color: var(--text-main);">${escapeHtml(c.name)}</strong>
-            ${isLocked ? `<span class="badge subtle mini" style="font-size: 10px;">Locked</span>` : ''}
+            ${isLocked ? `<span class="badge subtle mini" style="font-size: 10px;">${t('badge_locked')}</span>` : ''}
           </div>
           <div style="display: flex; gap: 6px; align-items: center;">
-            <button type="button" class="btn btn-xs btn-secondary btn-studio-test" data-dev="${escapeHtml(dev.id)}" data-cmd="${escapeHtml(c.name)}" title="Send command">▶ Test</button>
-            <button type="button" class="btn btn-xs btn-ghost btn-studio-edit" data-dev="${escapeHtml(dev.id)}" data-cmd="${escapeHtml(c.name)}" title="Edit command">✎ Edit</button>
-            ${isLocked ? '' : `<button type="button" class="btn btn-xs btn-ghost btn-studio-del" data-dev="${escapeHtml(dev.id)}" data-cmd="${escapeHtml(c.name)}" style="color: var(--danger);" title="Delete command">✕</button>`}
+            <button type="button" class="btn btn-xs btn-secondary btn-studio-test" data-dev="${escapeHtml(dev.id)}" data-cmd="${escapeHtml(c.name)}" title="${escapeHtml(t('send_command_title'))}">▶ ${t('test')}</button>
+            <button type="button" class="btn btn-xs btn-ghost btn-studio-edit" data-dev="${escapeHtml(dev.id)}" data-cmd="${escapeHtml(c.name)}" title="${escapeHtml(t('edit_command_title'))}">✎ ${t('edit')}</button>
+            ${isLocked ? '' : `<button type="button" class="btn btn-xs btn-ghost btn-studio-del" data-dev="${escapeHtml(dev.id)}" data-cmd="${escapeHtml(c.name)}" style="color: var(--danger);" title="${escapeHtml(t('delete_command_title'))}">✕</button>`}
           </div>
         </div>
       `;
@@ -471,11 +477,11 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
         btn.textContent = '...';
         try {
           await this.client.sendCommand(dId, cmd);
-          btn.textContent = '✓ Sent';
-          setTimeout(() => { btn.textContent = '▶ Test'; }, 1200);
+          btn.textContent = `✓ ${t('sent_short')}`;
+          setTimeout(() => { btn.textContent = `▶ ${t('test')}`; }, 1200);
         } catch (err) {
           alert(t('failed_to_send', 'Failed to send: ') + err.message);
-          btn.textContent = '▶ Test';
+          btn.textContent = `▶ ${t('test')}`;
         }
       });
     });
@@ -498,7 +504,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
           alert(t("bt_cmds_cannot_delete"));
           return;
         }
-        if (!await showConfirm(t('delete_cmd_from_dev_confirm').replace('{cmd}', cmd), { title: t('delete_cmd', 'Delete Command'), okText: t('delete', 'Delete') })) return;
+        if (!await showConfirm(tf('delete_cmd_from_dev_confirm', { cmd: cmd }), { title: t('delete_cmd', 'Delete Command'), okText: t('delete', 'Delete') })) return;
         try {
           await this.client.deleteCommand(dId, cmd);
           await this.refreshData();
@@ -565,7 +571,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
 
     if (!name || !manufacturer || !model) return alert(t("name_mfr_model_required"));
     try {
-      if (status) status.textContent = 'Saving new device...';
+      if (status) status.textContent = t('saving_new_device');
       const icon = document.getElementById('newDeviceIcon')?.value || 'tv';
       const existingIds = new Set((this.inventory.devices || []).map(d => String(d.id)));
       let cand = 1;
@@ -589,7 +595,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
       }
       const res = await this.client.saveNewDevice(devPayload);
       if (res && res.ok === false) {
-        throw new Error(res.error || res.message || 'Failed to save device on hub');
+        throw new Error(res.error || res.message || t('failed_save_device_hub'));
       }
       const newDevId = res?.deviceId || res?.id || generatedDevId;
       if (newDevId) {
@@ -625,7 +631,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
           }
         }
       }
-      if (status) status.innerHTML = '<span style="color:var(--success)">✓ Device created successfully!</span>';
+      if (status) status.innerHTML = `<span style="color:var(--success)">✓ ${t('device_created_ok')}</span>`;
       const nameInput = document.getElementById('newDeviceName');
       const mfgInput = document.getElementById('newDeviceManufacturer');
       const modelInput = document.getElementById('newDeviceModel');
@@ -643,7 +649,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
       if (newDevId) this.selectedIrDeviceId = String(newDevId);
       this.renderIrView(newDevId);
     } catch (err) {
-      if (status) status.innerHTML = `<span style="color:var(--danger)">Error: ${escapeHtml(err.message)}</span>`;
+      if (status) status.innerHTML = `<span style="color:var(--danger)">${escapeHtml(tf('error_msg', { error: err.message }))}</span>`;
     }
   }
 
@@ -671,7 +677,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     const dev = (this.inventory.devices || []).find(d => String(d.id) === String(devId));
     if (!dev) return;
     const stat = document.getElementById('powerSeqStatus');
-    if (stat) stat.textContent = 'Saving sequences...';
+    if (stat) stat.textContent = t('saving_sequences');
     try {
       const pOn = this.serializeSequence('powerOnStepsList');
       const pOff = this.serializeSequence('powerOffStepsList');
@@ -682,14 +688,14 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
       });
       dev.powerOnSequence = pOn;
       dev.powerOffSequence = pOff;
-      if (stat) stat.innerHTML = '<span style="color:var(--success)">Saved!</span>';
+      if (stat) stat.innerHTML = `<span style="color:var(--success)">${t('saved_status')}</span>`;
       setTimeout(() => {
         const modal = document.getElementById('powerSeqModal');
         if (modal) modal.style.display = 'none';
       }, 1000);
       await this.refreshData();
     } catch (err) {
-      if (stat) stat.innerHTML = `<span style="color:var(--danger)">Error: ${escapeHtml(err.message)}</span>`;
+      if (stat) stat.innerHTML = `<span style="color:var(--danger)">${escapeHtml(tf('error_msg', { error: err.message }))}</span>`;
     }
   }
 
@@ -762,6 +768,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
         if (!filter) return true;
         return k.name.toLowerCase().includes(filter) ||
                k.desc.toLowerCase().includes(filter) ||
+               (k.descKey ? t(k.descKey) : '').toLowerCase().includes(filter) ||
                k.code.toLowerCase().includes(filter);
       });
 
@@ -769,7 +776,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
 
       html += `
         <div style="background: var(--bg-dark); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px;">
-          <div style="font-size: 11px; font-weight: 600; color: var(--text-dim); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">${escapeHtml(group.category)}</div>
+          <div style="font-size: 11px; font-weight: 600; color: var(--text-dim); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">${escapeHtml(group.categoryKey ? t(group.categoryKey) : group.category)}</div>
           <div style="display: flex; flex-direction: column; gap: 4px;">
       `;
 
@@ -781,13 +788,13 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
             <div style="display: flex; align-items: baseline; gap: 8px; min-width: 0;">
               <strong style="font-size: 12px; color: var(--text-main); white-space: nowrap;">${escapeHtml(k.name)}</strong>
               <span class="muted mini" style="font-size: 10px; font-family: monospace;">${escapeHtml(k.code)}</span>
-              <span class="muted mini" style="font-size: 11px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${escapeHtml(k.desc)}</span>
+              <span class="muted mini" style="font-size: 11px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${escapeHtml(k.descKey ? t(k.descKey) : k.desc)}</span>
             </div>
             <div style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
-              <button type="button" class="btn btn-xs btn-ghost btn-test-bt-preset" data-code="${escapeHtml(k.code)}" title="Test sending key to host">▶</button>
+              <button type="button" class="btn btn-xs btn-ghost btn-test-bt-preset" data-code="${escapeHtml(k.code)}" title="${escapeHtml(t('test_key_to_host_title'))}">▶</button>
               ${isAdded ?
-                `<span class="badge subtle mini" style="font-size: 10px;">Added</span>` :
-                `<button type="button" class="btn btn-xs btn-primary btn-add-bt-preset" data-name="${escapeHtml(k.name)}" data-code="${escapeHtml(k.code)}">+ Add</button>`
+                `<span class="badge subtle mini" style="font-size: 10px;">${t('badge_added')}</span>` :
+                `<button type="button" class="btn btn-xs btn-primary btn-add-bt-preset" data-name="${escapeHtml(k.name)}" data-code="${escapeHtml(k.code)}">+ ${t('add')}</button>`
               }
             </div>
           </div>
@@ -801,7 +808,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     });
 
     if (totalRendered === 0) {
-      cont.innerHTML = `<div class="muted mini" style="padding: 16px; text-align: center;">No Bluetooth keys match filter.</div>`;
+      cont.innerHTML = `<div class="muted mini" style="padding: 16px; text-align: center;">${t('no_matching_bt_keys')}</div>`;
       return;
     }
 
@@ -837,7 +844,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
         } catch (err) {
           alert(t('add_failed', 'Add failed: ') + err.message);
           btn.disabled = false;
-          btn.textContent = '+ Add';
+          btn.textContent = `+ ${t('add')}`;
         }
       });
     });

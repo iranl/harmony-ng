@@ -1,3 +1,4 @@
+import { t } from '../i18n.js';
 import { HarmonyClientActivitiesDevices } from './api_activities_devices.js';
 import { createAppToken, revokeAppToken, loginFields, finishReplace } from '../app_token.js';
 import { saveHub, getSavedHubs } from '../storage.js';
@@ -393,7 +394,7 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
     });
     const data = await res.json();
     if (!res.ok || !data.ok) {
-      throw new Error(data.error || 'Login failed');
+      throw new Error(data.error || t('login_failed'));
     }
     this.token = data.access_token;
     this.authHeader = `Bearer ${this.token}`;

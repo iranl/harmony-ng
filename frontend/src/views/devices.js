@@ -22,13 +22,13 @@ export function createDevicesView(options = {}) {
     const devices = store.get('devices') || [];
     const header = h('div', { className: 'card-header' }, [
       h('h2', { className: 'card-title', text: t('tab_devices', 'Devices') }),
-      h('span', { className: 'badge badge-accent', text: `${devices.length} devices` }),
+      h('span', { className: 'badge badge-accent', text: t('devices_count', '{count} devices', { count: devices.length }) }),
     ]);
 
     const devGrid = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px' } });
 
     if (devices.length === 0) {
-      devGrid.appendChild(h('div', { className: 'card text-dim', text: 'No devices found on hub.' }));
+      devGrid.appendChild(h('div', { className: 'card text-dim', text: t('no_devices_on_hub', 'No devices found on hub.') }));
     } else {
       devices.forEach(dev => {
         const typeBadgeClass = dev.type === 'BT' ? 'badge-accent' : (dev.type === 'MQTT' ? 'badge-warning' : 'badge');
@@ -46,7 +46,7 @@ export function createDevicesView(options = {}) {
             iconEl,
             h('div', {}, [
               h('div', { style: { fontWeight: '700', fontSize: '14px' }, text: dev.name }),
-              h('div', { className: 'text-dim', style: { fontSize: '12px' }, text: `${dev.manufacturer || ''} ${dev.model || ''}`.trim() || 'Custom device' }),
+              h('div', { className: 'text-dim', style: { fontSize: '12px' }, text: `${dev.manufacturer || ''} ${dev.model || ''}`.trim() || t('custom_device', 'Custom device') }),
             ]),
           ]),
           h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [
@@ -109,7 +109,7 @@ export function createDevicesView(options = {}) {
         }),
         isBt ? h('button', {
           className: `subtab-btn ${activeSubTab === 'bt' ? 'active' : ''}`,
-          text: 'BT Input',
+          text: t('tab_bt_input', 'BT Input'),
           onclick: () => {
             activeSubTab = 'bt';
             renderDeviceRemote();

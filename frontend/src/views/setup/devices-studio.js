@@ -31,7 +31,7 @@ export function createView() {
     const devGrid = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px' } });
 
     if (devices.length === 0) {
-      devGrid.appendChild(h('div', { className: 'text-dim', text: 'No devices found.' }));
+      devGrid.appendChild(h('div', { className: 'text-dim', text: t('no_devices_found', 'No devices found.') }));
     } else {
       devices.forEach(dev => {
         const iconEl = renderDeviceIcon(dev, 'device-icon');
@@ -47,7 +47,7 @@ export function createView() {
             iconEl,
             h('div', {}, [
               h('div', { style: { fontWeight: 'bold' }, text: dev.name }),
-              h('div', { className: 'text-dim', style: { fontSize: '12px' }, text: `${dev.manufacturer || ''} ${dev.model || ''} (${dev.commands?.length || 0} commands)` }),
+              h('div', { className: 'text-dim', style: { fontSize: '12px' }, text: t('device_cmd_count_line', '{manufacturer} {model} ({count} commands)', { manufacturer: dev.manufacturer || '', model: dev.model || '', count: dev.commands?.length || 0 }).trim() }),
             ]),
           ]),
           h('button', { className: 'btn btn-secondary btn-sm', text: t('manage', 'Manage') }),
@@ -75,7 +75,7 @@ export function createView() {
 
     const header = h('div', { className: 'card-header' }, [
       backBtn,
-      h('h3', { className: 'card-title', text: `${dev.name} Studio` }),
+      h('h3', { className: 'card-title', text: t('device_studio_title', '{name} Studio', { name: dev.name }) }),
     ]);
 
     // The icon the remote draws for the device; saving it queues a config push to the remote
@@ -105,18 +105,18 @@ export function createView() {
       h('div', { className: 'card-header' }, [
         h('h4', { className: 'card-title', text: t('ir_learn_title', 'IR Capture (Learning Mode)') }),
       ]),
-      h('p', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '10px' }, text: 'Point your original remote at the Harmony Hub front sensor and press Capture.' }),
+      h('p', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '10px' }, text: t('ir_learn_hint', 'Point your original remote at the Harmony Hub front sensor and press Capture.') }),
       h('button', {
         className: 'btn btn-primary',
-        text: '🎯 Start IR Capture',
+        text: `🎯 ${t('start_ir_capture', 'Start IR Capture')}`,
         onclick: async () => {
           try {
-            toast.info('Listening for IR signal on Hub... press button on remote');
+            toast.info(t('ir_listening_press_button', 'Listening for IR signal on Hub... press button on remote'));
             const res = await api.captureIr();
             if (res && res.ok) {
               promptSaveCapturedIr(res);
             } else {
-              toast.error(res?.error || 'Capture timed out without signal');
+              toast.error(res?.error || t('ir_capture_timed_out', 'Capture timed out without signal'));
             }
           } catch (e) {
             toast.error(e.message);
@@ -135,7 +135,7 @@ export function createView() {
     const prontoNameInput = h('input', {
       type: 'text',
       className: 'form-input',
-      placeholder: 'Command Name (e.g. HDMI 1)',
+      placeholder: t('command_name_placeholder', 'Command Name (e.g. HDMI 1)'),
     });
 
     const prontoCard = h('div', { className: 'card' }, [
@@ -143,24 +143,24 @@ export function createView() {
         h('h4', { className: 'card-title', text: t('pronto_hex', 'Pronto Hex Direct') }),
       ]),
       h('div', { className: 'form-group' }, [
-        h('label', { className: 'form-label', text: 'Command Name' }),
+        h('label', { className: 'form-label', text: t('command_name', 'Command Name') }),
         prontoNameInput,
       ]),
       h('div', { className: 'form-group' }, [
-        h('label', { className: 'form-label', text: 'Pronto Hex Code' }),
+        h('label', { className: 'form-label', text: t('pronto_hex_code', 'Pronto Hex Code') }),
         prontoInput,
       ]),
       h('div', { style: { display: 'flex', gap: '8px', marginTop: '8px' } }, [
         h('button', {
           className: 'btn btn-secondary',
-          text: '▶ Test Blast',
+          text: `▶ ${t('test_blast', 'Test Blast')}`,
           onclick: async () => {
             const hex = prontoInput.value.trim();
-            if (!hex) return toast.warn('Enter Pronto hex code');
+            if (!hex) return toast.warn(t('enter_pronto_hex_code', 'Enter Pronto hex code'));
             try {
-              toast.info('Blasting Pronto code...');
+              toast.info(t('blasting_pronto', 'Blasting Pronto code...'));
               await api.sendDirectPronto(hex, dev.controlPort || 7);
-              toast.success('Blasted Pronto code');
+              toast.success(t('blasted_pronto', 'Blasted Pronto code'));
             } catch (e) {
               toast.error(e.message);
             }
@@ -172,12 +172,12 @@ export function createView() {
           onclick: async () => {
             const name = prontoNameInput.value.trim();
             const hex = prontoInput.value.trim();
-            if (!name || !hex) return toast.warn('Enter both name and Pronto hex');
+            if (!name || !hex) return toast.warn(t('enter_name_and_pronto', 'Enter both name and Pronto hex'));
             try {
               /* /ir/command reads name and raw; the IR encoder plays a raw value starting with "0000 " as Pronto */
               const res = await api.saveLearnedCommand({ deviceId: dev.id, name, raw: hex });
-              if (!res || res.ok === false) return toast.error(`Could not save command ${name}`);
-              toast.success(`Command ${name} saved!`);
+              if (!res || res.ok === false) return toast.error(t('could_not_save_command', 'Could not save command {name}', { name }));
+              toast.success(t('command_saved_excl', 'Command {name} saved!', { name }));
               refreshInventory();
             } catch (e) {
               toast.error(e.message);
@@ -205,7 +205,7 @@ export function createView() {
             onclick: async () => {
               try {
                 await api.sendCommand(dev.id, cName);
-                toast.info(`Sent ${cName}`);
+                toast.info(t('sent_command', 'Sent {name}', { name: cName }));
               } catch (e) {
                 toast.error(e.message);
               }
@@ -216,14 +216,14 @@ export function createView() {
             text: '×',
             onclick: async () => {
               const ok = await confirm.ask({
-                title: 'Delete Command',
-                message: `Delete ${cName} from ${dev.name}?`,
+                title: t('delete_command', 'Delete Command'),
+                message: t('delete_command_from_device', 'Delete {command} from {device}?', { command: cName, device: dev.name }),
                 danger: true,
               });
               if (ok) {
                 try {
                   await api.deleteCommand(dev.id, cName);
-                  toast.success('Command deleted');
+                  toast.success(t('command_deleted', 'Command deleted'));
                   refreshInventory();
                 } catch (e) {
                   toast.error(e.message);
@@ -255,13 +255,13 @@ export function createView() {
         onclick: async () => {
           const ok = await confirm.ask({
             title: t('delete_device', 'Delete Device'),
-            message: `Are you sure you want to delete ${dev.name}?`,
+            message: t('confirm_delete_device_name', 'Are you sure you want to delete {name}?', { name: dev.name }),
             danger: true,
           });
           if (ok) {
             try {
               await api.deleteDevice(dev.id);
-              toast.success('Device deleted');
+              toast.success(t('device_deleted_toast', 'Device deleted'));
               await refreshInventory();
               selectedDevice = null;
               renderDeviceSelector();
@@ -282,28 +282,28 @@ export function createView() {
   }
 
   function promptSaveCapturedIr(result) {
-    const nameInput = h('input', { type: 'text', className: 'form-input', placeholder: 'e.g. Power, Volume Up' });
+    const nameInput = h('input', { type: 'text', className: 'form-input', placeholder: t('ir_name_placeholder', 'e.g. Power, Volume Up') });
     const content = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px' } }, [
-      h('span', { className: 'badge badge-success', text: 'Signal captured successfully!' }),
-      h('label', { className: 'form-label', text: 'Command Name' }),
+      h('span', { className: 'badge badge-success', text: t('signal_captured', 'Signal captured successfully!') }),
+      h('label', { className: 'form-label', text: t('command_name', 'Command Name') }),
       nameInput,
     ]);
 
     createModal({
-      title: 'Save Captured IR Command',
+      title: t('save_captured_ir', 'Save Captured IR Command'),
       content,
       actions: [
-        { label: 'Cancel' },
+        { label: t('cancel', 'Cancel') },
         {
-          label: 'Test Blast',
+          label: t('test_blast', 'Test Blast'),
           onClick: async () => {
             try {
               /* the Hub returns a raw timing string (no pronto); send it through the device's IR ports */
               const res = result.pronto
                 ? await api.sendDirectPronto(result.pronto, selectedDevice?.controlPort || 7)
                 : await api.testLearnedIr({ deviceId: selectedDevice?.id, keycode: result.keycode || result.raw || '' });
-              if (res && res.ok === false) toast.error(res.error || 'IR transmit failed');
-              else toast.info('Blasted captured signal');
+              if (res && res.ok === false) toast.error(res.error || t('ir_transmit_failed', 'IR transmit failed'));
+              else toast.info(t('blasted_captured_signal', 'Blasted captured signal'));
             } catch (e) {
               toast.error(e.message);
             }
@@ -311,12 +311,12 @@ export function createView() {
           },
         },
         {
-          label: 'Save',
+          label: t('save', 'Save'),
           variant: 'primary',
           onClick: async () => {
             const name = nameInput.value.trim();
             if (!name) {
-              toast.warn('Enter command name');
+              toast.warn(t('enter_cmd_name', 'Enter command name'));
               return false;
             }
             /* /ir/command reads name and raw (the legacy UI sends the same fields) */
@@ -326,10 +326,10 @@ export function createView() {
               raw: result.keycode || result.raw || '',
             });
             if (!res || res.ok === false) {
-              toast.error(`Could not save command ${name}`);
+              toast.error(t('could_not_save_command', 'Could not save command {name}', { name }));
               return false;
             }
-            toast.success(`Saved command ${name}`);
+            toast.success(t('saved_command_name', 'Saved command {name}', { name }));
             refreshInventory();
             return true;
           },
@@ -339,24 +339,24 @@ export function createView() {
   }
 
   function openAddDeviceModal() {
-    const nameInput = h('input', { type: 'text', className: 'form-input', placeholder: 'Samsung TV' });
-    const mfgInput = h('input', { type: 'text', className: 'form-input', placeholder: 'Samsung' });
-    const modelInput = h('input', { type: 'text', className: 'form-input', placeholder: 'QN90A' });
+    const nameInput = h('input', { type: 'text', className: 'form-input', placeholder: 'Samsung TV' });  // i18n-ok: example value
+    const mfgInput = h('input', { type: 'text', className: 'form-input', placeholder: 'Samsung' });  // i18n-ok: example value
+    const modelInput = h('input', { type: 'text', className: 'form-input', placeholder: 'QN90A' });  // i18n-ok: example value
     const portSelect = h('select', { className: 'form-select' }, [
-      h('option', { value: 7, text: 'All IR Ports (7)' }),
-      h('option', { value: 1, text: 'Port 1 (Internal)' }),
-      h('option', { value: 2, text: 'Port 2 (Blaster 1)' }),
-      h('option', { value: 3, text: 'Port 3 (Blaster 2)' }),
+      h('option', { value: 7, text: t('ir_port_all', 'All IR Ports (7)') }),
+      h('option', { value: 1, text: t('ir_port_internal', 'Port 1 (Internal)') }),
+      h('option', { value: 2, text: t('ir_port_blaster1', 'Port 2 (Blaster 1)') }),
+      h('option', { value: 3, text: t('ir_port_blaster2', 'Port 3 (Blaster 2)') }),
     ]);
 
     const content = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } }, [
-      h('label', { className: 'form-label', text: 'Device Name' }),
+      h('label', { className: 'form-label', text: t('device_name', 'Device Name') }),
       nameInput,
-      h('label', { className: 'form-label', text: 'Manufacturer' }),
+      h('label', { className: 'form-label', text: t('manufacturer', 'Manufacturer') }),
       mfgInput,
-      h('label', { className: 'form-label', text: 'Model' }),
+      h('label', { className: 'form-label', text: t('model', 'Model') }),
       modelInput,
-      h('label', { className: 'form-label', text: 'IR Control Port' }),
+      h('label', { className: 'form-label', text: t('ir_control_port', 'IR Control Port') }),
       portSelect,
     ]);
 
@@ -364,14 +364,14 @@ export function createView() {
       title: t('add_device', 'Add New Device'),
       content,
       actions: [
-        { label: 'Cancel' },
+        { label: t('cancel', 'Cancel') },
         {
-          label: 'Create',
+          label: t('create', 'Create'),
           variant: 'primary',
           onClick: async () => {
             const name = nameInput.value.trim();
             if (!name) {
-              toast.warn('Device name is required');
+              toast.warn(t('device_name_required', 'Device name is required'));
               return false;
             }
             try {
@@ -382,7 +382,7 @@ export function createView() {
                 controlPort: Number(portSelect.value) || 7,
                 type: 'IR',
               });
-              toast.success(`Device ${name} added!`);
+              toast.success(t('device_added_excl', 'Device {name} added!', { name }));
               await refreshInventory();
               renderDeviceSelector();
               return true;

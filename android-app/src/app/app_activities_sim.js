@@ -17,7 +17,7 @@ import {
   sourceLabel,
   safeImportName
 } from '../irdb.js';
-import { t, setLanguage, getInitialLanguage } from '../i18n.js';
+import { t, setLanguage, getInitialLanguage, tf, tfHtml } from '../i18n.js';
 import iconMetadata from '../icon-metadata.json';
 import {
   initIconCache,
@@ -65,8 +65,8 @@ export class HarmonyAppActivitiesSim extends HarmonyAppActivitiesEditor {
 
     if (fromId === toId) {
       resultsBox.style.display = 'block';
-      summaryEl.innerHTML = '<strong>Already on this activity</strong>: No transition required.';
-      timelineEl.innerHTML = '<div class="muted mini">No operations required.</div>';
+      summaryEl.innerHTML = `<strong>${t('sim_already_on_activity')}</strong>: ${t('sim_no_transition_required')}`;
+      timelineEl.innerHTML = `<div class="muted mini">${t('no_operations_required')}</div>`;
       return;
     }
 
@@ -130,7 +130,7 @@ export class HarmonyAppActivitiesSim extends HarmonyAppActivitiesEditor {
         type: isDl ? 'Delay' : 'Command',
         delay: dl,
         startT: tMain,
-        phase: `Exit ${fromAct?.name || 'Leaving'}`
+        phase: tf('sim_phase_exit', { name: fromAct?.name || t('sim_phase_leaving') })
       });
       tMain += dl;
     }
@@ -142,7 +142,7 @@ export class HarmonyAppActivitiesSim extends HarmonyAppActivitiesEditor {
         command: 'Switched',
         delay: 0,
         startT: tMain,
-        phase: 'Leaving Stop Handover'
+        phase: t('sim_phase_leaving_handover')
       });
 
       let curOffset = 0;
@@ -159,7 +159,7 @@ export class HarmonyAppActivitiesSim extends HarmonyAppActivitiesEditor {
             delay: dl,
             relOffset: curOffset,
             anchor: 1,
-            source: `Stop tail ${fromAct?.name || ''}`
+            source: tf('sim_source_stop_tail', { name: fromAct?.name || '' })
           });
           curOffset += dl;
         }
@@ -184,7 +184,7 @@ export class HarmonyAppActivitiesSim extends HarmonyAppActivitiesEditor {
             type: isDl ? 'Delay' : 'Command',
             delay: dl,
             startT: tMain,
-            phase: `Power Off ${dev.name || dev.id}`
+            phase: tf('sim_phase_power_off', { name: dev.name || dev.id })
           });
           tMain += dl;
         });
@@ -202,7 +202,7 @@ export class HarmonyAppActivitiesSim extends HarmonyAppActivitiesEditor {
             command: pwrCmd.name || pwrCmd,
             delay: dl,
             startT: tMain,
-            phase: `Power Off ${dev.name || dev.id}`
+            phase: tf('sim_phase_power_off', { name: dev.name || dev.id })
           });
           tMain += dl;
         }
@@ -242,7 +242,7 @@ export class HarmonyAppActivitiesSim extends HarmonyAppActivitiesEditor {
             type: isDl ? 'Delay' : 'Command',
             delay: dl,
             startT: tMain,
-            phase: `Power On ${dev.name || dev.id}`
+            phase: tf('sim_phase_power_on', { name: dev.name || dev.id })
           });
           tMain += dl;
         });
@@ -260,7 +260,7 @@ export class HarmonyAppActivitiesSim extends HarmonyAppActivitiesEditor {
             command: pwrCmd.name || pwrCmd,
             delay: dl,
             startT: tMain,
-            phase: `Power On ${dev.name || dev.id}`
+            phase: tf('sim_phase_power_on', { name: dev.name || dev.id })
           });
           tMain += dl;
         }
@@ -276,7 +276,7 @@ export class HarmonyAppActivitiesSim extends HarmonyAppActivitiesEditor {
         command: '',
         delay: maxWarmup,
         startT: tMain,
-        phase: `Warmup (${maxWarmup} ms)`
+        phase: tf('sim_phase_warmup', { ms: maxWarmup })
       });
       tMain += maxWarmup;
     }
@@ -298,7 +298,7 @@ export class HarmonyAppActivitiesSim extends HarmonyAppActivitiesEditor {
         type: isDl ? 'Delay' : 'Command',
         delay: dl,
         startT: tMain,
-        phase: `Enter ${toAct?.name || 'Target'}`
+        phase: tf('sim_phase_enter', { name: toAct?.name || t('sim_phase_target') })
       });
       tMain += dl;
     }
@@ -310,7 +310,7 @@ export class HarmonyAppActivitiesSim extends HarmonyAppActivitiesEditor {
       command: 'Switched',
       delay: 0,
       startT: switchedAtMs,
-      phase: 'Switchpoint'
+      phase: t('sim_phase_switchpoint')
     });
 
     if (startSwitchedIdx >= 0) {
@@ -328,7 +328,7 @@ export class HarmonyAppActivitiesSim extends HarmonyAppActivitiesEditor {
             delay: dl,
             relOffset: curOffset,
             anchor: 4,
-            source: `Start tail ${toAct?.name || ''}`
+            source: tf('sim_source_start_tail', { name: toAct?.name || '' })
           });
           curOffset += dl;
         }
@@ -351,7 +351,7 @@ export class HarmonyAppActivitiesSim extends HarmonyAppActivitiesEditor {
       const isSwitched = st.type === 'Switched';
       const isSwMarker = st.type === 'SwitchedMarker';
       const dev = allDevs.find(d => String(d.id) === String(st.deviceId));
-      const devName = dev ? (dev.name || dev.model || `Device ${st.deviceId}`) : (st.deviceId && st.deviceId !== '0' ? `Device ${st.deviceId}` : '');
+      const devName = dev ? (dev.name || dev.model || tf('device_n', { id: st.deviceId })) : (st.deviceId && st.deviceId !== '0' ? tf('device_n', { id: st.deviceId }) : '');
 
       if (isSwitched) {
         const switchedSec = (switchedAtMs / 1000).toFixed(1);
@@ -359,8 +359,8 @@ export class HarmonyAppActivitiesSim extends HarmonyAppActivitiesEditor {
           <div class="queue-row" style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;margin:8px 0;background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.4);border-left:4px solid #22c55e;border-radius:var(--radius-sm);">
             <div style="display:flex;align-items:center;gap:8px;">
               <span style="font-size:14px;">⚡</span>
-              <strong style="font-size:12px;color:#22c55e;letter-spacing:0.5px;">ACTIVITY SWITCHED</strong>
-              <span style="font-size:12px;color:var(--text-muted);">&bull; Remote UI & App switch to "${escapeHtml(toAct ? toAct.name : 'PowerOff')}"</span>
+              <strong style="font-size:12px;color:#22c55e;letter-spacing:0.5px;">${t('sim_activity_switched_caps')}</strong>
+              <span style="font-size:12px;color:var(--text-muted);">&bull; ${escapeHtml(tf('sim_remote_app_switch_to', { name: toAct ? toAct.name : 'PowerOff' }))}</span>
             </div>
             <span class="badge ok" style="font-weight:700;font-size:11px;">T: ${switchedSec}s (${switchedAtMs.toLocaleString()} ms)</span>
           </div>
@@ -371,8 +371,8 @@ export class HarmonyAppActivitiesSim extends HarmonyAppActivitiesEditor {
         const sec = (st.startT / 1000).toFixed(1);
         return `
           <div class="queue-row" style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;margin-bottom:4px;background:rgba(59,130,246,0.1);border-left:3px solid #3b82f6;">
-            <span style="font-size:12px;color:#3b82f6;">&bull; [${st.phase}] Leaving activity switched (tail continues in background at T: ${sec}s)</span>
-            <span class="badge info">Handover</span>
+            <span style="font-size:12px;color:#3b82f6;">&bull; [${escapeHtml(st.phase)}] ${tfHtml('sim_leaving_switched', { sec: sec })}</span>
+            <span class="badge info">${t('sim_badge_handover')}</span>
           </div>
         `;
       }
@@ -384,16 +384,16 @@ export class HarmonyAppActivitiesSim extends HarmonyAppActivitiesEditor {
       if (isDelay) {
         return `
           <div class="queue-row" style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;margin-bottom:4px;">
-            <span style="font-size:12px;">${actionCount}. [${st.phase}] Wait ${st.delay} ms (T: ${startSec}s &rarr; ${endSec}s)</span>
-            <span class="badge warn">Delay</span>
+            <span style="font-size:12px;">${actionCount}. [${escapeHtml(st.phase)}] ${tfHtml('sim_wait_row', { delay: st.delay, start: startSec, end: endSec })}</span>
+            <span class="badge warn">${t('step_type_delay')}</span>
           </div>
         `;
       }
 
       return `
         <div class="queue-row" style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;margin-bottom:4px;">
-          <span style="font-size:12px;">${actionCount}. [${st.phase}] Send <strong>${escapeHtml(st.command)}</strong> to ${escapeHtml(devName)} (${st.delay} ms, T: ${startSec}s)</span>
-          <span class="badge ok">${st.type}</span>
+          <span style="font-size:12px;">${actionCount}. [${escapeHtml(st.phase)}] ${tf('sim_send_row', { command: `<strong>${escapeHtml(st.command)}</strong>`, device: escapeHtml(devName), delay: st.delay, start: startSec })}</span>
+          <span class="badge ok">${st.type === 'Command' ? t('step_type_command') : st.type}</span>
         </div>
       `;
     };
@@ -403,19 +403,19 @@ export class HarmonyAppActivitiesSim extends HarmonyAppActivitiesEditor {
     if (bgSteps.length > 0) {
       renderedTimeline += `
         <div style="margin:14px 0 6px 0;padding:6px 10px;background:rgba(147,51,234,0.1);border-left:3px solid #9333ea;border-radius:var(--radius-sm);display:flex;justify-content:space-between;align-items:center;">
-          <span style="font-size:12px;font-weight:700;color:#c084fc;">DEFERRED BACKGROUND QUEUE (executing concurrently)</span>
-          <span class="badge" style="background:#9333ea;color:#fff;">${bgSteps.length} background command(s)</span>
+          <span style="font-size:12px;font-weight:700;color:#c084fc;">${t('sim_deferred_queue')}</span>
+          <span class="badge" style="background:#9333ea;color:#fff;">${tfHtml('sim_background_commands', { count: bgSteps.length })}</span>
         </div>
       `;
       renderedTimeline += bgSteps.map((bg) => {
         actionCount++;
         const targetSec = (bg.targetMs / 1000).toFixed(1);
         const dev = allDevs.find(d => String(d.id) === String(bg.deviceId));
-        const devName = dev ? (dev.name || dev.model || `Device ${bg.deviceId}`) : (bg.deviceId && bg.deviceId !== '0' ? `Device ${bg.deviceId}` : '');
+        const devName = dev ? (dev.name || dev.model || tf('device_n', { id: bg.deviceId })) : (bg.deviceId && bg.deviceId !== '0' ? tf('device_n', { id: bg.deviceId }) : '');
         return `
           <div class="queue-row" style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;margin-bottom:4px;background:rgba(255,255,255,0.02);">
-            <span style="font-size:12px;">${actionCount}. [${bg.source}] Send <strong>${escapeHtml(bg.command)}</strong> to ${escapeHtml(devName)} (T: ${targetSec}s, ${bg.targetMs.toLocaleString()} ms)</span>
-            <span class="badge" style="background:rgba(147,51,234,0.25);color:#d8b4fe;border:1px solid rgba(147,51,234,0.4);">Deferred</span>
+            <span style="font-size:12px;">${actionCount}. [${escapeHtml(bg.source)}] ${tf('sim_send_bg_row', { command: `<strong>${escapeHtml(bg.command)}</strong>`, device: escapeHtml(devName), start: targetSec, ms: bg.targetMs.toLocaleString() })}</span>
+            <span class="badge" style="background:rgba(147,51,234,0.25);color:#d8b4fe;border:1px solid rgba(147,51,234,0.4);">${t('sim_badge_deferred')}</span>
           </div>
         `;
       }).join('');
@@ -426,9 +426,9 @@ export class HarmonyAppActivitiesSim extends HarmonyAppActivitiesEditor {
 
     summaryEl.innerHTML = `
       <strong>${escapeHtml(fromAct ? fromAct.name : 'PowerOff')} &rarr; ${escapeHtml(toAct ? toAct.name : 'PowerOff')}</strong>: 
-      ${actionCount} steps &bull; 
-      <span style="color:#22c55e;font-weight:700;">Activity Switched at: ${switchedSec}s (${switchedAtMs.toLocaleString()} ms)</span> &bull; 
-      <span style="color:var(--text);font-weight:600;">True End: ${trueEndSec}s (${trueEndMs.toLocaleString()} ms) (all enqueued sent)</span>
+      ${tf('sim_steps_count', { count: actionCount })} &bull; 
+      <span style="color:#22c55e;font-weight:700;">${tfHtml('sim_switched_at', { sec: switchedSec, ms: switchedAtMs.toLocaleString() })}</span> &bull; 
+      <span style="color:var(--text);font-weight:600;">${tfHtml('sim_true_end', { sec: trueEndSec, ms: trueEndMs.toLocaleString() })}</span>
     `;
     timelineEl.innerHTML = renderedTimeline;
   }

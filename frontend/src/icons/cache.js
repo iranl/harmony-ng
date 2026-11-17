@@ -5,6 +5,8 @@
  * instant in-memory Blob URLs, and automatic Hub/OTA sync.
  */
 
+import { t } from '../i18n/index.js';
+
 const DB_NAME = 'harmony_icons_db';
 const DB_VERSION = 1;
 const STORE_NAME = 'icons';
@@ -280,13 +282,13 @@ export async function syncIconsFromHub(baseUrl, client, onProgress = null) {
   let archiveUrl = `${rootUrl}/api/icons/archive`;
 
   try {
-    if (onProgress) onProgress({ status: 'connecting', percent: 5, message: 'Connecting to Hub icon archive...' });
+    if (onProgress) onProgress({ status: 'connecting', percent: 5, message: t('icons_connecting_archive', 'Connecting to Hub icon archive...') });
     /* login token: with authentication on, a bare fetch got 401 and fell back to one request per icon */
     const res = await fetch(archiveUrl, { headers: client && typeof client.getHeaders === 'function' ? client.getHeaders() : {} });
     if (res.ok) {
-      if (onProgress) onProgress({ status: 'downloading', percent: 30, message: 'Downloading icons bundle...' });
+      if (onProgress) onProgress({ status: 'downloading', percent: 30, message: t('icons_downloading_bundle', 'Downloading icons bundle...') });
       const buf = await res.arrayBuffer();
-      if (onProgress) onProgress({ status: 'extracting', percent: 60, message: 'Unpacking official icons...' });
+      if (onProgress) onProgress({ status: 'extracting', percent: 60, message: t('icons_unpacking', 'Unpacking official icons...') });
       return await extractAndCacheTarGz(buf, (p) => {
         if (onProgress) onProgress({ status: 'storing', percent: 60 + Math.round(p.percent * 0.4), ...p });
       });
@@ -297,13 +299,13 @@ export async function syncIconsFromHub(baseUrl, client, onProgress = null) {
 
   // Fallback: Individual downloads via /api/icons
   if (!client || typeof client.getIcons !== 'function') {
-    throw new Error('Could not download icon archive and client.getIcons is unavailable');
+    throw new Error(t('icons_archive_and_list_failed', 'Could not download the icon archive, and the icon list cannot be read'));
   }
 
-  if (onProgress) onProgress({ status: 'listing', percent: 10, message: 'Fetching icon list from Hub...' });
+  if (onProgress) onProgress({ status: 'listing', percent: 10, message: t('icons_fetching_list', 'Fetching icon list from Hub...') });
   const iconList = await client.getIcons();
   if (!Array.isArray(iconList) || iconList.length === 0) {
-    throw new Error('Hub reports no icons available');
+    throw new Error(t('icons_none_on_hub', 'Hub reports no icons available'));
   }
 
   let done = 0;
@@ -337,13 +339,13 @@ export async function syncIconsFromHub(baseUrl, client, onProgress = null) {
  */
 export async function syncIconsFromOta(onProgress = null) {
   const otaUrl = `https://raw.githubusercontent.com/iranl/harmony-ng/ota/icons.tar.gz?_=${Date.now()}`;
-  if (onProgress) onProgress({ status: 'downloading', percent: 20, message: 'Downloading icons from OTA release...' });
+  if (onProgress) onProgress({ status: 'downloading', percent: 20, message: t('icons_downloading_ota', 'Downloading icons from OTA release...') });
   const res = await fetch(otaUrl);
   if (!res.ok) {
-    throw new Error(`OTA mirror returned HTTP ${res.status}`);
+    throw new Error(t('icons_ota_http_error', 'OTA mirror returned HTTP {status}', { status: res.status }));
   }
   const buf = await res.arrayBuffer();
-  if (onProgress) onProgress({ status: 'extracting', percent: 60, message: 'Unpacking official icons...' });
+  if (onProgress) onProgress({ status: 'extracting', percent: 60, message: t('icons_unpacking', 'Unpacking official icons...') });
   return await extractAndCacheTarGz(buf, (p) => {
     if (onProgress) onProgress({ status: 'storing', percent: 60 + Math.round(p.percent * 0.4), ...p });
   });

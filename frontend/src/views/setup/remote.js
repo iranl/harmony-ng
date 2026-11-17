@@ -23,7 +23,7 @@ export function createView() {
             try {
               toast.info(t('config_push_started', 'Configuration push started over RF to Harmony remote!'));
               await api.pushRfConfig();
-              toast.success('Pushed config to remote');
+              toast.success(t('pushed_config_remote', 'Pushed config to remote'));
             } catch (e) {
               toast.error(e.message);
             }
@@ -40,8 +40,8 @@ export function createView() {
     const st = await api.getRfStatus().catch(() => null);
     const link = st?.slots?.find(s => s.slot === currentSlot)?.link;
     if (!link) { linkStatus.textContent = ''; return; }
-    const seen = link.last_seen_s < 0 ? t('rf_link_never', 'never') : `${link.last_seen_s} s ago`;
-    const acked = link.acked_sent ? `${Math.round(link.acked_ok * 100 / link.acked_sent)}% of ${link.acked_sent}` : '-';
+    const seen = link.last_seen_s < 0 ? t('rf_link_never', 'never') : t('seconds_ago', '{s} s ago', { s: link.last_seen_s });
+    const acked = link.acked_sent ? t('percent_of_total', '{pct}% of {total}', { pct: Math.round(link.acked_ok * 100 / link.acked_sent), total: link.acked_sent }) : '-';
     linkStatus.textContent = `${t('rf_link_last_seen', 'Last frame')}: ${seen} · ${t('rf_link_frames', 'Frames received')}: ${link.frames_rx} · `
       + `${t('rf_link_acked', 'ACKed')}: ${acked} · ${t('rf_link_retries', 'Retries')}: ${link.retries} · ${t('rf_link_naks', 'Hub radio NAKs')}: ${link.naks}`;
   }
@@ -61,16 +61,16 @@ export function createView() {
   // Pairing & Hardware Status Card
   const pairingCard = h('div', { className: 'card' }, [
     h('div', { className: 'card-header' }, [
-      h('h4', { className: 'card-title', text: 'RF Pairing & Status' }),
+      h('h4', { className: 'card-title', text: t('rf_pairing_status', 'RF Pairing & Status') }),
       h('div', { style: { display: 'flex', gap: '6px' } }, [
         h('button', {
           className: 'btn btn-secondary btn-sm',
-          text: currentSlot === 1 ? 'Slot 1 (Active)' : 'Slot 1',
+          text: currentSlot === 1 ? t('slot_n_active', 'Slot {n} (Active)', { n: 1 }) : t('slot_n', 'Slot {n}', { n: 1 }),
           onclick: () => { currentSlot = 1; loadSlot(); },
         }),
         h('button', {
           className: 'btn btn-secondary btn-sm',
-          text: currentSlot === 2 ? 'Slot 2 (Active)' : 'Slot 2',
+          text: currentSlot === 2 ? t('slot_n_active', 'Slot {n} (Active)', { n: 2 }) : t('slot_n', 'Slot {n}', { n: 2 }),
           onclick: () => { currentSlot = 2; loadSlot(); },
         }),
       ]),
@@ -80,7 +80,7 @@ export function createView() {
     h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } }, [
       h('button', {
         className: 'btn btn-primary',
-        text: '📡 Pair Remote (Hub Listen)',
+        text: `📡 ${t('pair_remote_hub_listen', 'Pair Remote (Hub Listen)')}`,
         onclick: async () => {
           try {
             await api.pairRfRemote(currentSlot);
@@ -93,12 +93,12 @@ export function createView() {
       }),
       h('button', {
         className: 'btn btn-secondary',
-        text: 'Stop Pairing',
+        text: t('stop_pairing', 'Stop Pairing'),
         onclick: async () => {
           try {
             await api.stopPairRfRemote();
             isPairing = false;
-            toast.info('Stopped pairing');
+            toast.info(t('stopped_pairing', 'Stopped pairing'));
           } catch (e) {
             toast.error(e.message);
           }
@@ -106,17 +106,17 @@ export function createView() {
       }),
       h('button', {
         className: 'btn btn-danger',
-        text: 'Unpair Slot',
+        text: t('unpair_slot', 'Unpair Slot'),
         onclick: async () => {
           const ok = await confirm.ask({
-            title: 'Unpair Remote Slot',
-            message: `Unpair RF Remote on Slot ${currentSlot}?`,
+            title: t('unpair_remote_slot', 'Unpair Remote Slot'),
+            message: t('unpair_slot_confirm', 'Unpair RF Remote on Slot {slot}?', { slot: currentSlot }),
             danger: true,
           });
           if (ok) {
             try {
               await api.unpairRfRemote(currentSlot);
-              toast.warn(`Unpaired slot ${currentSlot}`);
+              toast.warn(t('unpaired_slot', 'Unpaired slot {slot}', { slot: currentSlot }));
             } catch (e) {
               toast.error(e.message);
             }
@@ -129,34 +129,34 @@ export function createView() {
   // OTA Firmware Card
   const otaCard = h('div', { className: 'card' }, [
     h('div', { className: 'card-header' }, [
-      h('h4', { className: 'card-title', text: 'Remote Firmware (RF OTA)' }),
+      h('h4', { className: 'card-title', text: t('remote_firmware_rf_ota', 'Remote Firmware (RF OTA)') }),
       h('button', {
         className: 'btn btn-secondary btn-sm',
-        text: 'Check OTA Status',
+        text: t('check_ota_status', 'Check OTA Status'),
         onclick: async () => {
           try {
             const st = await api.getRfOtaStatus();
-            toast.info(`OTA status: ${st?.status || 'Idle'}`);
+            toast.info(t('ota_status_msg', 'OTA status: {status}', { status: st?.status || t('state_idle', 'Idle') }));
           } catch (e) {
             toast.error(e.message);
           }
         },
       }),
     ]),
-    h('p', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '8px' }, text: 'Flash custom firmware to physical touchscreen remote wirelessly over CC2544 RF channel.' }),
+    h('p', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '8px' }, text: t('rf_ota_desc', 'Flash custom firmware to physical touchscreen remote wirelessly over CC2544 RF channel.') }),
     h('button', {
       className: 'btn btn-primary btn-sm',
-      text: 'Start RF OTA Flash',
+      text: t('start_rf_ota_flash', 'Start RF OTA Flash'),
       onclick: async () => {
         const ok = await confirm.ask({
-          title: 'Start RF OTA Flash',
-          message: 'Ensure remote is near hub and battery is charged (>50%). Flash will take 2-4 minutes.',
+          title: t('start_rf_ota_flash', 'Start RF OTA Flash'),
+          message: t('rf_ota_confirm', 'Ensure remote is near hub and battery is charged (over 50%). Flash will take 2-4 minutes.'),
           danger: true,
         });
         if (ok) {
           try {
             await api.startRfOta(currentSlot);
-            toast.info('RF OTA process initiated');
+            toast.info(t('rf_ota_started', 'RF OTA process initiated'));
           } catch (e) {
             toast.error(e.message);
           }

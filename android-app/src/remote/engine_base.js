@@ -1,6 +1,6 @@
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { getRemoteLayout, saveRemoteLayout, resetRemoteLayout } from '../storage.js';
-import { t } from '../i18n.js';
+import { t, tf } from '../i18n.js';
 import { escapeHtml } from '../html_escape.js';
 
 export class RemoteEngineBase {
@@ -626,7 +626,7 @@ export class RemoteEngineBase {
 
   async saveCurrentLayoutToHub() {
     if (!this.activeLayout || !this.currentTarget?.id || !this.client) return;
-    const targetName = this.currentTarget?.name || this.currentTarget?.label || this.currentTarget?.model || 'Remote';
+    const targetName = this.currentTarget?.name || this.currentTarget?.label || this.currentTarget?.model || t('remote_tab');
     try {
       const key = `${this.currentScope}_${this.currentTarget.id}`;
       let hubData = null;
@@ -650,9 +650,9 @@ export class RemoteEngineBase {
 
   async restoreLayoutFromHub() {
     if (!this.currentTarget?.id || !this.client) return;
-    const targetName = this.currentTarget?.name || this.currentTarget?.label || this.currentTarget?.model || 'Remote';
+    const targetName = this.currentTarget?.name || this.currentTarget?.label || this.currentTarget?.model || t('remote_tab');
     const ok = window.showConfirm
-      ? await window.showConfirm(`Restore layout for "${targetName}" from Hub default?\n\nThis clears any local override on this device and reloads the Hub's saved layout.`, { title: 'Restore Layout', okText: 'Restore' })
+      ? await window.showConfirm(tf('restore_layout_confirm_name', { name: targetName }), { title: t('title_restore_layout'), okText: t('btn_restore') })
       : true;
     if (!ok) return;
 
@@ -679,11 +679,11 @@ export class RemoteEngineBase {
   }
 
   async resetCurrentLayout(skipConfirm = false) {
-    const targetName = this.currentTarget?.name || this.currentTarget?.label || (this.currentScope === 'activity' ? 'Activity' : 'Device');
-    const msg = `Reset remote for "${targetName}" to default layout based on available buttons?\n\nThis will organize available buttons into D-Pad, Volume, Power in the corner, Back/Home, and Media controls.`;
+    const targetName = this.currentTarget?.name || this.currentTarget?.label || (this.currentScope === 'activity' ? t('activity_default') : t('device_default'));
+    const msg = tf('reset_layout_confirm_name', { name: targetName });
     if (!skipConfirm) {
       const ok = window.showConfirm
-        ? await window.showConfirm(msg, { title: 'Reset Remote Layout', okText: 'Reset' })
+        ? await window.showConfirm(msg, { title: t('title_reset_remote_layout'), okText: t('reset_layout') })
         : true;
       if (!ok) return;
     }
@@ -758,7 +758,7 @@ export class RemoteEngineBase {
               `).join('')}
             </select>
           </div>
-          <span class="badge subtle" style="font-size:10px; margin-left:8px; flex-shrink:0;">${this.currentTarget?.type || 'Device'}</span>
+          <span class="badge subtle" style="font-size:10px; margin-left:8px; flex-shrink:0;">${escapeHtml(this.currentTarget?.type || t('device_default'))}</span>
         `;
         const sel = infoHeader.querySelector('.remote-device-select');
         if (sel && this.onSelectDeviceCallback) {
@@ -770,9 +770,9 @@ export class RemoteEngineBase {
         infoHeader.innerHTML = `
           <div style="display:flex; align-items:center; gap:8px;">
             <span style="display:inline-flex; align-items:center; color:var(--accent);">${this.targetIconSvg}</span>
-            <strong style="font-size:14px;">${escapeHtml(this.currentTarget?.name || this.currentTarget?.label || this.currentTarget?.model || 'Remote')}</strong>
+            <strong style="font-size:14px;">${escapeHtml(this.currentTarget?.name || this.currentTarget?.label || this.currentTarget?.model || t('remote_tab'))}</strong>
           </div>
-          <span class="badge subtle" style="font-size:10px;">${this.currentScope === 'activity' ? 'Activity' : (this.currentTarget?.type || 'Device')}</span>
+          <span class="badge subtle" style="font-size:10px;">${this.currentScope === 'activity' ? t('activity_default') : escapeHtml(this.currentTarget?.type || t('device_default'))}</span>
         `;
       }
       root.appendChild(infoHeader);
@@ -787,22 +787,22 @@ export class RemoteEngineBase {
     subtabsBar.innerHTML = `
       <div class="remote-subtabs-group">
         <button type="button" class="subtab-btn ${this.currentSubTab === 'remote' ? 'active' : ''}" data-subtab="remote">
-          Remote
+          ${t('remote_tab')}
         </button>
-        <button type="button" class="subtab-btn ${this.currentSubTab === 'commands' ? 'active' : ''}" data-subtab="commands" title="All Commands">
-          Commands
+        <button type="button" class="subtab-btn ${this.currentSubTab === 'commands' ? 'active' : ''}" data-subtab="commands" title="${t('all_commands')}">
+          ${t('commands_tab')}
         </button>
         ${hasNumbers ? `
         <button type="button" class="subtab-btn ${this.currentSubTab === 'keypad' ? 'active' : ''}" data-subtab="keypad">
-          Keypad
+          ${t('keypad_tab')}
         </button>
         ` : ''}
         ${hasBt ? `
         <button type="button" class="subtab-btn ${this.currentSubTab === 'keyboard' ? 'active' : ''}" data-subtab="keyboard">
-          Keyboard
+          ${t('keyboard_tab')}
         </button>
         <button type="button" class="subtab-btn ${this.currentSubTab === 'mouse' ? 'active' : ''}" data-subtab="mouse">
-          Mouse
+          ${t('mouse_tab')}
         </button>
         ` : ''}
       </div>

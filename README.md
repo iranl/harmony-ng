@@ -168,7 +168,8 @@ While HarmonyNG restores complete local independence and dramatically reduces me
 │   ├── RNDIS_AND_NETWORK_SETUP.md # USB network (RNDIS) driver and setup guide
 │   ├── openapi.yaml        # OpenAPI 3.1 description of the HTTP API
 │   ├── index.html          # Swagger UI page for openapi.yaml (GitHub Pages)
-│   └── OFFLINE_UNBRICK_AND_ROOT_GUIDE.md  # Recovery, UART, and SPI flash guide
+│   ├── OFFLINE_UNBRICK_AND_ROOT_GUIDE.md  # Recovery, UART, and SPI flash guide
+│   └── TRANSLATIONS.md     # Web UI languages: keys, checks, machine translations to check
 ├── drivers/windows/rndis/  # Windows RNDIS driver package for the remote's USB network
 ├── remote/                  # Remote userspace binaries and deployment tools
 │   ├── bootstrap_serial.py # Hardware serial bootstrap
@@ -268,6 +269,9 @@ separate machines at the same time (`SUITE_GROUP=1` to `4` runs one group locall
 hardware. The host tools tests (install, deploy, backup, recovery, migration and build tools)
 run when a `.py` file or `build/`, `remote/`, `scripts/` or `tools/` changes. Neither needs a
 Hub or a remote.
+
+The web UIs come in six languages; see [`docs/TRANSLATIONS.md`](docs/TRANSLATIONS.md) for how texts
+are translated and how to check them.
 
 ---
 

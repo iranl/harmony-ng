@@ -14,7 +14,7 @@ export function createSequenceEditor(steps = [], availableDevices = [], commands
     container.innerHTML = '';
 
     if (stepList.length === 0) {
-      container.appendChild(h('div', { className: 'text-dim', style: { padding: '8px 0', fontSize: '13px' }, text: 'No sequence steps added.' }));
+      container.appendChild(h('div', { className: 'text-dim', style: { padding: '8px 0', fontSize: '13px' }, text: t('no_sequence_steps', 'No sequence steps added.') }));
     }
 
     stepList.forEach((step, idx) => {
@@ -114,7 +114,7 @@ export function createSequenceEditor(steps = [], availableDevices = [], commands
         style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', margin: 0 },
       }, [
         h('span', { className: 'badge', text: `${idx + 1}` }),
-        isDelay ? h('span', { style: { fontWeight: 'bold', fontSize: '13px' }, text: 'Delay (ms):' }) : devSelect,
+        isDelay ? h('span', { style: { fontWeight: 'bold', fontSize: '13px' }, text: t('delay_ms', 'Delay (ms):') }) : devSelect,
         isDelay ? null : cmdSelect,
         delayInput,
         moveUpBtn,

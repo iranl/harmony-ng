@@ -10,15 +10,15 @@ import iconMeta from '../icons/metadata.json';
 // - keywords (rf_activity_icon_keyword in payload/source/rf_proto.h), which a theme can redraw;
 // - the remote's stock images, sent as a 16-bit index (payload/source/remote_stock_icons.c);
 // - icons uploaded to the Hub, which the Hub streams to the remote.
-const KEYWORDS = [
-  ['watchtv', 'Watch TV'], ['movie', 'Watch Movie / Stream'], ['music', 'Listen to Music'],
-  ['game', 'Play Game'], ['ps', 'PlayStation'], ['xbox', 'Xbox'], ['switch', 'Nintendo Switch'],
+const keywords = () => [
+  ['watchtv', t('watch_tv', 'Watch TV')], ['movie', t('icon_kw_movie', 'Watch Movie / Stream')], ['music', t('icon_kw_music', 'Listen to Music')],
+  ['game', t('icon_kw_game', 'Play Game')], ['ps', 'PlayStation'], ['xbox', 'Xbox'], ['switch', 'Nintendo Switch'],
   ['shield', 'NVIDIA Shield'], ['apple', 'Apple TV'], ['roku', 'Roku'], ['firetv', 'Fire TV'],
-  ['pc', 'PC / Computer'], ['smarttv', 'Smart TV'], ['sonos', 'Sonos'],
-  ['receiver', 'AV Receiver / Amplifier'], ['light', 'Smart Lights'], ['power', 'Power Off'],
-  ['projector', 'Projector'], ['bluray', 'Blu-ray / DVD'], ['satellite', 'Satellite'], ['soundbar', 'Soundbar'],
-  ['hifi', 'Hi-Fi / Vinyl'], ['netflix', 'Netflix'], ['night', 'Night'], ['fireplace', 'Fireplace'],
-  ['sunrise', 'Morning'], ['fan', 'Fan'],
+  ['pc', t('icon_kw_pc', 'PC / Computer')], ['smarttv', 'Smart TV'], ['sonos', 'Sonos'],
+  ['receiver', t('dev_type_av_receiver', 'AV Receiver / Amplifier')], ['light', t('icon_kw_light', 'Smart Lights')], ['power', t('power_off', 'Power Off')],
+  ['projector', t('dev_type_projector', 'Projector')], ['bluray', t('icon_kw_bluray', 'Blu-ray / DVD')], ['satellite', t('icon_kw_satellite', 'Satellite')], ['soundbar', t('icon_kw_soundbar', 'Soundbar')],
+  ['hifi', t('icon_kw_hifi', 'Hi-Fi / Vinyl')], ['netflix', 'Netflix'], ['night', t('icon_kw_night', 'Night')], ['fireplace', t('icon_kw_fireplace', 'Fireplace')],
+  ['sunrise', t('icon_kw_sunrise', 'Morning')], ['fan', t('dev_type_fan', 'Fan')],
 ];
 
 // The stock activity images at the size the activity list draws
@@ -58,7 +58,7 @@ export function openIconPicker(currentIcon = '', onSelect, { kind = 'activity' }
     const remoteIcon = ({ key, label }) => () => renderRemote({ id: `icon-picker-${key}`, name: label, icon: key }, 'app-icon');
     const keywordGroup = kind === 'device' ? t('icons_keywords_theme', 'Theme icons') : t('icons_keywords', 'Activity types');
     const items = [
-      ...KEYWORDS.map(([key, label]) => ({ group: keywordGroup, key, label, preview: remoteIcon({ key, label }) })),
+      ...keywords().map(([key, label]) => ({ group: keywordGroup, key, label, preview: remoteIcon({ key, label }) })),
       ...uploaded.map(u => ({
         group: t('icons_uploaded', 'Uploaded'),
         key: iconKey(u.filename),

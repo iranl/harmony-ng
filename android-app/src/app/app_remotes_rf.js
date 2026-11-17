@@ -17,7 +17,7 @@ import {
   sourceLabel,
   safeImportName
 } from '../irdb.js';
-import { t, setLanguage, getInitialLanguage } from '../i18n.js';
+import { t, setLanguage, getInitialLanguage, tf } from '../i18n.js';
 import iconMetadata from '../icon-metadata.json';
 import {
   initIconCache,
@@ -67,15 +67,15 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
       const msg = document.getElementById('rfPairMsg');
 
       if (st) {
-        if (fw) fw.textContent = st.fw_version || 'Unknown';
+        if (fw) fw.textContent = st.fw_version || t('unknown');
         const hAddr = st.hub_rf_address || st.rf_address || '';
         const hasHubAddr = Boolean(hAddr && hAddr !== 'None' && hAddr !== '00000000');
-        if (hubAddr) hubAddr.textContent = hasHubAddr ? hAddr : 'None';
-        if (state) state.textContent = st.pairing_active ? 'PAIRING ACTIVE' : 'IDLE';
+        if (hubAddr) hubAddr.textContent = hasHubAddr ? hAddr : t('val_none');
+        if (state) state.textContent = st.pairing_active ? t('badge_pairing_active') : t('badge_idle');
         if (badge) {
           const isOnline = st.running !== false && st.state !== 'stopped';
           badge.className = `badge ${isOnline ? 'ok' : 'bad'}`;
-          badge.textContent = isOnline ? 'ONLINE' : 'OFFLINE';
+          badge.textContent = isOnline ? t('badge_online') : t('badge_offline');
         }
 
         // Slot 1
@@ -109,31 +109,31 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
 
         if (t1) {
           if (!s1Active) {
-            t1.textContent = 'Slot 1: Remote 1';
+            t1.textContent = t('slot_1_remote_1');
           } else if (isSmart1) {
-            t1.textContent = 'Slot 1: Harmony Smart Control';
+            t1.textContent = tf('rf_slot_product_title', { slot: 1, product: 'Harmony Smart Control' });
           } else if (isNonLinux1) {
-            t1.textContent = 'Slot 1: Harmony Companion';
+            t1.textContent = tf('rf_slot_product_title', { slot: 1, product: 'Harmony Companion' });
           } else {
-            t1.textContent = 'Slot 1: Harmony Remote';
+            t1.textContent = tf('rf_slot_product_title', { slot: 1, product: 'Harmony Remote' });
           }
         }
         if (b1) {
           b1.className = `badge ${s1Active ? (isNonLinux1 ? 'info' : 'ok') : 'subtle'}`;
-          b1.textContent = s1Active ? (isSmart1 ? 'SMART CONTROL' : (isNonLinux1 ? 'COMPANION' : 'PAIRED')) : 'EMPTY';
+          b1.textContent = s1Active ? (isSmart1 ? 'SMART CONTROL' : (isNonLinux1 ? 'COMPANION' : t('badge_paired'))) : t('badge_empty');
         }
-        if (a1) a1.textContent = s1Active ? s1Addr : 'None';
+        if (a1) a1.textContent = s1Active ? s1Addr : t('val_none');
         if (battRow1) battRow1.style.display = isNonLinux1 ? 'none' : 'block';
         if (fwRow1) fwRow1.style.display = isNonLinux1 ? 'none' : 'block';
         if (batt1 && !isNonLinux1) {
           if (s1.battery && typeof s1.battery.percent === 'number' && s1.battery.percent > 0) {
-            const chg = s1.battery.charging ? ' ⚡ (Charging)' : '';
+            const chg = s1.battery.charging ? ` ⚡${t('battery_charging_suffix')}` : '';
             batt1.textContent = `${s1.battery.percent}% (${s1.battery.voltage_mv} mV)${chg}`;
           } else {
-            batt1.textContent = s1Active ? 'Waiting for report...' : '--';
+            batt1.textContent = s1Active ? t('waiting_for_report') : '--';
           }
         }
-        if (ver1 && !isNonLinux1) ver1.textContent = s1.sw_version || 'Unknown';
+        if (ver1 && !isNonLinux1) ver1.textContent = s1.sw_version || t('unknown');
         if (cfgVer1 && !isNonLinux1) {
           if (!s1Active) {
             cfgVer1.textContent = '--';
@@ -141,7 +141,7 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
             const cVer = s1.config_version ? `v${s1.config_version}` : 'v0';
             const inSync = s1.in_sync !== false;
             const bCls = inSync ? 'ok' : 'warn';
-            const bTxt = inSync ? 'IN SYNC' : `OUT OF SYNC (Hub: v${st.hub_config_version || 0})`;
+            const bTxt = escapeHtml(inSync ? t('badge_in_sync') : tf('badge_out_of_sync', { version: st.hub_config_version || 0 }));
             cfgVer1.innerHTML = `${cVer} <span class="badge ${bCls} mini" style="font-size:10px;padding:1px 5px;margin-left:4px;">${bTxt}</span>`;
           }
         }
@@ -187,31 +187,31 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
 
         if (t2) {
           if (!s2Active) {
-            t2.textContent = 'Slot 2: Remote 2';
+            t2.textContent = t('slot_2_remote_2');
           } else if (isSmart2) {
-            t2.textContent = 'Slot 2: Harmony Smart Control';
+            t2.textContent = tf('rf_slot_product_title', { slot: 2, product: 'Harmony Smart Control' });
           } else if (isNonLinux2) {
-            t2.textContent = 'Slot 2: Harmony Companion';
+            t2.textContent = tf('rf_slot_product_title', { slot: 2, product: 'Harmony Companion' });
           } else {
-            t2.textContent = 'Slot 2: Harmony Remote';
+            t2.textContent = tf('rf_slot_product_title', { slot: 2, product: 'Harmony Remote' });
           }
         }
         if (b2) {
           b2.className = `badge ${s2Active ? (isNonLinux2 ? 'info' : 'ok') : 'subtle'}`;
-          b2.textContent = s2Active ? (isSmart2 ? 'SMART CONTROL' : (isNonLinux2 ? 'COMPANION' : 'PAIRED')) : 'EMPTY';
+          b2.textContent = s2Active ? (isSmart2 ? 'SMART CONTROL' : (isNonLinux2 ? 'COMPANION' : t('badge_paired'))) : t('badge_empty');
         }
-        if (a2) a2.textContent = s2Active ? s2Addr : 'None';
+        if (a2) a2.textContent = s2Active ? s2Addr : t('val_none');
         if (battRow2) battRow2.style.display = isNonLinux2 ? 'none' : 'block';
         if (fwRow2) fwRow2.style.display = isNonLinux2 ? 'none' : 'block';
         if (batt2 && !isNonLinux2) {
           if (s2.battery && typeof s2.battery.percent === 'number' && s2.battery.percent > 0) {
-            const chg = s2.battery.charging ? ' ⚡ (Charging)' : '';
+            const chg = s2.battery.charging ? ` ⚡${t('battery_charging_suffix')}` : '';
             batt2.textContent = `${s2.battery.percent}% (${s2.battery.voltage_mv} mV)${chg}`;
           } else {
-            batt2.textContent = s2Active ? 'Waiting for report...' : '--';
+            batt2.textContent = s2Active ? t('waiting_for_report') : '--';
           }
         }
-        if (ver2 && !isNonLinux2) ver2.textContent = s2.sw_version || 'Unknown';
+        if (ver2 && !isNonLinux2) ver2.textContent = s2.sw_version || t('unknown');
         if (cfgVer2 && !isNonLinux2) {
           if (!s2Active) {
             cfgVer2.textContent = '--';
@@ -219,7 +219,7 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
             const cVer = s2.config_version ? `v${s2.config_version}` : 'v0';
             const inSync = s2.in_sync !== false;
             const bCls = inSync ? 'ok' : 'warn';
-            const bTxt = inSync ? 'IN SYNC' : `OUT OF SYNC (Hub: v${st.hub_config_version || 0})`;
+            const bTxt = escapeHtml(inSync ? t('badge_in_sync') : tf('badge_out_of_sync', { version: st.hub_config_version || 0 }));
             cfgVer2.innerHTML = `${cVer} <span class="badge ${bCls} mini" style="font-size:10px;padding:1px 5px;margin-left:4px;">${bTxt}</span>`;
           }
         }
@@ -256,13 +256,13 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
             const pctEl = document.getElementById('rfOtaCardPct');
             const barEl = document.getElementById('rfOtaCardBar');
             const descEl = document.getElementById('rfOtaCardDesc');
-            if (titleEl) titleEl.textContent = `⚡ RF OTA Update in Progress (Slot ${st.ota.slot})`;
+            if (titleEl) titleEl.textContent = `⚡ ${tf('rf_ota_in_progress_slot', { slot: st.ota.slot })}`;
             if (pctEl) pctEl.textContent = `${pct}%`;
             if (barEl) barEl.style.width = `${pct}%`;
             if (descEl) {
               const kbSent = Math.round((st.ota.sent_bytes || 0) / 1024);
               const kbTot = Math.round((st.ota.total_bytes || 0) / 1024);
-              descEl.textContent = `Chunk ${st.ota.sent_chunks}/${st.ota.total_chunks} (${kbSent} KB / ${kbTot} KB). Pairing and settings changes locked.`;
+              descEl.textContent = tf('rf_ota_card_progress', { sent: st.ota.sent_chunks, total: st.ota.total_chunks, kb_sent: kbSent, kb_total: kbTot });
             }
           } else {
             otaCard.style.display = 'none';
@@ -279,7 +279,7 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
           const b = document.getElementById(id);
           if (b) {
             b.disabled = isOtaBusy;
-            if (isOtaBusy) b.title = `Locked: RF OTA firmware update active on Slot ${st.ota?.slot || 'remote'}`;
+            if (isOtaBusy) b.title = tf('locked_rf_ota_active_slot', { slot: st.ota?.slot || '?' });
             else b.removeAttribute('title');
           }
         });
@@ -288,12 +288,12 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
         const ota2Btn = document.getElementById('rfSlot2UpdateBtn');
         if (ota1Btn) {
           ota1Btn.disabled = isOtaBusy;
-          if (isOtaBusy && st.ota?.slot !== 1) ota1Btn.title = `Locked: OTA in progress on Slot ${st.ota?.slot}`;
+          if (isOtaBusy && st.ota?.slot !== 1) ota1Btn.title = tf('locked_ota_in_progress_slot', { slot: st.ota?.slot });
           else ota1Btn.removeAttribute('title');
         }
         if (ota2Btn) {
           ota2Btn.disabled = isOtaBusy;
-          if (isOtaBusy && st.ota?.slot !== 2) ota2Btn.title = `Locked: OTA in progress on Slot ${st.ota?.slot}`;
+          if (isOtaBusy && st.ota?.slot !== 2) ota2Btn.title = tf('locked_ota_in_progress_slot', { slot: st.ota?.slot });
           else ota2Btn.removeAttribute('title');
         }
       }
@@ -301,7 +301,7 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
       const badge = document.getElementById('rfStatusBadge');
       if (badge) {
         badge.className = 'badge bad';
-        badge.textContent = 'OFFLINE';
+        badge.textContent = t('badge_offline');
       }
     }
   }
@@ -312,14 +312,14 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
     const slotInput = document.getElementById('rfConfigSlot');
     if (!modal) return;
     if (slotInput) slotInput.value = slot;
-    if (title) title.textContent = `Remote Settings (Slot ${slot})`;
+    if (title) title.textContent = tf('remote_settings_slot_n', { slot: slot });
 
     /* Load first, show the dialog only with the remote's own values: a failed load used to leave
      * the fields as they were (silently), and saving them pushed those values to the remote.
      * client.request() sends the login token, asks for a login on 401 and reports the Hub's error. */
     try {
       const cfg = await this.client.request(`/api/rf/remote-config?slot=${slot}`);
-      if (!cfg || typeof cfg !== 'object') throw new Error('no settings in the reply');
+      if (!cfg || typeof cfg !== 'object') throw new Error(t('no_settings_in_reply'));
       let langCode = cfg.language || 'en';
       if (typeof cfg.language_id !== 'undefined') {
         const map = ['en', 'de', 'fr', 'nl', 'es', 'it'];
@@ -483,7 +483,7 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
 
     const saveBtn = document.getElementById('rfConfigSaveBtn');
     if (saveBtn) {
-      saveBtn.textContent = 'Pushing to remote...';
+      saveBtn.textContent = t('pushing_to_remote');
       saveBtn.disabled = true; /* one RF push at a time */
     }
     try {
@@ -507,18 +507,18 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
       console.warn('Remote view refresh after saving failed:', err);
     } finally {
       if (saveBtn) {
-        saveBtn.textContent = 'Save & Push to Remote';
+        saveBtn.textContent = t('save_push_remote');
         saveBtn.disabled = false;
       }
     }
   }
 
   async pullConfigFromRemote(slot) {
-    const slotName = slot === 1 ? 'Slot 1' : 'Slot 2';
-    if (!await showConfirm(t('pull_config_confirm').replace('{slot}', slotName), { title: `Pull Config (${slotName})`, okText: t('pull_config', 'Pull Config'), danger: false })) return;
+    const slotName = tf('slot_n', { slot: slot === 1 ? 1 : 2 });
+    if (!await showConfirm(tf('pull_config_confirm', { slot: slotName }), { title: tf('pull_config_slot_title', { slot: slotName }), okText: t('pull_config', 'Pull Config'), danger: false })) return;
     try {
       await this.client.pullRfConfig(slot);
-      alert(t("config_pull_requested").replace("{slot}", slotName));
+      alert(tf("config_pull_requested", { slot: slotName }));
       setTimeout(() => this.refreshRfStatus(), 3000);
     } catch (err) {
       alert(t('error', 'Error') + ': ' + err.message);
@@ -544,9 +544,9 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
   }
 
   async unpairRfSlot(slot) {
-    const slotName = slot === 1 ? 'Slot 1' : 'Slot 2';
-    const msg = `Are you sure you want to unpair Remote in ${slotName}? Both Hub and remote will remove RF bonding.`;
-    if (!await showConfirm(msg, { title: `Unpair ${slotName}`, okText: `Unpair ${slotName}` })) return;
+    const slotName = tf('slot_n', { slot: slot === 1 ? 1 : 2 });
+    const msg = tf('unpair_slot_confirm', { slot: slotName });
+    if (!await showConfirm(msg, { title: tf('unpair_slot_title', { slot: slotName }), okText: tf('unpair_slot_title', { slot: slotName }) })) return;
     try {
       await this.client.unpairRfRemote(slot);
       await this.refreshRfStatus();
@@ -556,7 +556,7 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
   }
 
   async unpairRfRemote() {
-    if (!await showConfirm(t('unpair_all_confirm', 'Unpair all paired RF remotes?'), { title: 'Unpair All Remotes', okText: 'Unpair All' })) return;
+    if (!await showConfirm(t('unpair_all_confirm', 'Unpair all paired RF remotes?'), { title: t('unpair_all_remotes_btn'), okText: t('unpair_all_ok') })) return;
     try {
       await this.client.unpairRfRemote(0);
       await this.refreshRfStatus();
@@ -569,7 +569,7 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
     const btn = document.getElementById('btnPushConfigToRemote');
     if (btn) {
       btn.disabled = true;
-      btn.textContent = 'Pushing...';
+      btn.textContent = t('pushing_ellipsis');
     }
     try {
       await this.client.pushRfConfig();
@@ -581,13 +581,13 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
     } finally {
       if (btn) {
         btn.disabled = false;
-        btn.textContent = 'Push to Remote';
+        btn.textContent = t('push_to_remote');
       }
     }
   }
 
   async startRemoteOta(slot = 1) {
-    if (!await showConfirm(t('rf_ota_update_confirm').replace('{slot}', slot), { title: t('rf_ota_title', 'RF OTA Update'), okText: t('btn_start_update', 'Start Update'), danger: false })) return;
+    if (!await showConfirm(tf('rf_ota_update_confirm', { slot: slot }), { title: t('rf_ota_title', 'RF OTA Update'), okText: t('btn_start_update', 'Start Update'), danger: false })) return;
     const btn = document.getElementById(`rfSlot${slot}UpdateBtn`);
     const otherBtn = document.getElementById(`rfSlot${slot === 1 ? 2 : 1}UpdateBtn`);
     const statusDiv = document.getElementById(`rfSlot${slot}OtaStatus`);
@@ -595,7 +595,7 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
     if (otherBtn) otherBtn.disabled = true;
     if (statusDiv) {
       statusDiv.style.display = 'block';
-      statusDiv.textContent = 'Initiating RF OTA transfer...';
+      statusDiv.textContent = t('rf_ota_initiating');
     }
     try {
       const res = await this.client.startRfOta(slot);
@@ -609,23 +609,23 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
             if (st.status === 1 || st.in_progress) {
               startedTransmitting = true;
               const pct = st.total_bytes > 0 ? Math.round((st.sent_bytes / st.total_bytes) * 100) : 0;
-              if (statusDiv) statusDiv.textContent = `Sending OTA: ${pct}% (${st.sent_chunks}/${st.total_chunks} chunks, ${st.sent_bytes}/${st.total_bytes} bytes)...`;
+              if (statusDiv) statusDiv.textContent = tf('rf_ota_sending_progress', { pct: pct, sent_chunks: st.sent_chunks, total_chunks: st.total_chunks, sent_bytes: st.sent_bytes, total_bytes: st.total_bytes });
               this.refreshRfStatus().catch(() => { });
             } else if (st.status === 2) {
               clearInterval(pollTimer);
-              if (statusDiv) statusDiv.textContent = '✓ OTA Complete! Remote verifying and rebooting.';
+              if (statusDiv) statusDiv.textContent = `✓ ${t('rf_ota_complete')}`;
               if (btn) btn.disabled = false;
               if (otherBtn) otherBtn.disabled = false;
               setTimeout(() => this.refreshRfStatus(), 10000);
             } else if (st.status === -1) {
               clearInterval(pollTimer);
-              if (statusDiv) statusDiv.textContent = `❌ OTA Failed: ${st.error || 'Transfer failed'}`;
+              if (statusDiv) statusDiv.textContent = `❌ ${tf('rf_ota_failed_error', { error: st.error || t('transfer_failed') })}`;
               if (btn) btn.disabled = false;
               if (otherBtn) otherBtn.disabled = false;
               this.refreshRfStatus().catch(() => { });
             } else if (st.status === 0 && !st.in_progress && startedTransmitting) {
               clearInterval(pollTimer);
-              if (statusDiv) statusDiv.textContent = '❌ OTA Aborted: RF daemon restarted or connection lost';
+              if (statusDiv) statusDiv.textContent = `❌ ${t('rf_ota_aborted')}`;
               if (btn) btn.disabled = false;
               if (otherBtn) otherBtn.disabled = false;
               this.refreshRfStatus().catch(() => { });
@@ -633,7 +633,7 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
           } catch { }
         }, 1500);
       } else {
-        alert(t("could_not_start_ota") + (res?.error || res?.status || 'Unknown error'));
+        alert(t("could_not_start_ota") + (res?.error || res?.status || t('unknown_error')));
         if (btn) btn.disabled = false;
         if (otherBtn) otherBtn.disabled = false;
       }
@@ -679,7 +679,7 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
     } catch { }
   }
 
-  showUpdatingOverlay(statusText = 'Applying update and preparing reboot...') {
+  showUpdatingOverlay(statusText = t('applying_update_reboot')) {
     this.isUpdating = true;
     const overlay = document.getElementById('hubUpdatingOverlay');
     if (overlay) overlay.style.display = 'flex';
@@ -698,7 +698,7 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
       // 0. Hub software update in progress
       const updateStat = await this.client.getUpdateStatus().catch(() => null);
       if (updateStat?.updating) {
-        this.showUpdatingOverlay('Hub software update is running in background...');
+        this.showUpdatingOverlay(t('hub_update_running_bg'));
       } else if (this.isUpdating && !this.pollTimerActive) {
         this.hideUpdatingOverlay();
       }
@@ -714,9 +714,9 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
           hubBanner.style.display = 'flex';
           const title = document.getElementById('hubUpdateTitle');
           const desc = document.getElementById('hubUpdateDesc');
-          const targetVer = targetRemote || 'New';
-          if (title) title.textContent = `Hub Software Update Available (v${targetVer.replace(/^v/, '')})`;
-          if (desc) desc.textContent = `Installed: v${localVer.replace(/^v/, '') || 'current'} • Tap to view and install.`;
+          const targetVer = targetRemote || t('hub_update_new');
+          if (title) title.textContent = tf('hub_update_available_ver', { version: targetVer.replace(/^v/, '') });
+          if (desc) desc.textContent = tf('hub_update_installed_tap', { version: localVer.replace(/^v/, '') || t('current_version_word') });
         } else {
           hubBanner.style.display = 'none';
         }
@@ -730,12 +730,12 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
           syncBanner.style.display = 'flex';
           const title = document.getElementById('remoteSyncTitle');
           const desc = document.getElementById('remoteSyncDesc');
-          let slotLabel = 'All Paired Remotes';
-          if (rfStat.sync_pending_slot === 1) slotLabel = 'Remote Slot 1';
-          else if (rfStat.sync_pending_slot === 2) slotLabel = 'Remote Slot 2';
-          if (title) title.textContent = `Remote Settings Pending Push (${slotLabel})`;
+          let slotLabel = t('all_paired_remotes');
+          if (rfStat.sync_pending_slot === 1) slotLabel = tf('remote_slot_n', { slot: 1 });
+          else if (rfStat.sync_pending_slot === 2) slotLabel = tf('remote_slot_n', { slot: 2 });
+          if (title) title.textContent = tf('remote_settings_pending_push', { target: slotLabel });
           if (desc) {
-            const diffInfo = rfStat.sync_pending_diff ? `Pending changes: ${rfStat.sync_pending_diff}` : 'Hub configuration changed. Push settings to synchronize remotes.';
+            const diffInfo = rfStat.sync_pending_diff ? tf('pending_changes_list', { changes: rfStat.sync_pending_diff }) : t('hub_config_changed_push');
             desc.textContent = diffInfo;
           }
         } else {
@@ -753,13 +753,13 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
           const badge = document.getElementById('rfOtaTopPctBadge');
           const bar = document.getElementById('rfOtaTopProgressBar');
           const pct = rfStat.ota.total_chunks > 0 ? Math.round((rfStat.ota.sent_chunks / rfStat.ota.total_chunks) * 100) : 0;
-          if (title) title.textContent = `Remote Slot ${rfStat.ota.slot} Firmware OTA in Progress`;
+          if (title) title.textContent = tf('remote_slot_ota_in_progress', { slot: rfStat.ota.slot });
           if (badge) badge.textContent = `${pct}%`;
           if (bar) bar.style.width = `${pct}%`;
           if (desc) {
             const kbSent = Math.round((rfStat.ota.sent_bytes || 0) / 1024);
             const kbTot = Math.round((rfStat.ota.total_bytes || 0) / 1024);
-            desc.textContent = `Transmitting chunk ${rfStat.ota.sent_chunks} of ${rfStat.ota.total_chunks} (${kbSent} KB / ${kbTot} KB). Other RF changes locked.`;
+            desc.textContent = tf('rf_ota_top_progress', { sent: rfStat.ota.sent_chunks, total: rfStat.ota.total_chunks, kb_sent: kbSent, kb_total: kbTot });
           }
         } else {
           otaBanner.style.display = 'none';
