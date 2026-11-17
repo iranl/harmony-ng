@@ -46,17 +46,28 @@ class HidErrorResponse(RuntimeError):
 
 
 def is_error_response(resp: bytes) -> bool:
-    """True for a refusal: FF <cmd> FF. A success answer carries the request's 7-bit sequence
-    number with bit 7 set in byte 2, so it is 0xFF only for sequence 127, which this client
-    never uses (HarmonyHid._next_seq)."""
-    return len(resp) >= 3 and resp[0] == 0xFF and resp[2] == 0xFF
+    """True only for the exact refusal stock hal builds (libhal_send_error_response, Hub hal
+    0x418f10; the remote's hal FUN_0000f010 builds the same): FF <cmd> FF, a parameter count of
+    1 or 2 (bit 7 set when a checksum follows), first parameter one byte (TL 01) holding the
+    code, the second (count 2) one byte too: FF <cmd> FF 01 01 <code> or
+    FF <cmd> FF 02 01 <code> 01 <handle>. harmony-ng's USB Wi-Fi setup sends the first form.
+    A stock success answer (libhal_send_success_response 0x418990) carries the request's 7-bit
+    sequence with bit 7 set in byte 2, so it is 0xFF only for sequence 127, which this client
+    never uses (HarmonyHid._next_seq); the shape check is a second guard against reading a
+    success as a refusal."""
+    if len(resp) < 6 or resp[0] != 0xFF or resp[2] != 0xFF:
+        return False
+    count = resp[3] & 0x3F
+    if count == 1:
+        return resp[4] == 0x01
+    if count == 2:
+        return len(resp) >= 8 and resp[4] == 0x01 and resp[6] == 0x01
+    return False
 
 
 def error_code(resp: bytes) -> Optional[int]:
-    """The error code of a refusal (FF <cmd> FF <n> 01 <code> ...), None when it has none."""
-    if len(resp) >= 6 and (resp[3] & 0x3F) >= 1 and resp[4] == 0x01:
-        return resp[5]
-    return None
+    """The error code of a refusal (is_error_response), None for any other answer."""
+    return resp[5] if is_error_response(resp) else None
 
 
 def _refused(what: str, resp: bytes) -> HidErrorResponse:
