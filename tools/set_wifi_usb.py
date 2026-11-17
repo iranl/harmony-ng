@@ -36,19 +36,31 @@ STATUS_WAIT_S = 60
 STATUS_RETRY_S = 5
 
 
+class UsbAccessError(Exception):
+    """The Hub is on USB but this user may not open its device (Linux hidraw permissions)."""
+
+
 def connect() -> HarmonyHid | None:
+    denied: OSError | None = None
     for pid in ALL_HUB_PIDS:
         hid = HarmonyHid(pid=pid)
         if hid.open():
             return hid
+        err = getattr(hid, "open_error", None)
+        if isinstance(err, PermissionError):
+            denied = err
+    if denied is not None:
+        raise UsbAccessError(str(denied))
     return None
 
 
-def read_status(hid: HarmonyHid, wait_s: int = STATUS_WAIT_S) -> tuple[HarmonyHid, dict[str, str]]:
+def read_status(hid: HarmonyHid, wait_s: int = STATUS_WAIT_S) -> tuple[HarmonyHid | None, dict[str, str]]:
     """The Hub's Wi-Fi status. When it does not answer, the device is closed and opened again
-    every few seconds until wait_s; returns the device in use and the status ({} if none)."""
+    every few seconds until wait_s; returns the device in use (None when it is gone from USB at
+    the end) and the status ({} if none)."""
     deadline = time.time() + wait_s
     st = hid.get_wifi_status()
+    current: HarmonyHid | None = hid
     told = False
     while not st and time.time() < deadline:
         if not told:
@@ -56,12 +68,16 @@ def read_status(hid: HarmonyHid, wait_s: int = STATUS_WAIT_S) -> tuple[HarmonyHi
                   f"was set up again); retrying for up to {wait_s} s...")
             told = True
         time.sleep(STATUS_RETRY_S)
-        hid.close()
-        again = connect()
-        if again:
-            hid = again
-            st = hid.get_wifi_status()
-    return hid, st
+        if current is not None:
+            current.close()
+            current = None
+        try:
+            current = connect()
+        except UsbAccessError:
+            current = None
+        if current is not None:
+            st = current.get_wifi_status()
+    return current, st
 
 
 def show_status(st: dict[str, str]) -> None:
@@ -115,11 +131,17 @@ def set_wifi(hid: HarmonyHid, ssid: str, password: str, encryption: str, wait_s:
             return 1
     except HidErrorResponse as e:
         print(f"[-] {e}")
-        print("    This Hub does not offer Wi-Fi setup over USB (older harmony-ng, or the USB port is in host mode).")
+        print("    This Hub does not offer Wi-Fi setup over USB (older harmony-ng, the setup is turned off in its")
+        print("    settings, or the USB port is in host mode).")
         return 1
     except ValueError as e:
         print(f"[-] {e}")
         return 2
+    except (RuntimeError, OSError) as e:
+        # no answer to the open or the write (timeout), or the device went away
+        print(f"[-] The Hub did not answer the request: {e}")
+        print("    Check the cable, wait for the Hub to finish starting, and run the tool again.")
+        return 1
     deadline = time.time() + wait_s
     st: dict[str, str] = {}
     while True:
@@ -156,22 +178,36 @@ def main(argv: list[str] | None = None) -> int:
     if not args.status and not args.ssid:
         parser.error("give --ssid to set the network, or --status")
 
-    hid = connect()
+    try:
+        hid = connect()
+    except UsbAccessError as e:
+        print(f"[-] The Hub is on USB, but this user may not open its device ({e}).")
+        print("    Run the tool with sudo, or give your user read and write access to the Hub's")
+        print("    /dev/hidraw* device (a udev rule for 046D:C129 / 046D:C132).")
+        return 1
     if not hid:
         print("[-] No Harmony Hub found on USB (046D:C129 / 046D:C132).")
         print("    Connect the Hub's micro-USB port to this computer and wait for it to boot. With Ethernet")
         print("    over USB set up, restart the Hub while it is connected to this computer.")
         return 1
+    current: HarmonyHid | None = hid
     try:
         print("[*] Hub found on USB. Current Wi-Fi state:")
-        hid, st = read_status(hid)
+        current, st = read_status(hid)
+        if current is None:
+            print("[-] The Hub is no longer on USB (the device went away while waiting for it).")
+            return 1
         show_status(st)
+        if not st:
+            # no answer at all: do not ask for a password that could not be sent
+            return 1
         if args.status:
-            return 0 if st else 1
+            return 0
         password = ask_password(args, args.ssid)
-        return set_wifi(hid, args.ssid, password, args.encryption, args.wait)
+        return set_wifi(current, args.ssid, password, args.encryption, args.wait)
     finally:
-        hid.close()
+        if current is not None:
+            current.close()
 
 
 if __name__ == "__main__":

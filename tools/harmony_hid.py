@@ -811,6 +811,9 @@ class HarmonyHid:
         self.pid = pid
         self.dev = None
         self.seq = 1
+        # why the last open() failed when a device was found but could not be opened (Linux:
+        # the OSError of the hidraw node, e.g. PermissionError); None otherwise
+        self.open_error: Optional[OSError] = None
 
     def open(self) -> bool:
         if sys.platform == "win32":
@@ -841,8 +844,10 @@ class HarmonyHid:
             try:
                 fd = os.open(path, os.O_RDWR)
                 self.dev = LinuxHidDevice(fd, path)
+                self.open_error = None
                 return True
-            except OSError:
+            except OSError as e:
+                self.open_error = e
                 return False
         elif sys.platform == "darwin":
             mgr, dev_ref = find_darwin_device(self.pid)

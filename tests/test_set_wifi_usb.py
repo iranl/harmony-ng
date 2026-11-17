@@ -11,7 +11,11 @@
 - a Hub that does not answer the status yet (about a minute after Windows set the USB device up
   again) is opened again and asked again until it answers, or until the wait ends (exit 1);
 - after a failed USB attempt the Hub reports "failed" while it is back on its previous network:
-  shown as such, and as reconnecting while it has no network name yet.
+  shown as such, and as reconnecting while it has no network name yet;
+- no traceback, a message and exit 1 when: the Hub leaves USB while the tool retries; the Hub
+  never answers (then no password is asked and nothing is sent); the open or the write gets no
+  answer (RuntimeError, OSError); the Hub is on USB but its Linux hidraw device may not be
+  opened (permission), which harmony_hid.HarmonyHid.open() now reports in open_error.
 """
 
 from __future__ import annotations
@@ -187,6 +191,82 @@ class SetWifiUsb(unittest.TestCase):
                                       "error_code": "Connection timed out"})
         self.assertIn("(reconnecting to the previous network)", out.getvalue())
         self.assertIn("State:    failed", out.getvalue())
+
+
+class CleanFailures(unittest.TestCase):
+    def run_main(self, argv, connect, env=None, clock_step=10.0):
+        out = io.StringIO()
+        now = [0.0]
+
+        def clock():
+            now[0] += clock_step
+            return now[0]
+        with mock.patch.object(set_wifi_usb, "connect", side_effect=connect), \
+             mock.patch.object(set_wifi_usb.time, "time", side_effect=clock), \
+             mock.patch.object(set_wifi_usb.time, "sleep", lambda s: None), \
+             mock.patch.dict(os.environ, env or {}, clear=False), \
+             mock.patch("getpass.getpass", side_effect=AssertionError("password asked")), \
+             contextlib.redirect_stdout(out):
+            rc = set_wifi_usb.main(argv)
+        return rc, out.getvalue()
+
+    def test_device_gone_during_retry(self):
+        hub = SilentHub(answer_after=10**6)
+        calls = iter([hub])
+        rc, out = self.run_main(["--ssid", "Home"], lambda: next(calls, None))
+        self.assertEqual(rc, 1)
+        self.assertIn("no longer on USB", out)
+        self.assertEqual(hub.sets, [])
+
+    def test_silent_hub_no_password_asked(self):
+        hub = SilentHub(answer_after=10**6)
+        rc, out = self.run_main(["--ssid", "Home"], lambda: hub)
+        self.assertEqual(rc, 1)
+        self.assertIn("did not answer", out)
+        self.assertEqual(hub.sets, [], "settings were sent to a Hub that never answered")
+
+    def test_open_timeout_is_a_clean_error(self):
+        class Timeout(FakeHub):
+            def provision_wifi(self, ssid, password, encryption="WPA2-PSK"):
+                raise RuntimeError("Open file '/sys/wifi/connect' failed: response timeout")
+        for exc_hub in (Timeout({}),):
+            rc, out = self.run_main(["--ssid", "Home"], lambda: exc_hub, {"HARMONY_WIFI_PASS": "secret-pass-1"})
+            self.assertEqual(rc, 1)
+            self.assertIn("did not answer the request", out)
+
+        class Gone(FakeHub):
+            def provision_wifi(self, ssid, password, encryption="WPA2-PSK"):
+                raise OSError("HID report write failed")
+        rc, out = self.run_main(["--ssid", "Home"], lambda: Gone({}), {"HARMONY_WIFI_PASS": "secret-pass-1"})
+        self.assertEqual(rc, 1)
+        self.assertIn("did not answer the request", out)
+
+    def test_permission_denied_on_linux(self):
+        class Denied:
+            def __init__(self, pid=None):
+                self.open_error = PermissionError(13, "Permission denied", "/dev/hidraw3")
+
+            def open(self):
+                return False
+        out = io.StringIO()
+        with mock.patch.object(set_wifi_usb, "HarmonyHid", Denied), contextlib.redirect_stdout(out):
+            rc = set_wifi_usb.main(["--status"])
+        self.assertEqual(rc, 1)
+        self.assertIn("may not open its device", out.getvalue())
+        self.assertNotIn("No Harmony Hub found", out.getvalue())
+
+    @unittest.skipUnless(sys.platform.startswith("linux") and os.geteuid() != 0, "Linux, not root")
+    def test_harmony_hid_reports_the_open_error(self):
+        from tools import harmony_hid
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            node = pathlib.Path(d) / "hidraw9"
+            node.write_text("")
+            node.chmod(0)
+            hid = harmony_hid.HarmonyHid(pid=harmony_hid.HUB_PID)
+            with mock.patch.object(harmony_hid, "find_linux_device", return_value=str(node)):
+                self.assertFalse(hid.open())
+            self.assertIsInstance(hid.open_error, PermissionError)
 
 
 if __name__ == "__main__":
