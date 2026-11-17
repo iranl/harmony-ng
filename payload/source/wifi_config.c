@@ -475,3 +475,26 @@ void wifi_config_status(struct wifi_status *st) {
     }
     if (strcmp(st->ip, "0.0.0.0") == 0) st->ip[0] = '\0';
 }
+
+int wifi_usb_setup_setting(const char *conf_path) {
+    char line[128];
+    FILE *f = conf_path ? fopen(conf_path, "r") : NULL;
+    if (!f) return 1;
+    int on = 1;
+    while (fgets(line, sizeof(line), f)) {
+        char key[32], val[32];
+        size_t k = 0, v = 0;
+        const char *s = line;
+        while (*s == ' ' || *s == '\t') s++;
+        while (*s && *s != '=' && *s != ' ' && *s != '\t' && k + 1 < sizeof(key)) key[k++] = *s++;
+        key[k] = '\0';
+        while (*s == ' ' || *s == '\t') s++;
+        if (*s != '=' || strcmp(key, "USB_WIFI_SETUP") != 0) continue;
+        for (s++; *s && v + 1 < sizeof(val); s++)
+            if (*s != ' ' && *s != '\t' && *s != '"' && *s != '\r' && *s != '\n') val[v++] = *s;
+        val[v] = '\0';
+        on = strcmp(val, "0") != 0;
+    }
+    fclose(f);
+    return on;
+}

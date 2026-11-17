@@ -73,6 +73,11 @@ void wifi_config_status(struct wifi_status *st);
  * (the mark is removed then, the files stay as they are). */
 int wifi_config_recover(void);
 
+/* The USB Wi-Fi setup switch in ethernet.conf (conf_path): 0 when it holds USB_WIFI_SETUP=0
+ * (quotes and blanks allowed), 1 otherwise, also when the file or the key is missing (on by
+ * default, as stock) */
+int wifi_usb_setup_setting(const char *conf_path);
+
 /* A path of the list above; test builds (TEST_HARNESS) put it under $HARMONY_WIFI_ROOT */
 const char *wifi_config_path(const char *path, char *buf, size_t len);
 

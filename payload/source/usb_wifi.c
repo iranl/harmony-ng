@@ -25,6 +25,10 @@
  * an error. The network is tested first and the previous configuration is kept when the test
  * fails (wifi_config.c, shared with the web UI). The password is never sent back or logged.
  *
+ * Only WPA2-PSK, WPA-PSK (pass phrase) and open networks are accepted, as stock. Any computer
+ * on the port may use it without a login (as stock); USB_WIFI_SETUP=0 in ethernet.conf
+ * (POST /api/ethernet-save usb_wifi_setup) turns it off: every request is refused at once.
+ *
  * Single-threaded with poll(): the Hub kernel has no futex, so no threads and no lock waits.
  * A new connection from usbhid (it connects again each time a computer configures the device)
  * replaces the old one; the count of connections is in /tmp/harmony_usbwifi.state for
@@ -58,6 +62,9 @@
 #define MAX_PAYLOAD 1024
 #define WIFI_FILE "/sys/wifi/connect"
 #define RESULT_HOLD_S 120
+/* data frames one write command may announce: the largest request (MAX_PAYLOAD) needs 17;
+ * more is a malformed request, refused before the count is used */
+#define MAX_WRITE_FRAMES 1024
 
 /* stock hal error codes */
 #define ERR_GENERIC 0x00
@@ -90,6 +97,7 @@ struct conn {
     char payload[MAX_PAYLOAD + 1];
     size_t plen;
     int overflow;
+    int told_off;       /* "turned off" logged once per connection */
 };
 
 static unsigned long g_connections;
@@ -114,6 +122,24 @@ static void logmsg(const char *fmt, ...) {
     printf("\n");
     fflush(stdout);
     va_end(ap);
+}
+
+/* A network name as it may be logged: control characters (ESC, CR, ...) become '?', so a name
+ * sent over USB cannot change the log's lines or a terminal that shows it */
+static const char *log_safe(const char *in, char *out, size_t len) {
+    size_t j = 0;
+    for (size_t i = 0; in && in[i] && j + 1 < len; i++) {
+        unsigned char c = (unsigned char)in[i];
+        out[j++] = (c < 0x20 || c == 0x7f) ? '?' : (char)c;
+    }
+    out[j] = '\0';
+    return out;
+}
+
+/* USB_WIFI_SETUP=0 in ethernet.conf turns the setup off (default on, as stock) */
+int usbwifi_enabled(void) {
+    char pbuf[256];
+    return wifi_usb_setup_setting(wifi_config_path(USBWIFI_SETTING_PATH, pbuf, sizeof(pbuf)));
 }
 
 static void write_state(void) {
@@ -221,33 +247,37 @@ static void apply_payload(const char *payload, size_t plen, int overflow) {
         set_result(0, "SSID missing");
         return;
     }
+    /* only for the log, never the stored value (wifi_config.c refuses control characters) */
+    char shown[sizeof(ssid)];
+    log_safe(ssid, shown, sizeof(shown));
     int is_open;
     if (strncasecmp(enc, "WEP", 3) == 0) {
-        logmsg("Wi-Fi setup refused for '%s': WEP is not supported", ssid);
+        logmsg("Wi-Fi setup refused for '%s': WEP is not supported", shown);
         set_result(0, "WEP is not supported");
         return;
-    } else if (strncasecmp(enc, "WPA", 3) == 0) {
+    } else if (strcasecmp(enc, "WPA2-PSK") == 0 || strcasecmp(enc, "WPA-PSK") == 0) {
+        /* the two pass phrase types stock accepted; WPA-EAP, enterprise, SAE are not offered */
         is_open = 0;
     } else if (strcasecmp(enc, "NONE") == 0 || strcasecmp(enc, "OPEN") == 0) {
         is_open = 1;
     } else if (enc[0] == '\0') {
         is_open = psk[0] == '\0';
     } else {
-        logmsg("Wi-Fi setup refused for '%s': unknown encryption", ssid);
-        set_result(0, "Unknown encryption (use WPA2-PSK, WPA-PSK or NONE)");
+        logmsg("Wi-Fi setup refused for '%s': unsupported encryption", shown);
+        set_result(0, "Unsupported encryption (use WPA2-PSK, WPA-PSK or NONE; WEP and enterprise networks are not supported)");
         return;
     }
-    logmsg("Wi-Fi setup over USB: testing network '%s' (%s)", ssid, is_open ? "open" : "WPA/WPA2 pass phrase");
+    logmsg("Wi-Fi setup over USB: testing network '%s' (%s)", shown, is_open ? "open" : "WPA/WPA2 pass phrase");
     char err[200] = "";
     /* hidden 1: wpa_supplicant also probes for the name, as stock did (scan_ssid 1) */
     int rc = wifi_config_apply(ssid, is_open ? "" : psk, is_open, 1, err, sizeof(err));
     memset(psk, 0, sizeof(psk));
     if (rc == 0) {
-        logmsg("Wi-Fi setup over USB: '%s' works and was saved", ssid);
+        logmsg("Wi-Fi setup over USB: '%s' works and was saved", shown);
         set_result(1, NULL);
         renew_lease();
     } else {
-        logmsg("Wi-Fi setup over USB: '%s' not saved (%s); the previous settings are kept", ssid, err[0] ? err : "failed");
+        logmsg("Wi-Fi setup over USB: '%s' not saved (%s); the previous settings are kept", shown, err[0] ? err : "failed");
         set_result(0, err);
     }
 }
@@ -331,6 +361,12 @@ static void do_open(struct conn *c, uint8_t seq, const struct param *pv, int n) 
         send_error(c, 0x01, ERR_NO_FILE);
         return;
     }
+    if (!usbwifi_enabled()) {
+        if (!c->told_off) logmsg("USB Wi-Fi setup is turned off in the settings (USB_WIFI_SETUP=0): request refused");
+        c->told_off = 1;
+        send_error(c, 0x01, ERR_NO_FILE);
+        return;
+    }
     int rd = memchr(pv[1].data, 'R', pv[1].len) != NULL;
     int wr = memchr(pv[1].data, 'W', pv[1].len) != NULL || memchr(pv[1].data, 'C', pv[1].len) != NULL;
     if (rd == wr) { send_error(c, 0x01, ERR_PARSE); return; }
@@ -366,7 +402,10 @@ static void finish_write(struct conn *c) {
 }
 
 static void do_write(struct conn *c, uint8_t seq, const struct param *pv, int n) {
-    if (n < 2 || !pv[0].is_num || !pv[1].is_num || pv[1].num < 1) { send_error(c, 0x03, ERR_PARSE); return; }
+    if (n < 2 || !pv[0].is_num || !pv[1].is_num || pv[1].num < 1 || pv[1].num > MAX_WRITE_FRAMES) {
+        send_error(c, 0x03, ERR_PARSE);
+        return;
+    }
     c->wr_pending = 1;
     c->wr_seq = seq;
     c->wr_handle = (uint8_t)pv[0].num;
@@ -518,6 +557,8 @@ int usbwifi_main(int argc, char **argv) {
 
     /* a Wi-Fi test cut short (this program killed, the power cut): previous files back */
     wifi_config_recover();
+    if (!usbwifi_enabled())
+        logmsg("USB Wi-Fi setup is turned off in the settings (USB_WIFI_SETUP=0): every request is refused");
 
     int ls = socket(AF_INET, SOCK_STREAM, 0);
     if (ls < 0) {

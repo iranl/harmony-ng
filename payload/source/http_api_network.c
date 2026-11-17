@@ -155,6 +155,8 @@ int http_api_network_handle(int client_fd, const char *method, const char *clean
             }
             fclose(cff);
         }
+        /* Wi-Fi setup over USB (hub_util usbwifi): on unless USB_WIFI_SETUP=0 */
+        cJSON_AddBoolToObject(cfg, "usb_wifi_setup", wifi_usb_setup_setting(config_store_path("ethernet.conf")));
         cJSON_AddItemToObject(st, "config", cfg);
 
         char ifconfig_buf[8192] = {0};
@@ -337,6 +339,7 @@ int http_api_network_handle(int client_fd, const char *method, const char *clean
             cJSON *p_mask = cJSON_GetObjectItemCaseSensitive(params, "eth_netmask");
             cJSON *p_gw = cJSON_GetObjectItemCaseSensitive(params, "eth_gateway");
             cJSON *p_dns = cJSON_GetObjectItemCaseSensitive(params, "eth_dns");
+            cJSON *p_usb = cJSON_GetObjectItemCaseSensitive(params, "usb_wifi_setup");
 
             int eth_en = 1;
             if (p_en) {
@@ -349,6 +352,15 @@ int http_api_network_handle(int client_fd, const char *method, const char *clean
                 if (cJSON_IsBool(p_fb)) eth_fb = cJSON_IsTrue(p_fb);
                 else if (cJSON_IsNumber(p_fb)) eth_fb = (p_fb->valueint != 0);
                 else if (cJSON_IsString(p_fb)) eth_fb = (strcmp(p_fb->valuestring, "0") != 0 && strcasecmp(p_fb->valuestring, "false") != 0);
+            }
+
+            /* Unlike the other fields, usb_wifi_setup left out keeps the stored value: the web UI
+             * does not send it, and an Ethernet save must not turn the USB setup back on */
+            int usb_wifi = wifi_usb_setup_setting(config_store_path("ethernet.conf"));
+            if (p_usb) {
+                if (cJSON_IsBool(p_usb)) usb_wifi = cJSON_IsTrue(p_usb);
+                else if (cJSON_IsNumber(p_usb)) usb_wifi = (p_usb->valueint != 0);
+                else if (cJSON_IsString(p_usb)) usb_wifi = (strcmp(p_usb->valuestring, "0") != 0 && strcasecmp(p_usb->valuestring, "false") != 0);
             }
 
             const char *mode_val = (p_mode && cJSON_IsString(p_mode) && strcasecmp(p_mode->valuestring, "static") == 0) ? "static" : "dhcp";
@@ -381,8 +393,9 @@ int http_api_network_handle(int client_fd, const char *method, const char *clean
                 "ETH_IP=\"%s\"\n"
                 "ETH_NETMASK=\"%s\"\n"
                 "ETH_GATEWAY=\"%s\"\n"
-                "ETH_DNS=\"%s\"\n",
-                eth_en, eth_fb, mode_val, valid_ip, valid_mask, valid_gw, valid_dns);
+                "ETH_DNS=\"%s\"\n"
+                "USB_WIFI_SETUP=%d\n",
+                eth_en, eth_fb, mode_val, valid_ip, valid_mask, valid_gw, valid_dns, usb_wifi);
 
             if (write_file_content(config_store_path("ethernet.conf"), conf_buf) != 0) {
                 cJSON_Delete(params);

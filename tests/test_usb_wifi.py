@@ -27,7 +27,11 @@ Previous settings really kept: with no Wi-Fi file before, a failed set removes t
 again (and drops it from wpa_supplicant); an applet killed in the middle of a test leaves its
 copies and a mark on flash, and the next start puts the previous files back (also after a
 power cut, which clears the lock in /tmp), with or without previous files. A Hub on which
-wpa_supplicant does not run (no network stored) gets it started for the test.
+wpa_supplicant does not run (no network stored) gets it started for the test. Only WPA2-PSK,
+WPA-PSK and open networks are accepted (WPA-EAP and enterprise refused). A write announcing more
+data frames than any request needs is refused before the count is used. Network names are
+logged with control characters replaced. USB_WIFI_SETUP=0 in ethernet.conf refuses every
+request.
 """
 
 from __future__ import annotations
@@ -274,7 +278,9 @@ class UsbWifi(unittest.TestCase):
         cases = [
             (("NewNet", "short", "WPA2-PSK"), "8 to 63"),
             (("NewNet", "0123456789", "WEP"), "WEP"),
-            (("NewNet", "goodpassword", "TKIP-ENTERPRISE"), "Unknown encryption"),
+            (("NewNet", "goodpassword", "TKIP-ENTERPRISE"), "Unsupported encryption"),
+            (("NewNet", "goodpassword", "WPA-EAP"), "Unsupported encryption"),
+            (("NewNet", "goodpassword", "WPA2-ENTERPRISE"), "enterprise networks are not supported"),
             (("", "goodpassword", "WPA2-PSK"), "SSID missing"),
             (("x" * 33, "goodpassword", "WPA2-PSK"), "32 bytes"),
             (("NewNet", "good\tpassword", "WPA2-PSK"), "control character"),
@@ -417,6 +423,39 @@ class UsbWifi(unittest.TestCase):
         self.start_applet()
         self.assertEqual(self.confs(), (OLD_CONF, OLD_CONF), "the live test's files were touched")
         self.assertTrue(mark.exists())
+
+    # ---- input checks, settings ----
+
+    def test_huge_frame_count_refused(self):
+        hid = self.hid()
+        handle = hid.open_file_write("/sys/wifi/connect", size=10)
+        for count in (0x80000000, 0xFFFFFFFF, 1025):
+            frames = build_primary_frames(0x03, 7, [encode_param_byte(handle), bytes([0x04]) + count.to_bytes(4, "big")])
+            hid.dev.write_report(frames[0])
+            resp = hid.dev.read_report(3000)
+            self.assertEqual(resp[:6], bytes([0xFF, 0x03, 0xFF, 0x01, 0x01, 0x0C]), hex(count))
+        self.assertEqual(hid.get_wifi_status().get("ssid"), "OldNet", "still serving")
+
+    def test_ssid_logged_without_control_characters(self):
+        hid = self.hid()
+        hid.provision_wifi("Net\x1b[2Jx\x07", "goodpassword", "WPA-EAP")
+        log = self.applet_log()
+        self.assertNotIn("\x1b", log)
+        self.assertNotIn("\x07", log)
+        self.assertIn("Net?[2Jx?", log)
+
+    def test_turned_off_in_settings(self):
+        (self.root / "data" / "harmony").mkdir(parents=True)
+        (self.root / "data" / "harmony" / "ethernet.conf").write_text('ETH_ENABLED=1\nUSB_WIFI_SETUP="0"\n')
+        hid = self.hid()
+        self.assertEqual(hid.get_wifi_status(), {}, "the status is readable with the setup turned off")
+        with self.assertRaises(HidErrorResponse) as cm:
+            hid.provision_wifi("NewNet", "goodpassword")
+        self.assertEqual(cm.exception.code, 0x0B)
+        self.assertEqual(self.confs(), (OLD_CONF, OLD_CONF))
+        self.assertIn("turned off in the settings", self.applet_log())
+        (self.root / "data" / "harmony" / "ethernet.conf").write_text("ETH_ENABLED=1\nUSB_WIFI_SETUP=1\n")
+        self.assertEqual(hid.get_wifi_status().get("ssid"), "OldNet", "on again without a restart")
 
     # ---- everything else is refused ----
 

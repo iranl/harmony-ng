@@ -344,7 +344,7 @@ paths:
                 wifi_mask: 255.255.255.0
                 wifi_mac: 02:00:00:00:00:02
                 wifi_ssid: ExampleSSID
-                config: {eth_enabled: true, eth_fallback_wifi: true, eth_mode: dhcp}
+                config: {eth_enabled: true, eth_fallback_wifi: true, eth_mode: dhcp, usb_wifi_setup: true}
                 ifconfig: "eth0      Link encap:Ethernet ..."
 
   /api/services:
@@ -3786,7 +3786,7 @@ paths:
       tags:
         - Network & MQTT
       summary: Configure USB Ethernet adapter
-      description: Also available as POST /ethernet. Every save rewrites the whole ethernet.conf. A field left out gets its default, not its stored value, so send every field each time.
+      description: Also available as POST /ethernet. Every save rewrites the whole ethernet.conf. A field left out gets its default, not its stored value, so send every field each time; only usb_wifi_setup left out keeps its stored value.
       requestBody:
         required: true
         content:
@@ -3801,6 +3801,7 @@ paths:
                 eth_netmask: {type: string, default: 255.255.255.0}
                 eth_gateway: {type: string}
                 eth_dns: {type: string}
+                usb_wifi_setup: {type: boolean, description: "Wi-Fi setup over USB (USB_WIFI_SETUP in ethernet.conf, default true). Left out = the stored value is kept. false refuses every USB request; the next service start or boot starts no hub_usbwifi and does not wait for a computer on the USB port."}
                 apply: {type: string, description: "apply, 1, reconfigure or restart applies the settings now; anything else or nothing only saves them"}
             example:
               eth_mode: dhcp

@@ -6,7 +6,9 @@
   or the line break would add lines to its file);
 - POST /api/ethernet-save in static mode: an address outside the gateway's subnet, a netmask
   that is not a mask, a network or broadcast address, or a bad DNS entry gets 400 and
-  ethernet.conf stays as it was; a working static setting and the dhcp mode are saved as before.
+  ethernet.conf stays as it was; a working static setting and the dhcp mode are saved as before;
+- usb_wifi_setup (Wi-Fi setup over USB): on by default in /api/network-status, stored as
+  USB_WIFI_SETUP in ethernet.conf, kept when an Ethernet save leaves it out.
 
 The daemon runs on a private mock root with --dry-run; nothing on the host is written (the
 refused requests stop before any write).
@@ -63,6 +65,18 @@ def main():
 
         st, r = hub.http_post("/api/ethernet-save", {"eth_mode": "dhcp", "eth_ip": "not-an-ip"})
         check(st == 200 and 'ETH_MODE="dhcp"' in open(conf).read(), "dhcp mode saved as before", (st, r))
+
+        # Wi-Fi setup over USB switch: stored in ethernet.conf, kept when a save leaves it out
+        st, r = hub.http_get("/api/network-status")
+        check(st == 200 and r.get("config", {}).get("usb_wifi_setup") is True, "usb_wifi_setup on by default", r.get("config") if isinstance(r, dict) else r)
+        st, r = hub.http_post("/api/ethernet-save", {"eth_mode": "dhcp", "usb_wifi_setup": False})
+        check(st == 200 and "USB_WIFI_SETUP=0\n" in open(conf).read(), "usb_wifi_setup false stored", open(conf).read())
+        st, r = hub.http_post("/api/ethernet-save", {"eth_mode": "dhcp", "eth_enabled": True})
+        check("USB_WIFI_SETUP=0\n" in open(conf).read(), "an Ethernet save without usb_wifi_setup keeps it off", open(conf).read())
+        st, r = hub.http_get("/api/network-status")
+        check(r.get("config", {}).get("usb_wifi_setup") is False, "network-status reports it off", r.get("config"))
+        st, r = hub.http_post("/api/ethernet-save", {"eth_mode": "dhcp", "usb_wifi_setup": True})
+        check("USB_WIFI_SETUP=1\n" in open(conf).read(), "usb_wifi_setup back on", open(conf).read())
 
     if failures:
         print("network settings API: %d FAILED" % len(failures))
