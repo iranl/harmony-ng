@@ -261,17 +261,50 @@ export class HarmonyAppActivitiesState extends HarmonyAppEventsActions {
   }
 
   /* After a language change. Pages drawn from the inventory or the activities are drawn again
-   * (waiting while a field is being typed in, as for a data change). The settings forms and the
+   * (waiting while a field is being typed in, as for a data change), keeping the values shown in
+   * their selects and fields (redrawKeepingChoices). The settings forms and the
    * remote editors are never reloaded: that would drop a typed value or an unsaved key map. Only
    * their status parts are drawn again (MQTT badge, network and Wi-Fi / Ethernet state, RF status,
    * services, system info); the rest follows when the page is opened again. */
   redrawForLanguage() {
     const tab = this.currentTab;
-    if (DATA_VIEWS.has(tab)) this.redrawDataView();
-    else if (tab === 'rf-remote') this.refreshRfStatus();
+    if (DATA_VIEWS.has(tab)) {
+      if (this.isEditingIn(`view-${tab}`)) this.redrawDataView();
+      else return this.redrawKeepingChoices(tab);
+    } else if (tab === 'rf-remote') this.refreshRfStatus();
     else if (tab === 'mqtt') this.refreshMqttStatus();
     else if (tab === 'network') this.refreshNetworkStatus();
     else if (tab === 'system') { this.refreshServiceStatuses(); this.refreshSystemInfo(); }
+  }
+
+  /* A language change does not change the data, so the page is drawn again with the choices
+   * shown before: a select or field the user changed but did not save yet (blaster port, BT
+   * keyboard device or host) keeps its value instead of going back to the saved one. */
+  async redrawKeepingChoices(tab) {
+    const view = document.getElementById(`view-${tab}`);
+    const kept = [];
+    if (view) {
+      view.querySelectorAll('select, input, textarea').forEach((el) => {
+        const input = String(el.tagName).toUpperCase() === 'INPUT';
+        if (!el.id || (input && /^(file|button|submit|reset)$/i.test(el.type || ''))) return;
+        const box = input && /^(checkbox|radio)$/i.test(el.type || '');
+        kept.push({ id: el.id, box, value: box ? el.checked : el.value });
+      });
+    }
+    try {
+      await this.renderTab(tab);
+    } catch (err) {
+      console.warn('Redraw after a language change failed:', err);
+      return;
+    }
+    for (const k of kept) {
+      const el = document.getElementById(k.id);
+      if (!el) continue;
+      if (k.box) { el.checked = k.value; continue; }
+      if (el.value === k.value) continue;
+      if (String(el.tagName).toUpperCase() === 'SELECT' && !Array.from(el.options || []).some(o => o.value === k.value)) continue;
+      el.value = k.value;
+    }
   }
 
   /* Every save and every live config_changed push ends in refreshData(): redraw the open page
@@ -352,15 +385,16 @@ export class HarmonyAppActivitiesState extends HarmonyAppEventsActions {
     this.renderTab(tabId);
   }
 
+  /* Returns the view loader's promise when it has one, so a caller can wait for the page */
   renderTab(tabId) {
-    if (tabId === 'overview') this.loadDashboard();
-    else if (tabId === 'activity-remote') this.renderActivityRemote();
-    else if (tabId === 'activities') this.loadActivitiesView();
+    if (tabId === 'overview') return this.loadDashboard();
+    else if (tabId === 'activity-remote') return this.renderActivityRemote();
+    else if (tabId === 'activities') return this.loadActivitiesView();
     else if (tabId === 'control') this.renderControlView();
     else if (tabId === 'ir') this.renderIrView();
     else if (tabId === 'lab') this.initLabView();
-    else if (tabId === 'bluetooth') this.loadBtView();
-    else if (tabId === 'bt-keyboard') this.loadBtKeyboardView();
+    else if (tabId === 'bluetooth') return this.loadBtView();
+    else if (tabId === 'bt-keyboard') return this.loadBtKeyboardView();
     else if (tabId === 'rf-remote') { this.loadRemoteView(); this.refreshRfStatus(); }
     else if (tabId === 'remotes') this.loadRemotesView();
     else if (tabId === 'mqtt') this.loadMqttView();

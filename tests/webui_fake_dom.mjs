@@ -80,6 +80,11 @@ export class FakeNode {
     });
   }
   querySelectorAll(sel) {
+    // a list ("select, input"): each selector on its own, in document order
+    if (sel.includes(',')) {
+      const all = sel.split(',').map(x => this.querySelectorAll(x)).flat();
+      return [...this.walk()].filter(n => all.includes(n));
+    }
     const parts = sel.trim().split(/\s+/);
     let scope = [this];
     for (const p of parts) {

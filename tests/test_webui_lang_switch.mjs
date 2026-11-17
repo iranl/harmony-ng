@@ -114,6 +114,37 @@ await t.check('the remote key editor keeps an unsaved map; only its status is re
   assert.deepEqual(b25.calls, []);
 });
 
+await t.check('devices studio: an unsaved blaster port stays chosen when the page is drawn in Italian', async () => {
+  i18n.setLanguage('en');
+  const view = el('section', 'view-ir');
+  const port = document.createElement('select');
+  port.id = 'curDevPortSelect';
+  for (const v of ['7', '3', '1']) {
+    const o = document.createElement('option');
+    o.value = v;
+    port.appendChild(o);
+  }
+  const devSel = document.createElement('select');
+  devSel.id = 'manageDeviceSelect';
+  const name = document.createElement('div');
+  name.id = 'curDevName';
+  view.append(port, devSel, name);
+  const app = new HarmonyApp();
+  app.inventory = { devices: [{ id: '1', name: 'TV', type: 'IR', controlPort: 7, commands: [] }] };
+  app.selectedIrDeviceId = '1';
+  app.currentTab = 'ir';
+  app.renderTab('ir');
+  assert.equal(port.value, '7');
+  port.value = '3'; // chosen, not saved yet
+  name.textContent = '';
+  app.watchLanguage();
+  i18n.setLanguage('it');
+  await tick(5);
+  assert.equal(name.textContent, 'TV', 'the page was not drawn again');
+  assert.equal(port.value, '3', 'the language change put the saved port back');
+  view.remove();
+});
+
 await t.check('the Hub status tooltip follows the language', async () => {
   i18n.setLanguage('en');
   const dot = document.createElement('span');
