@@ -53,6 +53,12 @@ case "$1" in
     done
     # Terminate all daemon processes
     killall -9 hub_rf hub_daemon hub_btstack hub_usbwifi hal luaworks luadraws lua 2>/dev/null || true
+    # the USB Wi-Fi setup started as "hub_util usbwifi" (no hub_usbwifi link) runs as hub_util
+    for _p in $(pidof hub_util 2>/dev/null); do
+      case "$(tr '\000' ' ' < "/proc/$_p/cmdline" 2>/dev/null)" in
+        *" usbwifi"*) kill -9 "$_p" 2>/dev/null || true ;;
+      esac
+    done
     rm -f /tmp/harmony_watchdog.pid 2>/dev/null || true
     sync_fs
     exit 0
@@ -247,15 +253,21 @@ fi
 # there and answers the Wi-Fi requests only (set and read /sys/wifi/connect). Started before the
 # network manager: it keeps the USB port a USB device while a computer is using it at boot.
 link_if_changed /data/harmony/bin/hub_util /data/harmony/bin/hub_usbwifi 2>/dev/null || true
-if [ -x /data/harmony/bin/hub_util ]; then
+# USB_WIFI_SETUP=0 in ethernet.conf (POST /api/ethernet-save usb_wifi_setup) turns it off
+if tr -d ' \t"\r' < /data/harmony/ethernet.conf 2>/dev/null | grep -q '^USB_WIFI_SETUP=0$'; then
+  echo "$(date) USB Wi-Fi setup is turned off in the settings; hub_usbwifi not started" >> "$LOG"
+elif [ -x /data/harmony/bin/hub_util ]; then
 (
   _delay=5
   while true; do
     [ -f /tmp/harmony_stop ] && exit 0
     # Not the first start of this boot (init.sh restart, an exit): usbhid still holds its
     # connection to the old listener, so it is started again while the port is a USB device.
-    # The first time, the stock boot script starts it.
+    # The first time, the stock boot script starts it. Never once the boot switched the port to
+    # host mode (start_usb_eth.sh writes "host" before it removes the device driver, which can
+    # stay loaded when that fails).
     if [ -f /tmp/harmony_usbwifi.started ] && [ -x /usr/bin/usbhid ] &&
+       [ "$(cat /tmp/harmony_usb_port_mode 2>/dev/null)" != "host" ] &&
        grep -q '^ath_udc ' /proc/modules 2>/dev/null; then
       killall -9 usbhid 2>/dev/null || true
       umount /dev/gadget 2>/dev/null || true

@@ -18,10 +18,26 @@ load_mod() {
 insmod /lib/modules/2.6.31-g89d565c/kernel/drivers/usb/core/usbcore.ko 2>/dev/null || true
 
 echo "[USB_ETH] Switching USB controller to Host mode..."
+# Written first: from now on init.sh does not start usbhid again (see its 5.1)
+echo host > /tmp/harmony_usb_port_mode 2>/dev/null || true
 killall -9 usbgadget usbhid 2>/dev/null || true
-umount /dev/gadget 2>/dev/null || true
-rmmod gadgetfs 2>/dev/null || true
-rmmod ath_udc 2>/dev/null || true
+# usbhid has the gadget open (it brings it up as soon as hub_usbwifi listens): a killed
+# usbhid may still hold it for a moment, and gadgetfs cannot go while it does
+_i=0
+while [ "$_i" -lt 5 ] && pidof usbhid >/dev/null 2>&1; do
+  sleep 1
+  _i=$(expr "$_i" + 1)
+done
+for _try in 1 2 3; do
+  umount /dev/gadget 2>/dev/null || true
+  rmmod gadgetfs 2>/dev/null || true
+  rmmod ath_udc 2>/dev/null || true
+  grep -q '^ath_udc ' /proc/modules 2>/dev/null || break
+  sleep 1
+done
+if grep -q '^ath_udc ' /proc/modules 2>/dev/null; then
+  echo "[USB_ETH] Warning: the USB device driver (ath_udc) could not be unloaded; host mode may not work until a restart"
+fi
 
 # Ensure bit 0 is set on usbctrlr1 so ehci_reset runs the Atheros PHY & host reset sequence
 [ -x "$BIN_DIR/set_phy_host" ] && "$BIN_DIR/set_phy_host" s >/dev/null 2>&1 || true

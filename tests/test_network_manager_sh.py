@@ -14,10 +14,13 @@ network commands replaced by shell functions. Checks:
   point: a recovery_ap.sh left by an older release is not run, and the scripts no longer
   name it;
 - USB port mode (Wi-Fi setup over USB): with Ethernet on, a boot keeps the port a USB device
-  and starts no Ethernet over USB when a computer talks to it (/proc/udc counts interrupts, or
-  usbhid connected to hub_usbwifi a second time); with neither, it waits USB_PC_WAIT seconds at
-  most and switches to host mode as before; without /proc/udc it does not wait; the onboard
-  Ethernet of the Pro never looks at the USB port.
+  and starts no Ethernet over USB only when usbhid connected to hub_usbwifi a second time (a
+  computer set the device up), also when that happens during the wait; interrupts in /proc/udc
+  alone only make the boot wait USB_PC_WAIT_IRQ seconds, then it switches to host mode (a stray
+  interrupt from an adapter never costs Ethernet); with neither, it waits USB_PC_WAIT seconds at
+  most; without /proc/udc it does not wait; USB_WIFI_SETUP=0 skips the wait and keeps host mode;
+  the mode is written to /tmp/harmony_usb_port_mode (device when kept, also with Ethernet off);
+  the onboard Ethernet of the Pro never looks at the USB port.
 """
 
 from __future__ import annotations
@@ -146,13 +149,34 @@ class NetworkManagerScript(unittest.TestCase):
         self.udc(1234)
         self.assertIn("I=1234\n", self.run_sh('echo "I=$(udc_interrupts)"'))
 
-    def test_computer_keeps_device_mode(self):
+    def mode(self) -> str:
+        p = self.root / "tmp" / "harmony_usb_port_mode"
+        return p.read_text().strip() if p.exists() else ""
+
+    def test_interrupts_alone_wait_longer_then_host_mode(self):
         self.conf.write_text('ETH_ENABLED=1\nETH_MODE="dhcp"\n')
         self.udc(57)
+        (self.root / "tmp" / "harmony_usbwifi.state").write_text("connections=1\nrequests=0\nlast_attempt=none\n")
         out = self.run_sh(self.PORT_STUBS + "is_onboard_eth() { return 1; }\ndo_boot")
-        self.assertNotIn("START_ETH", out, "Ethernet over USB was started with a computer on the port")
+        self.assertIn("START_ETH", out, "an interrupt count alone kept the port a device (Ethernet adapter lost)")
+        self.assertEqual(out.count("SLEPT"), 20, "waits USB_PC_WAIT_IRQ seconds for the second usbhid connection")
         log = (self.root / "tmp" / "harmony-network.log").read_text()
-        self.assertIn("A computer is using the USB port", log)
+        self.assertIn("interrupts seen", log)
+        self.assertNotIn("A computer is using the USB port", log)
+
+    def test_computer_during_the_wait_keeps_device_mode(self):
+        self.conf.write_text('ETH_ENABLED=1\nETH_MODE="dhcp"\n')
+        self.udc(57)
+        state = self.root / "tmp" / "harmony_usbwifi.state"
+        state.write_text("connections=1\n")
+        stubs = self.PORT_STUBS.replace(
+            "sleep() { echo SLEPT; }",
+            f"sleep() {{ echo SLEPT; _n=$((${{_n:-0}} + 1)); [ \"$_n\" -eq 9 ] && echo connections=2 > '{state}'; :; }}")
+        out = self.run_sh(stubs + "is_onboard_eth() { return 1; }\ndo_boot")
+        self.assertNotIn("START_ETH", out, "the second usbhid connection 9 s in was not waited for")
+        self.assertEqual(out.count("SLEPT"), 9)
+        self.assertIn("A computer is using the USB port", (self.root / "tmp" / "harmony-network.log").read_text())
+        self.assertEqual(self.mode(), "device")
 
     def test_second_usbhid_connection_keeps_device_mode(self):
         self.conf.write_text('ETH_ENABLED=1\nETH_MODE="dhcp"\n')
@@ -160,6 +184,21 @@ class NetworkManagerScript(unittest.TestCase):
         (self.root / "tmp" / "harmony_usbwifi.state").write_text("connections=2\nrequests=0\nlast_attempt=none\n")
         out = self.run_sh(self.PORT_STUBS + "is_onboard_eth() { return 1; }\ndo_boot")
         self.assertNotIn("START_ETH", out)
+        self.assertNotIn("SLEPT", out)
+        self.assertEqual(self.mode(), "device")
+
+    def test_setting_off_skips_the_wait(self):
+        self.conf.write_text('ETH_ENABLED=1\nETH_MODE="dhcp"\nUSB_WIFI_SETUP=0\n')
+        self.udc(57)
+        (self.root / "tmp" / "harmony_usbwifi.state").write_text("connections=2\n")
+        out = self.run_sh(self.PORT_STUBS + "is_onboard_eth() { return 1; }\ndo_boot")
+        self.assertIn("START_ETH", out, "USB_WIFI_SETUP=0: Ethernet over USB starts as before")
+        self.assertNotIn("SLEPT", out)
+
+    def test_ethernet_off_marks_device_mode(self):
+        self.conf.write_text('ETH_ENABLED=0\nETH_MODE="dhcp"\n')
+        self.run_sh(self.PORT_STUBS + "is_onboard_eth() { return 1; }\ndo_boot")
+        self.assertEqual(self.mode(), "device")
 
     def test_no_computer_switches_to_host_mode(self):
         self.conf.write_text('ETH_ENABLED=1\nETH_MODE="dhcp"\n')

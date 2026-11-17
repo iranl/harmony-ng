@@ -80,7 +80,7 @@ Open the Web Console at `http://<YOUR_HUB_IP>:8089` and navigate to the **Networ
 
 You can configure IP assignment directly in the Web Console under **Network Configuration**
 
-The settings are stored on the Hub in `/data/harmony/ethernet.conf`, one `KEY=value` per line: `ETH_ENABLED` (`1` or `0`; with `0` the USB port stays in device mode), `ETH_FALLBACK_WIFI` (`1` or `0`), `ETH_MODE` (`dhcp` or `static`), `ETH_IP`, `ETH_NETMASK`, `ETH_GATEWAY` and `ETH_DNS` (one or several servers, separated by commas or spaces). Without the file the Hub uses Ethernet with DHCP and falls back to Wi-Fi.
+The settings are stored on the Hub in `/data/harmony/ethernet.conf`, one `KEY=value` per line: `ETH_ENABLED` (`1` or `0`; with `0` the USB port stays in device mode), `ETH_FALLBACK_WIFI` (`1` or `0`), `ETH_MODE` (`dhcp` or `static`), `ETH_IP`, `ETH_NETMASK`, `ETH_GATEWAY` and `ETH_DNS` (one or several servers, separated by commas or spaces), and `USB_WIFI_SETUP` (`1` or `0`, Wi-Fi setup over USB, section 5). Without the file the Hub uses Ethernet with DHCP, falls back to Wi-Fi, and offers the USB setup.
 
 > [!TIP]
 > **Static IP Recommended**: Configuring a **Static IP** matching your Hub's Wi-Fi IP address provides zero-drop failover. When you plug in or unplug the Ethernet cable, the Hub switches interfaces and announces its MAC via Gratuitous ARP without waiting for a DHCP server lease.
@@ -99,8 +99,9 @@ Saves the Ethernet settings and, with `"apply": "apply"`, applies them without a
 replaces the whole file: send all fields (API.md 8.3)
 
 The fields are `eth_enabled`, `eth_fallback_wifi`, `eth_mode` (`dhcp` or `static`), `eth_ip`,
-`eth_netmask`, `eth_gateway` and `eth_dns`. In `static` mode an address that cannot work is refused
-with `400` and nothing is saved.
+`eth_netmask`, `eth_gateway`, `eth_dns` and `usb_wifi_setup` (the only one that keeps its stored
+value when left out; the web UI has no control for it yet). In `static` mode an address that
+cannot work is refused with `400` and nothing is saved.
 
 ### Wi-Fi: GET `/api/wifi-scan`, POST `/api/wifi-test`, POST `/api/wifi-save` (or `/wifi`)
 Scan for networks, test a network and its password, and save the Wi-Fi settings (API.md 8.2)
@@ -142,16 +143,31 @@ Only the Wi-Fi network can be read and set this way: the password is never sent 
 other request of the stock USB protocol (SSH upload, boot trigger, factory reset, firmware) is
 refused. The same works in the Hub's emergency boot mode (after more than five failed boots).
 
+Like the stock firmware, the Hub answers any computer on its USB port without a login: it can
+read the network name and address and set another network (each failed attempt takes the Hub off
+Wi-Fi for about 12 s). To turn the USB setup off, send `"usb_wifi_setup": false` with
+`POST /api/ethernet-save` (API.md 8.3), or put `USB_WIFI_SETUP=0` in
+`/data/harmony/ethernet.conf`. Requests are then refused at once; from the next start of the Hub
+services or boot `hub_usbwifi` is not started and the boot does not wait for a computer (so
+Ethernet over USB always starts). With it off and no Wi-Fi network, the way back is an Ethernet
+adapter (with Ethernet over USB on) or a factory reset.
+
 ### Limits
 - **USB port mode**: the Hub's one USB port is either a USB device (this setup) or a USB host
   (Ethernet over USB), and it can switch to host mode only, not back, until the next restart. At
-  boot, with Ethernet over USB on (the default), the Hub waits up to 6 s for a computer on the
-  port: when one talks to it, the port stays a USB device for that boot and Ethernet over USB is
-  not started (`/tmp/harmony-network.log` says so). Otherwise (an adapter, a charger) the port
-  switches to host mode as before, so a computer plugged in later is not seen until the Hub is
-  restarted with the computer connected. With Ethernet turned off in the settings, and on the
-  Harmony Pro 2400 (onboard Ethernet), the port is always a USB device.
-- **2.4 GHz WPA/WPA2 pass phrase or open networks only**: WEP and enterprise networks are refused.
+  boot, with Ethernet over USB on (the default), the Hub waits for a computer on the port: the
+  sign is `usbhid` connecting to `hub_usbwifi` a second time, which it does when a computer sets
+  the USB device up. Then the port stays a USB device for that boot and Ethernet over USB is not
+  started (`/tmp/harmony-network.log` says so). The wait is 6 s, or 20 s once the USB device
+  controller has counted interrupts (`/proc/udc`); interrupts alone never keep the port a device,
+  so an adapter or a charger always ends in host mode as before, at most 20 s later. A computer
+  plugged in after that is not seen until the Hub is restarted with the computer connected. With
+  Ethernet turned off in the settings, and on the Harmony Pro 2400 (onboard Ethernet), the port is
+  always a USB device; with `USB_WIFI_SETUP=0` the boot does not wait at all. The mode decided is
+  kept in `/tmp/harmony_usb_port_mode`: a restart of the Hub services starts `usbhid` again only
+  in device mode.
+- **2.4 GHz WPA/WPA2 pass phrase or open networks only** (`WPA2-PSK`, `WPA-PSK`, `NONE`): WEP,
+  enterprise (`WPA-EAP`, `WPA2-ENTERPRISE`) and any other encryption value are refused.
   The network is saved with `scan_ssid=1`, so hidden networks work too.
 - The Hub must be close enough to the access point: the test needs the connection to come up
   within about 12 s. The address comes from DHCP (or the static address in the Ethernet
@@ -181,7 +197,12 @@ the stock file protocol for one virtual file, `/sys/wifi/connect`:
   `firmware,harmony-ng`.
 
 The Wi-Fi test and save are the same code as the web UI's (`payload/source/wifi_config.c`), and one
-test runs at a time across the web UI and USB. Each attempt is logged in `/tmp/harmony-init.log`
+test runs at a time across the web UI and USB. A Hub with no network stored runs no
+`wpa_supplicant` (it cannot start without its file): the test starts it on the network being
+tried. On failure each Wi-Fi file gets its previous content back, or is removed when there was
+none. While a test runs, copies of the previous files and a mark are kept on flash next to them
+(`/etc/wpa_supplicant*.pretest`): a test cut short by a kill or a power cut is undone when
+`hub_daemon` or `hub_usbwifi` starts next. Each attempt is logged in `/tmp/harmony-init.log`
 (network name and result, never the password). On the Hub, `/data/harmony/bin/hub_usbwifi --status`
 prints what the computer reads, and `/tmp/harmony_usbwifi.state` counts the connections from
 `usbhid` (it connects again each time a computer configures the device).
