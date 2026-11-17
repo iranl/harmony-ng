@@ -190,6 +190,9 @@ link_dropbear() {
       [ -f "/data/harmony/bin/$_app" ] && [ ! -L "/data/harmony/bin/$_app" ] && rm -f "/data/harmony/bin/$_app" 2>/dev/null || true
       ln -sf /data/harmony/bin/dropbearmulti "/data/harmony/bin/$_app" 2>/dev/null || true
     done
+    for _app in dropbearkey dbclient scp; do
+      ln -sf /data/harmony/bin/dropbearmulti "/usr/sbin/$_app" 2>/dev/null || true
+    done
     rm -f /data/dropbearmulti /usr/sbin/dropbearmulti 2>/dev/null || true
   fi
 }
