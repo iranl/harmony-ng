@@ -1,6 +1,7 @@
 // BT Virtual Keyboard & Mouse Tool View for Setup
 import { h } from '../../utils/dom.js';
 import { store } from '../../store.js';
+import { t } from '../../i18n/index.js';
 import { createBtInputView } from '../../remote/bt-input.js';
 
 export function createView() {
@@ -10,7 +11,7 @@ export function createView() {
   const btDev = devices.find(d => d.type === 'BT' || d.isBt) || devices[0];
 
   if (!btDev) {
-    container.appendChild(h('div', { className: 'card text-dim', text: 'No Bluetooth devices paired. Pair a Bluetooth host under Bluetooth Hosts first.' }));
+    container.appendChild(h('div', { className: 'card text-dim', text: t('no_bt_devices_pair_first', 'No Bluetooth devices paired. Pair a Bluetooth host under Bluetooth Hosts first.') }));
     return container;
   }
 

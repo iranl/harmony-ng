@@ -17,7 +17,7 @@ import {
   sourceLabel,
   safeImportName
 } from '../irdb.js';
-import { t, setLanguage, getInitialLanguage } from '../i18n.js';
+import { t, setLanguage, getInitialLanguage, tf, tfHtml } from '../i18n.js';
 import iconMetadata from '../icon-metadata.json';
 import {
   initIconCache,
@@ -60,12 +60,12 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
       const devId = document.getElementById('manageDeviceSelect')?.value;
       if (!hex) return alert(t("enter_pronto_first"));
       const stat = document.getElementById('pasteStatus');
-      if (stat) stat.textContent = 'Blasting Pronto code...';
+      if (stat) stat.textContent = t('blasting_pronto_code');
       try {
         await this.client.blastPronto(hex, devId);
-        if (stat) stat.innerHTML = '<span style="color:var(--success)">✓ Blasted successfully!</span>';
+        if (stat) stat.innerHTML = `<span style="color:var(--success)">✓ ${t('blasted_successfully')}</span>`;
       } catch (err) {
-        if (stat) stat.innerHTML = '<span style="color:var(--danger)">Error: ' + err.message + '</span>';
+        if (stat) stat.innerHTML = `<span style="color:var(--danger)">${tfHtml('error_msg', { error: err.message })}</span>`;
       }
     });
     document.getElementById('btnSavePastedPronto')?.addEventListener('click', async () => {
@@ -74,14 +74,14 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
       const devId = document.getElementById('manageDeviceSelect')?.value;
       if (!hex) return alert(t('enter_pronto_first', 'Enter Pronto Hex first'));
       const stat = document.getElementById('pasteStatus');
-      if (stat) stat.textContent = 'Saving...';
+      if (stat) stat.textContent = t('saving_ellipsis');
       try {
         await this.client.saveLearnedCommand({ deviceId: devId, name, raw: hex, mode: 'raw' });
-        if (stat) stat.innerHTML = '<span style="color:var(--success)">✓ Saved to device!</span>';
+        if (stat) stat.innerHTML = `<span style="color:var(--success)">✓ ${t('saved_to_device')}</span>`;
         await this.refreshData();
         this.renderIrView();
       } catch (err) {
-        if (stat) stat.innerHTML = '<span style="color:var(--danger)">Error: ' + err.message + '</span>';
+        if (stat) stat.innerHTML = `<span style="color:var(--danger)">${tfHtml('error_msg', { error: err.message })}</span>`;
       }
     });
 
@@ -103,16 +103,16 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
       const code = document.getElementById('btCustomCmdCode')?.value.trim();
       const stat = document.getElementById('btCustomStatus');
       if (!code) return alert(t('enter_hid_code_first', 'Enter HID code or script first'));
-      if (stat) stat.textContent = 'Testing Bluetooth key...';
+      if (stat) stat.textContent = t('testing_bt_key');
       try {
         if (code.startsWith('BT:SCRIPT:')) {
           await this.client.runBtScript(code.substring(10), 35, dev?.bdaddr || dev?.btHost || '');
         } else {
           await this.client.sendBtKey(code, 'tap', dev?.bdaddr || dev?.btHost || '');
         }
-        if (stat) stat.innerHTML = '<span style="color:var(--success)">✓ Key sent successfully!</span>';
+        if (stat) stat.innerHTML = `<span style="color:var(--success)">✓ ${t('key_sent_successfully')}</span>`;
       } catch (err) {
-        if (stat) stat.innerHTML = '<span style="color:var(--danger)">Error: ' + err.message + '</span>';
+        if (stat) stat.innerHTML = `<span style="color:var(--danger)">${tfHtml('error_msg', { error: err.message })}</span>`;
       }
     });
 
@@ -122,14 +122,14 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
       const code = document.getElementById('btCustomCmdCode')?.value.trim();
       const stat = document.getElementById('btCustomStatus');
       if (!name || !code) return alert(t('enter_cmd_name_and_code', 'Enter command name and HID code / script'));
-      if (stat) stat.textContent = 'Saving command...';
+      if (stat) stat.textContent = t('saving_command');
       try {
         await this.client.saveLearnedCommand({ deviceId: devId, name, raw: code, mode: 'raw' });
-        if (stat) stat.innerHTML = '<span style="color:var(--success)">✓ Saved to device!</span>';
+        if (stat) stat.innerHTML = `<span style="color:var(--success)">✓ ${t('saved_to_device')}</span>`;
         await this.refreshData();
         this.renderIrView();
       } catch (err) {
-        if (stat) stat.innerHTML = '<span style="color:var(--danger)">Error: ' + err.message + '</span>';
+        if (stat) stat.innerHTML = `<span style="color:var(--danger)">${tfHtml('error_msg', { error: err.message })}</span>`;
       }
     });
 
@@ -158,13 +158,13 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
       const cmdName = document.getElementById('mqttNewCmdName')?.value.trim();
       const stat = document.getElementById('mqttNewCmdStatus');
       if (!cmdName) return alert(t('enter_mqtt_cmd_name_first', 'Enter MQTT command name first'));
-      if (stat) stat.textContent = 'Sending test command...';
+      if (stat) stat.textContent = t('sending_test_command');
       try {
         /* MQTT v2: the command goes through the device path and reaches MQTT as a button event */
         await this.client.sendCommand(devId, cmdName);
-        if (stat) stat.innerHTML = '<span style="color:var(--success)">✓ Test command sent!</span>';
+        if (stat) stat.innerHTML = `<span style="color:var(--success)">✓ ${t('test_command_sent')}</span>`;
       } catch (err) {
-        if (stat) stat.innerHTML = '<span style="color:var(--danger)">Error: ' + err.message + '</span>';
+        if (stat) stat.innerHTML = `<span style="color:var(--danger)">${tfHtml('error_msg', { error: err.message })}</span>`;
       }
     });
 
@@ -173,14 +173,14 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
       const cmdName = document.getElementById('mqttNewCmdName')?.value.trim();
       const stat = document.getElementById('mqttNewCmdStatus');
       if (!cmdName) return alert(t('enter_mqtt_cmd_name', 'Enter MQTT command name'));
-      if (stat) stat.textContent = 'Saving MQTT command...';
+      if (stat) stat.textContent = t('saving_mqtt_command');
       try {
         await this.client.saveLearnedCommand({ deviceId: devId, name: cmdName, raw: `G:MQTT:${cmdName}`, mode: 'raw' });
-        if (stat) stat.innerHTML = '<span style="color:var(--success)">✓ Saved to device!</span>';
+        if (stat) stat.innerHTML = `<span style="color:var(--success)">✓ ${t('saved_to_device')}</span>`;
         await this.refreshData();
         this.renderIrView();
       } catch (err) {
-        if (stat) stat.innerHTML = '<span style="color:var(--danger)">Error: ' + err.message + '</span>';
+        if (stat) stat.innerHTML = `<span style="color:var(--danger)">${tfHtml('error_msg', { error: err.message })}</span>`;
       }
     });
 
@@ -240,7 +240,7 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
     document.getElementById('btReleaseAll')?.addEventListener('click', () => {
       const tgt = (document.getElementById('btTargetHostSelect')?.value || '').trim();
       this.client.sendBtKey('release_all', 'tap', tgt);
-      this.appendBtLog('Released all keys' + (tgt ? ' on ' + tgt : ''));
+      this.appendBtLog(tgt ? tf('bt_log_released_all_on', { target: tgt }) : t('bt_log_released_all'));
     });
     document.getElementById('btSendTextBtn')?.addEventListener('click', () => this.sendBtDirectText());
     document.getElementById('btClearTextBtn')?.addEventListener('click', () => {
@@ -251,7 +251,7 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
     document.getElementById('btSaveCommandBtn')?.addEventListener('click', () => this.saveBtMacroCommand());
     document.getElementById('btClearLogBtn')?.addEventListener('click', () => {
       const el = document.getElementById('btLog');
-      if (el) el.textContent = 'Log cleared.';
+      if (el) el.textContent = t('log_cleared');
     });
 
     // Bluetooth Virtual Mouse & Touchpad
@@ -282,10 +282,10 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
           const tgt = (document.getElementById('btTargetHostSelect')?.value || '').trim();
           try {
             await this.client.sendBtKey(code, 'tap', tgt);
-            this.appendBtLog('Key: ' + code + (tgt ? ' -> ' + tgt : ''));
+            this.appendBtLog(tgt ? tf('bt_log_key_sent_to', { key: code, target: tgt }) : tf('bt_log_key_sent', { key: code }));
           } catch (err) {
             console.warn('BT Key send error:', err);
-            this.appendBtLog('Key ' + code + ' failed: ' + (err.message || err));
+            this.appendBtLog(tf('bt_log_key_failed', { key: code, error: err.message || err }));
           }
           if (mods.length) {
             this.kbMods = { ctrl: false, shift: false, alt: false, win: false };
@@ -470,17 +470,17 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
       const newName = nameInp?.value.trim();
       const stat = document.getElementById('hubNameStatus');
       if (!newName) return;
-      if (stat) stat.textContent = 'Saving...';
+      if (stat) stat.textContent = t('saving_ellipsis');
       try {
         await this.client.saveSettings({ hub_name: newName });
-        if (stat) stat.innerHTML = '<span style="color:var(--success)">Saved!</span>';
+        if (stat) stat.innerHTML = `<span style="color:var(--success)">${t('saved_status')}</span>`;
         const label = document.getElementById('activeHubLabel');
         if (label) label.textContent = newName;
         const ovLbl = document.getElementById('ovActiveHubLabel');
-        if (ovLbl) ovLbl.textContent = `Active: ${newName}`;
+        if (ovLbl) ovLbl.textContent = tf('active_name', { name: newName });
         if (this.activeHub) this.activeHub.name = newName;
       } catch (err) {
-        if (stat) stat.innerHTML = '<span style="color:var(--danger)">' + err.message + '</span>';
+        if (stat) stat.innerHTML = '<span style="color:var(--danger)">' + escapeHtml(err.message) + '</span>';
       }
     });
     document.getElementById('btnSaveHubSettings')?.addEventListener('click', async () => {
@@ -490,13 +490,13 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
       const mdns_enabled = document.getElementById('hubMdnsEnabled')?.checked ? 1 : 0;
       const legacy_enabled = document.getElementById('hubLegacyEnabled')?.checked ? 1 : 0;
       const stat = document.getElementById('hubSettingsStatus');
-      if (stat) stat.textContent = 'Saving...';
+      if (stat) stat.textContent = t('saving_ellipsis');
       try {
         await this.client.saveSettings({ ntp_server, timezone, led_mode, mdns_enabled, legacy_enabled });
-        if (stat) stat.innerHTML = '<span style="color:var(--success)">Saved and applied!</span>';
+        if (stat) stat.innerHTML = `<span style="color:var(--success)">${t('saved_applied')}</span>`;
         setTimeout(() => { if (stat) stat.textContent = ''; }, 3000);
       } catch (err) {
-        if (stat) stat.innerHTML = '<span style="color:var(--danger)">' + err.message + '</span>';
+        if (stat) stat.innerHTML = '<span style="color:var(--danger)">' + escapeHtml(err.message) + '</span>';
       }
     });
     document.getElementById('btnAutoDetectTz')?.addEventListener('click', () => {
@@ -519,14 +519,14 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
           if (!tzEl.value) {
             const opt = document.createElement('option');
             opt.value = detected;
-            opt.textContent = `Auto-Detected (${detected})`;
+            opt.textContent = tf('auto_detected_value', { value: detected });
             opt.selected = true;
             tzEl.appendChild(opt);
           }
         }
         const stat = document.getElementById('hubSettingsStatus');
         if (stat) {
-          stat.innerHTML = `<span style="color:var(--text-muted)">Detected: ${detected}</span>`;
+          stat.innerHTML = `<span style="color:var(--text-muted)">${tfHtml('detected_value', { value: detected })}</span>`;
           setTimeout(() => { if (stat) stat.textContent = ''; }, 3000);
         }
       } catch { }
@@ -562,13 +562,13 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
       const port = Number(document.getElementById('ovMqttPort')?.value) || 1883;
       const baseTopic = document.getElementById('ovMqttTopic')?.value.trim() || 'harmony/hub';
       const stat = document.getElementById('ovMqttSaveStatus');
-      if (stat) stat.textContent = 'Saving...';
+      if (stat) stat.textContent = t('saving_ellipsis');
       try {
         await this.client.saveMqtt({ host, port, baseTopic, enabled: 1 });
-        if (stat) stat.innerHTML = '<span style="color:var(--success)">Saved!</span>';
+        if (stat) stat.innerHTML = `<span style="color:var(--success)">${t('saved_status')}</span>`;
         setTimeout(() => this.loadDashboard(), 1000);
       } catch (err) {
-        if (stat) stat.innerHTML = `<span style="color:var(--danger)">${err.message}</span>`;
+        if (stat) stat.innerHTML = `<span style="color:var(--danger)">${escapeHtml(err.message)}</span>`;
       }
     });
     document.getElementById('btnOvRefreshHub')?.addEventListener('click', async () => {
@@ -650,9 +650,9 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
 
       const exists = existsInCustom || existsInAll;
       if (exists) {
-        statusEl.innerHTML = `<span class="badge warn" style="font-size: 10px; color: #f59e0b;">⚠️ Exists (will overwrite)</span>`;
+        statusEl.innerHTML = `<span class="badge warn" style="font-size: 10px; color: #f59e0b;">⚠️ ${t('icon_name_exists_overwrite')}</span>`;
       } else {
-        statusEl.innerHTML = `<span class="badge ok" style="font-size: 10px; color: #10b981;">✓ Name available</span>`;
+        statusEl.innerHTML = `<span class="badge ok" style="font-size: 10px; color: #10b981;">${t('icon_name_available')}</span>`;
       }
       return { exists, cleanName };
     };
@@ -721,8 +721,8 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
       const dataUrl = canvas.toDataURL('image/png');
       const approxBytes = Math.round((dataUrl.length * 3) / 4);
       if (previewSz) {
-        const mode = invertCheck && invertCheck.checked ? 'White silhouette' : 'Original colors';
-        previewSz.textContent = `${w}×${h} px • ${approxBytes} bytes • ${mode}`;
+        const mode = invertCheck && invertCheck.checked ? t('icon_mode_white_silhouette') : t('icon_mode_original_colors');
+        previewSz.textContent = tf('icon_preview_size', { width: w, height: h, bytes: approxBytes, mode: mode });
       }
     };
 
@@ -769,7 +769,7 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
       }
 
       if (previewRow) previewRow.style.display = 'flex';
-      if (previewLbl) previewLbl.textContent = labelText || 'Custom Icon';
+      if (previewLbl) previewLbl.textContent = labelText || t('custom_icon_label');
 
       redrawCustomCanvas();
     };
@@ -808,7 +808,7 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
         return;
       }
       btnFetchUrl.disabled = true;
-      btnFetchUrl.textContent = 'Fetching...';
+      btnFetchUrl.textContent = t('fetching_ellipsis');
       try {
         let blob = null;
         try {
@@ -823,9 +823,9 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
           if (pRes.status === 401) {
             /* binary reply, so no client.request(); open the login prompt the same way */
             window.dispatchEvent(new CustomEvent('harmony:unauthorized'));
-            throw new Error('Authentication failed. Check hub credentials.');
+            throw new Error(t('auth_failed_check_credentials'));
           }
-          if (!pRes.ok) throw new Error(`HTTP ${pRes.status} from proxy`);
+          if (!pRes.ok) throw new Error(tf('http_status_from_proxy', { status: pRes.status }));
           blob = await pRes.blob();
         }
         const fn = url.split('/').pop().split('?')[0] || 'remote_icon.png';
@@ -835,7 +835,7 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
         showToast(t("could_not_fetch_img") + err.message, 'error');
       } finally {
         btnFetchUrl.disabled = false;
-        btnFetchUrl.textContent = 'Fetch';
+        btnFetchUrl.textContent = t('btn_fetch');
       }
     });
 
@@ -851,7 +851,7 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
       }
 
       if (exists) {
-        const ok = await showConfirm(t("icon_already_exists").replace("{name}", iconName), { title: t("confirm_title") || 'Confirmation', okText: t("replace") || 'Overwrite' });
+        const ok = await showConfirm(tf("icon_already_exists", { name: iconName }), { title: t('confirm_title'), okText: t('replace') });
         if (!ok) return;
       }
 
@@ -860,7 +860,7 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
       const dataUrl = canvas.toDataURL('image/png');
 
       btnSaveIcon.disabled = true;
-      btnSaveIcon.textContent = 'Uploading...';
+      btnSaveIcon.textContent = t('uploading_ellipsis');
       try {
         let type = 'custom';
         let id = iconName;
@@ -874,7 +874,7 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
 
         const uploadRes = await this.client.uploadCustomIcon(type, id, dataUrl, iconName);
         const iconFn = uploadRes.filename || `custom_${iconName}.png`;
-        showToast(t('custom_icon_saved_queued').replace('{name}', iconName), 'success');
+        showToast(tf('custom_icon_saved_queued', { name: iconName }), 'success');
 
         if (typeof this.iconPickerCallback === 'function') {
           await this.iconPickerCallback(iconFn);
@@ -907,7 +907,7 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
         showToast(t("fail_upload_icon") + err.message, 'error');
       } finally {
         btnSaveIcon.disabled = false;
-        btnSaveIcon.textContent = 'Upload & Push to Remote';
+        btnSaveIcon.textContent = t('upload_push_remote');
       }
     });
 
@@ -926,7 +926,7 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
       const startBtn = document.getElementById('btnBtCalibrateStart');
       if (startBtn) {
         startBtn.disabled = false;
-        startBtn.textContent = 'Start Detection Test';
+        startBtn.textContent = t('start_detection_test');
       }
       document.getElementById('btCalibrateTimer')?.classList.remove('bt-timer-active');
     };
@@ -951,12 +951,12 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
       const offCmd = cmds.find(c => /poweroff|powertoggle|power|off|sleep|standby/i.test(typeof c === 'string' ? c : (c.name || '')));
       if (offCmd) {
         const offCmdName = typeof offCmd === 'string' ? offCmd : offCmd.name;
-        const devName = offDev?.name || 'device';
-        showToast(t('sending_cmd_to_dev').replace('{cmd}', offCmdName).replace('{dev}', devName), 'info', 2000);
+        const devName = offDev?.name || t('device_generic');
+        showToast(tf('sending_cmd_to_dev', { cmd: offCmdName, dev: devName }), 'info', 2000);
         try {
           await this.client.sendCommand(offDevId, offCmdName);
           const stateEl = document.getElementById('btCalibrateStateMsg');
-          if (stateEl) stateEl.textContent = `Power off command "${offCmdName}" sent to ${devName}.`;
+          if (stateEl) stateEl.textContent = tf('poweroff_cmd_sent_to', { cmd: offCmdName, device: devName });
         } catch (e) {
           showToast(t("error_sending_cmd") + (e.message || e), 'error');
         }

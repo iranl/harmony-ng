@@ -57,9 +57,8 @@ export function t(key, fallbackOrParams = '', params = null) {
   let text = dict[key] || TRANSLATIONS.en[key] || fallback;
 
   if (vars && typeof text === 'string') {
-    for (const [k, v] of Object.entries(vars)) {
-      text = text.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v));
-    }
+    // one pass with a function replacer: a value that holds "{id}" or "$&" stays as typed
+    text = text.replace(/\{([A-Za-z0-9_]+)\}/g, (whole, k) => (Object.prototype.hasOwnProperty.call(vars, k) ? String(vars[k]) : whole));
   }
 
   return text;

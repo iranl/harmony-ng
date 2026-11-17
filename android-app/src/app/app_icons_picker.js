@@ -17,7 +17,7 @@ import {
   sourceLabel,
   safeImportName
 } from '../irdb.js';
-import { t, setLanguage, getInitialLanguage } from '../i18n.js';
+import { t, setLanguage, getInitialLanguage, tf, tfHtml } from '../i18n.js';
 import iconMetadata from '../icon-metadata.json';
 import {
   initIconCache,
@@ -187,13 +187,13 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
       const base = noExt.replace(/_(small|smallon|on|off)$/i, '');
       if (iconMetadata[`${base}.png`]?.name) {
         const baseName = iconMetadata[`${base}.png`].name;
-        if (noExt.endsWith('_on') || noExt.endsWith('_smallon')) res = `${baseName} (Active)`;
-        else if (noExt.endsWith('_off')) res = `${baseName} (Inactive)`;
+        if (noExt.endsWith('_on') || noExt.endsWith('_smallon')) res = tf('icon_name_active', { name: baseName });
+        else if (noExt.endsWith('_off')) res = tf('icon_name_inactive', { name: baseName });
         else res = baseName;
       } else if (iconMetadata[`${base}_small.png`]?.name) {
         const baseName = iconMetadata[`${base}_small.png`].name;
-        if (noExt.endsWith('_on') || noExt.endsWith('_smallon')) res = `${baseName} (Active)`;
-        else if (noExt.endsWith('_off')) res = `${baseName} (Inactive)`;
+        if (noExt.endsWith('_on') || noExt.endsWith('_smallon')) res = tf('icon_name_active', { name: baseName });
+        else if (noExt.endsWith('_off')) res = tf('icon_name_inactive', { name: baseName });
         else res = baseName;
       } else {
         const words = noExt.replace(/[-_]/g, ' ').split(/\s+/);
@@ -260,11 +260,11 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
     const totalIcons = (this.iconCatalog && this.iconCatalog.length) || (this.availableIcons && this.availableIcons.length) || 0;
     if (subtitle) {
       subtitle.textContent = totalIcons > 0
-        ? `${totalIcons} icons available from Hub & Remote`
-        : 'Choose an icon from remote assets';
+        ? tf('icons_available_hub_remote', { count: totalIcons })
+        : t('choose_icon_remote_assets');
     }
     const selNameEl = document.getElementById('iconPickerSelectedName');
-    if (selNameEl) selNameEl.textContent = curVal ? `Current: ${this.formatIconDisplayName(curVal)}` : 'No icon selected';
+    if (selNameEl) selNameEl.textContent = curVal ? tf('icon_current_name', { name: this.formatIconDisplayName(curVal) }) : t('no_icon_selected');
     const sInput = document.getElementById('iconPickerSearch');
     if (sInput) sInput.value = '';
     this.currentIconCategory = 'all';
@@ -344,7 +344,7 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
     });
 
     if (this.currentFilteredIcons.length === 0) {
-      grid.innerHTML = `<div class="muted mini" style="grid-column: 1 / -1; text-align: center; padding: 24px;">No matching icons found for "${searchTerm}"</div>`;
+      grid.innerHTML = `<div class="muted mini" style="grid-column: 1 / -1; text-align: center; padding: 24px;">${escapeHtml(tf('no_icons_match_term', { term: searchTerm }))}</div>`;
       return;
     }
 
@@ -370,10 +370,10 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
         if (delBtn) {
           e.stopPropagation();
           const fnToDelete = delBtn.getAttribute('data-fn');
-          if (await showConfirm(t("del_custom_icon_confirm").replace("{name}", fnToDelete), { title: t("delete_icon") || 'Delete Icon', okText: t("delete") || 'Delete' })) {
+          if (await showConfirm(tf("del_custom_icon_confirm", { name: fnToDelete }), { title: t('delete_icon'), okText: t('delete') })) {
             try {
               await this.client.deleteCustomIcon(fnToDelete);
-              showToast(t("del_custom_icon_success").replace("{name}", fnToDelete), 'info');
+              showToast(tf("del_custom_icon_success", { name: fnToDelete }), 'info');
               await this.loadAvailableIcons(true);
               this.renderIconPickerGrid(document.getElementById('iconPickerSearch')?.value || '');
             } catch (err) {
@@ -406,7 +406,7 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
           }
         }
         document.getElementById('iconPickerModal').style.display = 'none';
-        showToast(t('selected_icon').replace('{name}', this.formatIconDisplayName(iconVal)), 'info', 1800);
+        showToast(tf('selected_icon_toast', { name: this.formatIconDisplayName(iconVal) }), 'info', 1800);
       });
     }
   }
@@ -447,12 +447,12 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
     if (!modal) return;
 
     document.getElementById('btCalibrateDevId').value = dev.id;
-    document.getElementById('btCalibrateDevName').textContent = dev.name || 'Bluetooth Device';
-    document.getElementById('btCalibrateDevHost').textContent = `Host BD_ADDR: ${dev.bdaddr || dev.btHost || 'Not linked'}`;
-    document.getElementById('btCalibrateCurrentStatus').textContent = 'Status: Checking...';
+    document.getElementById('btCalibrateDevName').textContent = dev.name || t('bluetooth_device_default');
+    document.getElementById('btCalibrateDevHost').textContent = tf('host_bdaddr_value', { addr: dev.bdaddr || dev.btHost || t('not_linked') });
+    document.getElementById('btCalibrateCurrentStatus').textContent = t('status_checking_state');
     document.getElementById('btCalibrateTimer').textContent = '0.0s';
     document.getElementById('btCalibrateTimer').classList.remove('bt-timer-active');
-    document.getElementById('btCalibrateStateMsg').textContent = 'Ready to start timing test';
+    document.getElementById('btCalibrateStateMsg').textContent = t('ready_timing_test');
     document.getElementById('btCalibrateResultBox').style.display = 'none';
 
     const cmdSel = document.getElementById('btCalibratePowerCmd');
@@ -466,7 +466,7 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
 
       const defaultOpt = document.createElement('option');
       defaultOpt.value = '';
-      defaultOpt.textContent = '(Manual Power On / No Command)';
+      defaultOpt.textContent = t('manual_power_on_no_cmd');
       cmdSel.appendChild(defaultOpt);
 
       let foundPreselect = false;
@@ -483,7 +483,9 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
         else typeLabel = 'IR';
 
         const group = document.createElement('optgroup');
-        group.label = `${d.name || d.id || 'Device'} (${typeLabel})${String(d.id) === String(dev.id) ? ' - Current Device' : ''}`;
+        group.label = String(d.id) === String(dev.id)
+          ? tf('optgroup_current_device', { name: d.name || d.id || t('device_default'), type: typeLabel })
+          : `${d.name || d.id || t('device_default')} (${typeLabel})`;
 
         const powerCmds = cmds.filter(c => /power|toggle|on|wake|home|menu/i.test(typeof c === 'string' ? c : (c.name || '')));
         const otherCmds = cmds.filter(c => !powerCmds.includes(c));
@@ -518,8 +520,8 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
       const statEl = document.getElementById('btCalibrateCurrentStatus');
       if (statEl) {
         statEl.innerHTML = isConn
-          ? '<span style="color:var(--success)">● Currently Connected to Hub</span>'
-          : '<span style="color:var(--text-muted)">○ Currently Disconnected</span>';
+          ? `<span style="color:var(--success)">● ${t('currently_connected_hub')}</span>`
+          : `<span style="color:var(--text-muted)">○ ${t('currently_disconnected')}</span>`;
       }
     }).catch(() => { });
 
@@ -557,11 +559,11 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
     resBox.style.display = 'none';
     timerEl.classList.add('bt-timer-active');
     startBtn.disabled = true;
-    startBtn.textContent = 'Detecting...';
+    startBtn.textContent = t('detecting_ellipsis');
 
     let targetDevId = dev.id;
     let targetCmdName = '';
-    let targetDevName = dev.name || 'Bluetooth Device';
+    let targetDevName = dev.name || t('bluetooth_device_default');
 
     if (cmdVal) {
       if (cmdVal.includes(':')) {
@@ -576,12 +578,12 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
     }
 
     if (targetCmdName) {
-      msgEl.textContent = `Triggering "${targetCmdName}" on ${targetDevName}...`;
+      msgEl.textContent = tf('triggering_cmd_on', { cmd: targetCmdName, device: targetDevName });
       try {
         await this.client.sendCommand(targetDevId, targetCmdName);
       } catch (e) {
         console.warn('Power command send error:', e);
-        showToast(t('fail_trigger_cmd').replace('{name}', targetCmdName) + (e.message || e), 'warning');
+        showToast(tf('fail_trigger_cmd', { name: targetCmdName }) + (e.message || e), 'warning');
       }
     }
 
@@ -592,7 +594,7 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
       this.client.connectBt(targetAddr).catch(() => {});
     }
 
-    msgEl.textContent = 'Waiting for Bluetooth connection to complete...';
+    msgEl.textContent = t('waiting_bt_connection');
     const startTime = Date.now();
     timerEl.textContent = '0.0s';
 
@@ -609,8 +611,8 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
         clearInterval(this._btCalibratePoll);
         timerEl.classList.remove('bt-timer-active');
         startBtn.disabled = false;
-        startBtn.textContent = 'Start Detection Test';
-        msgEl.innerHTML = '<span style="color:var(--danger)">Connection timed out (60s). Check if device is powered on.</span>';
+        startBtn.textContent = t('start_detection_test');
+        msgEl.innerHTML = `<span style="color:var(--danger)">${t('bt_connection_timed_out_60')}</span>`;
         showToast(t("bt_detect_timeout"), 'warning');
         return;
       }
@@ -625,20 +627,20 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
           timerEl.classList.remove('bt-timer-active');
           timerEl.textContent = `${elapsedSec}s`;
           startBtn.disabled = false;
-          startBtn.textContent = 'Start Detection Test';
+          startBtn.textContent = t('start_detection_test');
 
-          msgEl.innerHTML = `<span style="color:var(--success)">✓ Connected in ${elapsedSec}s!</span>`;
+          msgEl.innerHTML = `<span style="color:var(--success)">✓ ${tfHtml('connected_in_sec_short', { sec: elapsedSec })}</span>`;
 
           const suggested = Math.max(1, Math.ceil(parseFloat(elapsedSec)) + 1);
 
-          document.getElementById('btCalibrateResultMsg').textContent = `Connected in ${elapsedSec} seconds!`;
-          document.getElementById('btCalibrateResultDesc').textContent = `Suggested startup delay: ${suggested} seconds (includes 1s safety margin for HID handshake).`;
+          document.getElementById('btCalibrateResultMsg').textContent = tf('connected_in_seconds', { sec: elapsedSec });
+          document.getElementById('btCalibrateResultDesc').textContent = tf('suggested_startup_delay', { sec: suggested });
           resBox.style.display = 'block';
 
           this._lastSuggestedBtDelay = suggested;
           this._lastCalibratedDevId = dev.id;
 
-          showToast(t('bt_connected_in').replace('{sec}', elapsedSec).replace('{suggested}', suggested), 'success');
+          showToast(tf('bt_connected_in', { sec: elapsedSec, suggested: suggested }), 'success');
         }
       } catch (err) { }
     }, 200);
@@ -675,7 +677,7 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
         payload.btTriggerCommandName = trigCmdName;
       }
       await this.client.saveDeviceDetails(payload);
-      showToast(t('saved_bt_delay_override').replace('{delay}', delay), 'success');
+      showToast(tf('saved_bt_delay_override', { delay: delay }), 'success');
       document.getElementById('btDelayCalibrateModal').style.display = 'none';
       await this.refreshData();
     } catch (e) {

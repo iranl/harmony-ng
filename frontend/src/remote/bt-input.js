@@ -8,12 +8,12 @@ export function createBtInputView(targetDevice, options = {}) {
   const container = h('div', { className: 'bt-input-container' });
   let activeSubTab = 'keyboard'; // 'keyboard' | 'mouse'
 
-  const devName = targetDevice?.name || 'Bluetooth Device';
+  const devName = targetDevice?.name || t('bluetooth_device', 'Bluetooth Device');
   const targetBdaddr = targetDevice?.bdaddr || targetDevice?.btHost || '';
 
   const header = h('div', { className: 'bt-header card-header' }, [
     h('div', { className: 'bt-device-badge badge badge-accent' }, [
-      h('span', { text: `Target: ${devName}` }),
+      h('span', { text: t('bt_target_name', 'Target: {name}', { name: devName }) }),
     ]),
     h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } }, [
       h('button', {
@@ -74,7 +74,7 @@ export function createBtInputView(targetDevice, options = {}) {
 
     // D-Pad and Navigation
     const navCard = h('div', { className: 'card', style: { textAlign: 'center' } }, [
-      h('div', { className: 'card-title', text: 'Navigation' }),
+      h('div', { className: 'card-title', text: t('navigation', 'Navigation') }),
       h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(3, 60px)', gap: '8px', justifyContent: 'center', margin: '12px auto' } }, [
         h('div'),
         h('button', { className: 'btn btn-secondary', text: '▲', onclick: () => api.sendBtKey('up', 'tap', targetBdaddr) }),
@@ -87,9 +87,9 @@ export function createBtInputView(targetDevice, options = {}) {
         h('div'),
       ]),
       h('div', { style: { display: 'flex', justifyContent: 'center', gap: '8px', marginTop: '10px' } }, [
-        h('button', { className: 'btn btn-sm btn-secondary', text: 'Back', onclick: () => api.sendBtKey('escape', 'tap', targetBdaddr) }),
-        h('button', { className: 'btn btn-sm btn-secondary', text: 'Home', onclick: () => api.sendBtKey('home', 'tap', targetBdaddr) }),
-        h('button', { className: 'btn btn-sm btn-secondary', text: 'Menu', onclick: () => api.sendBtKey('menu', 'tap', targetBdaddr) }),
+        h('button', { className: 'btn btn-sm btn-secondary', text: t('back', 'Back'), onclick: () => api.sendBtKey('escape', 'tap', targetBdaddr) }),
+        h('button', { className: 'btn btn-sm btn-secondary', text: t('home', 'Home'), onclick: () => api.sendBtKey('home', 'tap', targetBdaddr) }),
+        h('button', { className: 'btn btn-sm btn-secondary', text: t('menu', 'Menu'), onclick: () => api.sendBtKey('menu', 'tap', targetBdaddr) }),
       ]),
     ]);
 
@@ -119,7 +119,7 @@ export function createBtInputView(targetDevice, options = {}) {
     });
 
     const kbCard = h('div', { className: 'card' }, [
-      h('div', { className: 'card-title', text: 'Keyboard', style: { marginBottom: '10px' } }),
+      h('div', { className: 'card-title', text: t('keyboard_tab', 'Keyboard'), style: { marginBottom: '10px' } }),
       ...kbRows,
     ]);
 
@@ -145,7 +145,7 @@ export function createBtInputView(targetDevice, options = {}) {
         touchAction: 'none',
       },
     }, [
-      h('span', { className: 'text-dim', text: 'Trackpad (Drag to move mouse, tap to click)' }),
+      h('span', { className: 'text-dim', text: t('trackpad_hint', 'Trackpad (Drag to move mouse, tap to click)') }),
     ]);
 
     let lastX = 0;
@@ -180,13 +180,13 @@ export function createBtInputView(targetDevice, options = {}) {
       h('button', {
         className: 'btn btn-secondary',
         style: { height: '54px' },
-        text: 'Left Click',
+        text: t('left_click', 'Left Click'),
         onclick: () => api.sendBtMouse({ action: 'click', button: 'left', target: targetBdaddr }),
       }),
       h('button', {
         className: 'btn btn-secondary',
         style: { height: '54px' },
-        text: 'Right Click',
+        text: t('right_click', 'Right Click'),
         onclick: () => api.sendBtMouse({ action: 'click', button: 'right', target: targetBdaddr }),
       }),
     ]);

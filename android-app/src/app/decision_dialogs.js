@@ -2,7 +2,7 @@
 // - the accounts and access tokens to check, listed in the reply that turns authentication on
 //   ("to_check"): keep them all, or delete the ones not recognised
 // - a device delete refused because activities, devices or remote keys still use it (409 "users")
-import { t } from '../i18n.js';
+import { t, tf } from '../i18n.js';
 
 function el(tag, attrs = {}, children = []) {
   const n = document.createElement(tag);
@@ -105,10 +105,11 @@ function fieldWord(f) {
 // "46 keys in TV (DTT)", "1 key in the Receiver page"
 function keysIn(g) {
   let where = g.name || g.id;
-  if (g.type === 'device_page') where = t('device_in_use_page', 'the {name} page').replace('{name}', g.name || g.id);
+  if (g.type === 'device_page') where = tf('device_in_use_page', { name: g.name || g.id }, 'the {name} page');
   else if (g.type === 'no_activity') where = t('device_in_use_default_page', 'the default page');
-  const tmpl = g.count === 1 ? t('device_in_use_key_in', '1 key in {name}') : t('device_in_use_keys_in', '{count} keys in {name}');
-  return tmpl.replace('{count}', g.count).replace('{name}', where);
+  return g.count === 1
+    ? tf('device_in_use_key_in', { name: where }, '1 key in {name}')
+    : tf('device_in_use_keys_in', { count: g.count, name: where }, '{count} keys in {name}');
 }
 
 // The 409 "users" of a refused device delete as lines people can read
@@ -118,22 +119,21 @@ export function deviceUsersLines(users) {
   if (acts.length) {
     const fields = [];
     for (const a of acts) for (const f of a.fields || []) if (!fields.includes(fieldWord(f))) fields.push(fieldWord(f));
-    lines.push(t('device_in_use_activities', 'Activities: {names} ({fields})')
-      .replace('{names}', acts.map((a) => a.name || a.id).join(', ')).replace('{fields}', fields.join(', ')));
+    lines.push(tf('device_in_use_activities', { names: acts.map((a) => a.name || a.id).join(', '), fields: fields.join(', ') },
+      'Activities: {names} ({fields})'));
   }
   const devs = (users || []).filter((u) => u.type === 'device');
   if (devs.length) {
-    lines.push(t('device_in_use_bt_trigger', 'Bluetooth trigger of {names}').replace('{names}', devs.map((d) => d.name || d.id).join(', ')));
+    lines.push(tf('device_in_use_bt_trigger', { names: devs.map((d) => d.name || d.id).join(', ') }, 'Bluetooth trigger of {names}'));
   }
   for (const u of users || []) {
     if (u.type !== 'remote_map' && u.type !== 'bt_remote_map') continue;
     const groups = Array.isArray(u.groups) && u.groups.length
       ? u.groups.map(keysIn).join(', ')
-      : t('device_in_use_keys', '{count} keys').replace('{count}', u.count); /* a Hub without groups */
-    const tmpl = u.type === 'remote_map'
-      ? t('device_in_use_slot', 'Remote slot {slot}: {groups}')
-      : t('device_in_use_bt_remote', 'Bluetooth remote: {groups}');
-    lines.push(tmpl.replace('{slot}', u.slot).replace('{groups}', groups));
+      : tf('device_in_use_keys', { count: u.count }, '{count} keys'); /* a Hub without groups */
+    lines.push(u.type === 'remote_map'
+      ? tf('device_in_use_slot', { slot: u.slot, groups }, 'Remote slot {slot}: {groups}')
+      : tf('device_in_use_bt_remote', { groups }, 'Bluetooth remote: {groups}'));
   }
   return lines;
 }

@@ -17,7 +17,7 @@ import {
   sourceLabel,
   safeImportName
 } from '../irdb.js';
-import { t, setLanguage, getInitialLanguage } from '../i18n.js';
+import { t, setLanguage, getInitialLanguage, tf } from '../i18n.js';
 import iconMetadata from '../icon-metadata.json';
 import {
   initIconCache,
@@ -64,21 +64,21 @@ export class HarmonyAppActivitiesState extends HarmonyAppEventsActions {
       const flDet = document.getElementById('dashFlashDetail');
       const hasCache = (disk.cacheTotalMb && disk.cacheTotalMb !== '0.0') || (disk.cacheFreeMb && disk.cacheFreeMb !== '0.0');
       if (flVal) {
-        flVal.textContent = `${(hasCache && disk.totalCombinedFreeMb) ? disk.totalCombinedFreeMb : (disk.freeMb || '2.0')} MB Free`;
+        flVal.textContent = tf('disk_mb_free_caps', { mb: (hasCache && disk.totalCombinedFreeMb) ? disk.totalCombinedFreeMb : (disk.freeMb || '2.0') });
       }
       if (flDet) {
         if (hasCache) {
-          flDet.textContent = `Data: ${disk.freeMb}M/${disk.totalMb}M • Cache: ${disk.cacheFreeMb}M/${disk.cacheTotalMb}M`;
+          flDet.textContent = tf('disk_data_cache_short', { data_free: disk.freeMb, data_total: disk.totalMb, cache_free: disk.cacheFreeMb, cache_total: disk.cacheTotalMb });
         } else {
-          flDet.textContent = `${disk.usedMb || '3.0'} MB used (${disk.totalMb || '5.0'} MB total)`;
+          flDet.textContent = tf('disk_used_total', { used: disk.usedMb || '3.0', total: disk.totalMb || '5.0' });
         }
       }
       const ovDisk = document.getElementById('ovDiskVal');
       if (ovDisk) {
         if (hasCache) {
-          ovDisk.textContent = `Data: ${disk.freeMb}MB free • Cache: ${disk.cacheFreeMb}MB free`;
+          ovDisk.textContent = tf('disk_data_cache_free', { data_free: disk.freeMb, cache_free: disk.cacheFreeMb });
         } else {
-          ovDisk.textContent = `${disk.freeMb || '2.0'} MB free`;
+          ovDisk.textContent = tf('disk_mb_free', { mb: disk.freeMb || '2.0' });
         }
       }
     } catch { }
@@ -121,10 +121,8 @@ export class HarmonyAppActivitiesState extends HarmonyAppEventsActions {
       modal.innerHTML = `
         <div class="card" style="max-width:420px;text-align:center;border-color:var(--danger);box-shadow:0 8px 32px rgba(239,68,68,0.3);">
           <div style="font-size:36px;margin-bottom:8px;">⚠️</div>
-          <h3 style="color:var(--danger);margin-bottom:8px;" data-i18n="app_outdated">App Outdated</h3>
-          <p style="font-size:14px;color:var(--text-bright);margin-bottom:12px;" data-i18n="app_outdated_msg">
-            The connected hub requires a newer version of the Android App. Please update your app.
-          </p>
+          <h3 style="color:var(--danger);margin-bottom:8px;" data-i18n="app_outdated">${t('app_outdated')}</h3>
+          <p style="font-size:14px;color:var(--text-bright);margin-bottom:12px;" data-i18n="app_outdated_msg">${t('app_outdated_msg')}</p>
           <div class="muted mini" style="margin-bottom:16px;">
             ${t('current_colon', 'Current:')} <strong>v${escapeHtml(curVer)}</strong> • ${t('required_colon', 'Required:')} <strong>v${escapeHtml(minVer)}+</strong>
           </div>
@@ -170,12 +168,12 @@ export class HarmonyAppActivitiesState extends HarmonyAppEventsActions {
     const ovLbl = document.getElementById('ovActiveHubLabel');
 
     if (!this.activeHub || !this.activeHub.host) {
-      if (lbl) lbl.textContent = 'No Hub Selected';
-      if (ovLbl) ovLbl.textContent = 'Active: None';
+      if (lbl) lbl.textContent = t('no_hub_selected');
+      if (ovLbl) ovLbl.textContent = t('active_none');
       this.client.updateHub(null);
       setStockIconBaseUrl('');
       this.setHubStatus(false);
-      this.activitiesData = { activities: [], currentId: '-1', currentName: 'No Hub', isOffline: true };
+      this.activitiesData = { activities: [], currentId: '-1', currentName: t('no_hub_short'), isOffline: true };
       this.inventory = { devices: [] };
       this.updateActivityBanner();
       if (this.isNative) {
@@ -185,7 +183,7 @@ export class HarmonyAppActivitiesState extends HarmonyAppEventsActions {
     }
 
     if (lbl) lbl.textContent = this.activeHub.name || 'Harmony Hub';
-    if (ovLbl) ovLbl.textContent = `Active: ${this.activeHub.name || this.activeHub.host}`;
+    if (ovLbl) ovLbl.textContent = tf('active_name', { name: this.activeHub.name || this.activeHub.host });
     this.client.updateHub(this.activeHub);
     setStockIconBaseUrl(this.client.baseUrl);
     await this.checkHealthAndVersion();
@@ -229,7 +227,7 @@ export class HarmonyAppActivitiesState extends HarmonyAppEventsActions {
           const lbl = document.getElementById('activeHubLabel');
           if (lbl) lbl.textContent = stat.hub_name;
           const ovLbl = document.getElementById('ovActiveHubLabel');
-          if (ovLbl) ovLbl.textContent = `Active: ${stat.hub_name}`;
+          if (ovLbl) ovLbl.textContent = tf('active_name', { name: stat.hub_name });
           if (this.activeHub) this.activeHub.name = stat.hub_name;
         }
       }
@@ -252,14 +250,61 @@ export class HarmonyAppActivitiesState extends HarmonyAppEventsActions {
       this.recordSuccess();
     } catch (err) {
       console.warn('Failed to load hub data:', err);
-      const isAuthErr = err?.message && (err.message.includes('Authentication') || err.message.includes('401'));
+      const isAuthErr = err?.status === 401 || (err?.message && (err.message.includes('Authentication') || err.message.includes('401')));
       this.recordFailure(err);
-      this.activitiesData = { activities: [], currentId: '-1', currentName: isAuthErr ? 'Sign In Required' : 'Offline', isOffline: !isAuthErr };
+      this.activitiesData = { activities: [], currentId: '-1', currentName: isAuthErr ? t('sign_in_required') : t('offline'), isOffline: !isAuthErr };
       this.inventory = { devices: [] };
     }
     this.updateActivityBanner();
     this.checkBanners();
     this.redrawDataView();
+  }
+
+  /* After a language change. Pages drawn from the inventory or the activities are drawn again
+   * (waiting while a field is being typed in, as for a data change), keeping the values shown in
+   * their selects and fields (redrawKeepingChoices). The settings forms and the
+   * remote editors are never reloaded: that would drop a typed value or an unsaved key map. Only
+   * their status parts are drawn again (MQTT badge, network and Wi-Fi / Ethernet state, RF status,
+   * services, system info); the rest follows when the page is opened again. */
+  redrawForLanguage() {
+    const tab = this.currentTab;
+    if (DATA_VIEWS.has(tab)) {
+      if (this.isEditingIn(`view-${tab}`)) this.redrawDataView();
+      else return this.redrawKeepingChoices(tab);
+    } else if (tab === 'rf-remote') this.refreshRfStatus();
+    else if (tab === 'mqtt') this.refreshMqttStatus();
+    else if (tab === 'network') this.refreshNetworkStatus();
+    else if (tab === 'system') { this.refreshServiceStatuses(); this.refreshSystemInfo(); }
+  }
+
+  /* A language change does not change the data, so the page is drawn again with the choices
+   * shown before: a select or field the user changed but did not save yet (blaster port, BT
+   * keyboard device or host) keeps its value instead of going back to the saved one. */
+  async redrawKeepingChoices(tab) {
+    const view = document.getElementById(`view-${tab}`);
+    const kept = [];
+    if (view) {
+      view.querySelectorAll('select, input, textarea').forEach((el) => {
+        const input = String(el.tagName).toUpperCase() === 'INPUT';
+        if (!el.id || (input && /^(file|button|submit|reset)$/i.test(el.type || ''))) return;
+        const box = input && /^(checkbox|radio)$/i.test(el.type || '');
+        kept.push({ id: el.id, box, value: box ? el.checked : el.value });
+      });
+    }
+    try {
+      await this.renderTab(tab);
+    } catch (err) {
+      console.warn('Redraw after a language change failed:', err);
+      return;
+    }
+    for (const k of kept) {
+      const el = document.getElementById(k.id);
+      if (!el) continue;
+      if (k.box) { el.checked = k.value; continue; }
+      if (el.value === k.value) continue;
+      if (String(el.tagName).toUpperCase() === 'SELECT' && !Array.from(el.options || []).some(o => o.value === k.value)) continue;
+      el.value = k.value;
+    }
   }
 
   /* Every save and every live config_changed push ends in refreshData(): redraw the open page
@@ -340,15 +385,16 @@ export class HarmonyAppActivitiesState extends HarmonyAppEventsActions {
     this.renderTab(tabId);
   }
 
+  /* Returns the view loader's promise when it has one, so a caller can wait for the page */
   renderTab(tabId) {
-    if (tabId === 'overview') this.loadDashboard();
-    else if (tabId === 'activity-remote') this.renderActivityRemote();
-    else if (tabId === 'activities') this.loadActivitiesView();
+    if (tabId === 'overview') return this.loadDashboard();
+    else if (tabId === 'activity-remote') return this.renderActivityRemote();
+    else if (tabId === 'activities') return this.loadActivitiesView();
     else if (tabId === 'control') this.renderControlView();
     else if (tabId === 'ir') this.renderIrView();
     else if (tabId === 'lab') this.initLabView();
-    else if (tabId === 'bluetooth') this.loadBtView();
-    else if (tabId === 'bt-keyboard') this.loadBtKeyboardView();
+    else if (tabId === 'bluetooth') return this.loadBtView();
+    else if (tabId === 'bt-keyboard') return this.loadBtKeyboardView();
     else if (tabId === 'rf-remote') { this.loadRemoteView(); this.refreshRfStatus(); }
     else if (tabId === 'remotes') this.loadRemotesView();
     else if (tabId === 'mqtt') this.loadMqttView();
@@ -369,7 +415,7 @@ export class HarmonyAppActivitiesState extends HarmonyAppEventsActions {
     this.activitiesData.transitionTarget = actId;
     this.activitiesData.transitionStep = 1;
     this.activitiesData.transitionTotal = 4;
-    this.activitiesData.transitionDesc = `Starting ${actName}...`;
+    this.activitiesData.transitionDesc = tf('starting_activity_name', { name: actName });
     this.updateActivityBanner();
 
     try {
@@ -394,7 +440,7 @@ export class HarmonyAppActivitiesState extends HarmonyAppEventsActions {
     this.activitiesData.transitionTarget = '-1';
     this.activitiesData.transitionStep = 1;
     this.activitiesData.transitionTotal = 3;
-    this.activitiesData.transitionDesc = 'Powering off devices...';
+    this.activitiesData.transitionDesc = t('powering_off_devices');
     this.updateActivityBanner();
 
     try {
@@ -466,7 +512,7 @@ export class HarmonyAppActivitiesState extends HarmonyAppEventsActions {
       pwrBtn.classList.toggle('active', isOff);
       pwrBtn.classList.remove('btn-primary');
       pwrBtn.classList.add('btn-danger');
-      pwrBtn.title = isOff ? 'Hub is currently Powered Off' : 'Power off all devices';
+      pwrBtn.title = isOff ? t('hub_currently_powered_off') : t('power_off_all_devices');
       pwrBtn.disabled = isTransitioning;
       if (isTransitioning) pwrBtn.style.opacity = '0.5';
       else if (isOff) pwrBtn.style.opacity = '0.75';
@@ -484,16 +530,16 @@ export class HarmonyAppActivitiesState extends HarmonyAppEventsActions {
         transCard.style.display = 'block';
         const targetId = String(this.wsProgress?.activityId || this.wsProgress?.activity || this.activitiesData?.transitionTarget || '');
         const targetAct = acts.find(a => String(a.id) === targetId);
-        let titleText = 'Switching Activity...';
+        let titleText = t('switching_activity');
         if (targetId === '-1' || targetId === '0') {
-          titleText = 'Powering Off...';
+          titleText = t('powering_off_ellipsis');
         } else if (targetAct) {
-          titleText = `Starting ${targetAct.name || targetAct.label}...`;
+          titleText = tf('starting_activity_name', { name: targetAct.name || targetAct.label });
         }
 
         const step = this.wsProgress?.currentStep ?? this.wsProgress?.step ?? this.activitiesData?.transitionStep ?? 0;
         const total = this.wsProgress?.totalSteps ?? this.wsProgress?.total ?? this.activitiesData?.transitionTotal ?? 0;
-        const descText = this.wsProgress?.stepDesc || this.wsProgress?.desc || this.activitiesData?.transitionDesc || (step > 0 ? `Step ${step} of ${total}` : 'Please wait...');
+        const descText = this.wsProgress?.stepDesc || this.wsProgress?.desc || this.activitiesData?.transitionDesc || (step > 0 ? tf('step_of_total', { step: step, total: total }) : t('please_wait'));
         const pct = total > 0 ? Math.min(100, Math.max(10, Math.round((step / total) * 100))) : 40;
 
         if (transName) transName.textContent = titleText;
