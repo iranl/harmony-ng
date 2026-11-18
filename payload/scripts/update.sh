@@ -185,7 +185,7 @@ link_hub_util() {
 }
 
 link_dropbear() {
-  if [ -f "/data/harmony/bin/dropbearmulti" ]; then
+  if [ -s /data/harmony/bin/dropbearmulti ] && [ -x /data/harmony/bin/dropbearmulti ]; then
     for _app in dropbear dropbearkey dbclient scp; do
       [ -f "/data/harmony/bin/$_app" ] && [ ! -L "/data/harmony/bin/$_app" ] && rm -f "/data/harmony/bin/$_app" 2>/dev/null || true
       ln -sf /data/harmony/bin/dropbearmulti "/data/harmony/bin/$_app" 2>/dev/null || true
@@ -193,7 +193,11 @@ link_dropbear() {
     for _app in dropbearkey dbclient scp; do
       ln -sf /data/harmony/bin/dropbearmulti "/usr/sbin/$_app" 2>/dev/null || true
     done
-    rm -f /data/dropbearmulti /usr/sbin/dropbearmulti 2>/dev/null || true
+    _harm_m=$(md5sum /data/harmony/bin/dropbearmulti 2>/dev/null | awk '{print $1}')
+    _data_m=$(md5sum /data/dropbearmulti 2>/dev/null | awk '{print $1}')
+    if [ -n "$_harm_m" ] && { [ "$_harm_m" = "$_data_m" ] || [ "$_harm_m" = "3733327fd04bca282dbf06f33da0bf6c" ]; }; then
+      rm -f /data/dropbearmulti /usr/sbin/dropbearmulti 2>/dev/null || true
+    fi
   fi
 }
 

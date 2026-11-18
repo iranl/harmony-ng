@@ -308,6 +308,21 @@ class BootScripts(unittest.TestCase):
         self.s.run(self.init_block(), ps_out="  7 root /data/dropbearmulti dropbear")
         self.assertEqual(self.s.started(), [])
 
+    def test_rcs_local_fallback_prefers_harmony_bin(self):
+        self.s.fake_server("data/dropbearmulti")
+        self.s.fake_server("data/harmony/bin/dropbearmulti")
+        self.boot()
+        self.assertTrue(self.usr.exists())
+        self.assertIn("/data/harmony/bin/dropbearmulti", self.usr.read_text())
+        self.assertEqual(self.stock_start(), [f"{self.s.root}/data/harmony/bin/dropbearmulti dropbear -s -g -K 300"])
+
+    def test_rcs_local_fallback_uses_data_dropbearmulti_when_harmony_bin_absent(self):
+        self.s.fake_server("data/dropbearmulti")
+        self.boot()
+        self.assertTrue(self.usr.exists())
+        self.assertIn("/data/dropbearmulti", self.usr.read_text())
+        self.assertEqual(self.stock_start(), [f"{self.s.root}/data/dropbearmulti dropbear -s -g -K 300"])
+
 
 class RootToolBootScript(unittest.TestCase):
     def setUp(self):
@@ -336,6 +351,37 @@ class RootToolBootScript(unittest.TestCase):
         self.s.clear()
         self.s.run(usr_dropbear)
         self.assertEqual(self.s.started(), [f"{self.s.root}/data/dropbearmulti dropbear -s -g"])
+
+
+class DropbearkeyWrapper(unittest.TestCase):
+    def setUp(self):
+        self.s = Sandbox()
+        self.script = self.s.base / "dropbearkey"
+        self.script.write_text(self.s.sandboxed_text((SCRIPTS / "dropbearkey").read_text()))
+
+    def tearDown(self):
+        self.s.close()
+
+    def test_prefers_harmony_bin_dropbearkey(self):
+        self.s.fake_server("data/harmony/bin/dropbearkey")
+        self.s.fake_server("data/harmony/bin/dropbearmulti")
+        self.s.fake_server("data/dropbearmulti")
+        res = self.s.run(self.script, "-t", "rsa")
+        self.assertEqual(res.returncode, 0)
+        self.assertEqual(self.s.started(), [f"{self.s.root}/data/harmony/bin/dropbearkey -t rsa"])
+
+    def test_falls_back_to_harmony_bin_dropbearmulti(self):
+        self.s.fake_server("data/harmony/bin/dropbearmulti")
+        self.s.fake_server("data/dropbearmulti")
+        res = self.s.run(self.script, "-t", "rsa")
+        self.assertEqual(res.returncode, 0)
+        self.assertEqual(self.s.started(), [f"{self.s.root}/data/harmony/bin/dropbearmulti dropbearkey -t rsa"])
+
+    def test_falls_back_to_data_dropbearmulti(self):
+        self.s.fake_server("data/dropbearmulti")
+        res = self.s.run(self.script, "-t", "rsa")
+        self.assertEqual(res.returncode, 0)
+        self.assertEqual(self.s.started(), [f"{self.s.root}/data/dropbearmulti dropbearkey -t rsa"])
 
 
 if __name__ == "__main__":
