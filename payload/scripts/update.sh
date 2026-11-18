@@ -184,6 +184,23 @@ link_hub_util() {
   done
 }
 
+link_dropbear() {
+  if [ -s /data/harmony/bin/dropbearmulti ] && [ -x /data/harmony/bin/dropbearmulti ]; then
+    for _app in dropbear dropbearkey dbclient scp; do
+      [ -f "/data/harmony/bin/$_app" ] && [ ! -L "/data/harmony/bin/$_app" ] && rm -f "/data/harmony/bin/$_app" 2>/dev/null || true
+      ln -sf /data/harmony/bin/dropbearmulti "/data/harmony/bin/$_app" 2>/dev/null || true
+    done
+    for _app in dropbearkey dbclient scp; do
+      ln -sf /data/harmony/bin/dropbearmulti "/usr/sbin/$_app" 2>/dev/null || true
+    done
+    _harm_m=$(md5sum /data/harmony/bin/dropbearmulti 2>/dev/null | awk '{print $1}')
+    _data_m=$(md5sum /data/dropbearmulti 2>/dev/null | awk '{print $1}')
+    if [ -n "$_harm_m" ] && { [ "$_harm_m" = "$_data_m" ] || [ "$_harm_m" = "3733327fd04bca282dbf06f33da0bf6c" ]; }; then
+      rm -f /data/dropbearmulti /usr/sbin/dropbearmulti 2>/dev/null || true
+    fi
+  fi
+}
+
 get_local_version() {
   local v=""
   if [ -f /data/harmony/VERSION ]; then
@@ -440,6 +457,7 @@ do_apply() {
       if [ -f "$TMPDIR/pkg/bin/hub_util" ]; then
         link_hub_util
       fi
+      link_dropbear
       # The package no longer has the recovery access point: its script, settings and the
       # hub_util links it used go (the reboot after the update stops one still running)
       rm -f /data/harmony/recovery_ap.sh /data/harmony/scripts/recovery_ap.sh /data/harmony/bin/recovery_ap.sh \

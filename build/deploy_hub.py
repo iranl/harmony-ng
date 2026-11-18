@@ -414,6 +414,7 @@ class HubDeployer:
                 "rm -rf /data/codex-backups /data/codexmqtt /data/harmony-backups /cache/crashlog-*.json 2>/dev/null; "
                 "rm -f /data/harmony/mqtt_config.json /data/harmony/elite_remote_map.json /data/harmony/bt_devices.json /data/devices.json /data/activities.json /data/harmony/devices.json /data/harmony/config/.imported /data/remote_ui.ota.gz /data/remote_ui.version 2>/dev/null || true; "
                 "rm -f /cache/codex_*.ota.gz /cache/codex_*.ota /cache/*.new /cache/*/*.new /data/harmony/*.new /data/harmony/*/*.new /data/rf_pair_test /data/test_hub_tx /data/codex_rf /data/hub_rf /data/harmony/bin/codex_* /cache/bin/codex_* /var/run/codex_* 2>/dev/null || true; "
+                "if [ -s /data/harmony/bin/dropbearmulti ] && [ -x /data/harmony/bin/dropbearmulti ]; then _harm_m=$(md5sum /data/harmony/bin/dropbearmulti 2>/dev/null | awk '{print $1}'); _data_m=$(md5sum /data/dropbearmulti 2>/dev/null | awk '{print $1}'); if [ -n \"$_harm_m\" ] && { [ \"$_harm_m\" = \"$_data_m\" ] || [ \"$_harm_m\" = \"3733327fd04bca282dbf06f33da0bf6c\" ]; }; then rm -f /data/dropbearmulti /usr/sbin/dropbearmulti 2>/dev/null || true; fi; for _a in dropbear dropbearkey dbclient scp; do [ -f /data/harmony/bin/$_a ] && [ ! -L /data/harmony/bin/$_a ] && rm -f /data/harmony/bin/$_a 2>/dev/null; ln -sf /data/harmony/bin/dropbearmulti /data/harmony/bin/$_a 2>/dev/null || true; done; for _a in dropbearkey dbclient scp; do ln -sf /data/harmony/bin/dropbearmulti /usr/sbin/$_a 2>/dev/null || true; done; fi; "
                 "mkdir -p /data/harmony/bin /data/harmony/www/assets /data/harmony/config /data/harmony/custom_icons"
             )
             if not self.dry_skip("move legacy /data/codex files to /data/harmony and remove obsolete files"):
@@ -492,6 +493,32 @@ class HubDeployer:
                 src = self.bin_dir / b
                 if src.is_file():
                     self.deploy_file_if_changed(src, f"/data/harmony/bin/{b}", "755")
+
+            # Dropbear SSH server
+            dropbear_src = None
+            if (self.bin_dir / "dropbearmulti").is_file():
+                dropbear_src = self.bin_dir / "dropbearmulti"
+            elif (self.repo_root / "tools" / "bin" / "dropbearmulti_mips").is_file():
+                dropbear_src = self.repo_root / "tools" / "bin" / "dropbearmulti_mips"
+
+            if dropbear_src:
+                self.deploy_file_if_changed(dropbear_src, "/data/harmony/bin/dropbearmulti", "755")
+                dropbear_links = (
+                    "for _a in dropbear dropbearkey dbclient scp; do "
+                    "  [ -f /data/harmony/bin/$_a ] && [ ! -L /data/harmony/bin/$_a ] && rm -f /data/harmony/bin/$_a 2>/dev/null; "
+                    "  ln -sf /data/harmony/bin/dropbearmulti /data/harmony/bin/$_a 2>/dev/null || true; "
+                    "done; "
+                    "for _a in dropbearkey dbclient scp; do "
+                    "  ln -sf /data/harmony/bin/dropbearmulti /usr/sbin/$_a 2>/dev/null || true; "
+                    "done; "
+                    "_harm_m=$(md5sum /data/harmony/bin/dropbearmulti 2>/dev/null | awk '{print $1}'); "
+                    "_data_m=$(md5sum /data/dropbearmulti 2>/dev/null | awk '{print $1}'); "
+                    "if [ -n \"$_harm_m\" ] && { [ \"$_harm_m\" = \"$_data_m\" ] || [ \"$_harm_m\" = \"3733327fd04bca282dbf06f33da0bf6c\" ]; }; then "
+                    "  rm -f /data/dropbearmulti /usr/sbin/dropbearmulti 2>/dev/null || true; "
+                    "fi"
+                )
+                if not self.dry_skip("create dropbear multicall symlinks and safely deduplicate"):
+                    self.run_ssh(dropbear_links)
 
             # Extended BusyBox
             local_bb = self.bin_dir / "busybox"

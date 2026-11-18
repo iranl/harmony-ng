@@ -8,11 +8,11 @@
 # keepalive every 5 minutes.
 #
 # The server binary is the first of: a separate dropbear in /data/harmony/bin (older installs),
-# the multi-call binary of the USB root tool, the one of an update package, the one of the serial
-# guide in /usr/sbin (skipped when it is the USB root tool's boot script, a shell script).
+# the multi-call binary of an update package, the multi-call binary of the USB root tool, the
+# one of the serial guide in /usr/sbin (skipped when it is the USB root tool's boot script, a shell script).
 # "hub_sshd --binary" prints the binary it would start (exit 1 when there is none), starts nothing.
 
-for _b in /data/harmony/bin/dropbear /data/dropbearmulti /data/harmony/bin/dropbearmulti /usr/sbin/dropbearmulti; do
+for _b in /data/harmony/bin/dropbear /data/harmony/bin/dropbearmulti /data/dropbearmulti /usr/sbin/dropbearmulti; do
     [ -f "$_b" ] && [ -x "$_b" ] && [ -s "$_b" ] || continue
     if [ "$_b" = /usr/sbin/dropbearmulti ]; then
         _first=""

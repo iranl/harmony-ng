@@ -103,10 +103,10 @@ class UpdateApply(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = pathlib.Path(self.tmp.name)
-        for d in ("tmp", "data/harmony/bin", "cache/bin", "cache/www/assets", "etc/init.d", "serve/bin/mips", "fakebin"):
+        for d in ("tmp", "data/harmony/bin", "cache/bin", "cache/www/assets", "etc/init.d", "serve/bin/mips", "fakebin", "usr/sbin"):
             (self.root / d).mkdir(parents=True)
         text = SCRIPT.read_text()
-        text = re.sub(r"(?<![\w./])/(data|cache|etc|tmp)/", lambda m: f"{self.root}/{m.group(1)}/", text)
+        text = re.sub(r"(?<![\w./])/(data|cache|etc|tmp|usr)/", lambda m: f"{self.root}/{m.group(1)}/", text)
         self.script = self.root / "update.sh"
         self.script.write_text(text)
 
@@ -220,7 +220,33 @@ class UpdateApply(unittest.TestCase):
         self.assertEqual(self.version(), NEW_VER)
         self.assertTrue((self.root / "tmp" / "rebooted").exists() or "safe Hub reboot" in r.stdout)
         self.assertTrue((self.data / "bin" / "mknod").is_symlink())
+        self.assertTrue((self.data / "bin" / "dropbear").is_symlink())
+        self.assertTrue((self.data / "bin" / "dropbearkey").is_symlink())
+        self.assertTrue((self.root / "usr" / "sbin" / "dropbearkey").is_symlink())
+        self.assertTrue((self.root / "usr" / "sbin" / "scp").is_symlink())
         self.assertEqual(self.leftovers(), [])
+
+    def test_link_dropbear_deduplicates_when_hashes_match(self):
+        data_dropbear = self.root / "data" / "dropbearmulti"
+        usr_dropbear = self.root / "usr" / "sbin" / "dropbearmulti"
+        self.write(data_dropbear, self.new_files["bin/dropbearmulti"], 0o755)
+        self.write(usr_dropbear, self.new_files["bin/dropbearmulti"], 0o755)
+        self.serve_bundle()
+        r = self.run_apply()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertFalse(data_dropbear.exists(), "/data/dropbearmulti should be removed when matching")
+        self.assertFalse(usr_dropbear.exists(), "/usr/sbin/dropbearmulti should be removed when matching")
+        self.assertTrue((self.data / "bin" / "dropbear").is_symlink())
+        self.assertTrue((self.root / "usr" / "sbin" / "scp").is_symlink())
+
+    def test_link_dropbear_preserves_data_dropbear_when_mismatched(self):
+        data_dropbear = self.root / "data" / "dropbearmulti"
+        self.write(data_dropbear, "custom non-canonical dropbear binary\n", 0o755)
+        self.serve_bundle()
+        r = self.run_apply()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue(data_dropbear.exists(), "/data/dropbearmulti must be preserved when hash differs")
+        self.assertEqual(data_dropbear.read_text(), "custom non-canonical dropbear binary\n")
 
     def data_used(self) -> int:
         return sum(p.stat().st_size for p in (self.root / "data").rglob("*") if p.is_file())

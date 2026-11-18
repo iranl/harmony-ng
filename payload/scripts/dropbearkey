@@ -1,3 +1,10 @@
 #!/bin/sh
 BIN=/data/harmony/bin/dropbearkey
-exec "$BIN" "$@"
+if [ -x "$BIN" ]; then
+    exec "$BIN" "$@"
+elif [ -x /data/harmony/bin/dropbearmulti ]; then
+    exec /data/harmony/bin/dropbearmulti dropbearkey "$@"
+elif [ -x /data/dropbearmulti ]; then
+    exec /data/dropbearmulti dropbearkey "$@"
+fi
+exec dropbearkey "$@"
