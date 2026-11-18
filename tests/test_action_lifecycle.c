@@ -19,6 +19,8 @@ static cJSON *s_mock_device_root = NULL;
  * powered off): an activity is running here */
 orch_state_t orch_get_state(void) { return ORCH_STATE_RUNNING; }
 const char *orch_get_current_activity(void) { return "1"; }
+/* No plugins installed: a device type never names a plugin */
+int plugin_mgr_resolve_device_plugin(const char *t, char *out, size_t sz) { (void)t; (void)out; (void)sz; return 0; }
 /* the MQTT-type device path puts a button event on the daemon's bus */
 void hub_events_emit(hub_event_type_t type, cJSON *payload) { (void)type; cJSON_Delete(payload); }
 
@@ -39,7 +41,8 @@ const cJSON *get_device_list_acquire(struct cfg_snap **snap) {
             "{\"id\":\"plug_typed\",\"name\":\"AndroidTV\",\"type\":\"plugin:androidtv\",\"config\":{\"host\":\"192.168.1.60\"},\"commands\":["
             "{\"name\":\"Back\",\"keyCode\":\"Back\"}]},"
             "{\"id\":\"custom_dev\",\"name\":\"CustomDev\",\"commands\":["
-            "{\"name\":\"Wake\",\"keyCode\":\"PLUGIN:ps5-wake:Boot\"}]}]}");
+            "{\"name\":\"Wake\",\"keyCode\":\"PLUGIN:ps5-wake:Boot\"},"
+            "{\"name\":\"Netflix\",\"keyCode\":\"PLUGIN:android-tv:app:https://www.netflix.com/title/80057281?source=harmony-ng&trackId=255824129\"}]}]}");
     }
     *snap = (struct cfg_snap *)&s_list_handle;
     s_list_held++;
@@ -299,6 +302,15 @@ int main(void) {
     assert(strstr(out, "cmd=Boot") != NULL);
     assert(strstr(out, "action=press") != NULL);
     printf("[+] Keycode override 'PLUGIN:ps5-wake:Boot' dispatching verified.\n");
+
+    /* 8b. A deep link longer than 63 characters reaches the plugin whole */
+    usleep(100000);
+    memset(out, 0, sizeof(out));
+    res = capture_send("custom_dev", "Netflix", HW_BTN_ACTION_TAP, out, sizeof(out));
+    assert(res == 0);
+    assert(strstr(out, "plugin=android-tv") != NULL);
+    assert(strstr(out, "cmd=app:https://www.netflix.com/title/80057281?source=harmony-ng&trackId=255824129 ") != NULL);
+    printf("[+] Long plugin app link dispatched untruncated.\n");
 
     /* 9. Direct hw_plugin_command_send safety check */
     assert(hw_plugin_command_send(NULL, "dev", "Dev", "Cmd", 0, 0, NULL) == -1);

@@ -707,8 +707,8 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
         }
     }
 
+    /* Points into the saved keyCode (held until the send is done): a copy cut long app links */
     const char *plug_cmd = command;
-    char sub_cmd[64] = {0};
     if (strncmp(keycode_str, "PLUGIN:", 7) == 0 || strncmp(keycode_str, "plugin:", 7) == 0) {
         is_plugin = 1;
         const char *p = keycode_str + 7;
@@ -719,10 +719,7 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
                 memcpy(plugin_id, p, plen);
                 plugin_id[plen] = '\0';
             }
-            if (colon[1]) {
-                strncpy(sub_cmd, colon + 1, sizeof(sub_cmd) - 1);
-                plug_cmd = sub_cmd;
-            }
+            if (colon[1]) plug_cmd = colon + 1;
         } else if (!plugin_id[0]) {
             strncpy(plugin_id, p, sizeof(plugin_id) - 1);
         }
@@ -1266,9 +1263,6 @@ int hw_plugin_command_send(const char *plugin_id, const char *dev_id, const char
     sun.sun_family = AF_UNIX;
     strncpy(sun.sun_path, sock_path, sizeof(sun.sun_path) - 1);
 
-    struct timeval tv = { .tv_sec = 0, .tv_usec = 200000 }; /* 200ms non-blocking timeout */
-    setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-
     cJSON *msg = cJSON_CreateObject();
     if (msg) {
         cJSON_AddStringToObject(msg, "plugin_id", plugin_id);
@@ -1277,15 +1271,33 @@ int hw_plugin_command_send(const char *plugin_id, const char *dev_id, const char
         cJSON_AddStringToObject(msg, "command", command);
         cJSON_AddStringToObject(msg, "action", action_str);
         cJSON_AddNumberToObject(msg, "value", value);
+        /* When it was queued (CLOCK_MONOTONIC ms): a plugin drops a repeat that waited too long */
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        cJSON_AddNumberToObject(msg, "ts", (double)((uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL));
         if (config) {
-            cJSON_AddItemReferenceToObject(msg, "config", (cJSON *)config);
+            /* A device with no "config" object goes as itself, but not its command list: the
+             * datagram outgrew the plugin's buffer and the fields after it were lost */
+            cJSON *cfg = cJSON_CreateObject();
+            const cJSON *it = NULL;
+            cJSON_ArrayForEach(it, config) {
+                if (it->string && strcmp(it->string, "commands") != 0) {
+                    cJSON_AddItemReferenceToObject(cfg, it->string, (cJSON *)it);
+                }
+            }
+            cJSON_AddItemToObject(msg, "config", cfg);
         }
     }
 
     char *json = msg ? cJSON_PrintUnformatted(msg) : NULL;
     ssize_t sent = -1;
     if (json) {
-        sent = sendto(s, json, strlen(json), 0, (struct sockaddr *)&sun, sizeof(sun));
+        /* Never waits: this runs under the lock of every device send, and a plugin busy with
+         * a slow device (its queue full) stalled IR and Bluetooth keys behind it */
+        sent = sendto(s, json, strlen(json), MSG_DONTWAIT, (struct sockaddr *)&sun, sizeof(sun));
+        if (sent < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            printf("[!] Plugin '%s' busy (queue full): '%s' %s dropped\n", plugin_id, command, action_str);
+        }
         free(json);
     }
     if (msg) cJSON_Delete(msg);
