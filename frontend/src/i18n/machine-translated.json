@@ -530,7 +530,11 @@
     "icons_archive_and_list_failed",
     "harmony_detail_http_error",
     "harmony_codeset_http_error",
-    "harmony_no_codeset"
+    "harmony_no_codeset",
+    "usb_wifi_setup_lbl",
+    "usb_wifi_setup_desc",
+    "usb_wifi_setup_turned_on",
+    "usb_wifi_setup_turned_off"
   ],
   "fr": [
     "confirm_btn",
@@ -1062,7 +1066,11 @@
     "icons_archive_and_list_failed",
     "harmony_detail_http_error",
     "harmony_codeset_http_error",
-    "harmony_no_codeset"
+    "harmony_no_codeset",
+    "usb_wifi_setup_lbl",
+    "usb_wifi_setup_desc",
+    "usb_wifi_setup_turned_on",
+    "usb_wifi_setup_turned_off"
   ],
   "nl": [
     "confirm_btn",
@@ -1594,7 +1602,11 @@
     "icons_archive_and_list_failed",
     "harmony_detail_http_error",
     "harmony_codeset_http_error",
-    "harmony_no_codeset"
+    "harmony_no_codeset",
+    "usb_wifi_setup_lbl",
+    "usb_wifi_setup_desc",
+    "usb_wifi_setup_turned_on",
+    "usb_wifi_setup_turned_off"
   ],
   "es": [
     "confirm_btn",
@@ -2126,7 +2138,11 @@
     "icons_archive_and_list_failed",
     "harmony_detail_http_error",
     "harmony_codeset_http_error",
-    "harmony_no_codeset"
+    "harmony_no_codeset",
+    "usb_wifi_setup_lbl",
+    "usb_wifi_setup_desc",
+    "usb_wifi_setup_turned_on",
+    "usb_wifi_setup_turned_off"
   ],
   "it": [
     "confirm_btn",
@@ -2658,6 +2674,10 @@
     "icons_archive_and_list_failed",
     "harmony_detail_http_error",
     "harmony_codeset_http_error",
-    "harmony_no_codeset"
+    "harmony_no_codeset",
+    "usb_wifi_setup_lbl",
+    "usb_wifi_setup_desc",
+    "usb_wifi_setup_turned_on",
+    "usb_wifi_setup_turned_off"
   ]
 }

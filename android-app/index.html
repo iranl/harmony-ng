@@ -3717,6 +3717,12 @@ harmony_send_command:
             <input id="ethDns" name="eth_dns" class="form-control" placeholder="1.1.1.1">
           </div>
 
+          <label style="display: flex; align-items: center; gap: 6px; margin-top: 12px;">
+            <input type="checkbox" id="usbWifiSetupToggle" name="usb_wifi_setup" value="1" checked>
+            <span data-i18n="usb_wifi_setup_lbl">Wi-Fi setup over USB</span>
+          </label>
+          <div class="help" style="margin-top: 4px;" data-i18n="usb_wifi_setup_desc">A computer connected to the Hub's USB port can read the network name and set the Wi-Fi network (tools/set_wifi_usb.py). Turn this off if others can plug a cable into the Hub. Saved with the IP settings buttons below; it applies at once.</div>
+
           <div class="actions" style="margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px;">
             <button type="button" class="btn btn-sm btn-primary btn-save-eth" data-apply="save"
               data-i18n="save_ip_settings">Save IP Settings</button>

@@ -57,7 +57,8 @@ if [ "$COUNT" -gt 5 ]; then
 	load_modules /etc/modules.wlan 2>/dev/null || true
 	/sbin/wlanconfig ath0 create wlandev wifi0 wlanmode sta 2>/dev/null || true
 	/usr/sbin/wpa_supplicant -s -iath0 -c /etc/wpa_supplicant.conf &
-	udhcpc -i ath0 -b 2>/dev/null &
+	# pid file: a Wi-Fi set over USB asks this udhcpc for a new lease (SIGUSR1)
+	udhcpc -i ath0 -p /var/run/udhcpc.ath0.pid -b 2>/dev/null &
 
 	# Ensure pristine stock SquashFS /bin/sh and /bin/busybox are NEVER shadowed on unionfs
 	rm -f /data/bin/sh /data/bin/ash /data/bin/busybox 2>/dev/null || true
@@ -86,6 +87,15 @@ export PATH=/cache/bin:/data/harmony/bin:$PATH
 EOF
 		chmod 644 "$prof" 2>/dev/null || true
 	done
+
+	# Wi-Fi setup over USB (see init.sh 5.1): the stock boot script ends with this file in this
+	# mode, before it would start usbhid, so both are started here. The port stays a USB device.
+	# Not when USB_WIFI_SETUP=0 is in ethernet.conf (the setting is off).
+	if [ -x /data/harmony/bin/hub_util ] &&
+		! tr -d ' \t"\r' < /data/harmony/ethernet.conf 2>/dev/null | grep -q '^USB_WIFI_SETUP=0$'; then
+		/data/harmony/bin/hub_util usbwifi >> /tmp/emergency_recovery.log 2>&1 &
+		[ -x /usr/bin/usbhid ] && /usr/bin/usbhid -s &
+	fi
 
 	# Start Dropbear SSH, key logins only (/usr/sbin/dropbear is set above; the server binary
 	# directly when that file is not usable)

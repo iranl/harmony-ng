@@ -181,7 +181,8 @@ Returns active network interface, Wi-Fi (`ath0`), USB Ethernet (`eth0`/`usb0`), 
       "eth_ip": "",
       "eth_netmask": "255.255.255.0",
       "eth_gateway": "",
-      "eth_dns": ""
+      "eth_dns": "",
+      "usb_wifi_setup": true
     },
     "ifconfig": "ath0      Link encap:Ethernet ..."
   }
@@ -189,7 +190,8 @@ Returns active network interface, Wi-Fi (`ath0`), USB Ethernet (`eth0`/`usb0`), 
   - `eth_interface` is `"none"` without an Ethernet adapter; `eth_onboard` tells an Ethernet port
     of the Hub itself from a USB adapter.
   - `config`: the stored Ethernet settings (`ethernet.conf`, written by `POST /api/ethernet-save`,
-    8.3); an empty object when there is no file.
+    8.3); only `usb_wifi_setup` when there is no file. `usb_wifi_setup` is always there: `false`
+    when `ethernet.conf` holds `USB_WIFI_SETUP=0`, else `true` (the default).
   - `ifconfig`: the text output of `/sbin/ifconfig`.
 
 ### 1.6 Background Services
@@ -2004,7 +2006,7 @@ Tests the connection to an AP by switching to it: the Hub writes the network to 
   }
   ```
 - **Response `200 OK`**: `{"ok": true, "message": "Wi-Fi test connection successful"}`
-- **Response `400 Bad Request`**: `{"ok": false, "error": "Incorrect Wi-Fi password"}`. Other texts: `"Connection timed out (AP unreachable or handshake failed)"`, `"Another Wi-Fi test is running, try again in a few seconds"`, `"wpa_supplicant is not running on ath0"`, and the reason when the SSID or the password cannot be used (see `POST /api/wifi-save`).
+- **Response `400 Bad Request`**: `{"ok": false, "error": "Incorrect Wi-Fi password"}`. The Hub reports a wrong password when the key handshake starts and fails twice, or never completes. Other texts: `"Wi-Fi network not found (check the name; 2.4 GHz networks only)"` (the network was never seen), `"Connection timed out (AP unreachable or handshake failed)"`, `"Another Wi-Fi test is running, try again in a few seconds"`, and the reason when the SSID or the password cannot be used (see `POST /api/wifi-save`).
 
 #### `POST /api/wifi-save` or `POST /wifi`
 Saves Wi-Fi credentials to `/etc/wpa_supplicant.conf` and `/etc/wpa_supplicant.ath0.conf`.
@@ -2026,6 +2028,17 @@ Saves Wi-Fi credentials to `/etc/wpa_supplicant.conf` and `/etc/wpa_supplicant.a
 - **Response `500`**: the two files could not be written.
 - **Values**: the SSID and the password are written as typed (wpa_supplicant reads a quoted value without escapes). Refused with `400` and the reason: an SSID that is empty or longer than 32 bytes, a password outside 8 to 63 characters (unless the network is open, or the password is the 64 hex digit raw key, which is written unquoted), and a line break or another control character in either.
 
+#### Wi-Fi over USB (no HTTP)
+A computer on the Hub's USB port can read and set the Wi-Fi network with the stock USB HID file
+protocol (`/sys/wifi/connect`), answered by `hub_usbwifi`: `tools/set_wifi_usb.py`, or
+`tools/harmony_hid.py` `provision_wifi()` / `get_wifi_status()`. It tests the network the way
+`POST /api/wifi-save` with `apply` does (same code, same rules for the values) and shares its
+one-at-a-time lock: a web UI test while a USB attempt runs gets `"Another Wi-Fi test is running,
+try again in a few seconds"`, and the other way round. Protocol and limits:
+[ETHERNET_AND_NETWORK_SETUP.md](ETHERNET_AND_NETWORK_SETUP.md) section 5. It is on by default and
+answers any computer on the port without a login; `usb_wifi_setup: false` in
+`POST /api/ethernet-save` (8.3) turns it off.
+
 ### 8.3 USB Ethernet Configuration
 #### `POST /api/ethernet-save` or `POST /ethernet`
 Configures USB Ethernet interface mode (DHCP or static IP). Every save rewrites the whole
@@ -2033,7 +2046,8 @@ Configures USB Ethernet interface mode (DHCP or static IP). Every save rewrites 
 its stored value: `eth_enabled` and `eth_fallback_wifi` become on, `eth_mode` `dhcp`,
 `eth_netmask` `255.255.255.0`, `eth_ip`, `eth_gateway` and `eth_dns` empty (in `dhcp` mode an
 address that is not a valid IPv4 address is stored empty too; in `static` mode it is refused, see
-`400` below). Send every field each time. The settings are
+`400` below). Send every field each time. The one exception is `usb_wifi_setup`: left out, it
+keeps its stored value (the web UIs send it only after reading the stored value, so an older client cannot turn it back on). The settings are
 applied (`network_manager.sh apply`) only when `apply` is `apply`, `1`, `reconfigure` or
 `restart`; without it they take effect at the next network restart.
 - **Request Body**:
@@ -2052,6 +2066,7 @@ applied (`network_manager.sh apply`) only when `apply` is `apply`, `1`, `reconfi
 - **Response `200 OK`**: `{"ok": true, "message": "Ethernet configuration saved"}`
 - **Response `400 Bad Request`** (static mode only): an invalid address, an address a host cannot use (0.x, 127.x, 224.x and above), a netmask that is not a mask, the network or broadcast address of the subnet, a gateway outside the address's subnet or equal to the address, or a DNS entry that is not an IPv4 address (`eth_dns` may list several, separated by spaces or commas). Nothing is saved. A static address is used on Wi-Fi as well as on Ethernet.
 - `eth_enabled` (default `true`) off: the Hub does not start Ethernet (a standard Hub keeps its USB port in device mode). `eth_fallback_wifi` (default `true`): a static address moves to Wi-Fi when the Ethernet link is down.
+- `usb_wifi_setup` (default `true`, stored as `USB_WIFI_SETUP`; left out = unchanged): Wi-Fi setup over USB ("Wi-Fi over USB" above). `false` refuses every USB request at once (status read included); the next start of the Hub services or boot then starts no `hub_usbwifi`, and the boot no longer waits for a computer on the USB port, so Ethernet over USB starts as it did before this setting existed. Turning it back on takes effect at the next start of the Hub services or boot. With it off and the Hub on no Wi-Fi network, the way back is an Ethernet adapter (when Ethernet over USB is on) or a factory reset.
 
 ---
 

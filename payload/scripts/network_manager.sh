@@ -26,6 +26,61 @@ log() {
   echo "$(date '+%Y-%m-%d %H:%M:%S') [NET] $*" >> "$LOG"
 }
 
+# USB port mode. The Hub's one USB port is either a USB device (a computer can set the Wi-Fi
+# over USB: stock usbhid + hub_usbwifi) or a USB host (Ethernet over USB, start_usb_eth.sh); a
+# switch back to device mode needs a restart. The port stays a device for the boot when a
+# computer set the Hub's USB device up: usbhid connected to hub_usbwifi a second time, which it
+# does each time a computer configures the device (seen on hardware with a Windows PC), or a
+# request from the computer reached hub_usbwifi (a host that set the device up on the first
+# connection, or a tool already talking to the Hub). An
+# interrupt count in /proc/udc (stock usbmgr.lua autoUSBSwap took any count as a computer) only
+# makes the boot wait longer for that second connection, up to USB_PC_WAIT_IRQ seconds: a stray
+# interrupt from an adapter or a charger never keeps the port a device. Without a count the
+# boot waits USB_PC_WAIT seconds. USB_WIFI_SETUP=0 in ethernet.conf skips the wait altogether.
+# The mode decided is written to USB_MODE_FILE (init.sh starts usbhid again only in device mode).
+UDC_PROC=/proc/udc
+USBWIFI_STATE=/tmp/harmony_usbwifi.state
+USB_MODE_FILE=/tmp/harmony_usb_port_mode
+USB_PC_WAIT=6
+USB_PC_WAIT_IRQ=20
+
+udc_interrupts() {
+  sed -n 's/.*Total interrupt count = \([0-9][0-9]*\).*/\1/p' "$UDC_PROC" 2>/dev/null | sed -n 1p
+}
+
+usbwifi_connections() {
+  sed -n 's/^connections=\([0-9][0-9]*\)$/\1/p' "$USBWIFI_STATE" 2>/dev/null | sed -n 1p
+}
+
+usbwifi_requests() {
+  sed -n 's/^requests=\([0-9][0-9]*\)$/\1/p' "$USBWIFI_STATE" 2>/dev/null | sed -n 1p
+}
+
+usb_computer_attached() {
+  # no device controller driver: the port is already a host (or not a USB device at all)
+  [ -e "$UDC_PROC" ] || return 1
+  _wait=0
+  _limit=$USB_PC_WAIT
+  while :; do
+    _con=$(usbwifi_connections)
+    [ -n "$_con" ] && [ "$_con" -ge 2 ] 2>/dev/null && return 0
+    _req=$(usbwifi_requests)
+    [ -n "$_req" ] && [ "$_req" -ge 1 ] 2>/dev/null && return 0
+    _irq=$(udc_interrupts)
+    if [ "$_limit" -lt "$USB_PC_WAIT_IRQ" ] && [ -n "$_irq" ] && [ "$_irq" -gt 0 ] 2>/dev/null; then
+      _limit=$USB_PC_WAIT_IRQ
+      log "USB device controller interrupts seen: waiting up to ${USB_PC_WAIT_IRQ}s for a computer to set the USB device up"
+    fi
+    [ "$_wait" -ge "$_limit" ] && return 1
+    sleep 1
+    _wait=$(expr "$_wait" + 1)
+  done
+}
+
+set_usb_port_mode() {
+  echo "$1" > "$USB_MODE_FILE" 2>/dev/null || true
+}
+
 # Load configuration with safe defaults
 ETH_ENABLED=1
 ETH_FALLBACK_WIFI=1
@@ -34,6 +89,7 @@ ETH_IP=""
 ETH_NETMASK=""
 ETH_GATEWAY=""
 ETH_DNS=""
+USB_WIFI_SETUP=1
 
 load_config() {
   if [ -f "$CONF" ]; then
@@ -44,6 +100,7 @@ load_config() {
       case "$key" in
         ETH_ENABLED) case "$val" in 0|1) ETH_ENABLED="$val" ;; esac ;;
         ETH_FALLBACK_WIFI) case "$val" in 0|1) ETH_FALLBACK_WIFI="$val" ;; esac ;;
+        USB_WIFI_SETUP) case "$val" in 0|1) USB_WIFI_SETUP="$val" ;; esac ;;
         ETH_MODE) ETH_MODE="$val" ;;
         ETH_IP) ETH_IP="$val" ;;
         ETH_NETMASK) ETH_NETMASK="$val" ;;
@@ -613,6 +670,11 @@ do_boot() {
   if [ "$ETH_ENABLED" != "1" ]; then
     # Ethernet turned off in the settings: the USB port stays in device mode
     log "Ethernet is disabled in the settings; not starting it."
+    is_onboard_eth || set_usb_port_mode device
+    false
+  elif [ "$USB_WIFI_SETUP" = "1" ] && ! is_onboard_eth && usb_computer_attached; then
+    log "A computer is using the USB port: it stays a USB device for this boot (Wi-Fi setup over USB); Ethernet over USB is not started. Restart the Hub with the Ethernet adapter plugged in to use it."
+    set_usb_port_mode device
     false
   elif start_eth; then
     if is_onboard_eth; then

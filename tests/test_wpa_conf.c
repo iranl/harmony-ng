@@ -18,6 +18,7 @@
 #include "wpa_conf.h"
 
 #include <dlfcn.h>
+#include <errno.h>
 #include <pthread.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -51,6 +52,24 @@ char *read_file_text_alloc(const char *path, size_t max_sz, size_t *out_len) {
 }
 
 int system(const char *cmd) { (void)cmd; return 0; }
+
+/* the host's /etc is never looked at or changed: no Wi-Fi file there, removals only counted */
+int access(const char *path, int mode) {
+    static int (*real_access)(const char *, int);
+    if (!real_access) real_access = (int (*)(const char *, int))dlsym(RTLD_NEXT, "access");
+    if (strncmp(path, "/etc/", 5) == 0) {
+        errno = ENOENT;
+        return -1;
+    }
+    return real_access(path, mode);
+}
+
+int unlink(const char *path) {
+    static int (*real_unlink)(const char *);
+    if (!real_unlink) real_unlink = (int (*)(const char *))dlsym(RTLD_NEXT, "unlink");
+    if (strncmp(path, "/etc/", 5) == 0) return 0;
+    return real_unlink(path);
+}
 
 FILE *popen(const char *cmd, const char *mode) {
     (void)mode;

@@ -9,6 +9,7 @@
  *   - register_ehci
  *   - eth_fix / hub_eth_fix
  *   - hub_sntp / sntp
+ *   - hub_usbwifi / usbwifi (USB Wi-Fi setup, usb_wifi.c)
  */
 
 #include <stdio.h>
@@ -31,6 +32,7 @@
 #include <linux/ethtool.h>
 
 #include "hub_ntp.h"
+#include "usb_wifi.h"
 
 #ifndef __NR_sethostname
 #define __NR_sethostname (4000 + 148)
@@ -275,6 +277,8 @@ int main(int argc, char **argv) {
         return run_eth_fix(argc, argv);
     if (strcmp(name, "hub_sntp") == 0 || strcmp(name, "sntp") == 0)
         return run_sntp(argc, argv);
+    if (strcmp(name, "hub_usbwifi") == 0)
+        return usbwifi_main(argc, argv);
 
     /* Dispatch via subcommand: hub_util <command> [args...] */
     if (argc >= 2) {
@@ -291,6 +295,8 @@ int main(int argc, char **argv) {
             return run_sntp(argc - 1, argv + 1);
         if (strcmp(cmd, "ota-verify") == 0)
             return run_ota_verify(argc - 1, argv + 1);
+        if (strcmp(cmd, "usbwifi") == 0 || strcmp(cmd, "hub_usbwifi") == 0)
+            return usbwifi_main(argc - 1, argv + 1);
     }
 
     fprintf(stderr, "Harmony Hub Multi-Call Utility (hub_util)\n");
@@ -302,5 +308,6 @@ int main(int argc, char **argv) {
     fprintf(stderr, "  eth_fix       Disable offloads for USB Ethernet\n");
     fprintf(stderr, "  sntp          SNTP time synchronization client\n");
     fprintf(stderr, "  ota-verify    Check a signed OTA manifest and files against it\n");
+    fprintf(stderr, "  usbwifi       USB Wi-Fi setup: answers the stock usbhid on 127.0.0.1:16716\n");
     return 1;
 }

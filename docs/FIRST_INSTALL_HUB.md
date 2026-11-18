@@ -238,6 +238,12 @@ The host tools (`deploy_hub.py`, `backup_hub.py`, `root_hub_usb.py`, `restore_st
 > [!IMPORTANT]
 > **Authentication is off after install.** Until you turn it on, every device on your network is admin on the Hub's API and web UI (port 8089): it can change the configuration, install updates and send any command. Turn it on in the web UI: **System** page, **User Accounts & Access Control**, enter an admin user name and password, tick **Require authentication** and save. Then use a personal access token for Home Assistant and scripts (`docs/API.md`, section 11). Commands sent over MQTT always run as admin, so the MQTT broker must be protected too (`docs/API.md`, section 8.1), and the Logitech protocol port 8088 (off by default) has no authentication at all.
 
+### Hub on no network
+When the Hub cannot join its Wi-Fi any more (a new router, a changed password) and the web UI is out
+of reach, connect it to a computer over USB and set the network with
+`python tools/set_wifi_usb.py --ssid "YourNetworkName"`: see
+[ETHERNET_AND_NETWORK_SETUP.md](ETHERNET_AND_NETWORK_SETUP.md), section 5.
+
 ---
 
 ## 6. Factory Reset & Returning to Stock

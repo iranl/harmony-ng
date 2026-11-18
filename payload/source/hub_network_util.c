@@ -2,6 +2,7 @@
 #include "http_util.h"
 #include "config_store.h"
 #include "wpa_conf.h"
+#include "wifi_config.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,7 +17,6 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <net/if.h>
-#include <pthread.h>
 #include <stdint.h>
 #include <ifaddrs.h>
 
@@ -398,143 +398,9 @@ int net_scan_wifi_networks(cJSON *out_array) {
     return count;
 }
 
-static int wifi_test_run(const char *ssid, const char *psk, int is_open, int hidden, char *err_msg, size_t err_len);
-
-/* One test at a time: a test rewrites both wpa_supplicant files and takes the Hub off its
- * network for up to 12 s, and a second one at the same time would back up the first one's
- * candidate as the configuration to restore. */
-static pthread_mutex_t s_wifi_test_lock = PTHREAD_MUTEX_INITIALIZER;
-
+/* The test itself (lock, files, wait, restore) is in wifi_config.c, shared with hub_util */
 int net_test_wifi_connection(const char *ssid, const char *psk, int is_open, int hidden, char *err_msg, size_t err_len) {
-    if (!ssid || !ssid[0]) {
-        if (err_msg && err_len) snprintf(err_msg, err_len, "SSID cannot be empty");
-        return -1;
-    }
-    const char *bad = wpa_conf_value_error(ssid, 0);
-    if (!bad && !is_open) bad = wpa_conf_value_error(psk ? psk : "", 1);
-    if (bad) {
-        if (err_msg && err_len) snprintf(err_msg, err_len, "%s", bad);
-        return -1;
-    }
-    if (pthread_mutex_trylock(&s_wifi_test_lock) != 0) {
-        if (err_msg && err_len) snprintf(err_msg, err_len, "Another Wi-Fi test is running, try again in a few seconds");
-        return -1;
-    }
-    int rc = wifi_test_run(ssid, psk, is_open, hidden, err_msg, err_len);
-    pthread_mutex_unlock(&s_wifi_test_lock);
-    return rc;
-}
-
-static int wifi_test_run(const char *ssid, const char *psk, int is_open, int hidden, char *err_msg, size_t err_len) {
-
-    FILE *f_ping = popen("/usr/sbin/wpa_cli -i ath0 ping 2>/dev/null", "r");
-    if (!f_ping) {
-        return 0;
-    }
-    char ping_buf[32] = {0};
-    if (fgets(ping_buf, sizeof(ping_buf), f_ping) == NULL || strstr(ping_buf, "PONG") == NULL) {
-        pclose(f_ping);
-#ifdef TEST_HARNESS
-        return 0;
-#else
-        if (access("/usr/sbin/wpa_cli", X_OK) != 0) return 0;
-        if (err_msg && err_len) snprintf(err_msg, err_len, "wpa_supplicant is not running on ath0");
-        return -1;
-#endif
-    }
-    pclose(f_ping);
-
-    /* Back up current wpa_supplicant.conf */
-    size_t bak_len = 0;
-    char *orig_conf = read_file_text_alloc("/etc/wpa_supplicant.conf", 16384, &bak_len);
-    if (!orig_conf) {
-        orig_conf = read_file_text_alloc("/etc/wpa_supplicant.ath0.conf", 16384, &bak_len);
-    }
-
-    /* written as given: wpa_supplicant reads a quoted value without escapes (see wpa_conf.h) */
-    char esc_ssid[128] = {0};
-    char esc_psk[128] = {0};
-    snprintf(esc_ssid, sizeof(esc_ssid), "%s", ssid);
-    if (psk) snprintf(esc_psk, sizeof(esc_psk), "%s", psk);
-
-    char test_wpa[1024];
-    if (is_open) {
-        snprintf(test_wpa, sizeof(test_wpa),
-            "ctrl_interface=/var/run/wpa_supplicant\n"
-            "update_config=1\n\n"
-            "network={\n"
-            "\tssid=\"%s\"\n"
-            "\tkey_mgmt=NONE\n"
-            "%s"
-            "}\n",
-            esc_ssid,
-            hidden ? "\tscan_ssid=1\n" : "");
-    } else {
-        snprintf(test_wpa, sizeof(test_wpa),
-            "ctrl_interface=/var/run/wpa_supplicant\n"
-            "update_config=1\n\n"
-            "network={\n"
-            "\tssid=\"%s\"\n"
-            "\tpsk=%s%s%s\n"
-            "%s"
-            "}\n",
-            esc_ssid, wpa_psk_quote(esc_psk), esc_psk, wpa_psk_quote(esc_psk),
-            hidden ? "\tscan_ssid=1\n" : "");
-    }
-
-    if (write_file_content("/etc/wpa_supplicant.conf", test_wpa) != 0 ||
-        write_file_content("/etc/wpa_supplicant.ath0.conf", test_wpa) != 0) {
-        if (err_msg && err_len) snprintf(err_msg, err_len, "Could not write the Wi-Fi configuration (flash full?)");
-        if (orig_conf) {
-            write_file_content("/etc/wpa_supplicant.conf", orig_conf);
-            write_file_content("/etc/wpa_supplicant.ath0.conf", orig_conf);
-            free(orig_conf);
-        }
-        return -1;
-    }
-
-    system("/usr/sbin/wpa_cli -i ath0 reconfigure >/dev/null 2>&1");
-
-    int connected = 0;
-    for (int t = 0; t < 12; t++) {
-        sleep(1);
-        FILE *f_st = popen("/usr/sbin/wpa_cli -i ath0 status 2>/dev/null", "r");
-        if (f_st) {
-            char st_line[128];
-            int is_completed = 0;
-            int wrong_key = 0;
-            while (fgets(st_line, sizeof(st_line), f_st)) {
-                if (strstr(st_line, "wpa_state=COMPLETED")) is_completed = 1;
-                if (strstr(st_line, "WRONG_KEY") || strstr(st_line, "auth_failures")) wrong_key = 1;
-            }
-            pclose(f_st);
-            if (wrong_key) {
-                if (err_msg && err_len) snprintf(err_msg, err_len, "Incorrect Wi-Fi password");
-                break;
-            }
-            if (is_completed) {
-                connected = 1;
-                break;
-            }
-        }
-    }
-
-    if (!connected) {
-        if (err_msg && err_len && !err_msg[0]) {
-            snprintf(err_msg, err_len, "Connection timed out (AP unreachable or handshake failed)");
-        }
-        /* Restore previous configuration */
-        if (orig_conf) {
-            write_file_content("/etc/wpa_supplicant.conf", orig_conf);
-            write_file_content("/etc/wpa_supplicant.ath0.conf", orig_conf);
-            system("/usr/sbin/wpa_cli -i ath0 reconfigure >/dev/null 2>&1");
-            free(orig_conf);
-        }
-        return -1;
-    }
-
-    if (orig_conf) free(orig_conf);
-    return 0;
+    return wifi_config_test(ssid, psk, is_open, hidden, err_msg, err_len);
 }
 
 /* Whether a datagram's source is on a link of this Hub: loopback, or inside the subnet of one

@@ -36,6 +36,48 @@ ALL_HARMONY_PIDS = (HUB_PID, HUB_PRO_PID, REMOTE_PID)
 REPORT_SIZE = 65  # 1 byte report ID (0x00) + 64 bytes payload
 
 
+class HidErrorResponse(RuntimeError):
+    """The device refused a request: its answer has 0xFF in byte 2 (FF <cmd> FF ... <code>)."""
+
+    def __init__(self, message: str, cmd: int, code: Optional[int]):
+        super().__init__(message)
+        self.cmd = cmd
+        self.code = code
+
+
+def is_error_response(resp: bytes) -> bool:
+    """True only for the exact refusal stock hal builds (libhal_send_error_response, Hub hal
+    0x418f10; the remote's hal FUN_0000f010 builds the same): FF <cmd> FF, a parameter count of
+    1 or 2 (bit 7 set when a checksum follows), first parameter one byte (TL 01) holding the
+    code, the second (count 2) one byte too: FF <cmd> FF 01 01 <code> or
+    FF <cmd> FF 02 01 <code> 01 <handle>. harmony-ng's USB Wi-Fi setup sends the first form.
+    A stock success answer (libhal_send_success_response 0x418990) carries the request's 7-bit
+    sequence with bit 7 set in byte 2, so it is 0xFF only for sequence 127, which this client
+    never uses (HarmonyHid._next_seq); the shape check is a second guard against reading a
+    success as a refusal."""
+    if len(resp) < 6 or resp[0] != 0xFF or resp[2] != 0xFF:
+        return False
+    count = resp[3] & 0x3F
+    if count == 1:
+        return resp[4] == 0x01
+    if count == 2:
+        return len(resp) >= 8 and resp[4] == 0x01 and resp[6] == 0x01
+    return False
+
+
+def error_code(resp: bytes) -> Optional[int]:
+    """The error code of a refusal (is_error_response), None for any other answer."""
+    return resp[5] if is_error_response(resp) else None
+
+
+def _refused(what: str, resp: bytes) -> HidErrorResponse:
+    code = error_code(resp)
+    reason = {0x04: "unknown handle", 0x0B: "not offered by this device", 0x0C: "request not understood",
+              0x0D: "too many open files"}.get(code, "refused") if code is not None else "refused"
+    shown = f"0x{code:02X}" if code is not None else "none"
+    return HidErrorResponse(f"{what}: the device refused it ({reason}, code {shown})", resp[1], code)
+
+
 # ==============================================================================
 # Protocol Framing Helpers
 # ==============================================================================
@@ -769,6 +811,9 @@ class HarmonyHid:
         self.pid = pid
         self.dev = None
         self.seq = 1
+        # why the last open() failed when a device was found but could not be opened (Linux:
+        # the OSError of the hidraw node, e.g. PermissionError); None otherwise
+        self.open_error: Optional[OSError] = None
 
     def open(self) -> bool:
         if sys.platform == "win32":
@@ -799,8 +844,10 @@ class HarmonyHid:
             try:
                 fd = os.open(path, os.O_RDWR)
                 self.dev = LinuxHidDevice(fd, path)
+                self.open_error = None
                 return True
-            except OSError:
+            except OSError as e:
+                self.open_error = e
                 return False
         elif sys.platform == "darwin":
             mgr, dev_ref = find_darwin_device(self.pid)
@@ -831,9 +878,10 @@ class HarmonyHid:
         self.close()
 
     def _next_seq(self) -> int:
+        """1..126: the answer to sequence 127 would carry 0xFF in byte 2, the error marker"""
         s = self.seq
-        self.seq = (self.seq + 1) & 0x7F
-        if self.seq == 0:
+        self.seq = self.seq + 1
+        if self.seq > 126:
             self.seq = 1
         return s
 
@@ -879,6 +927,8 @@ class HarmonyHid:
         resp = self.command(0x01, params, timeout_ms)
         if not resp or resp[0] != 0xFF or resp[1] != 0x01:
             raise RuntimeError(f"Open file '{remote_path}' failed: response {resp.hex() if resp else 'timeout'}")
+        if is_error_response(resp):
+            raise _refused(f"Open file '{remote_path}' for writing", resp)
 
         # Byte 5 carries the 1-byte handle ID
         # Format: FF 01 <seq> <params> 01 <handle_id> ...
@@ -890,7 +940,7 @@ class HarmonyHid:
         """Close an open file handle via command 0x07."""
         params = [encode_param_byte(handle_id)]
         resp = self.command(0x07, params, timeout_ms)
-        return bool(resp and resp[0] == 0xFF and resp[1] == 0x07)
+        return bool(resp and resp[0] == 0xFF and resp[1] == 0x07 and not is_error_response(resp))
 
     def write_file_chunks(
         self,
@@ -937,8 +987,11 @@ class HarmonyHid:
                 resp = self.dev.read_report(int((t_end - time.time()) * 1000))
                 if not resp:
                     continue
-                for off in range(0, max(0, len(resp) - 3)):
+                # a refusal is 6 bytes (is_error_response): only offsets with a whole one after them
+                for off in range(0, max(0, len(resp) - 5)):
                     if resp[off] == 0xFF and resp[off + 1] == 0x03:
+                        if is_error_response(resp[off:]):
+                            raise _refused(f"Write at offset {sent_frames * 62}/{len(data)}", resp[off:])
                         acked = True
                         break
                 if acked:
@@ -987,6 +1040,8 @@ class HarmonyHid:
         resp = self.command(0x01, params, timeout_ms)
         if not resp or resp[0] != 0xFF or resp[1] != 0x01:
             raise RuntimeError(f"Open read '{remote_path}' failed: response {resp.hex() if resp else 'timeout'}")
+        if is_error_response(resp):
+            raise _refused(f"Open file '{remote_path}' for reading", resp)
 
         handle_id = resp[5] if len(resp) >= 6 else resp[2]
         file_size = int.from_bytes(resp[7:11], "big") if len(resp) >= 11 else 0
@@ -1062,7 +1117,9 @@ class HarmonyHid:
             return True  # Device frequently resets USB bus immediately
 
     def provision_wifi(self, ssid: str, password: str, encryption: str = "WPA2-PSK") -> bool:
-        """Provision Wi-Fi directly over USB HID in a single byte-counted burst."""
+        """Provision Wi-Fi directly over USB HID in a single byte-counted burst. Raises
+        HidErrorResponse when the Hub refuses the request; the result of the attempt itself is
+        in get_wifi_status() afterwards (harmony-ng: connect_status "failed" and error_code)."""
         for field_name, val in (("ssid", ssid), ("password", password), ("encryption", encryption)):
             if any(ch in val for ch in ("\r", "\n", "\x00")):
                 raise ValueError(f"Wi-Fi {field_name} must not contain CR, LF, or NUL characters")
@@ -1137,7 +1194,7 @@ class HarmonyHid:
     def reset_filesystem(self, timeout_ms: int = 5000) -> bool:
         """Reset USB file system state on device via cmd 0xFF 0x66."""
         resp = self.command(0xFF, [encode_param_byte(0x66)], timeout_ms=timeout_ms)
-        return bool(resp and resp[0] == 0xFF and resp[1] == 0xFF)
+        return bool(resp and resp[0] == 0xFF and resp[1] == 0xFF and not is_error_response(resp))
 
     def finalize_reset(self, timeout_ms: int = 5000) -> bool:
         """Trigger device reboot into bootloader flasher via cmd 0xFF 0x00."""

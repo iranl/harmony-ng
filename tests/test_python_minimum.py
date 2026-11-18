@@ -21,6 +21,7 @@ TOOLS = [
     "tools/migrate_hub_configs.py",
     "tools/backup_hub.py",
     "tools/factory_reset.py",
+    "tools/set_wifi_usb.py",
 ]
 RUN = (
     "import runpy, sys\n"
