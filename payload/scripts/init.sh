@@ -297,6 +297,12 @@ killall -9 bluetoothd 2>/dev/null || true
       continue
     fi
 
+    # If locked by an exclusive radio task (e.g. ps5-wake spoof sequence), pause supervisor
+    if [ -f /tmp/hub_btstack.lock ]; then
+      sleep 2
+      continue
+    fi
+
     # Ensure hci0 is UP
     if ! hciconfig hci0 2>/dev/null | grep -q 'UP'; then
       hciconfig hci0 up 2>/dev/null || true
