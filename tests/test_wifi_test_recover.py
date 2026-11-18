@@ -4,11 +4,12 @@
 hub_daemon_test runs with HARMONY_WIFI_ROOT on a temporary root: the wpa_supplicant files,
 wpa_cli (a script, see test_usb_wifi.py) and the test lock live there. Checks:
 - a Wi-Fi test cut short (its mark and copies left on flash, the candidate in both files, the
-  lock of a dead process) is undone when hub_daemon starts: both files back, copies gone;
+  lock file of a dead process) is undone when hub_daemon starts: both files back, copies gone;
 - POST /api/wifi-test with a wrong password on a Hub with no Wi-Fi file before: 400 with the
   reason, and neither file exists afterwards (the candidate, password included, is removed).
 """
 
+import fcntl
 import os
 import pathlib
 import subprocess
@@ -60,7 +61,13 @@ def main():
             check(conf.read_text() == OLD_CONF and ath0.read_text() == OLD_CONF,
                   "hub_daemon start puts the previous Wi-Fi files back", conf.read_text())
             check(not any("pretest" in p.name for p in etc.iterdir()), "copies and mark removed")
-            check(not (root / "tmp" / "harmony_wifi_test.lock").exists(), "stale lock released")
+            with open(root / "tmp" / "harmony_wifi_test.lock", "a+") as lk:
+                try:
+                    fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    free = True
+                except BlockingIOError:
+                    free = False
+            check(free, "lock released after the recovery")
 
             conf.unlink()
             ath0.unlink()

@@ -30,7 +30,9 @@ log() {
 # over USB: stock usbhid + hub_usbwifi) or a USB host (Ethernet over USB, start_usb_eth.sh); a
 # switch back to device mode needs a restart. The port stays a device for the boot when a
 # computer set the Hub's USB device up: usbhid connected to hub_usbwifi a second time, which it
-# does each time a computer configures the device (seen on hardware with a Windows PC). An
+# does each time a computer configures the device (seen on hardware with a Windows PC), or a
+# request from the computer reached hub_usbwifi (a host that set the device up on the first
+# connection, or a tool already talking to the Hub). An
 # interrupt count in /proc/udc (stock usbmgr.lua autoUSBSwap took any count as a computer) only
 # makes the boot wait longer for that second connection, up to USB_PC_WAIT_IRQ seconds: a stray
 # interrupt from an adapter or a charger never keeps the port a device. Without a count the
@@ -50,6 +52,10 @@ usbwifi_connections() {
   sed -n 's/^connections=\([0-9][0-9]*\)$/\1/p' "$USBWIFI_STATE" 2>/dev/null | sed -n 1p
 }
 
+usbwifi_requests() {
+  sed -n 's/^requests=\([0-9][0-9]*\)$/\1/p' "$USBWIFI_STATE" 2>/dev/null | sed -n 1p
+}
+
 usb_computer_attached() {
   # no device controller driver: the port is already a host (or not a USB device at all)
   [ -e "$UDC_PROC" ] || return 1
@@ -58,6 +64,8 @@ usb_computer_attached() {
   while :; do
     _con=$(usbwifi_connections)
     [ -n "$_con" ] && [ "$_con" -ge 2 ] 2>/dev/null && return 0
+    _req=$(usbwifi_requests)
+    [ -n "$_req" ] && [ "$_req" -ge 1 ] 2>/dev/null && return 0
     _irq=$(udc_interrupts)
     if [ "$_limit" -lt "$USB_PC_WAIT_IRQ" ] && [ -n "$_irq" ] && [ "$_irq" -gt 0 ] 2>/dev/null; then
       _limit=$USB_PC_WAIT_IRQ

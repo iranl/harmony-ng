@@ -16,8 +16,10 @@ Checks: status before a set (stock keys, no password); a set with a wrong passwo
 acknowledged, the status says failed with the reason, both configuration files keep their old
 content; a good set saves both files and the status says connected; a timeout keeps the old
 files; bad input (short password, WEP, unknown encryption, no SSID, an oversized request) is
-refused without touching the files; a set while another Wi-Fi test runs is refused; a lock left
-by a dead process is taken over; every other file, flush, device control, commands and the
+refused without touching the files; a set while another Wi-Fi test holds the lock (a kernel
+flock, also on an empty lock file, the moment a holder has just created it) is refused; a lock
+file without a holder is taken; CRLF line ends are accepted; a handle id still open is never
+handed out again after the one-byte ids wrap; every other file, flush, device control, commands and the
 reset are refused with stock's error answer (byte 2 = 0xFF); malformed and unknown handles get
 the parse and handle codes; ping answers; a new connection from usbhid replaces the old one and
 is counted in the state file; the password never appears in the status or the log; the DHCP
@@ -36,6 +38,7 @@ request.
 
 from __future__ import annotations
 
+import fcntl
 import os
 import pathlib
 import signal
@@ -343,26 +346,70 @@ class UsbWifi(unittest.TestCase):
         self.assertIn("too long", st.get("error_code", ""))
         self.assertEqual(self.confs(), (OLD_CONF, OLD_CONF))
 
+    def lock_path(self) -> pathlib.Path:
+        return self.root / "tmp" / "harmony_wifi_test.lock"
+
+    def hold_lock(self):
+        """Another Wi-Fi test in progress: holds the kernel lock until the file is closed"""
+        fh = open(self.lock_path(), "a+")
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        self.addCleanup(fh.close)
+        return fh
+
+    def lock_free(self) -> bool:
+        with open(self.lock_path(), "a+") as fh:
+            try:
+                fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return False
+            fcntl.flock(fh, fcntl.LOCK_UN)
+            return True
+
     def test_busy_while_another_test_runs(self):
-        lock = self.root / "tmp" / "harmony_wifi_test.lock"
-        lock.write_text(f"{os.getpid()}\n")  # a live process holds it
+        self.lock_path().write_text("")  # just created by the other test, nothing written in it
+        self.hold_lock()
         hid = self.hid()
         self.assertTrue(hid.provision_wifi("NewNet", "goodpassword"))
         st = hid.get_wifi_status()
         self.assertEqual(st.get("connect_status"), "failed")
         self.assertIn("Another Wi-Fi test", st.get("error_code", ""))
         self.assertEqual(self.confs(), (OLD_CONF, OLD_CONF))
-        self.assertTrue(lock.exists(), "another holder's lock is left alone")
+        self.assertTrue(self.lock_path().exists(), "another holder's lock file is left alone")
+        self.assertFalse(self.lock_free(), "another holder's lock is left alone")
 
-    def test_stale_lock_taken_over(self):
+    def test_lock_file_without_holder_taken(self):
         dead = subprocess.Popen(["true"])
         dead.wait()
-        lock = self.root / "tmp" / "harmony_wifi_test.lock"
-        lock.write_text(f"{dead.pid}\n")
+        self.lock_path().write_text(f"{dead.pid}\n")  # left by an older build, nobody holds it
         hid = self.hid()
         self.assertTrue(hid.provision_wifi("NewNet", "goodpassword"))
         self.assertEqual(hid.get_wifi_status().get("connect_status"), "connected")
-        self.assertFalse(lock.exists(), "the lock is released after the set")
+        self.assertTrue(self.lock_free(), "the lock is released after the set")
+
+    def test_crlf_line_ends(self):
+        hid = self.hid()
+        payload = b"ssid,CrlfNet\r\npassword,goodpassword\r\nencryption,WPA2-PSK\r\n"
+        handle = hid.open_file_write("/sys/wifi/connect", size=len(payload))
+        self.assertTrue(hid.write_file_chunks(handle, payload, packets_per_chunk=50, count_width="byte"))
+        self.assertTrue(hid.close_file(handle))
+        st = hid.get_wifi_status()
+        self.assertEqual(st.get("connect_status"), "connected", st)
+        self.assertEqual(st.get("ssid"), "CrlfNet")
+        conf, _ = self.confs()
+        self.assertIn('ssid="CrlfNet"\n', conf)
+        self.assertIn('psk="goodpassword"\n', conf)
+
+    def test_handle_ids_wrap_past_open_handles(self):
+        hid = self.hid()
+        held = hid.open_file_write("/sys/wifi/connect", size=10)  # stays open
+        ids = []
+        for _ in range(300):  # the one-byte ids wrap past the held one
+            h = hid.open_file_write("/sys/wifi/connect", size=10)
+            ids.append(h)
+            self.assertTrue(hid.close_file(h))
+        self.assertNotIn(held, ids, "an id still open was handed out again")
+        self.assertNotIn(0, ids)
+        self.assertTrue(hid.close_file(held))
 
     # ---- the previous settings, really kept ----
 
@@ -432,11 +479,11 @@ class UsbWifi(unittest.TestCase):
         self.interrupt_test()
         self.assertIn("FarAway", self.paths()[0].read_text())
         self.assertIn("wpa_supplicant.pretest", self.leftovers(), "no mark left on flash")
-        self.assertTrue((self.root / "tmp" / "harmony_wifi_test.lock").exists())
+        self.assertTrue(self.lock_free(), "the kernel dropped the killed applet's lock")
         self.start_applet()
         self.assertEqual(self.confs(), (OLD_CONF, OLD_CONF), "the previous files are back")
         self.assertEqual(self.leftovers(), [])
-        self.assertFalse((self.root / "tmp" / "harmony_wifi_test.lock").exists())
+        self.assertTrue(self.lock_free())
         self.assertIn("interrupted Wi-Fi test was undone", self.applet_log())
         self.assertTrue((self.root / "wpa_cli.log").read_text().rstrip().endswith("reconfigure"))
 
@@ -453,8 +500,7 @@ class UsbWifi(unittest.TestCase):
     def test_recovery_waits_for_a_live_test(self):
         mark = self.root / "etc" / "wpa_supplicant.pretest"
         mark.write_text("conf=0\nath0=0\n")
-        lock = self.root / "tmp" / "harmony_wifi_test.lock"
-        lock.write_text(f"{os.getpid()}\n")  # a live test runs
+        self.hold_lock()  # a live test runs
         self.proc.kill()
         self.proc.wait()
         self.start_applet()

@@ -187,6 +187,21 @@ class NetworkManagerScript(unittest.TestCase):
         self.assertNotIn("SLEPT", out)
         self.assertEqual(self.mode(), "device")
 
+    def test_request_on_first_connection_keeps_device_mode(self):
+        # a host that set the device up only once, or a tool already talking to the Hub
+        self.conf.write_text('ETH_ENABLED=1\nETH_MODE="dhcp"\n')
+        self.udc(57)
+        state = self.root / "tmp" / "harmony_usbwifi.state"
+        state.write_text("connections=1\nrequests=0\nlast_attempt=none\n")
+        stubs = self.PORT_STUBS.replace(
+            "sleep() { echo SLEPT; }",
+            f"sleep() {{ echo SLEPT; _n=$((${{_n:-0}} + 1)); [ \"$_n\" -eq 3 ] && "
+            f"printf 'connections=1\\nrequests=1\\nlast_attempt=none\\n' > '{state}'; :; }}")
+        out = self.run_sh(stubs + "is_onboard_eth() { return 1; }\ndo_boot")
+        self.assertNotIn("START_ETH", out, "a request from the computer did not keep the port a device")
+        self.assertEqual(out.count("SLEPT"), 3)
+        self.assertEqual(self.mode(), "device")
+
     def test_setting_off_skips_the_wait(self):
         self.conf.write_text('ETH_ENABLED=1\nETH_MODE="dhcp"\nUSB_WIFI_SETUP=0\n')
         self.udc(57)

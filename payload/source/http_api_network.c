@@ -130,6 +130,7 @@ int http_api_network_handle(int client_fd, const char *method, const char *clean
         cJSON_AddStringToObject(st, "wifi_ssid", wifi_ssid);
 
         cJSON *cfg = cJSON_CreateObject();
+        int usb_wifi = 1; /* Wi-Fi setup over USB (hub_util usbwifi): on unless USB_WIFI_SETUP=0 */
         FILE *cff = fopen(config_store_path("ethernet.conf"), "r");
         if (cff) {
             char cline[128];
@@ -152,11 +153,11 @@ int http_api_network_handle(int client_fd, const char *method, const char *clean
                 else if (strcmp(k, "ETH_NETMASK") == 0) cJSON_AddStringToObject(cfg, "eth_netmask", v);
                 else if (strcmp(k, "ETH_GATEWAY") == 0) cJSON_AddStringToObject(cfg, "eth_gateway", v);
                 else if (strcmp(k, "ETH_DNS") == 0) cJSON_AddStringToObject(cfg, "eth_dns", v);
+                else if (strcmp(k, "USB_WIFI_SETUP") == 0) usb_wifi = strcmp(v, "0") != 0;
             }
             fclose(cff);
         }
-        /* Wi-Fi setup over USB (hub_util usbwifi): on unless USB_WIFI_SETUP=0 */
-        cJSON_AddBoolToObject(cfg, "usb_wifi_setup", wifi_usb_setup_setting(config_store_path("ethernet.conf")));
+        cJSON_AddBoolToObject(cfg, "usb_wifi_setup", usb_wifi);
         cJSON_AddItemToObject(st, "config", cfg);
 
         char ifconfig_buf[8192] = {0};

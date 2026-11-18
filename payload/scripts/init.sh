@@ -270,6 +270,13 @@ elif [ -x /data/harmony/bin/hub_util ]; then
        [ "$(cat /tmp/harmony_usb_port_mode 2>/dev/null)" != "host" ] &&
        grep -q '^ath_udc ' /proc/modules 2>/dev/null; then
       killall -9 usbhid 2>/dev/null || true
+      # a killed usbhid may hold the gadget for a moment: gadgetfs cannot be unmounted and the
+      # new usbhid cannot claim it while it does (as in start_usb_eth.sh)
+      _i=0
+      while [ "$_i" -lt 5 ] && pidof usbhid >/dev/null 2>&1; do
+        sleep 1
+        _i=$(expr "$_i" + 1)
+      done
       umount /dev/gadget 2>/dev/null || true
       (trap - HUP; /usr/bin/usbhid -s >/dev/null 2>&1 &)
     fi

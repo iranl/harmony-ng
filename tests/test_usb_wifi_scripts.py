@@ -10,11 +10,12 @@ host is touched; the only real processes are the test's own.
   while ath_udc stays in /proc/modules.
 - init.sh 5.1 (the hub_usbwifi supervisor): starts the applet; USB_WIFI_SETUP=0 in
   ethernet.conf starts nothing; on a later start it starts usbhid again only while the port is
-  a USB device (never once the mode file says host, also with ath_udc still loaded).
+  a USB device (never once the mode file says host, also with ath_udc still loaded), and only
+  after the killed one is gone and gadgetfs is unmounted.
 - init.sh stop: the applet started as "hub_util usbwifi" (no hub_usbwifi link) is killed;
   another hub_util process is left alone.
 - rcS.local emergency mode: starts "hub_util usbwifi" and usbhid, and neither with
-  USB_WIFI_SETUP=0.
+  USB_WIFI_SETUP=0; its udhcpc writes the pid file the applet signals for a new lease.
 """
 
 from __future__ import annotations
@@ -154,12 +155,22 @@ class InitSupervisor(unittest.TestCase):
         self.assertIn("turned off", (self.sb.root / "tmp" / "harmony-init.log").read_text())
 
     def test_restart_in_device_mode_starts_usbhid_again(self):
-        (self.sb.root / "tmp" / "harmony_usbwifi.started").write_text("")
-        (self.sb.root / "tmp" / "harmony_usb_port_mode").write_text("device\n")
+        sb = self.sb
+        (sb.root / "tmp" / "harmony_usbwifi.started").write_text("")
+        (sb.root / "tmp" / "harmony_usb_port_mode").write_text("device\n")
+        # the killed usbhid is still listed twice before it is gone
+        count = sb.root / "pidof_count"
+        sb.script("pidof", f"n=$(cat '{count}' 2>/dev/null || echo 0); n=$((n + 1)); echo $n > '{count}'\n"
+                           f"echo \"pidof $*\" >> '{sb.calls}'\n[ $n -le 2 ] && echo 4242 && exit 0\nexit 1\n")
         self.run_block()
-        calls = self.sb.call_lines()
+        calls = sb.call_lines()
         self.assertIn("killall -9 usbhid", calls)
         self.assertIn("usbhid -s", calls)
+        pidofs = [i for i, c in enumerate(calls) if c == "pidof usbhid"]
+        self.assertEqual(len(pidofs), 3, "waits while the killed usbhid is still there")
+        umount = calls.index("umount /dev/gadget")
+        self.assertLess(pidofs[-1], umount, "gadgetfs unmounted while usbhid was still there")
+        self.assertLess(umount, calls.index("usbhid -s"))
 
     def test_restart_in_host_mode_leaves_usbhid_alone(self):
         (self.sb.root / "tmp" / "harmony_usbwifi.started").write_text("")
@@ -220,6 +231,14 @@ class EmergencyBoot(unittest.TestCase):
         calls = self.boot()
         self.assertIn("hub_util usbwifi", calls)
         self.assertIn("usbhid -s", calls)
+
+    def test_emergency_dhcp_client_writes_its_pid_file(self):
+        # hub_util usbwifi asks udhcpc for a new lease through this file after a good set
+        calls = self.boot()
+        dhcp = [c for c in calls if c.startswith("udhcpc ")]
+        self.assertEqual(len(dhcp), 1, calls)
+        self.assertIn("-i ath0", dhcp[0])
+        self.assertRegex(dhcp[0], r"-p \S*/var/run/udhcpc\.ath0\.pid( |$)")
 
     def test_emergency_boot_respects_setting_off(self):
         (self.sb.root / "data" / "harmony" / "ethernet.conf").write_text("ETH_ENABLED=1\nUSB_WIFI_SETUP=0\n")

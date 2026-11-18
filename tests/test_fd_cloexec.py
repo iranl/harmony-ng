@@ -30,6 +30,7 @@ SITES = [
     ("hub_ssdp.c", r"socket\(AF_INET, SOCK_DGRAM"),
     ("rf_spi.c", r"open\(RFSPI_DEV,"),
     ("rf_main.c", r'open\("/var/run/hub_rf\.lock"'),
+    ("wifi_config.c", r"open\(path, O_CREAT \| O_RDWR"),
 ]
 
 

@@ -211,7 +211,6 @@ static void renew_lease(void) {
 /* The written text: "ssid,<s>\npassword,<p>\nencryption,<e>\n" (stock: each line split at its
  * first comma, parsing ends at the first line without one) */
 static void apply_payload(const char *payload, size_t plen, int overflow) {
-    g_requests++;
     if (overflow) {
         logmsg("Wi-Fi setup refused: the request is longer than %d bytes", MAX_PAYLOAD);
         set_result(0, "The request is too long");
@@ -226,6 +225,7 @@ static void apply_payload(const char *payload, size_t plen, int overflow) {
         const char *comma = memchr(p, ',', (size_t)(le - p));
         if (!comma) break;
         size_t kl = (size_t)(comma - p), vl = (size_t)(le - comma - 1);
+        if (vl > 0 && comma[vl] == '\r') vl--; /* CRLF line ends: the CR is not part of the value */
         char *dst = NULL;
         size_t dsz = 0;
         if (kl == 4 && strncmp(p, "ssid", 4) == 0) { dst = ssid; dsz = sizeof(ssid); have_ssid = 1; }
@@ -377,7 +377,11 @@ static void do_open(struct conn *c, uint8_t seq, const struct param *pv, int n) 
     memset(h, 0, sizeof(*h));
     h->used = 1;
     h->write = wr;
-    if (++c->next_id == 0) c->next_id = 1;
+    /* ids are one byte: after 255 opens skip one still held by an open handle (at most
+     * MAX_HANDLES - 1 others, so this ends) */
+    do {
+        if (++c->next_id == 0) c->next_id = 1;
+    } while (find_handle(c, c->next_id) != NULL);
     h->id = c->next_id;
     if (rd) h->size = usbwifi_status_text(h->text, sizeof(h->text));
     uint8_t a[11] = {0xFF, 0x01, (uint8_t)(seq | 0x80), 0x02, 0x01, h->id, 0x04,
@@ -475,6 +479,9 @@ static void handle_frame(struct conn *c, const uint8_t *f) {
         return;
     }
     if (f[0] != 0xFF) return; /* padding or a stray data frame */
+    /* any request comes from a computer: network_manager.sh keeps the port a USB device for it
+     * (written at the first one; the set writes the state again with its result) */
+    if (g_requests++ == 0) write_state();
     if (c->wr_pending) {
         /* a new request before the announced data frames: the write is dropped */
         c->wr_pending = 0;

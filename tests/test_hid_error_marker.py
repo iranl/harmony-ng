@@ -89,6 +89,25 @@ class HidErrorMarker(unittest.TestCase):
             hid.write_file_chunks(h, b"0123456789")
         self.assertEqual(cm.exception.code, 0x09)
 
+    def test_cut_write_answer_at_the_report_end_is_no_ack(self):
+        """FF 03 in the last bytes of a report has no room for a whole answer after it: neither a
+        refusal nor an acknowledgement"""
+        class TailDevice(FakeDevice):
+            def write_report(self, data: bytes) -> bool:
+                if data[0] == 0xFF and data[1] == 0x03:
+                    reply = bytearray(64)
+                    reply[60:62] = b"\xFF\x03"
+                    self.replies.append(bytes(reply))
+                    return True
+                return super().write_report(data)
+
+        hid = hid_with(TailDevice())
+        h = hid.open_file_write("/sys/wifi/connect", size=10)
+        with self.assertRaises(RuntimeError) as cm:
+            hid.write_file_chunks(h, b"0123456789", timeout_ms=200)
+        self.assertNotIsInstance(cm.exception, HidErrorResponse)
+        self.assertIn("timeout", str(cm.exception))
+
     def test_refused_close(self):
         self.assertFalse(hid_with(FakeDevice({0x07: 0x04})).close_file(5))
         self.assertTrue(hid_with(FakeDevice()).close_file(5))

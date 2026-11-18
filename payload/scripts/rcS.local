@@ -57,7 +57,8 @@ if [ "$COUNT" -gt 5 ]; then
 	load_modules /etc/modules.wlan 2>/dev/null || true
 	/sbin/wlanconfig ath0 create wlandev wifi0 wlanmode sta 2>/dev/null || true
 	/usr/sbin/wpa_supplicant -s -iath0 -c /etc/wpa_supplicant.conf &
-	udhcpc -i ath0 -b 2>/dev/null &
+	# pid file: a Wi-Fi set over USB asks this udhcpc for a new lease (SIGUSR1)
+	udhcpc -i ath0 -p /var/run/udhcpc.ath0.pid -b 2>/dev/null &
 
 	# Ensure pristine stock SquashFS /bin/sh and /bin/busybox are NEVER shadowed on unionfs
 	rm -f /data/bin/sh /data/bin/ash /data/bin/busybox 2>/dev/null || true

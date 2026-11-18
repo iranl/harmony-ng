@@ -987,7 +987,8 @@ class HarmonyHid:
                 resp = self.dev.read_report(int((t_end - time.time()) * 1000))
                 if not resp:
                     continue
-                for off in range(0, max(0, len(resp) - 3)):
+                # a refusal is 6 bytes (is_error_response): only offsets with a whole one after them
+                for off in range(0, max(0, len(resp) - 5)):
                     if resp[off] == 0xFF and resp[off + 1] == 0x03:
                         if is_error_response(resp[off:]):
                             raise _refused(f"Write at offset {sent_frames * 62}/{len(data)}", resp[off:])

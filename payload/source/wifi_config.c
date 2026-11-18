@@ -16,10 +16,10 @@
 #include <fcntl.h>
 #include <net/if.h>
 #include <netinet/in.h>
-#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/file.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -70,38 +70,34 @@ int wifi_config_text(char *buf, size_t len, const char *ssid, const char *psk, i
 
 /* ---- one test at a time, across processes ---- */
 
+/* The lock is a kernel lock (flock) on a file in /tmp, never the file itself: the kernel drops it
+ * when the holder exits or is killed, so there is no stale holder to detect and no moment where
+ * the file exists but its owner is unknown. Two threads of hub_daemon open the file separately,
+ * so they exclude each other too. The file stays; only the lock comes and goes. */
+static int g_wifi_lock_fd = -1;
+
 /* 1 = taken (release it), 0 = no lock file possible (run anyway), -1 = another test runs */
 static int wifi_lock_take(void) {
     char pbuf[256];
     const char *path = wifi_config_path(WIFI_LOCK_PATH, pbuf, sizeof(pbuf));
-    for (int attempt = 0; attempt < 2; attempt++) {
-        int fd = open(path, O_CREAT | O_EXCL | O_WRONLY, 0644);
-        if (fd >= 0) {
-            char pid[16];
-            int n = snprintf(pid, sizeof(pid), "%d\n", (int)getpid());
-            if (write(fd, pid, (size_t)n) != n) { /* an empty file still holds the lock */ }
-            close(fd);
-            return 1;
-        }
-        if (errno != EEXIST) return 0;
-        long holder = 0;
-        FILE *f = fopen(path, "r");
-        if (f) {
-            if (fscanf(f, "%ld", &holder) != 1) holder = 0;
-            fclose(f);
-        }
-        /* held by this process (another thread of hub_daemon) or by a live one: busy. A file
-         * whose holder is gone (killed in the middle of a test) is removed and tried again. */
-        if (holder > 0 && (holder == (long)getpid() || kill((pid_t)holder, 0) == 0 || errno == EPERM)) return -1;
-        unlink(path);
+    int fd = open(path, O_CREAT | O_RDWR, 0644);
+    if (fd < 0) return 0;
+    /* close-on-exec: a helper started with system() during the test would keep the lock */
+    fcntl(fd, F_SETFD, FD_CLOEXEC);
+    if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
+        int busy = (errno == EWOULDBLOCK || errno == EAGAIN);
+        close(fd);
+        return busy ? -1 : 0;
     }
-    return -1;
+    g_wifi_lock_fd = fd;
+    return 1;
 }
 
 static void wifi_lock_release(int taken) {
-    if (taken != 1) return;
-    char pbuf[256];
-    unlink(wifi_config_path(WIFI_LOCK_PATH, pbuf, sizeof(pbuf)));
+    if (taken != 1 || g_wifi_lock_fd < 0) return;
+    int fd = g_wifi_lock_fd;
+    g_wifi_lock_fd = -1; /* before the close: once it is closed another thread may take the lock */
+    close(fd); /* drops the lock */
 }
 
 static int wifi_wait_seconds(void) {
