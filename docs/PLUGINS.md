@@ -45,7 +45,8 @@ The Hub uses JFFS2 on SPI NOR flash, which is shared with the CC2544 RF transcei
 
 ### 4. Process Supervisor & Crash Recovery
 - `hub_daemon` checks enabled plugins every 10 seconds via a background watchdog tick.
-- If an enabled plugin crashes, it is automatically restarted.
+- If an enabled plugin crashes, it is automatically restarted. A plugin that keeps dying is restarted with a growing gap (20 s, 40 s, … up to 5 minutes); the gap resets once it stays up for a watchdog period. `GET /api/plugins` reports the count as `restarts`.
+- A plugin stopped on request (stop, disable, uninstall) is not restarted by the watchdog; `GET /api/plugins` reports it as `stopped`. Start, restart or enable clears it.
 - When plugins are stopped or restarted, `hub_daemon` follows strict **Rule 1 termination discipline**: graceful `SIGTERM` first, sleep 1 second, followed by unconditional `SIGKILL` to ensure kernel locks and file descriptors are freed cleanly.
 
 ---
@@ -209,10 +210,14 @@ case "$1" in
 esac
 ```
 
+#### Plugin Data
+The plugin directory (`/data/harmony/plugins/<id>`) is replaced on every install, update and pull. Keep state that must survive an update (pairing, keys) in `/data/harmony/plugin-data/<id>/`.
+
 #### Environment Variables Passed to Plugins
 
 - `HARMONY_PLUGIN_ID`: The unique plugin ID (e.g. `roku-ecp`).
 - `HARMONY_SOCKET`: The absolute path for the UNIX domain datagram socket (`/tmp/plugins/<id>.sock`).
+- `HARMONY_PLUGIN_DATA`: A directory for state that must survive updates (`/data/harmony/plugin-data/<id>`, created before the start). An install keeps a plugin's disabled state.
 - `PATH`: Extended with `/cache/bin:/data/harmony/bin:$PATH` to access modern BusyBox applets.
 
 ---
@@ -231,6 +236,7 @@ When a user triggers an action (via WebUI, touchscreen remote, Companion remote,
   "command": "Home",
   "action": "tap",
   "value": 0,
+  "ts": 123456789,
   "config": {
     "ip_address": "192.168.1.50",
     "port": 8060
@@ -248,14 +254,18 @@ When a user triggers an action (via WebUI, touchscreen remote, Companion remote,
 | `command` | `string` | Command name to execute (e.g. `Home`, `PowerOff`, `VolumeUp`). |
 | `action` | `string` | Action lifecycle verb: `"tap"`, `"press"`, `"repeat"`, or `"release"`. |
 | `value` | `number` | Optional numeric argument (e.g. slider position 0–100). |
-| `config` | `object` | Configuration dictionary defined by the user in Device Studio. |
+| `ts` | `number` | When `hub_daemon` queued the datagram: `CLOCK_MONOTONIC` in milliseconds (same clock in the plugin). A plugin may drop a `repeat` that waited too long. |
+| `config` | `object` | Configuration dictionary defined by the user in Device Studio. A device without a `config` object sends its own fields here, except `commands`. |
+
+#### Delivery
+`hub_daemon` sends with `MSG_DONTWAIT` and never waits for a plugin: when the plugin's socket queue is full (a plugin stuck on a slow or unreachable device), the datagram is dropped and logged as `Plugin '<id>' busy (queue full)`. A plugin must keep its receive loop short and must not block on network I/O for long.
 
 #### KeyCode Overrides
 For custom keybindings, commands can specify a direct keycode override in the format:
 ```
 PLUGIN:<plugin_id>:<subcommand>
 ```
-When present, `hub_daemon` routes the command directly to `<plugin_id>` and sets the `command` field in the JSON payload to `<subcommand>`.
+When present, `hub_daemon` routes the command directly to `<plugin_id>` and sets the `command` field in the JSON payload to `<subcommand>` (the whole rest of the keyCode, any length: e.g. `PLUGIN:android-tv:app:https://www.netflix.com/title/80057281`).
 
 ---
 
@@ -265,6 +275,8 @@ When present, `hub_daemon` routes the command directly to `<plugin_id>` and sets
 - **Press (`press`)**: Triggered when a physical remote button is first depressed.
 - **Repeat / Hold (`repeat`)**: Triggered periodically while a physical remote button is held down.
 - **Release (`release`)**: Triggered when the button is released.
+- **Lost release**: a release can be lost. A plugin that holds a key down on its device (press without release) must release it by itself when no `repeat` or `release` came for about 600 ms, the deadline `hub_daemon` uses for held IR keys.
+- **One-shot commands** (launch an app, type text): act on `tap` or `press` only, and ignore `repeat` and `release`, or a remote button runs them several times.
 - **Hardware Debounce**: `hub_daemon` enforces an automatic 90 ms debounce window. Duplicate identical `tap` or `press` pulses sent within 90 ms are dropped to prevent erratic double-fires.
 
 ---
@@ -324,9 +336,13 @@ There are two ways to publish your plugin:
 #### Option A: Submit a PR to Official `harmony-ng-plugins` (Recommended)
 To make your plugin visible to all HarmonyNG users out-of-the-box:
 1. Fork [**https://github.com/iranl/harmony-ng-plugins**](https://github.com/iranl/harmony-ng-plugins).
-2. Add your plugin folder under `plugins/<plugin_id>/`.
-3. Add your plugin entry to `repository.json`.
-4. Open a Pull Request. Once reviewed and merged, your driver will be listed in the default Marketplace catalog!
+2. Add your plugin folder `<plugin_id>/` at the repository root and its build to `build_plugins.sh`.
+3. Open a Pull Request: CI builds it for the Hub and runs the host tests. Once merged, the release workflow publishes `<plugin_id>-v<version>` and adds the plugin, with its SHA-256, to `repository.json`. Bump `version` in `manifest.json` to release a change.
+
+#### Checksums and URLs
+BusyBox `wget` on the Hub does not verify TLS certificates. When a marketplace entry lists `sha256`, the Hub refuses an archive whose SHA-256 differs (an install request may also pass `"sha256"` itself). `build_plugins.sh` in `harmony-ng-plugins` writes `repository.json` with the checksum of each archive it builds: upload those exact archives. The repository index itself is not signed.
+
+URLs (repositories, downloads) must be `http://` or `https://` with plain characters only (letters, digits, `-._~:/?#@&+,=%`). File names in a manifest's `files` list must be relative paths of letters, digits, `.`, `_`, `-` and `/`, without `..`. An archive with an absolute path, a `..` entry, or a link entry is refused.
 
 #### Option B: Host Your Own Community Repository
 To distribute your plugin independently, host a `repository.json` index on GitHub or any HTTP server:
@@ -344,6 +360,7 @@ To distribute your plugin independently, host a `repository.json` index on GitHu
       "description": "Integration driver for my smart device",
       "homepage": "https://github.com/username/my-plugin",
       "download_url": "https://github.com/username/my-plugin/releases/download/v1.0.0/my-plugin.tar.gz",
+      "sha256": "<64 hex characters: SHA-256 of the archive at download_url>",
       "device_definition": {
         "device_type": "my_device",
         "display_name": "My Device",
