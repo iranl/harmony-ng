@@ -115,6 +115,76 @@ static void pairing_timeout_handler(btstack_timer_source_t *ts) {
     if (g_host_pairing) pairing_mode_off("timeout");
 }
 
+static btstack_timer_source_t s_ps5_wake_timer;
+static int s_ps5_wake_step = 0;
+static bd_addr_t s_ps5_target;
+static bd_addr_t s_ps5_ctrl;
+static int s_ps5_has_ctrl = 0;
+
+static void ps5_wake_timer_handler(btstack_timer_source_t *ts) {
+    UNUSED(ts);
+    s_ps5_wake_step++;
+    if (s_ps5_wake_step < 3) {
+        gap_connect(s_ps5_target, BD_ADDR_TYPE_ACL);
+        btstack_run_loop_set_timer(&s_ps5_wake_timer, 600);
+        btstack_run_loop_add_timer(&s_ps5_wake_timer);
+    } else {
+        gap_connect_cancel();
+        if (s_ps5_has_ctrl) {
+            uint8_t orig_mac[6];
+            gap_local_bd_addr(orig_mac);
+            uint8_t restore_pkt[28] = {
+                0x00, 0xFC, 25, 0xC2,
+                0x02, 0x00, 0x0c, 0x00, 0x11, 0x47, 0x03, 0x70,
+                0x00, 0x00, 0x01, 0x00, 0x04, 0x00, 0x08, 0x00,
+                orig_mac[3], 0x00, orig_mac[5], orig_mac[4],
+                orig_mac[2], 0x00, orig_mac[1], orig_mac[0]
+            };
+            hci_send_cmd_packet(restore_pkt, sizeof(restore_pkt));
+        }
+        log_msg("PS5 Wake: Sequence completed");
+    }
+}
+
+static void bt_ps5_wake(const bd_addr_t target, const char *ctrl_str) {
+    memcpy(s_ps5_target, target, 6);
+    s_ps5_has_ctrl = 0;
+    s_ps5_wake_step = 0;
+
+    char msg[128];
+    snprintf(msg, sizeof(msg), "PS5 Wake: Initiating connection to %s", bd_addr_to_str(target));
+    log_msg(msg);
+
+    if (app_state == APP_SCANNING && !g_user_scan_active) {
+        gap_stop_scan();
+    }
+
+    if (ctrl_str && ctrl_str[0]) {
+        if (parse_bd_addr(ctrl_str, s_ps5_ctrl)) {
+            s_ps5_has_ctrl = 1;
+            char cmsg[128];
+            snprintf(cmsg, sizeof(cmsg), "PS5 Wake: Spoofing controller address %s", ctrl_str);
+            log_msg(cmsg);
+
+            uint8_t spoof_pkt[28] = {
+                0x00, 0xFC, 25, 0xC2,
+                0x02, 0x00, 0x0c, 0x00, 0x11, 0x47, 0x03, 0x70,
+                0x00, 0x00, 0x01, 0x00, 0x04, 0x00, 0x08, 0x00,
+                s_ps5_ctrl[3], 0x00, s_ps5_ctrl[5], s_ps5_ctrl[4],
+                s_ps5_ctrl[2], 0x00, s_ps5_ctrl[1], s_ps5_ctrl[0]
+            };
+            hci_send_cmd_packet(spoof_pkt, sizeof(spoof_pkt));
+        }
+    }
+
+    gap_connect(target, BD_ADDR_TYPE_ACL);
+
+    btstack_run_loop_remove_timer(&s_ps5_wake_timer);
+    btstack_run_loop_set_timer_handler(&s_ps5_wake_timer, ps5_wake_timer_handler);
+    btstack_run_loop_set_timer(&s_ps5_wake_timer, 600);
+    btstack_run_loop_add_timer(&s_ps5_wake_timer);
+}
+
 /* The key pipe is read as soon as hub_daemon writes to it. It used to be read only from the
  * 100 ms command timer: every key waited up to 100 ms, and a press and its release written
  * within one period reached the host back to back. */
@@ -580,6 +650,18 @@ void execute_btstack_cmd(const char *cmd_in) {
             /* leave the run loop now; cmd_poll_timeout() would also do it within 100 ms */
             btstack_run_loop_trigger_exit();
         }
+    } else if (strncasecmp(cmd, "ps5_wake", 8) == 0) {
+        char *p = cmd + 8;
+        while (*p == ' ') p++;
+        char host_str[32] = "";
+        char ctrl_str[32] = "";
+        sscanf(p, "%31s %31s", host_str, ctrl_str);
+        bd_addr_t tgt;
+        if (!parse_bd_addr(host_str, tgt)) {
+            log_msg("ps5_wake: invalid host Bluetooth address");
+            return;
+        }
+        bt_ps5_wake(tgt, ctrl_str[0] ? ctrl_str : NULL);
     }
 }
 

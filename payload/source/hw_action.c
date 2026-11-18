@@ -820,6 +820,26 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
 
     if (is_plugin && plugin_id[0]) {
         cJSON *j_cfg = cJSON_GetObjectItemCaseSensitive(target_dev, "config");
+        if (strcmp(plugin_id, "ps5-wake") == 0) {
+            if (action == HW_BTN_ACTION_RELEASE || action == HW_BTN_ACTION_REPEAT) {
+                return 0;
+            }
+            const char *hm = "";
+            const char *cm = "";
+            if (j_cfg) {
+                cJSON *jh = cJSON_GetObjectItemCaseSensitive(j_cfg, "host_mac");
+                if (!jh) jh = cJSON_GetObjectItemCaseSensitive(j_cfg, "mac");
+                if (jh && jh->valuestring) hm = jh->valuestring;
+                cJSON *jc = cJSON_GetObjectItemCaseSensitive(j_cfg, "controller_mac");
+                if (jc && jc->valuestring) cm = jc->valuestring;
+            }
+            if (hm[0]) {
+                char bt_cmd[128];
+                snprintf(bt_cmd, sizeof(bt_cmd), "ps5_wake %s %s\n", hm, cm);
+                hub_send_btstack_cmd(bt_cmd);
+            }
+            return 0;
+        }
         ret = hw_plugin_command_send(plugin_id, actual_dev_id, dev_name, plug_cmd, action, 0, j_cfg ? j_cfg : target_dev);
     } else if (is_ble_adv) {
         /* One broadcast per press: the receiver acts on the packet, not on how long it is held */
