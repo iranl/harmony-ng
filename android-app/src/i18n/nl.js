@@ -1,4 +1,7 @@
 export default {
+    "plugins_desc": "Communitystuurprogramma's installeren en configureren",
+    "plugins_lead": "Communitystuurprogramma's en apparaatintegraties.",
+    "failed_to_save": "Opslaan mislukt: ",
     "account_auth": "Account / Authenticatie",
     "dry_run_banner_title": "Dry-Run-modus actief",
     "dry_run_banner_desc": "IR- en MQTT-opdrachten worden gesimuleerd en genegeerd. Fysieke apparaten reageren niet.",

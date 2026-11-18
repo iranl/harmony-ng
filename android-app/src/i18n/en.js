@@ -1,4 +1,7 @@
 export default {
+    "plugins_desc": "Install and configure community drivers",
+    "plugins_lead": "Community drivers and device integrations.",
+    "failed_to_save": "Failed to save: ",
     "account_auth": "Account / Authentication",
     "dry_run_banner_title": "Dry-Run Simulation Active",
     "dry_run_banner_desc": "IR and MQTT commands are simulated and dropped. Physical hardware will not respond.",

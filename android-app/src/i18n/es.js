@@ -1,4 +1,7 @@
 export default {
+    "plugins_desc": "Instalar y configurar controladores de la comunidad",
+    "plugins_lead": "Controladores de la comunidad e integraciones de dispositivos.",
+    "failed_to_save": "Error al guardar: ",
     "account_auth": "Cuenta / Autenticación",
     "dry_run_banner_title": "Modo Dry-Run activo",
     "dry_run_banner_desc": "Los comandos IR y MQTT se simulan y descartan. El hardware físico no responderá.",

@@ -1,4 +1,7 @@
 export default {
+    "plugins_desc": "Installer et configurer des pilotes communautaires",
+    "plugins_lead": "Pilotes communautaires et intégrations d'appareils.",
+    "failed_to_save": "Échec de l'enregistrement : ",
     "account_auth": "Compte / Authentification",
     "dry_run_banner_title": "Mode Dry-Run actif",
     "dry_run_banner_desc": "Les commandes IR et MQTT sont simulées et ignorées. Le matériel physique ne répondra pas.",

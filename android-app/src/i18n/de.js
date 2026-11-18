@@ -1,4 +1,7 @@
 export default {
+    "plugins_desc": "Community-Treiber installieren und konfigurieren",
+    "plugins_lead": "Community-Treiber und Geräteintegrationen.",
+    "failed_to_save": "Speichern fehlgeschlagen: ",
     "account_auth": "Konto / Authentifizierung",
     "dry_run_banner_title": "Dry-Run-Modus aktiv",
     "dry_run_banner_desc": "IR- und MQTT-Befehle werden simuliert und verworfen. Physische Hardware reagiert nicht.",
