@@ -3,6 +3,7 @@
 #include "http_util.h"
 #include "config_store.h"
 #include "cJSON.h"
+#include "sha256.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,6 +18,7 @@
 #include <sys/types.h>
 #include <sys/statvfs.h>
 #include <time.h>
+#include <ctype.h>
 
 static uint64_t compute_dir_size_bytes(const char *dir_path) {
     uint64_t total = 0;
@@ -62,6 +64,145 @@ static int is_safe_plugin_id(const char *id) {
         }
     }
     return 1;
+}
+
+int plugin_mgr_is_safe_id(const char *id) {
+    return is_safe_plugin_id(id);
+}
+
+/* Download limits */
+#define FETCH_ARCHIVE_MAX_BYTES (16L * 1024 * 1024)
+#define FETCH_ARCHIVE_MAX_MS    120000
+#define FETCH_FILE_MAX_BYTES    (8L * 1024 * 1024)
+#define FETCH_SMALL_MAX_BYTES   (256L * 1024)
+#define FETCH_SMALL_MAX_MS      20000
+
+/* A URL handed to wget. URLs come from the network (repositories, manifests) and from API
+ * callers: one used to go into a shell command line, where a quote or $( ) ran as root. */
+static int is_safe_url(const char *url) {
+    if (!url || (strncmp(url, "http://", 7) != 0 && strncmp(url, "https://", 8) != 0)) return 0;
+    if (strlen(url) > 400) return 0;
+    for (const unsigned char *p = (const unsigned char *)url; *p; p++) {
+        if (isalnum(*p) || strchr("-._~:/?#@&+,=%", *p)) continue;
+        return 0;
+    }
+    return 1;
+}
+
+/* A file path named in a manifest: relative, inside the plugin directory, plain characters */
+static int is_safe_rel_path(const char *f) {
+    if (!f || !f[0] || f[0] == '/' || strlen(f) > 200) return 0;
+    if (strstr(f, "..") || strstr(f, "//")) return 0;
+    for (const unsigned char *p = (const unsigned char *)f; *p; p++) {
+        if (isalnum(*p) || *p == '.' || *p == '_' || *p == '-' || *p == '/') continue;
+        return 0;
+    }
+    return 1;
+}
+
+/* wget without a shell; the output is removed when the download failed */
+static int fetch_url(const char *url, const char *out_path, long max_bytes, unsigned int max_ms) {
+    if (!is_safe_url(url)) return -1;
+    /* busybox with its wget applet on the Hub; a plain wget elsewhere (host tests) */
+    static const char *const tools[][2] = {
+        { "/cache/bin/busybox", "wget" }, { "/data/harmony/bin/busybox", "wget" },
+        { "/usr/bin/wget", NULL }, { "/bin/wget", NULL }
+    };
+    int rc = -1;
+    for (size_t i = 0; i < sizeof(tools) / sizeof(tools[0]); i++) {
+        if (access(tools[i][0], X_OK) != 0) continue;
+        char *argv[11];
+        int a = 0;
+        argv[a++] = (char *)tools[i][0];
+        if (tools[i][1]) argv[a++] = (char *)tools[i][1];
+        argv[a++] = "-q";
+        argv[a++] = "--no-check-certificate";
+        argv[a++] = "-T";
+        argv[a++] = "10";
+        argv[a++] = "-O";
+        argv[a++] = (char *)out_path;
+        argv[a++] = (char *)url;
+        argv[a] = NULL;
+        rc = run_argv_limited(argv, out_path, max_bytes, max_ms);
+        if (rc == 0 || rc == RUN_TOO_BIG || rc == RUN_TOO_SLOW) break;
+    }
+    if (rc != 0) unlink(out_path);
+    return rc;
+}
+
+static int file_sha256_hex(const char *path, char out_hex[65]) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return -1;
+    sha256_ctx_t ctx;
+    sha256_init(&ctx);
+    uint8_t buf[4096];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), f)) > 0) sha256_update(&ctx, buf, n);
+    int err = ferror(f);
+    fclose(f);
+    if (err) return -1;
+    uint8_t d[32];
+    sha256_final(d, &ctx);
+    for (int i = 0; i < 32; i++) snprintf(out_hex + 2 * i, 3, "%02x", d[i]);
+    return 0;
+}
+
+/* Every entry of the archive is a plain file or directory under the unpack directory: a
+ * "../" name, an absolute name or a link entry wrote outside it during the unpack */
+static int archive_entries_safe(const char *archive_path, const char *list_path) {
+    char cmd[512];
+    snprintf(cmd, sizeof(cmd),
+             "export PATH=/cache/bin:/data/harmony/bin:$PATH; tar -tvzf \"%s\" > \"%s\" 2>/dev/null",
+             archive_path, list_path);
+    int ok = (system(cmd) == 0);
+    FILE *f = ok ? fopen(list_path, "r") : NULL;
+    char line[1024];
+    while (ok && f && fgets(line, sizeof(line), f)) {
+        if (line[0] != '-' && line[0] != 'd') ok = 0;
+    }
+    if (f) fclose(f);
+    if (ok) {
+        snprintf(cmd, sizeof(cmd),
+                 "export PATH=/cache/bin:/data/harmony/bin:$PATH; tar -tzf \"%s\" > \"%s\" 2>/dev/null",
+                 archive_path, list_path);
+        ok = (system(cmd) == 0);
+        f = ok ? fopen(list_path, "r") : NULL;
+        while (ok && f && fgets(line, sizeof(line), f)) {
+            line[strcspn(line, "\r\n")] = '\0';
+            const char *name = line;
+            while (name[0] == '.' && name[1] == '/') name += 2;
+            if (name[0] == '/') ok = 0;
+            for (const char *c = name; ok && *c; ) {
+                size_t len = strcspn(c, "/");
+                if (len == 2 && c[0] == '.' && c[1] == '.') ok = 0;
+                c += len;
+                if (*c == '/') c++;
+            }
+        }
+        if (f) fclose(f);
+    }
+    unlink(list_path);
+    return ok;
+}
+
+/* A temp path no other request uses: names from time(NULL) alone collided for two requests in
+ * the same second (one removed the other's files) */
+static void tmp_name(char *out, size_t out_sz, const char *prefix, const char *suffix) {
+    static unsigned int s_seq = 0;
+    unsigned int seq = __sync_fetch_and_add(&s_seq, 1);
+    snprintf(out, out_sz, "%s_%ld_%d_%u%s", prefix, (long)time(NULL), (int)getpid(), seq, suffix);
+}
+
+/* /tmp/plugins/<id>.stopped: stopped by request (stop, disable, uninstall, shutdown). The
+ * watchdog leaves such a plugin alone; it used to start it again within 10 s. */
+static void stopped_marker_path(const char *plugin_id, char *out, size_t out_sz) {
+    snprintf(out, out_sz, "%s/%s.stopped", HARMONY_PLUGINS_RUN_DIR, plugin_id);
+}
+
+static int is_stopped_by_request(const char *plugin_id) {
+    char p[128];
+    stopped_marker_path(plugin_id, p, sizeof(p));
+    return access(p, F_OK) == 0;
 }
 
 static pid_t read_plugin_pid(const char *plugin_id) {
@@ -112,18 +253,28 @@ int plugin_mgr_start(const char *plugin_id) {
     if (access(plug_dir, F_OK) != 0) return -1;
 
     mkdir(HARMONY_PLUGINS_RUN_DIR, 0755);
+    char marker[128];
+    stopped_marker_path(plugin_id, marker, sizeof(marker));
+    unlink(marker);
+
+    /* State that survives an update: the plugin directory is replaced on every install */
+    char data_dir[160];
+    snprintf(data_dir, sizeof(data_dir), "%s/%s", HARMONY_PLUGINS_DATA_DIR, plugin_id);
+    mkdir(HARMONY_PLUGINS_DATA_DIR, 0755);
+    mkdir(data_dir, 0700);
 
     char run_sh[256];
     snprintf(run_sh, sizeof(run_sh), "%s/run.sh", plug_dir);
 
-    char cmd[512];
+    char cmd[768];
     if (access(run_sh, X_OK) == 0 || access(run_sh, F_OK) == 0) {
         snprintf(cmd, sizeof(cmd),
                  "export PATH=/cache/bin:/data/harmony/bin:$PATH; "
                  "export HARMONY_PLUGIN_ID=\"%s\"; "
                  "export HARMONY_SOCKET=\"%s/%s.sock\"; "
+                 "export HARMONY_PLUGIN_DATA=\"%s\"; "
                  "cd \"%s\" && (sh ./run.sh start > /tmp/plugins/%s.log 2>&1 &)",
-                 plugin_id, HARMONY_PLUGINS_RUN_DIR, plugin_id,
+                 plugin_id, HARMONY_PLUGINS_RUN_DIR, plugin_id, data_dir,
                  plug_dir, plugin_id);
         system(cmd);
     } else {
@@ -138,13 +289,14 @@ int plugin_mgr_start(const char *plugin_id) {
         if (!root) return -1;
         cJSON *j_ep = cJSON_GetObjectItemCaseSensitive(root, "entrypoint");
         const char *ep = (j_ep && cJSON_IsString(j_ep)) ? j_ep->valuestring : NULL;
-        if (ep && ep[0]) {
+        if (ep && is_safe_rel_path(ep)) {
             snprintf(cmd, sizeof(cmd),
                      "export PATH=/cache/bin:/data/harmony/bin:$PATH; "
                      "export HARMONY_PLUGIN_ID=\"%s\"; "
                      "export HARMONY_SOCKET=\"%s/%s.sock\"; "
+                     "export HARMONY_PLUGIN_DATA=\"%s\"; "
                      "cd \"%s\" && (\"./%s\" > /tmp/plugins/%s.log 2>&1 & echo $! > /tmp/plugins/%s.pid)",
-                     plugin_id, HARMONY_PLUGINS_RUN_DIR, plugin_id,
+                     plugin_id, HARMONY_PLUGINS_RUN_DIR, plugin_id, data_dir,
                      plug_dir, ep, plugin_id, plugin_id);
             system(cmd);
         }
@@ -157,6 +309,12 @@ int plugin_mgr_start(const char *plugin_id) {
 
 int plugin_mgr_stop(const char *plugin_id) {
     if (!is_safe_plugin_id(plugin_id)) return -1;
+
+    mkdir(HARMONY_PLUGINS_RUN_DIR, 0755);
+    char marker[128];
+    stopped_marker_path(plugin_id, marker, sizeof(marker));
+    int mfd = open(marker, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (mfd >= 0) close(mfd);
 
     char plug_dir[256];
     snprintf(plug_dir, sizeof(plug_dir), "%s/%s", HARMONY_PLUGINS_DIR, plugin_id);
@@ -269,7 +427,36 @@ int plugin_mgr_uninstall(const char *plugin_id) {
     char cmd[512];
     snprintf(cmd, sizeof(cmd), "rm -rf \"%s\"", plug_dir);
     system(cmd);
+    char marker[128];
+    stopped_marker_path(plugin_id, marker, sizeof(marker));
+    unlink(marker);
     return 0;
+}
+
+/* Puts the files of src_dir in place of the installed plugin. A plugin that was disabled
+ * stays disabled: the marker was inside the directory that is replaced. */
+static void replace_plugin_dir(const char *plug_id, const char *src_dir) {
+    int was_disabled = !is_plugin_enabled(plug_id);
+    plugin_mgr_stop(plug_id);
+
+    char dest_dir[256], cmd[512];
+    snprintf(dest_dir, sizeof(dest_dir), "%s/%s", HARMONY_PLUGINS_DIR, plug_id);
+    snprintf(cmd, sizeof(cmd), "rm -rf \"%s\"", dest_dir);
+    system(cmd);
+    snprintf(cmd, sizeof(cmd), "mkdir -p \"%s\"", dest_dir);
+    system(cmd);
+    copy_dir_recursive(src_dir, dest_dir);
+    snprintf(cmd, sizeof(cmd), "chmod -R 755 \"%s\"", dest_dir);
+    system(cmd);
+
+    if (was_disabled) {
+        char dis_path[300];
+        snprintf(dis_path, sizeof(dis_path), "%s/disabled", dest_dir);
+        int fd = open(dis_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (fd >= 0) close(fd);
+    } else {
+        plugin_mgr_start(plug_id);
+    }
 }
 
 int plugin_mgr_init(void) {
@@ -304,19 +491,64 @@ void plugin_mgr_shutdown(void) {
     closedir(d);
 }
 
+/* Restarts of a plugin that keeps dying: 20 s, 40 s, ... up to 5 min apart. Each start is a
+ * fork and a 150 ms wait in the main loop, and a crash loop used to pay it every 10 s. */
+#define WD_SLOTS 16
+#define WD_MAX_DELAY_S 300
+static struct {
+    char id[64];
+    int restarts;
+    time_t next_try;
+} s_wd[WD_SLOTS];
+
+static int wd_slot(const char *id) {
+    int free_slot = -1;
+    for (int i = 0; i < WD_SLOTS; i++) {
+        if (strcmp(s_wd[i].id, id) == 0) return i;
+        if (!s_wd[i].id[0] && free_slot < 0) free_slot = i;
+    }
+    if (free_slot >= 0) {
+        snprintf(s_wd[free_slot].id, sizeof(s_wd[free_slot].id), "%s", id);
+        s_wd[free_slot].restarts = 0;
+        s_wd[free_slot].next_try = 0;
+    }
+    return free_slot;
+}
+
+static int wd_restarts(const char *id) {
+    for (int i = 0; i < WD_SLOTS; i++) {
+        if (strcmp(s_wd[i].id, id) == 0) return s_wd[i].restarts;
+    }
+    return 0;
+}
+
 void plugin_mgr_watchdog_tick(void) {
     DIR *d = opendir(HARMONY_PLUGINS_DIR);
     if (!d) return;
 
+    time_t now = time(NULL);
     struct dirent *de;
     while ((de = readdir(d)) != NULL) {
         if (de->d_name[0] == '.') continue;
         if (!is_safe_plugin_id(de->d_name)) continue;
-        if (is_plugin_enabled(de->d_name)) {
-            if (!plugin_mgr_is_running(de->d_name)) {
-                plugin_mgr_start(de->d_name);
-            }
+        if (!is_plugin_enabled(de->d_name) || is_stopped_by_request(de->d_name)) continue;
+        int slot = wd_slot(de->d_name);
+        if (plugin_mgr_is_running(de->d_name)) {
+            /* ran a whole watchdog period: no longer counted as crashing */
+            if (slot >= 0) s_wd[slot].restarts = 0;
+            continue;
         }
+        if (slot >= 0) {
+            if (now < s_wd[slot].next_try) continue;
+            int n = s_wd[slot].restarts < 5 ? s_wd[slot].restarts : 5;
+            int delay = 10 << (n + 1);
+            if (delay > WD_MAX_DELAY_S) delay = WD_MAX_DELAY_S;
+            s_wd[slot].restarts++;
+            s_wd[slot].next_try = now + delay;
+            printf("[!] Plugin '%s' is not running: restart %d (next one not before %d s)\n",
+                   de->d_name, s_wd[slot].restarts, delay);
+        }
+        plugin_mgr_start(de->d_name);
     }
     closedir(d);
 }
@@ -361,6 +593,8 @@ cJSON *plugin_mgr_get_installed_json(void) {
         pid_t pid = read_plugin_pid(de->d_name);
         int running = (pid > 1 && kill(pid, 0) == 0);
         cJSON_AddBoolToObject(p_obj, "running", running);
+        cJSON_AddBoolToObject(p_obj, "stopped", is_stopped_by_request(de->d_name));
+        cJSON_AddNumberToObject(p_obj, "restarts", wd_restarts(de->d_name));
         if (running) cJSON_AddNumberToObject(p_obj, "pid", (double)pid);
 
         cJSON *dev_def = cJSON_GetObjectItemCaseSensitive(manifest, "device_definition");
@@ -390,7 +624,14 @@ int plugin_mgr_install_archive(const char *archive_path, char *err_msg, size_t e
     }
 
     char tmp_unpack[128];
-    snprintf(tmp_unpack, sizeof(tmp_unpack), "/tmp/p_unpack_%ld", (long)time(NULL));
+    tmp_name(tmp_unpack, sizeof(tmp_unpack), "/tmp/p_unpack", "");
+
+    char list_path[160];
+    snprintf(list_path, sizeof(list_path), "%s.list", tmp_unpack);
+    if (!archive_entries_safe(archive_path, list_path)) {
+        if (err_msg) snprintf(err_msg, err_msg_sz, "Archive unreadable, or has a link, absolute or '..' entry");
+        return -1;
+    }
     mkdir(tmp_unpack, 0755);
 
     char cmd[512];
@@ -455,58 +696,69 @@ int plugin_mgr_install_archive(const char *archive_path, char *err_msg, size_t e
 
     char plug_id[64] = {0};
     snprintf(plug_id, sizeof(plug_id), "%s", j_id->valuestring);
-    plugin_mgr_stop(plug_id);
-
-    char dest_dir[256];
-    snprintf(dest_dir, sizeof(dest_dir), "%s/%s", HARMONY_PLUGINS_DIR, plug_id);
-    snprintf(cmd, sizeof(cmd), "rm -rf \"%s\"", dest_dir);
-    system(cmd);
-
-    snprintf(cmd, sizeof(cmd), "mkdir -p \"%s\"", dest_dir);
-    system(cmd);
 
     /* Move unpacked files */
     char src_dir[256];
     char *last_slash = strrchr(mpath, '/');
     if (last_slash) *last_slash = '\0';
     snprintf(src_dir, sizeof(src_dir), "%s", mpath);
-
-    copy_dir_recursive(src_dir, dest_dir);
-    snprintf(cmd, sizeof(cmd), "chmod -R 755 \"%s\"", dest_dir);
-    system(cmd);
+    replace_plugin_dir(plug_id, src_dir);
 
     /* Clean up temp dir */
     snprintf(cmd, sizeof(cmd), "rm -rf \"%s\"", tmp_unpack);
     system(cmd);
     cJSON_Delete(manifest);
 
-    /* Start newly installed plugin */
-    if (is_plugin_enabled(plug_id)) {
-        plugin_mgr_start(plug_id);
-    }
-
     return 0;
 }
 
-int plugin_mgr_install_from_url(const char *url, char *err_msg, size_t err_msg_sz) {
-    if (!url || strncmp(url, "http", 4) != 0) {
-        if (err_msg) snprintf(err_msg, err_msg_sz, "Invalid URL scheme");
+/* SHA-256 the marketplace lists for this download URL, if any */
+static int catalog_sha256_for(const char *url, char out[65]) {
+    out[0] = '\0';
+    cJSON *cat = plugin_mgr_get_marketplace_catalog();
+    const cJSON *p = NULL;
+    cJSON_ArrayForEach(p, cat) {
+        const cJSON *u = cJSON_GetObjectItemCaseSensitive(p, "download_url");
+        const cJSON *h = cJSON_GetObjectItemCaseSensitive(p, "sha256");
+        if (cJSON_IsString(u) && strcmp(u->valuestring, url) == 0 && cJSON_IsString(h) && strlen(h->valuestring) == 64) {
+            snprintf(out, 65, "%s", h->valuestring);
+            break;
+        }
+    }
+    cJSON_Delete(cat);
+    return out[0] ? 0 : -1;
+}
+
+int plugin_mgr_install_from_url(const char *url, const char *sha256_hex, char *err_msg, size_t err_msg_sz) {
+    if (!is_safe_url(url)) {
+        if (err_msg) snprintf(err_msg, err_msg_sz, "Invalid URL (http/https, plain characters only)");
         return -1;
     }
 
-    char tmp_tar[128];
-    snprintf(tmp_tar, sizeof(tmp_tar), "/tmp/plug_dl_%ld.tar.gz", (long)time(NULL));
+    /* busybox wget does not check certificates: the SHA-256 (from the caller or the
+     * marketplace entry) is what tells a damaged or swapped archive */
+    char want[65] = {0};
+    if (sha256_hex && sha256_hex[0]) snprintf(want, sizeof(want), "%s", sha256_hex);
+    else catalog_sha256_for(url, want);
 
-    char cmd[512];
-    snprintf(cmd, sizeof(cmd),
-             "export PATH=/cache/bin:/data/harmony/bin:$PATH; "
-             "wget --no-check-certificate -q -O \"%s\" \"%s\"",
-             tmp_tar, url);
-    int rc = system(cmd);
-    if (rc != 0 || access(tmp_tar, R_OK) != 0) {
-        unlink(tmp_tar);
-        if (err_msg) snprintf(err_msg, err_msg_sz, "Failed to download archive from URL");
+    char tmp_tar[128];
+    tmp_name(tmp_tar, sizeof(tmp_tar), "/tmp/plug_dl", ".tar.gz");
+
+    int rc = fetch_url(url, tmp_tar, FETCH_ARCHIVE_MAX_BYTES, FETCH_ARCHIVE_MAX_MS);
+    if (rc != 0) {
+        if (err_msg) snprintf(err_msg, err_msg_sz, rc == RUN_TOO_BIG ? "Archive larger than 16 MB" :
+                                                   rc == RUN_TOO_SLOW ? "Archive download took too long" :
+                                                   "Failed to download archive from URL");
         return -1;
+    }
+
+    if (want[0]) {
+        char got[65];
+        if (file_sha256_hex(tmp_tar, got) != 0 || strcasecmp(got, want) != 0) {
+            unlink(tmp_tar);
+            if (err_msg) snprintf(err_msg, err_msg_sz, "Archive SHA-256 does not match the published checksum");
+            return -1;
+        }
     }
 
     int res = plugin_mgr_install_archive(tmp_tar, err_msg, err_msg_sz);
@@ -515,8 +767,8 @@ int plugin_mgr_install_from_url(const char *url, char *err_msg, size_t err_msg_s
 }
 
 int plugin_mgr_install_dev_raw(const char *url, char *err_msg, size_t err_msg_sz) {
-    if (!url || strncmp(url, "http", 4) != 0) {
-        if (err_msg) snprintf(err_msg, err_msg_sz, "Invalid URL scheme");
+    if (!is_safe_url(url)) {
+        if (err_msg) snprintf(err_msg, err_msg_sz, "Invalid URL (http/https, plain characters only)");
         return -1;
     }
 
@@ -546,19 +798,14 @@ int plugin_mgr_install_dev_raw(const char *url, char *err_msg, size_t err_msg_sz
     }
 
     char tmp_dev[128];
-    snprintf(tmp_dev, sizeof(tmp_dev), "/tmp/p_dev_%ld", (long)time(NULL));
+    tmp_name(tmp_dev, sizeof(tmp_dev), "/tmp/p_dev", "");
     mkdir(tmp_dev, 0755);
 
     /* 1. Download manifest.json */
     char cmd[1024];
-    snprintf(cmd, sizeof(cmd),
-             "export PATH=/cache/bin:/data/harmony/bin:$PATH; "
-             "wget --no-check-certificate -q -O \"%s/manifest.json\" \"%s\"",
-             tmp_dev, manifest_url);
-    int rc = system(cmd);
-
     char mpath[256];
     snprintf(mpath, sizeof(mpath), "%s/manifest.json", tmp_dev);
+    int rc = fetch_url(manifest_url, mpath, FETCH_SMALL_MAX_BYTES, FETCH_SMALL_MAX_MS);
     if (rc != 0 || access(mpath, R_OK) != 0) {
         snprintf(cmd, sizeof(cmd), "rm -rf \"%s\"", tmp_dev);
         system(cmd);
@@ -603,13 +850,19 @@ int plugin_mgr_install_dev_raw(const char *url, char *err_msg, size_t err_msg_sz
         j_files = cJSON_GetObjectItemCaseSensitive(manifest, "dev_files");
     }
 
+    /* A file that is unsafe to name or fails to download stops the install: installed
+     * without it, the plugin was left broken */
+    const char *bad_file = NULL;
     if (j_files && cJSON_IsArray(j_files) && cJSON_GetArraySize(j_files) > 0) {
         cJSON *f_item = NULL;
         cJSON_ArrayForEach(f_item, j_files) {
             if (!f_item || !cJSON_IsString(f_item) || !f_item->valuestring[0]) continue;
             const char *fname = f_item->valuestring;
             if (strcmp(fname, "manifest.json") == 0) continue;
-            if (strstr(fname, "..") || fname[0] == '/') continue;
+            if (!is_safe_rel_path(fname)) {
+                bad_file = fname;
+                break;
+            }
 
             char local_path[384];
             snprintf(local_path, sizeof(local_path), "%s/%s", tmp_dev, fname);
@@ -621,11 +874,12 @@ int plugin_mgr_install_dev_raw(const char *url, char *err_msg, size_t err_msg_sz
                 *last_slash = '/';
             }
 
-            snprintf(cmd, sizeof(cmd),
-                     "export PATH=/cache/bin:/data/harmony/bin:$PATH; "
-                     "wget --no-check-certificate -q -O \"%s\" \"%s/%s\"",
-                     local_path, base_url, fname);
-            system(cmd);
+            char file_url[768];
+            snprintf(file_url, sizeof(file_url), "%s/%s", base_url, fname);
+            if (fetch_url(file_url, local_path, FETCH_FILE_MAX_BYTES, FETCH_ARCHIVE_MAX_MS) != 0) {
+                bad_file = fname;
+                break;
+            }
             if (strstr(fname, ".sh") != NULL) {
                 chmod(local_path, 0755);
             }
@@ -640,7 +894,7 @@ int plugin_mgr_install_dev_raw(const char *url, char *err_msg, size_t err_msg_sz
 
         const char *defaults[4] = { "run.sh", NULL, NULL, NULL };
         int d_count = 1;
-        if (entry && strcmp(entry, "run.sh") != 0 && strcmp(entry, "manifest.json") != 0 && !strstr(entry, "..") && entry[0] != '/') {
+        if (entry && strcmp(entry, "run.sh") != 0 && strcmp(entry, "manifest.json") != 0 && is_safe_rel_path(entry)) {
             defaults[d_count++] = entry;
         }
 
@@ -648,40 +902,32 @@ int plugin_mgr_install_dev_raw(const char *url, char *err_msg, size_t err_msg_sz
             const char *fname = defaults[i];
             char local_path[384];
             snprintf(local_path, sizeof(local_path), "%s/%s", tmp_dev, fname);
-            snprintf(cmd, sizeof(cmd),
-                     "export PATH=/cache/bin:/data/harmony/bin:$PATH; "
-                     "wget --no-check-certificate -q -O \"%s\" \"%s/%s\"",
-                     local_path, base_url, fname);
-            system(cmd);
+            char file_url[768];
+            snprintf(file_url, sizeof(file_url), "%s/%s", base_url, fname);
+            if (fetch_url(file_url, local_path, FETCH_FILE_MAX_BYTES, FETCH_ARCHIVE_MAX_MS) != 0) {
+                bad_file = fname;
+                break;
+            }
             if (strstr(fname, ".sh") != NULL || (entry && strcmp(fname, entry) == 0)) {
                 chmod(local_path, 0755);
             }
         }
     }
 
+    if (bad_file) {
+        if (err_msg) snprintf(err_msg, err_msg_sz, "Manifest file '%.60s' is unsafe or failed to download", bad_file);
+        cJSON_Delete(manifest);
+        snprintf(cmd, sizeof(cmd), "rm -rf \"%s\"", tmp_dev);
+        system(cmd);
+        return -1;
+    }
     cJSON_Delete(manifest);
 
     /* 3. Stop running plugin, install into /data/harmony/plugins/<plug_id> */
-    plugin_mgr_stop(plug_id);
-
-    char dest_dir[256];
-    snprintf(dest_dir, sizeof(dest_dir), "%s/%s", HARMONY_PLUGINS_DIR, plug_id);
-    snprintf(cmd, sizeof(cmd), "rm -rf \"%s\"", dest_dir);
-    system(cmd);
-
-    snprintf(cmd, sizeof(cmd), "mkdir -p \"%s\"", dest_dir);
-    system(cmd);
-
-    copy_dir_recursive(tmp_dev, dest_dir);
-    snprintf(cmd, sizeof(cmd), "chmod -R 755 \"%s\"", dest_dir);
-    system(cmd);
+    replace_plugin_dir(plug_id, tmp_dev);
 
     snprintf(cmd, sizeof(cmd), "rm -rf \"%s\"", tmp_dev);
     system(cmd);
-
-    if (is_plugin_enabled(plug_id)) {
-        plugin_mgr_start(plug_id);
-    }
 
     return 0;
 }
@@ -904,7 +1150,7 @@ static int save_repositories(cJSON *arr) {
 }
 
 int plugin_mgr_add_repository(const char *url) {
-    if (!url || strncmp(url, "http", 4) != 0) return -1;
+    if (!is_safe_url(url)) return -1;
     cJSON *repos = plugin_mgr_get_repositories();
     cJSON *it = NULL;
     cJSON_ArrayForEach(it, repos) {
@@ -935,17 +1181,21 @@ int plugin_mgr_remove_repository(const char *url) {
     return res;
 }
 
+static cJSON *read_catalog_cache(const char *cache_path) {
+    size_t flen = 0;
+    char *cached = read_file_text_alloc(cache_path, FETCH_SMALL_MAX_BYTES * 4, &flen);
+    if (!cached) return NULL;
+    cJSON *c_root = cJSON_Parse(cached);
+    free(cached);
+    return c_root;
+}
+
 cJSON *plugin_mgr_get_marketplace_catalog(void) {
     const char *cache_path = "/tmp/plugins/marketplace_cache.json";
     struct stat st;
     if (stat(cache_path, &st) == 0 && (time(NULL) - st.st_mtime) < 600) {
-        size_t flen = 0;
-        char *cached = read_file_text_alloc(cache_path, 65536, &flen);
-        if (cached) {
-            cJSON *c_root = cJSON_Parse(cached);
-            free(cached);
-            if (c_root) return c_root;
-        }
+        cJSON *c_root = read_catalog_cache(cache_path);
+        if (c_root) return c_root;
     }
 
     cJSON *repos = plugin_mgr_get_repositories();
@@ -955,16 +1205,12 @@ cJSON *plugin_mgr_get_marketplace_catalog(void) {
     cJSON_ArrayForEach(repo_url, repos) {
         if (!repo_url->valuestring) continue;
         char tmp_repo[128];
-        snprintf(tmp_repo, sizeof(tmp_repo), "/tmp/plugins/repo_tmp_%ld.json", (long)time(NULL));
+        tmp_name(tmp_repo, sizeof(tmp_repo), "/tmp/plugins/repo_tmp", ".json");
 
-        char cmd[512];
-        snprintf(cmd, sizeof(cmd),
-                 "export PATH=/cache/bin:/data/harmony/bin:$PATH; "
-                 "wget --no-check-certificate -q -T 5 -O \"%s\" \"%s\"",
-                 tmp_repo, repo_url->valuestring);
-        if (system(cmd) == 0 && access(tmp_repo, R_OK) == 0) {
+        if (fetch_url(repo_url->valuestring, tmp_repo, FETCH_SMALL_MAX_BYTES, FETCH_SMALL_MAX_MS) == 0 &&
+            access(tmp_repo, R_OK) == 0) {
             size_t rlen = 0;
-            char *rtxt = read_file_text_alloc(tmp_repo, 65536, &rlen);
+            char *rtxt = read_file_text_alloc(tmp_repo, FETCH_SMALL_MAX_BYTES, &rlen);
             if (rtxt) {
                 cJSON *rjson = cJSON_Parse(rtxt);
                 free(rtxt);
@@ -984,7 +1230,17 @@ cJSON *plugin_mgr_get_marketplace_catalog(void) {
     }
     cJSON_Delete(repos);
 
-    char *cat_str = cJSON_Print(catalog);
+    /* Every repository failed (offline): the last catalog, even old, beats an empty one */
+    if (cJSON_GetArraySize(catalog) == 0) {
+        cJSON *stale = read_catalog_cache(cache_path);
+        if (stale) {
+            cJSON_Delete(catalog);
+            return stale;
+        }
+        return catalog;
+    }
+
+    char *cat_str = cJSON_PrintUnformatted(catalog);
     if (cat_str) {
         mkdir("/tmp/plugins", 0755);
         int fd = open(cache_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);

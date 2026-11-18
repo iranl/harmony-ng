@@ -6,6 +6,8 @@
 
 #define HARMONY_PLUGINS_DIR         "/data/harmony/plugins"
 #define HARMONY_PLUGINS_RUN_DIR     "/tmp/plugins"
+/* Per-plugin state kept across updates (passed as HARMONY_PLUGIN_DATA) */
+#define HARMONY_PLUGINS_DATA_DIR    "/data/harmony/plugin-data"
 #define HARMONY_REPOSITORIES_FILE   "/data/harmony/config/repositories.json"
 #define HARMONY_DEFAULT_REPO_URL    "https://raw.githubusercontent.com/iranl/harmony-ng-plugins/main/repository.json"
 
@@ -42,8 +44,12 @@ int plugin_mgr_uninstall(const char *plugin_id);
 /* Install a plugin from a .tar.gz archive path */
 int plugin_mgr_install_archive(const char *archive_path, char *err_msg, size_t err_msg_sz);
 
-/* Install a plugin by downloading from URL */
-int plugin_mgr_install_from_url(const char *url, char *err_msg, size_t err_msg_sz);
+/* Install a plugin by downloading from URL. sha256_hex (64 hex characters, or NULL to use the
+   marketplace entry for this URL, if it lists one) must match the archive. */
+int plugin_mgr_install_from_url(const char *url, const char *sha256_hex, char *err_msg, size_t err_msg_sz);
+
+/* 1 when id is a plugin id safe to put in a path (letters, digits, '-', '_') */
+int plugin_mgr_is_safe_id(const char *id);
 
 /* Install a dev version of a plugin by downloading raw files from repository URL */
 int plugin_mgr_install_dev_raw(const char *url, char *err_msg, size_t err_msg_sz);

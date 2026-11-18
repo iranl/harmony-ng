@@ -13,6 +13,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <errno.h>
+#include <pthread.h>
 
 int http_api_plugins_handle(int client_fd, const char *method, const char *path,
                             const char *query, const char *body, const char *req) {
@@ -103,6 +104,8 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
             cJSON *j_url = cJSON_GetObjectItemCaseSensitive(json, "url");
             cJSON *j_b64 = cJSON_GetObjectItemCaseSensitive(json, "archive_base64");
             cJSON *j_dev = cJSON_GetObjectItemCaseSensitive(json, "dev");
+            cJSON *j_sha = cJSON_GetObjectItemCaseSensitive(json, "sha256");
+            const char *sha = (cJSON_IsString(j_sha)) ? j_sha->valuestring : NULL;
             int is_dev = (j_dev && (cJSON_IsTrue(j_dev) || (cJSON_IsNumber(j_dev) && j_dev->valueint == 1)));
 
             if (j_url && cJSON_IsString(j_url) && j_url->valuestring[0]) {
@@ -115,14 +118,14 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
                 if (is_dev) {
                     rc = plugin_mgr_install_dev_raw(u, err, sizeof(err));
                 } else {
-                    rc = plugin_mgr_install_from_url(u, err, sizeof(err));
+                    rc = plugin_mgr_install_from_url(u, sha, err, sizeof(err));
                 }
             } else if (j_b64 && cJSON_IsString(j_b64)) {
                 size_t out_len = 0;
                 unsigned char *data = b64_decode(j_b64->valuestring, &out_len);
                 if (data && out_len > 0) {
                     char tmp_tar[128];
-                    snprintf(tmp_tar, sizeof(tmp_tar), "/tmp/upload_%ld.tar.gz", (long)time(NULL));
+                    snprintf(tmp_tar, sizeof(tmp_tar), "/tmp/upload_%ld_%lx.tar.gz", (long)time(NULL), (unsigned long)pthread_self());
                     int fd = open(tmp_tar, O_WRONLY | O_CREAT | O_TRUNC, 0644);
                     if (fd >= 0) {
                         write(fd, data, out_len);
@@ -142,7 +145,7 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
             size_t clen = hdr_cl ? (size_t)atoi(hdr_cl + 15) : strlen(body);
             if (clen > 0) {
                 char tmp_tar[128];
-                snprintf(tmp_tar, sizeof(tmp_tar), "/tmp/upload_%ld.tar.gz", (long)time(NULL));
+                snprintf(tmp_tar, sizeof(tmp_tar), "/tmp/upload_%ld_%lx.tar.gz", (long)time(NULL), (unsigned long)pthread_self());
                 int fd = open(tmp_tar, O_WRONLY | O_CREAT | O_TRUNC, 0644);
                 if (fd >= 0) {
                     write(fd, body, clen);
@@ -221,8 +224,8 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
         int port = (j_port && cJSON_IsNumber(j_port)) ? j_port->valueint : 6467;
         cJSON_Delete(json);
 
-        if (!id[0] || !host[0]) {
-            send_json_error(client_fd, 400, "Missing plugin id or host");
+        if (!plugin_mgr_is_safe_id(id) || !host[0]) {
+            send_json_error(client_fd, 400, "Missing or invalid plugin id, or missing host");
             close(client_fd);
             return 1;
         }
@@ -262,17 +265,20 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
 
             char *cmd_str = cJSON_PrintUnformatted(cmd_obj);
             if (cmd_str) {
-                sendto(s, cmd_str, strlen(cmd_str), 0, (struct sockaddr *)&sun, sizeof(sun));
+                /* A plugin with a full queue must not hold this request forever */
+                sendto(s, cmd_str, strlen(cmd_str), MSG_DONTWAIT, (struct sockaddr *)&sun, sizeof(sun));
                 free(cmd_str);
             }
             cJSON_Delete(cmd_obj);
             close(s);
         }
 
-        /* Wait up to 5 seconds for status file update */
+        /* Wait up to 15 seconds for status file update: the start of a pairing is a connect
+         * (5 s timeout), a TLS handshake and three exchanges; 5 s reported a timeout while the
+         * pairing went on and succeeded */
         cJSON *res_obj = NULL;
-        for (int i = 0; i < 50; i++) {
-            usleep(100000); /* 100ms * 50 = 5s max */
+        for (int i = 0; i < 150; i++) {
+            usleep(100000); /* 100ms * 150 = 15s max */
             size_t slen = 0;
             char *stxt = read_file_text_alloc(stat_path, 4096, &slen);
             if (stxt) {

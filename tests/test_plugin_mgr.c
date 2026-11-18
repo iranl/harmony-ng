@@ -73,6 +73,39 @@ int main(void) {
     assert(rc == 0);
     printf("[+] Plugin archive installation succeeded.\n");
 
+    /* 3b. Archives that write outside the unpack directory are refused before the unpack */
+    /* tar itself drops '../' when it packs, so Python writes the bad entries */
+    system("python3 -c \"import tarfile,io\n"
+           "def mk(p, extra):\n"
+           "  t = tarfile.open(p, 'w:gz'); t.add('/tmp/test_pkg_src/manifest.json', 'manifest.json'); extra(t); t.close()\n"
+           "def dotdot(t):\n"
+           "  i = tarfile.TarInfo('../escaped'); i.size = 1; t.addfile(i, io.BytesIO(b'x'))\n"
+           "def link(t):\n"
+           "  i = tarfile.TarInfo('link'); i.type = tarfile.SYMTYPE; i.linkname = '/etc'; t.addfile(i)\n"
+           "mk('/tmp/test_evil_dotdot.tar.gz', dotdot); mk('/tmp/test_evil_link.tar.gz', link)\"");
+    rc = plugin_mgr_install_archive("/tmp/test_evil_dotdot.tar.gz", err, sizeof(err));
+    assert(rc == -1 && strstr(err, "'..'") != NULL);
+    rc = plugin_mgr_install_archive("/tmp/test_evil_link.tar.gz", err, sizeof(err));
+    assert(rc == -1 && strstr(err, "link") != NULL);
+    assert(access("/tmp/escaped", F_OK) != 0);
+    system("rm -f /tmp/test_evil_dotdot.tar.gz /tmp/test_evil_link.tar.gz");
+    printf("[+] Archives with '..' or link entries refused.\n");
+
+    /* 3c. URLs that a shell or wget would read as more than a URL are refused, unfetched */
+    static const char *const bad_urls[] = {
+        "http://x/\"; touch /tmp/pwned; \"", "https://x/$(id).tar.gz", "https://x/`id`", "ftp://x/a.tar.gz",
+        "https://x/a b.tar.gz", "-O/etc/passwd"
+    };
+    for (size_t i = 0; i < sizeof(bad_urls) / sizeof(bad_urls[0]); i++) {
+        assert(plugin_mgr_install_from_url(bad_urls[i], NULL, err, sizeof(err)) == -1);
+        assert(strstr(err, "Invalid URL") != NULL);
+        assert(plugin_mgr_install_dev_raw(bad_urls[i], err, sizeof(err)) == -1);
+        assert(plugin_mgr_add_repository(bad_urls[i]) == -1);
+    }
+    assert(access("/tmp/pwned", F_OK) != 0);
+    assert(plugin_mgr_is_safe_id("android-tv") && !plugin_mgr_is_safe_id("../x") && !plugin_mgr_is_safe_id(""));
+    printf("[+] Unsafe URLs and plugin ids refused.\n");
+
     /* 4. Verify installed JSON lists test-roku with v1.2.3 */
     cJSON *installed = plugin_mgr_get_installed_json();
     assert(installed != NULL && cJSON_IsArray(installed));
@@ -121,6 +154,30 @@ int main(void) {
     rc = plugin_mgr_set_enabled("test-roku", 1);
     assert(access("/data/harmony/plugins/test-roku/disabled", F_OK) != 0);
     printf("[+] Plugin enable/disable toggling verified.\n");
+
+    /* 6b. A disabled plugin stays disabled when it is installed again */
+    plugin_mgr_set_enabled("test-roku", 0);
+    rc = plugin_mgr_install_archive("/tmp/test_mock_plug.tar.gz", err, sizeof(err));
+    assert(rc == 0);
+    assert(access("/data/harmony/plugins/test-roku/disabled", F_OK) == 0);
+    plugin_mgr_set_enabled("test-roku", 1);
+    assert(access("/data/harmony/plugin-data/test-roku", F_OK) == 0);
+    printf("[+] Reinstall keeps the disabled state; data dir created.\n");
+
+    /* 6c. Watchdog: a plugin that does not stay up is restarted with a growing gap, and one
+     * stopped by request is left alone (test-roku's run.sh exits at once) */
+    #define RESTARTS() ({ int _r = -1; cJSON *_l = plugin_mgr_get_installed_json(); cJSON *_i; \
+        cJSON_ArrayForEach(_i, _l) { cJSON *_id = cJSON_GetObjectItemCaseSensitive(_i, "id"); \
+            if (strcmp(_id->valuestring, "test-roku") == 0) _r = cJSON_GetObjectItemCaseSensitive(_i, "restarts")->valueint; } \
+        cJSON_Delete(_l); _r; })
+    unlink("/tmp/plugins/test-roku.stopped");
+    plugin_mgr_watchdog_tick();
+    assert(RESTARTS() == 1);
+    plugin_mgr_watchdog_tick();          /* within the 20 s gap: no new attempt */
+    assert(RESTARTS() == 1);
+    plugin_mgr_stop("test-roku");
+    assert(access("/tmp/plugins/test-roku.stopped", F_OK) == 0);
+    printf("[+] Watchdog backoff and stop-by-request verified.\n");
 
     /* 7. In-use guard test */
     mkdir("/data/harmony/config", 0755);
@@ -227,6 +284,25 @@ int main(void) {
     assert(access("/data/harmony/plugins/test-dev-plug/run.sh", X_OK) == 0);
     assert(access("/data/harmony/plugins/test-dev-plug/sub/helper.sh", X_OK) == 0);
     printf("[+] Direct dev raw GitHub/HTTP download and manifest files verified.\n");
+
+    /* Archive download: a SHA-256 that does not match refuses the install, the right one passes */
+    system("rm -rf /tmp/test_sha_srv && mkdir -p /tmp/test_sha_srv && "
+           "tar -czf /tmp/test_sha_srv/p.tar.gz -C /tmp/test_pkg_src manifest.json run.sh && "
+           "sha256sum /tmp/test_sha_srv/p.tar.gz | cut -c1-64 > /tmp/test_sha_srv/sum");
+    char good_sha[65] = {0};
+    FILE *sf = fopen("/tmp/test_sha_srv/sum", "r");
+    assert(sf && fscanf(sf, "%64s", good_sha) == 1);
+    fclose(sf);
+    system("python3 -m http.server 9989 --directory /tmp/test_sha_srv >/dev/null 2>&1 & echo $! > /tmp/test_http_pid");
+    usleep(300000);
+    rc = plugin_mgr_install_from_url("http://127.0.0.1:9989/p.tar.gz",
+                                     "0000000000000000000000000000000000000000000000000000000000000000", err, sizeof(err));
+    int rc_good = plugin_mgr_install_from_url("http://127.0.0.1:9989/p.tar.gz", good_sha, err, sizeof(err));
+    system("kill -9 $(cat /tmp/test_http_pid 2>/dev/null) 2>/dev/null; rm -f /tmp/test_http_pid; rm -rf /tmp/test_sha_srv");
+    assert(rc == -1);
+    assert(rc_good == 0);
+    plugin_mgr_uninstall("test-roku");
+    printf("[+] Archive SHA-256 check verified (mismatch refused, match installed).\n");
 
     /* Clean up dev plugin */
     plugin_mgr_uninstall("test-dev-plug");
