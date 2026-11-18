@@ -507,13 +507,15 @@ def find_linux_device(target_pid: Optional[int] = None) -> Optional[str]:
 # The kernel binds no HID driver to 046D:C110-C14F (hid_ignore() in drivers/hid/hid-quirks.c, kept
 # for the userspace tool concordance), so the Hub and the remotes get no /dev/hidraw* node. The
 # device is then reached the way libusb does it on Linux: open its usbfs node, claim the HID
-# interface, and move the 64-byte reports on its interrupt endpoints (control SET_REPORT when the
-# device has no interrupt OUT endpoint). Endpoints come from the device's own descriptors in sysfs.
-# Everything here can be replaced by the tests (no device, no root needed).
+# interface, and move the 64-byte reports on its interrupt endpoints as asynchronous URBs, waited
+# for with select() (control SET_REPORT when the device has no interrupt OUT endpoint). Endpoints
+# come from the device's own descriptors in sysfs. The ioctl and the wait can be replaced by the
+# tests (no device, no root needed).
 
 _SYSFS_USB_DIR = "/sys/bus/usb/devices"
 _DEV_USB_DIR = "/dev/bus/usb"
-_usbfs_ioctl = None  # None = fcntl.ioctl; the tests put a fake device here
+_usbfs_ioctl = None  # None = usbfs_ioctl() (libc); the tests put a fake device here
+_usbfs_wait = None  # None = select() on the node
 
 USB_REPORT_LEN = 64  # the reports on the wire: no report ID (the report descriptor has none)
 USBFS_TIMEOUT_MS = 5000  # one write (as long as the Windows transport waits)
@@ -630,16 +632,54 @@ class _UsbfsCtrl(ctypes.Structure):
                 ("data", ctypes.c_void_p)]
 
 
-class _UsbfsBulk(ctypes.Structure):
-    _fields_ = [("ep", ctypes.c_uint), ("len", ctypes.c_uint), ("timeout", ctypes.c_uint),
-                ("data", ctypes.c_void_p)]
+class _UsbfsUrb(ctypes.Structure):
+    # struct usbdevfs_urb without the iso_frame_desc[] tail (not used for interrupt transfers)
+    _fields_ = [("type", ctypes.c_uint8), ("endpoint", ctypes.c_uint8), ("status", ctypes.c_int),
+                ("flags", ctypes.c_uint), ("buffer", ctypes.c_void_p), ("buffer_length", ctypes.c_int),
+                ("actual_length", ctypes.c_int), ("start_frame", ctypes.c_int),
+                ("number_of_packets", ctypes.c_int), ("error_count", ctypes.c_int),
+                ("signr", ctypes.c_uint), ("usercontext", ctypes.c_void_p)]
 
 
 # linux/usbdevice_fs.h
+USBDEVFS_URB_TYPE_INTERRUPT = 1
 USBDEVFS_CONTROL = _ioc(3, 0, ctypes.sizeof(_UsbfsCtrl))
-USBDEVFS_BULK = _ioc(3, 2, ctypes.sizeof(_UsbfsBulk))  # also does interrupt endpoints
+USBDEVFS_SUBMITURB = _ioc(2, 10, ctypes.sizeof(_UsbfsUrb))
+USBDEVFS_DISCARDURB = _ioc(0, 11, 0)
+USBDEVFS_REAPURB = _ioc(1, 12, ctypes.sizeof(ctypes.c_void_p))
+USBDEVFS_REAPURBNDELAY = _ioc(1, 13, ctypes.sizeof(ctypes.c_void_p))
 USBDEVFS_CLAIMINTERFACE = _ioc(2, 15, ctypes.sizeof(ctypes.c_uint))
 USBDEVFS_RELEASEINTERFACE = _ioc(2, 16, ctypes.sizeof(ctypes.c_uint))
+
+# errno values that mean the device is no longer on the bus: every later request fails the same way
+_USB_GONE_ERRNOS = (errno.ENODEV, errno.ESHUTDOWN)
+
+_libc_ioctl_fn = None
+
+
+def usbfs_ioctl(fd: int, request: int, arg=None) -> int:
+    """ioctl(fd, request, &arg) through libc, with the address of arg itself (a ctypes object).
+    fcntl.ioctl() would pass a temporary copy, but the kernel keeps the address of a submitted URB
+    and writes its status there when it is reaped. Raises OSError on -1."""
+    global _libc_ioctl_fn
+    if _libc_ioctl_fn is None:
+        fn = ctypes.CDLL(None, use_errno=True).ioctl
+        fn.argtypes = [ctypes.c_int, ctypes.c_ulong, ctypes.c_void_p]
+        fn.restype = ctypes.c_int
+        _libc_ioctl_fn = fn
+    r = _libc_ioctl_fn(fd, request, None if arg is None else ctypes.addressof(arg))
+    if r == -1:
+        e = ctypes.get_errno()
+        raise OSError(e, os.strerror(e))
+    return r
+
+
+def _select_writable(fd: int, timeout_s: float) -> bool:
+    """usbfs reports a completed URB as "writable" (usbdev_poll: EPOLLOUT); a select() that Ctrl-C
+    interrupts, unlike a synchronous usbfs transfer."""
+    import select
+    _, w, _ = select.select([], [fd], [], max(0.0, timeout_s))
+    return bool(w)
 
 
 def _usbfs_arch_supported() -> bool:
@@ -648,47 +688,117 @@ def _usbfs_arch_supported() -> bool:
 
 
 class UsbfsHidDevice:
-    """A Harmony HID device on its usbfs node: 64-byte reports on the interrupt endpoints."""
+    """A Harmony HID device on its usbfs node: 64-byte reports on the interrupt endpoints, each one
+    an asynchronous URB as libusb submits them (one in flight at a time)."""
 
-    def __init__(self, fd: int, path: str, endpoints: UsbHidEndpoints, ioctl=None):
+    def __init__(self, fd: int, path: str, endpoints: UsbHidEndpoints, ioctl=None, wait=None):
         self.fd = fd
         self.path = path
         self.endpoints = endpoints
-        if ioctl is None:
-            import fcntl
-            ioctl = fcntl.ioctl
-        self._ioctl = ioctl
+        self._ioctl = ioctl or usbfs_ioctl
+        self._wait = wait or _select_writable
         self._claimed = False
+        self.gone = False  # the device left the bus: nothing more will come
+        self.last_error: Optional[OSError] = None  # the first transfer error, for diagnosis
+        self._warned = False
 
     def claim(self) -> None:
         self._ioctl(self.fd, USBDEVFS_CLAIMINTERFACE, ctypes.c_uint(self.endpoints.interface))
         self._claimed = True
 
-    def _bulk(self, ep: int, buf, timeout_ms: int) -> int:
-        req = _UsbfsBulk(ep, len(buf), max(1, int(timeout_ms)), ctypes.addressof(buf))
-        return int(self._ioctl(self.fd, USBDEVFS_BULK, req))
+    def _reap(self, block: bool) -> bool:
+        out = ctypes.c_void_p()
+        try:
+            self._ioctl(self.fd, USBDEVFS_REAPURB if block else USBDEVFS_REAPURBNDELAY, out)
+        except OSError as e:
+            if e.errno == errno.EAGAIN:
+                return False
+            raise
+        return True
+
+    def _transfer(self, ep: int, buf, length: int, timeout_ms: int) -> int:
+        """One interrupt transfer. A URB still running at the deadline (or at Ctrl-C) is cancelled
+        and then collected, so a report that completes during the cancel is kept, not lost.
+        Returns the bytes moved; raises TimeoutError, or OSError with the URB's status."""
+        urb = _UsbfsUrb(type=USBDEVFS_URB_TYPE_INTERRUPT, endpoint=ep, status=-errno.EINPROGRESS,
+                        buffer=ctypes.addressof(buf), buffer_length=length)
+        self._ioctl(self.fd, USBDEVFS_SUBMITURB, urb)
+        reaped = False
+        reap_error: Optional[OSError] = None
+        try:
+            deadline = time.monotonic() + max(1, int(timeout_ms)) / 1000.0
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or not self._wait(self.fd, remaining):
+                    break
+                if self._reap(block=False):
+                    reaped = True
+                    break
+                time.sleep(0.001)  # ready without a completed URB: do not spin
+        except OSError as e:
+            reap_error = e
+        finally:
+            if not reaped:
+                try:
+                    self._ioctl(self.fd, USBDEVFS_DISCARDURB, urb)
+                except OSError:
+                    pass  # it completed in the meantime (EINVAL): collected below all the same
+                try:
+                    self._reap(block=True)
+                except OSError as e:
+                    reap_error = reap_error or e
+        if reap_error is not None:
+            raise OSError(reap_error.errno, reap_error.strerror, self.path)
+        if urb.status == 0:
+            return urb.actual_length
+        if not reaped and urb.status in (-errno.ENOENT, -errno.ECONNRESET):  # cancelled at the deadline
+            raise TimeoutError(errno.ETIMEDOUT, "no report", self.path)
+        raise OSError(-urb.status, os.strerror(-urb.status), self.path)
+
+    def _note_error(self, e: OSError) -> None:
+        if e.errno in _USB_GONE_ERRNOS:
+            self.gone = True
+        if self.last_error is None:
+            self.last_error = e
+        if not self._warned:
+            self._warned = True
+            what = "left USB" if self.gone else f"USB transfer error: {e.strerror or e}"
+            print(f"[!] The Harmony device {what} ({self.path}).", file=sys.stderr)
 
     def write_report(self, data: bytes) -> bool:
         if len(data) == 65:
             data = data[1:]  # the report ID byte of the hidraw/Windows framing; not on the wire
         elif len(data) != 64:
             raise ValueError(f"Invalid report size: {len(data)}")
+        if self.gone:
+            return False
         buf = ctypes.create_string_buffer(bytes(data), USB_REPORT_LEN)
         try:
             if self.endpoints.ep_out is not None:
-                return self._bulk(self.endpoints.ep_out, buf, USBFS_TIMEOUT_MS) == USB_REPORT_LEN
-            req = _UsbfsCtrl(0x21, 0x09, 0x0200, self.endpoints.interface,  # SET_REPORT, Output, ID 0
-                             USB_REPORT_LEN, USBFS_TIMEOUT_MS, ctypes.addressof(buf))
-            return int(self._ioctl(self.fd, USBDEVFS_CONTROL, req)) == USB_REPORT_LEN
-        except OSError:
+                n = self._transfer(self.endpoints.ep_out, buf, USB_REPORT_LEN, USBFS_TIMEOUT_MS)
+            else:
+                req = _UsbfsCtrl(0x21, 0x09, 0x0200, self.endpoints.interface,  # SET_REPORT, Output, ID 0
+                                 USB_REPORT_LEN, USBFS_TIMEOUT_MS, ctypes.addressof(buf))
+                n = int(self._ioctl(self.fd, USBDEVFS_CONTROL, req))
+        except OSError as e:  # TimeoutError included
+            self._note_error(e)
             return False
+        return n == USB_REPORT_LEN
 
     def read_report(self, timeout_ms: int = 5000) -> bytes:
-        # timeout 0 would mean "wait for ever" to the kernel: at least 1 ms
+        """64-byte report, or b"" when none came in time. Other errors are kept in last_error
+        (gone=True when the device left the bus, so the callers stop waiting)."""
+        if self.gone:
+            return b""
         buf = ctypes.create_string_buffer(max(self.endpoints.in_size, USB_REPORT_LEN))
         try:
-            n = self._bulk(self.endpoints.ep_in, buf, timeout_ms)
-        except OSError:  # ETIMEDOUT, or the device went away (ENODEV): no report
+            n = self._transfer(self.endpoints.ep_in, buf, len(buf), timeout_ms)
+        except TimeoutError:
+            return b""
+        except OSError as e:
+            self._note_error(e)
+            if not self.gone:
+                time.sleep(0.01)  # an endpoint error comes back at once: no busy loop
             return b""
         return buf.raw[:min(n, USB_REPORT_LEN)]
 
@@ -700,13 +810,14 @@ class UsbfsHidDevice:
                 except OSError:
                     pass
                 self._claimed = False
-            os.close(self.fd)
+            os.close(self.fd)  # the kernel also cancels any URB left
             self.fd = -1
 
 
 def open_usbfs_device(dev: LinuxUsbDevice) -> UsbfsHidDevice:
-    """Open and claim the device. Raises OSError: PermissionError when this user may not open the
-    node, errno EBUSY when someone else holds the interface, UsbfsUnsupportedError, ENODEV."""
+    """Open and claim the device. Raises OSError (with the node as filename): PermissionError when
+    this user may not open the node, errno EBUSY when someone else holds the interface,
+    UsbfsUnsupportedError, ENODEV."""
     if _usbfs_ioctl is None and not _usbfs_arch_supported():
         raise UsbfsUnsupportedError(errno.ENOTSUP, f"usbfs transport not built for {platform.machine()}", dev.node)
     try:
@@ -723,22 +834,22 @@ def open_usbfs_device(dev: LinuxUsbDevice) -> UsbfsHidDevice:
     if endpoints is None:
         raise OSError(errno.ENODEV, "no HID interface with an interrupt IN endpoint", dev.sysfs)
     fd = os.open(dev.node, os.O_RDWR)
-    hid = UsbfsHidDevice(fd, dev.node, endpoints, _usbfs_ioctl)
+    hid = UsbfsHidDevice(fd, dev.node, endpoints, _usbfs_ioctl, _usbfs_wait)
     try:
         hid.claim()
     except OSError as e:
         hid.close()
-        if e.errno == errno.EBUSY:
-            raise OSError(errno.EBUSY, "the device is in use (a kernel driver or another program holds it)",
-                          dev.node) from e
-        raise
+        raise OSError(e.errno, e.strerror, dev.node) from e
     return hid
 
 
-# udev rule that lets members of plugdev (and, on a desktop, the logged-in user) open the Harmony
-# devices; same text in docs/FIRST_INSTALL_HUB.md and docs/FIRST_INSTALL_REMOTE.md
-LINUX_UDEV_RULE = ('SUBSYSTEM=="usb", ATTR{idVendor}=="046d", ATTR{idProduct}=="c129|c12b|c132", '
-                   'MODE="0660", GROUP="plugdev", TAG+="uaccess"')
+# udev rules for the Harmony devices (same text in docs/FIRST_INSTALL_HUB.md). The first gives the
+# user logged in at the desktop access (uaccess). The second is for logins without a desktop on
+# Debian and Ubuntu: newer systemd drops a whole rule line that names a group the system lacks, so
+# GROUP="plugdev" is kept out of the first one.
+LINUX_UDEV_RULE = 'SUBSYSTEM=="usb", ATTR{idVendor}=="046d", ATTR{idProduct}=="c129|c12b|c132", TAG+="uaccess"'
+LINUX_UDEV_RULE_PLUGDEV = ('SUBSYSTEM=="usb", ATTR{idVendor}=="046d", ATTR{idProduct}=="c129|c12b|c132", '
+                           'MODE="0660", GROUP="plugdev"')
 
 
 def usb_open_failure_message(candidates) -> Optional[str]:
@@ -759,14 +870,17 @@ def usb_open_failure_message(candidates) -> Optional[str]:
                  "Run the tool with sudo, or give your user read and write access to that hidraw node."]
     elif isinstance(err, PermissionError):
         lines = [f"The Harmony device is on USB, but this user may not open its device ({where}).",
-                 "Run the tool with sudo, or add this udev rule as /etc/udev/rules.d/60-harmony.rules:",
+                 "Run the tool with sudo, or add this udev rule as /etc/udev/rules.d/60-harmony.rules",
+                 "(access for the user logged in at the desktop):",
                  f"  {LINUX_UDEV_RULE}",
-                 "then run 'sudo udevadm control --reload' and connect the device again. A desktop",
-                 "login gets access by itself (uaccess); otherwise add your user to the plugdev group",
-                 "('sudo usermod -aG plugdev $USER', log in again; Debian and Ubuntu have that group)."]
+                 "Without a desktop login, on Debian or Ubuntu, use this line instead and add your user",
+                 "to plugdev ('sudo usermod -aG plugdev $USER', then log in again):",
+                 f"  {LINUX_UDEV_RULE_PLUGDEV}",
+                 "Then run 'sudo udevadm control --reload' and connect the device again."]
     elif err.errno == errno.EBUSY:
         lines = [f"The Harmony device is on USB, but it is in use ({where}).",
-                 "Close any other Harmony tool, then try again."]
+                 "Another program, a virtual machine or a kernel driver holds it: close other Harmony",
+                 "tools (or detach the device from the virtual machine), then try again."]
     else:
         lines = [f"The Harmony device is on USB, but it could not be opened: {err.strerror or err} ({where})."]
     return "\n".join(lines)
@@ -1173,6 +1287,10 @@ class HarmonyHid:
             self.seq = 1
         return s
 
+    def _device_gone(self) -> bool:
+        """The device left the bus (usbfs transport): no answer will come, stop waiting."""
+        return bool(getattr(self.dev, "gone", False))
+
     def drain_input(self, timeout_ms: int = 10) -> None:
         """Discard any stale/unread reports in the HID endpoint buffer."""
         if sys.platform == "win32" and self.dev and getattr(self.dev, "handle", None):
@@ -1198,6 +1316,8 @@ class HarmonyHid:
         while time.time() < t_end:
             resp = self.dev.read_report(int((t_end - time.time()) * 1000))
             if not resp:
+                if self._device_gone():
+                    break
                 continue
             for off in range(0, max(0, len(resp) - 3)):
                 if resp[off] == 0xFF and resp[off + 1] == cmd_id:
@@ -1274,6 +1394,8 @@ class HarmonyHid:
             while time.time() < t_end:
                 resp = self.dev.read_report(int((t_end - time.time()) * 1000))
                 if not resp:
+                    if self._device_gone():
+                        break
                     continue
                 # a refusal is 6 bytes (is_error_response): only offsets with a whole one after them
                 for off in range(0, max(0, len(resp) - 5)):
@@ -1358,6 +1480,8 @@ class HarmonyHid:
             while time.time() < t_end and len(chunk_received) < wanted:
                 rep = self.dev.read_report(int(max(10, (t_end - time.time()) * 1000)))
                 if not rep:
+                    if self._device_gone():
+                        break
                     continue
                 if rep[0] == 0xFF:
                     continue

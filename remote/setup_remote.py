@@ -1091,8 +1091,10 @@ def main():
 
     # Dynamic Automated Execution based on USB State
     if pre_state.mode == UsbMode.DISCONNECTED:
-        print("[-] Remote is not detected on USB bus.")
-        print("    Ensure remote is plugged in via direct Micro-USB cable (bottom port) and powered ON.")
+        # error_details: on USB but not openable (Linux); the banner above already said why
+        if not pre_state.error_details:
+            print("[-] Remote is not detected on USB bus.")
+            print("    Ensure remote is plugged in via direct Micro-USB cable (bottom port) and powered ON.")
         sys.exit(1)
 
     if pre_state.mode == UsbMode.DRIVER_ERROR:
