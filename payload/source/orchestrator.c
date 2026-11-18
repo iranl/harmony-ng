@@ -390,17 +390,16 @@ static void cancel_locked(void) {
         strncpy(g_current_act, ORCH_POWEROFF_ID, sizeof(g_current_act) - 1);
         save_current_activity(g_current_act);
         set_state(ORCH_STATE_IDLE);
-        pthread_mutex_unlock(&g_act_lock);
     } else {
         set_state((strcmp(g_current_act, ORCH_POWEROFF_ID) == 0) ? ORCH_STATE_IDLE : ORCH_STATE_RUNNING);
         write_activity_mirror(g_current_act); /* a cancelled start: back to the activity the Hub is in */
-        pthread_mutex_unlock(&g_act_lock);
     }
-    if (g_progress_cb) {
-        char cur[sizeof(g_current_act)];
-        current_act_copy(cur, sizeof(cur));
-        g_progress_cb(cur, g_state, 0, 0, "Sequence cancelled", 0, -1, g_cb_user_data);
-    }
+    /* what the progress event reports, taken in the same hold of the lock */
+    char cur[sizeof(g_current_act)];
+    snprintf(cur, sizeof(cur), "%s", g_current_act);
+    orch_state_t st = g_state;
+    pthread_mutex_unlock(&g_act_lock);
+    if (g_progress_cb) g_progress_cb(cur, st, 0, 0, "Sequence cancelled", 0, -1, g_cb_user_data);
 }
 
 int orch_enqueue_steps(const orch_step_t *steps, size_t count) {
@@ -697,11 +696,12 @@ static int orch_tick_locked(void) {
     }
     char reached[sizeof(g_current_act)];
     snprintf(reached, sizeof(reached), "%s", g_current_act);
+    orch_state_t reached_state = g_state;
     pthread_mutex_unlock(&g_act_lock);
     clear_activity_target();
 
     if (g_progress_cb) {
-        g_progress_cb(reached, g_state, 0, 0, "Transition completed", 0, g_failed_steps, g_cb_user_data);
+        g_progress_cb(reached, reached_state, 0, 0, "Transition completed", 0, g_failed_steps, g_cb_user_data);
     }
     if (g_failed_steps > 0) {
         printf("[!] Orch: %d step(s) of the switch to %s could not be sent\n", g_failed_steps, reached);
