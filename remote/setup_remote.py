@@ -437,7 +437,7 @@ def step1_enable_usb_debug(pubkey_str: str, skip_fw_check: bool = False) -> bool
         sys.path.insert(0, str(REPO_DIR))
 
     try:
-        from tools.harmony_hid import HarmonyHid, REMOTE_PID
+        from tools.harmony_hid import HarmonyHid, REMOTE_PID, usb_open_failure_message
     except ImportError as e:
         print(f"[-] Error: Could not import tools.harmony_hid: {e}")
         return False
@@ -445,6 +445,7 @@ def step1_enable_usb_debug(pubkey_str: str, skip_fw_check: bool = False) -> bool
     print("[*] Connecting to Harmony Remote over USB HID...")
     time.sleep(0.3)
     hid = None
+    tried = []
 
     for pid in (REMOTE_PID, 0xC132):
         h = HarmonyHid(pid=pid)
@@ -452,10 +453,15 @@ def step1_enable_usb_debug(pubkey_str: str, skip_fw_check: bool = False) -> bool
             hid = h
             print(f"[+] Connected to Harmony Remote over USB HID (046D:{pid:04X})")
             break
+        tried.append(h)
 
     if not hid:
-        print("[-] USB connection failed.")
-        print("    Ensure remote is plugged in via USB and powered ON.")
+        failure = usb_open_failure_message(tried)
+        if failure:
+            print("[-] " + failure.replace("\n", "\n    "))
+        else:
+            print("[-] USB connection failed.")
+            print("    Ensure remote is plugged in via USB and powered ON.")
         return False
 
     try:

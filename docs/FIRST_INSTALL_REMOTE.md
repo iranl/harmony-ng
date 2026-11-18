@@ -19,8 +19,8 @@ This guide covers initial USB rooting and installation of the **HarmonyNG** cust
 - **Micro-USB Cable**: Connect directly to the remote's bottom port (NOT the charging cradle base).
 - **Host PC**: Windows 10/11, macOS, or Linux.
 - **USB network adapter with a static IP**: Windows needs the RNDIS driver; macOS and Linux need no driver. All need a static IP on the remote's subnet (see [`RNDIS_AND_NETWORK_SETUP.md`](RNDIS_AND_NETWORK_SETUP.md)).
-- **Python 3.13 or newer**: Installed on host PC (standard library only; USB HID goes through `ctypes` and, on Linux, `/dev/hidraw*`). Ubuntu 24.04 and Debian 12 ship an older Python: there, install 3.13 from python.org or with `uv python install 3.13`.
-- **Linux only**: read and write access to the remote's `/dev/hidraw*` node, so run the tools as root or add a udev rule for `046d`. Without it the tools report the remote as "not detected on USB".
+- **Python 3.13 or newer**: Installed on host PC (standard library only; USB HID goes through `ctypes` and, on Linux, the USB device node `/dev/bus/usb/<bus>/<device>`). Ubuntu 24.04 and Debian 12 ship an older Python: there, install 3.13 from python.org or with `uv python install 3.13`.
+- **Linux only**: the kernel binds no driver to Logitech's Harmony USB IDs (046D:C110-C14F are ignored on purpose), so there is no `/dev/hidraw*` node; the tools open the USB device node directly. They need read and write access to it: run them with `sudo`, or add the udev rule of [`FIRST_INSTALL_HUB.md`](FIRST_INSTALL_HUB.md) (Prerequisites, Linux), which covers the remote (`046d:c12b`) too. Without access the tools say that the device is on USB but may not be opened, and name the node.
 - **OpenSSH client and `tar`**: `ssh`, `scp` and `ssh-keygen` in the PATH (the tools run these programs), and `tar`, which `deploy_remote.py` uses to pack the themes.
 
 ### Choose Your Installation Method

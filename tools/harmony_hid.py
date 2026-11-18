@@ -6,7 +6,9 @@ over raw USB HID without third-party dependencies.
 
 Supported OS:
 - Windows: Native ctypes (setupapi.dll + hid.dll + kernel32.dll)
-- Linux: Native /dev/hidraw* with standard ioctl
+- Linux: Native /dev/hidraw* when the kernel made one, else the USB device node
+  (/dev/bus/usb/BBB/DDD) through usbfs ioctls: the kernel ignores Logitech's Harmony USB range
+  (046D:C110-C14F, hid_ignore() in drivers/hid/hid-quirks.c), so normally no hidraw node exists
 - macOS: Native ctypes (IOKit.framework + CoreFoundation.framework)
 
 License: MIT (Harmony Hub Control Project)
@@ -15,11 +17,13 @@ License: MIT (Harmony Hub Control Project)
 from __future__ import annotations
 
 import ctypes
+import errno
 import os
 import platform
 import struct
 import sys
 import time
+from dataclasses import dataclass
 from typing import Optional, Tuple
 
 HARMONY_VID = 0x046D
@@ -497,6 +501,278 @@ def find_linux_device(target_pid: Optional[int] = None) -> Optional[str]:
 
 
 # ==============================================================================
+# Linux usbfs Transport (/dev/bus/usb/BBB/DDD, no hidraw node)
+# ==============================================================================
+#
+# The kernel binds no HID driver to 046D:C110-C14F (hid_ignore() in drivers/hid/hid-quirks.c, kept
+# for the userspace tool concordance), so the Hub and the remotes get no /dev/hidraw* node. The
+# device is then reached the way libusb does it on Linux: open its usbfs node, claim the HID
+# interface, and move the 64-byte reports on its interrupt endpoints (control SET_REPORT when the
+# device has no interrupt OUT endpoint). Endpoints come from the device's own descriptors in sysfs.
+# Everything here can be replaced by the tests (no device, no root needed).
+
+_SYSFS_USB_DIR = "/sys/bus/usb/devices"
+_DEV_USB_DIR = "/dev/bus/usb"
+_usbfs_ioctl = None  # None = fcntl.ioctl; the tests put a fake device here
+
+USB_REPORT_LEN = 64  # the reports on the wire: no report ID (the report descriptor has none)
+USBFS_TIMEOUT_MS = 5000  # one write (as long as the Windows transport waits)
+
+
+class UsbfsUnsupportedError(OSError):
+    """This CPU architecture encodes ioctl numbers differently; the usbfs transport is not built for it."""
+
+
+@dataclass(frozen=True)
+class UsbHidEndpoints:
+    interface: int
+    ep_in: int
+    in_size: int
+    ep_out: Optional[int]  # None: reports go out as SET_REPORT on endpoint 0
+
+
+@dataclass(frozen=True)
+class LinuxUsbDevice:
+    sysfs: str
+    busnum: int
+    devnum: int
+    vid: int
+    pid: int
+
+    @property
+    def node(self) -> str:
+        return os.path.join(_DEV_USB_DIR, f"{self.busnum:03d}", f"{self.devnum:03d}")
+
+
+def _read_sysfs(path: str) -> str:
+    with open(path, "r") as f:
+        return f.read().strip()
+
+
+def find_linux_usb_device(target_pid: Optional[int] = None) -> Optional[LinuxUsbDevice]:
+    """The Harmony device on USB, from sysfs (no driver, no hidraw node needed)."""
+    try:
+        names = sorted(os.listdir(_SYSFS_USB_DIR))
+    except OSError:
+        return None
+    for name in names:
+        if ":" in name:  # an interface, not a device
+            continue
+        d = os.path.join(_SYSFS_USB_DIR, name)
+        try:
+            vid = int(_read_sysfs(os.path.join(d, "idVendor")), 16)
+            pid = int(_read_sysfs(os.path.join(d, "idProduct")), 16)
+            if vid != HARMONY_VID:
+                continue
+            if (target_pid and pid != target_pid) or (not target_pid and pid not in ALL_HARMONY_PIDS):
+                continue
+            busnum = int(_read_sysfs(os.path.join(d, "busnum")))
+            devnum = int(_read_sysfs(os.path.join(d, "devnum")))
+        except (OSError, ValueError):
+            continue
+        return LinuxUsbDevice(d, busnum, devnum, vid, pid)
+    return None
+
+
+def parse_hid_endpoints(descriptors: bytes, config_value: Optional[int] = None) -> Optional[UsbHidEndpoints]:
+    """The first HID interface with an interrupt IN endpoint, in the raw descriptors sysfs gives
+    (device descriptor, then every configuration). config_value picks the active configuration."""
+    pos = 0
+    in_config = config_value is None
+    iface: Optional[int] = None
+    ep_in = in_size = None
+    ep_out: Optional[int] = None
+    found: Optional[UsbHidEndpoints] = None
+
+    def finish() -> Optional[UsbHidEndpoints]:
+        if iface is not None and ep_in is not None:
+            return UsbHidEndpoints(iface, ep_in, in_size or USB_REPORT_LEN, ep_out)
+        return None
+
+    while pos + 2 <= len(descriptors):
+        length, dtype = descriptors[pos], descriptors[pos + 1]
+        if length < 2 or pos + length > len(descriptors):
+            break
+        d = descriptors[pos:pos + length]
+        if dtype == 0x02 and length >= 6:  # configuration
+            found = found or finish()
+            if found:
+                return found
+            iface, ep_in, in_size, ep_out = None, None, None, None
+            in_config = config_value is None or d[5] == config_value
+        elif dtype == 0x04 and length >= 9 and in_config:  # interface
+            found = found or finish()
+            if found:
+                return found
+            iface, ep_in, in_size, ep_out = (d[2] if d[5] == 0x03 else None), None, None, None
+        elif dtype == 0x05 and length >= 7 and in_config and iface is not None:  # endpoint
+            addr, attrs = d[2], d[3]
+            size = d[4] | (d[5] << 8)
+            if attrs & 0x03 == 0x03:  # interrupt
+                if addr & 0x80:
+                    if ep_in is None:
+                        ep_in, in_size = addr, size & 0x7FF
+                elif ep_out is None:
+                    ep_out = addr
+        pos += length
+    return found or finish()
+
+
+def _ioc(direction: int, nr: int, size: int) -> int:
+    # asm-generic/ioctl.h (x86, ARM, RISC-V, ...): dir<<30 | size<<16 | type<<8 | nr
+    return (direction << 30) | (size << 16) | (ord("U") << 8) | nr
+
+
+class _UsbfsCtrl(ctypes.Structure):
+    _fields_ = [("bRequestType", ctypes.c_uint8), ("bRequest", ctypes.c_uint8),
+                ("wValue", ctypes.c_uint16), ("wIndex", ctypes.c_uint16),
+                ("wLength", ctypes.c_uint16), ("timeout", ctypes.c_uint32),
+                ("data", ctypes.c_void_p)]
+
+
+class _UsbfsBulk(ctypes.Structure):
+    _fields_ = [("ep", ctypes.c_uint), ("len", ctypes.c_uint), ("timeout", ctypes.c_uint),
+                ("data", ctypes.c_void_p)]
+
+
+# linux/usbdevice_fs.h
+USBDEVFS_CONTROL = _ioc(3, 0, ctypes.sizeof(_UsbfsCtrl))
+USBDEVFS_BULK = _ioc(3, 2, ctypes.sizeof(_UsbfsBulk))  # also does interrupt endpoints
+USBDEVFS_CLAIMINTERFACE = _ioc(2, 15, ctypes.sizeof(ctypes.c_uint))
+USBDEVFS_RELEASEINTERFACE = _ioc(2, 16, ctypes.sizeof(ctypes.c_uint))
+
+
+def _usbfs_arch_supported() -> bool:
+    m = platform.machine().lower()
+    return not m.startswith(("mips", "ppc", "powerpc", "sparc", "alpha", "parisc"))
+
+
+class UsbfsHidDevice:
+    """A Harmony HID device on its usbfs node: 64-byte reports on the interrupt endpoints."""
+
+    def __init__(self, fd: int, path: str, endpoints: UsbHidEndpoints, ioctl=None):
+        self.fd = fd
+        self.path = path
+        self.endpoints = endpoints
+        if ioctl is None:
+            import fcntl
+            ioctl = fcntl.ioctl
+        self._ioctl = ioctl
+        self._claimed = False
+
+    def claim(self) -> None:
+        self._ioctl(self.fd, USBDEVFS_CLAIMINTERFACE, ctypes.c_uint(self.endpoints.interface))
+        self._claimed = True
+
+    def _bulk(self, ep: int, buf, timeout_ms: int) -> int:
+        req = _UsbfsBulk(ep, len(buf), max(1, int(timeout_ms)), ctypes.addressof(buf))
+        return int(self._ioctl(self.fd, USBDEVFS_BULK, req))
+
+    def write_report(self, data: bytes) -> bool:
+        if len(data) == 65:
+            data = data[1:]  # the report ID byte of the hidraw/Windows framing; not on the wire
+        elif len(data) != 64:
+            raise ValueError(f"Invalid report size: {len(data)}")
+        buf = ctypes.create_string_buffer(bytes(data), USB_REPORT_LEN)
+        try:
+            if self.endpoints.ep_out is not None:
+                return self._bulk(self.endpoints.ep_out, buf, USBFS_TIMEOUT_MS) == USB_REPORT_LEN
+            req = _UsbfsCtrl(0x21, 0x09, 0x0200, self.endpoints.interface,  # SET_REPORT, Output, ID 0
+                             USB_REPORT_LEN, USBFS_TIMEOUT_MS, ctypes.addressof(buf))
+            return int(self._ioctl(self.fd, USBDEVFS_CONTROL, req)) == USB_REPORT_LEN
+        except OSError:
+            return False
+
+    def read_report(self, timeout_ms: int = 5000) -> bytes:
+        # timeout 0 would mean "wait for ever" to the kernel: at least 1 ms
+        buf = ctypes.create_string_buffer(max(self.endpoints.in_size, USB_REPORT_LEN))
+        try:
+            n = self._bulk(self.endpoints.ep_in, buf, timeout_ms)
+        except OSError:  # ETIMEDOUT, or the device went away (ENODEV): no report
+            return b""
+        return buf.raw[:min(n, USB_REPORT_LEN)]
+
+    def close(self) -> None:
+        if self.fd >= 0:
+            if self._claimed:
+                try:
+                    self._ioctl(self.fd, USBDEVFS_RELEASEINTERFACE, ctypes.c_uint(self.endpoints.interface))
+                except OSError:
+                    pass
+                self._claimed = False
+            os.close(self.fd)
+            self.fd = -1
+
+
+def open_usbfs_device(dev: LinuxUsbDevice) -> UsbfsHidDevice:
+    """Open and claim the device. Raises OSError: PermissionError when this user may not open the
+    node, errno EBUSY when someone else holds the interface, UsbfsUnsupportedError, ENODEV."""
+    if _usbfs_ioctl is None and not _usbfs_arch_supported():
+        raise UsbfsUnsupportedError(errno.ENOTSUP, f"usbfs transport not built for {platform.machine()}", dev.node)
+    try:
+        with open(os.path.join(dev.sysfs, "descriptors"), "rb") as f:
+            raw = f.read()
+    except OSError as e:
+        raise OSError(errno.ENODEV, f"cannot read the USB descriptors ({e.strerror})", dev.sysfs) from e
+    config: Optional[int] = None
+    try:
+        config = int(_read_sysfs(os.path.join(dev.sysfs, "bConfigurationValue")))
+    except (OSError, ValueError):
+        pass
+    endpoints = parse_hid_endpoints(raw, config)
+    if endpoints is None:
+        raise OSError(errno.ENODEV, "no HID interface with an interrupt IN endpoint", dev.sysfs)
+    fd = os.open(dev.node, os.O_RDWR)
+    hid = UsbfsHidDevice(fd, dev.node, endpoints, _usbfs_ioctl)
+    try:
+        hid.claim()
+    except OSError as e:
+        hid.close()
+        if e.errno == errno.EBUSY:
+            raise OSError(errno.EBUSY, "the device is in use (a kernel driver or another program holds it)",
+                          dev.node) from e
+        raise
+    return hid
+
+
+# udev rule that lets members of plugdev (and, on a desktop, the logged-in user) open the Harmony
+# devices; same text in docs/FIRST_INSTALL_HUB.md and docs/FIRST_INSTALL_REMOTE.md
+LINUX_UDEV_RULE = ('SUBSYSTEM=="usb", ATTR{idVendor}=="046d", ATTR{idProduct}=="c129|c12b|c132", '
+                   'MODE="0660", GROUP="plugdev", TAG+="uaccess"')
+
+
+def usb_open_failure_message(candidates) -> Optional[str]:
+    """Why a Harmony device that is on USB could not be opened (from the open_error of the
+    HarmonyHid objects tried), with what to do. None when none was found at all: the caller then
+    prints its own "not detected" text."""
+    err: Optional[OSError] = None
+    for c in candidates:
+        e = getattr(c, "open_error", None)
+        if e is not None and (err is None or isinstance(e, PermissionError)):
+            err = e
+    if err is None:
+        return None
+    where = getattr(err, "filename", None) or "the device"
+    if isinstance(err, PermissionError) and str(where).startswith("/dev/hidraw"):
+        # a kernel that made a hidraw node (no hid_ignore() for the device, or the usbhid quirk)
+        lines = [f"The Harmony device is on USB, but this user may not open its device ({where}).",
+                 "Run the tool with sudo, or give your user read and write access to that hidraw node."]
+    elif isinstance(err, PermissionError):
+        lines = [f"The Harmony device is on USB, but this user may not open its device ({where}).",
+                 "Run the tool with sudo, or add this udev rule as /etc/udev/rules.d/60-harmony.rules:",
+                 f"  {LINUX_UDEV_RULE}",
+                 "then run 'sudo udevadm control --reload' and connect the device again. A desktop",
+                 "login gets access by itself (uaccess); otherwise add your user to the plugdev group",
+                 "('sudo usermod -aG plugdev $USER', log in again; Debian and Ubuntu have that group)."]
+    elif err.errno == errno.EBUSY:
+        lines = [f"The Harmony device is on USB, but it is in use ({where}).",
+                 "Close any other Harmony tool, then try again."]
+    else:
+        lines = [f"The Harmony device is on USB, but it could not be opened: {err.strerror or err} ({where})."]
+    return "\n".join(lines)
+
+
+# ==============================================================================
 # macOS IOKit Transport (ctypes)
 # ==============================================================================
 
@@ -812,7 +1088,8 @@ class HarmonyHid:
         self.dev = None
         self.seq = 1
         # why the last open() failed when a device was found but could not be opened (Linux:
-        # the OSError of the hidraw node, e.g. PermissionError); None otherwise
+        # the OSError of the hidraw or usbfs node, e.g. PermissionError); None otherwise.
+        # usb_open_failure_message() turns it into text for the user.
         self.open_error: Optional[OSError] = None
 
     def open(self) -> bool:
@@ -838,17 +1115,28 @@ class HarmonyHid:
             return True
 
         elif sys.platform.startswith("linux"):
+            self.open_error = None
+            # a hidraw node exists only where the kernel does not ignore the device (usbhid quirk
+            # HID_QUIRK_NO_IGNORE, or a kernel without the Harmony range in hid_ignore())
             path = find_linux_device(self.pid)
-            if not path:
+            if path:
+                try:
+                    fd = os.open(path, os.O_RDWR)
+                    self.dev = LinuxHidDevice(fd, path)
+                    return True
+                except OSError as e:
+                    self.open_error = e
+                    return False
+            usb = find_linux_usb_device(self.pid)
+            if not usb:
                 return False
             try:
-                fd = os.open(path, os.O_RDWR)
-                self.dev = LinuxHidDevice(fd, path)
-                self.open_error = None
-                return True
+                self.dev = open_usbfs_device(usb)
             except OSError as e:
                 self.open_error = e
                 return False
+            self.drain_input()
+            return True
         elif sys.platform == "darwin":
             mgr, dev_ref = find_darwin_device(self.pid)
             if not dev_ref:

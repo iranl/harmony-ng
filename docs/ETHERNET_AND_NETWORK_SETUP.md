@@ -135,8 +135,9 @@ reach the web UI, set the Wi-Fi from a computer over USB, as the stock firmware 
    tool then opens the device again and retries for up to 60 s.
 4. Put the power supply (or the Ethernet adapter) back: the Hub starts again on its network.
 
-On Linux the user needs read and write access to the Hub's `/dev/hidraw*` device (or run the tool
-with `sudo`); Windows and macOS need no driver. `python tools/root_hub_usb.py --skip-fw-check
+On Linux the user needs read and write access to the Hub's USB device node (or run the tool with
+`sudo`; the udev rule is in [`FIRST_INSTALL_HUB.md`](FIRST_INSTALL_HUB.md), Prerequisites);
+Windows and macOS need no driver. `python tools/root_hub_usb.py --skip-fw-check
 --wifi-only --no-reboot --wifi-ssid "YourNetworkName"` does the same, with extra LAN checks.
 
 Only the Wi-Fi network can be read and set this way: the password is never sent back, and every

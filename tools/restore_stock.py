@@ -41,7 +41,7 @@ BACKUP_DIR = REPO_DIR / "backups"
 if str(REPO_DIR) not in sys.path:
     sys.path.insert(0, str(REPO_DIR))
 
-from tools.harmony_hid import HarmonyHid, HUB_PID
+from tools.harmony_hid import HarmonyHid, HUB_PID, usb_open_failure_message
 from tools.root_hub_usb import (
     build_payload,
     check_tcp_port,
@@ -154,7 +154,8 @@ def gain_root_over_usb(
     hid = HarmonyHid(pid=HUB_PID)
     if not hid.open():
         raise RuntimeError(
-            "Harmony Hub not detected on USB.\n"
+            usb_open_failure_message([hid])
+            or "Harmony Hub not detected on USB.\n"
             "Ensure the Hub is connected via micro-USB to this computer and powered on."
         )
 
