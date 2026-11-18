@@ -75,9 +75,12 @@ def validate_manifest(manifest: dict) -> list[str]:
 
 class TestPluginSystem(unittest.TestCase):
     def test_repository_json(self):
-        repo_path = os.path.join(REPO_ROOT, "plugins", "repository.json")
-        self.assertTrue(os.path.isfile(repo_path), "plugins/repository.json must exist")
-        with open(repo_path, "r", encoding="utf-8") as f:
+        # The catalog lives in the harmony-ng-plugins repo (next to this one, or PLUGINS_REPO)
+        plugins_repo = os.environ.get("PLUGINS_REPO", os.path.join(os.path.dirname(REPO_ROOT), "harmony-ng-plugins"))
+        repo_path = os.path.join(plugins_repo, "repository.json")
+        if not os.path.isfile(repo_path):
+            self.skipTest(f"no harmony-ng-plugins checkout at {plugins_repo} (set PLUGINS_REPO)")
+        with open(repo_path, "r", encoding="utf-8-sig") as f:
             data = json.load(f)
 
         self.assertIn("repo_name", data)
@@ -93,6 +96,8 @@ class TestPluginSystem(unittest.TestCase):
             self.assertTrue(is_safe_plugin_id(p["id"]), f"Invalid plugin id in repo: {p['id']}")
             self.assertTrue(p["download_url"].startswith("http://") or p["download_url"].startswith("https://"),
                             f"Invalid download_url: {p['download_url']}")
+            # the Hub refuses an archive whose SHA-256 differs from this
+            self.assertRegex(p.get("sha256", ""), r"^[0-9a-f]{64}$", f"{p['id']}: sha256 missing or malformed")
             if "device_definition" in p:
                 errors = validate_manifest(p)
                 self.assertEqual(errors, [], f"Repository item manifest errors: {errors}")

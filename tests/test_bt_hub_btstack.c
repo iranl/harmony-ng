@@ -224,6 +224,10 @@ void gap_discoverable_control(uint8_t on) { UNUSED(on); }
 void gap_connectable_control(uint8_t on) { UNUSED(on); }
 void gap_set_local_name(const char *name) { UNUSED(name); }
 void gap_set_class_of_device(uint32_t cod) { UNUSED(cod); }
+/* bt_page (raw HCI paging) and the BLE broadcast command */
+uint8_t hci_send_cmd_packet(uint8_t *packet, int size) { UNUSED(packet); UNUSED(size); return 0; }
+void gap_local_bd_addr(bd_addr_t out) { memset(out, 0, 6); }
+void bt_adv_handle_cmd(const char *args) { UNUSED(args); }
 void gap_stop_scan(void) {}
 void gap_start_scan(void) {}
 void gap_set_scan_parameters(uint8_t t, uint16_t i, uint16_t w) { UNUSED(t); UNUSED(i); UNUSED(w); }

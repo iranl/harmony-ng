@@ -261,7 +261,7 @@ build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_h
 build_test -Wall -Wextra -O1 -g -fsanitize=address -pthread -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_config_snap" "$SCRIPT_DIR/test_config_snap.c" "$REPO_ROOT/payload/source/cJSON.c" -lm && "$BUILD_DIR/test_config_snap"
 # Key presses read the shared device list without copying it
 build_test -Wall -O1 -g -fsanitize=address -pthread -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_config_keypath" "$SCRIPT_DIR/test_config_keypath.c" \
-    "$REPO_ROOT"/payload/source/{config_store,resource_cache,hw_action,bt_migrate,config_sanitize,cJSON}.c -lm
+    "$REPO_ROOT"/payload/source/{config_store,resource_cache,hw_action,bt_migrate,config_sanitize,plugin_mgr,http_util,sha256,cJSON}.c -lm
 ASAN_PRELOAD=$(ldd "$BUILD_DIR/test_config_keypath" 2>/dev/null | grep libasan | awk '{print $3}' || true)
 LD_PRELOAD="${ASAN_PRELOAD:+$ASAN_PRELOAD:}$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_config_keypath"
 # Host tool with a fake ssh (tools/factory_reset.py stops and exits non-zero when a step fails)
@@ -320,7 +320,7 @@ python3 "$SCRIPT_DIR/test_live_key_gaps.py"
 python3 "$SCRIPT_DIR/test_key_trace.py"
 build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source/hub_btstack" -o "$BUILD_DIR/test_bt_key_trace" "$SCRIPT_DIR/test_bt_key_trace.c" && "$BUILD_DIR/test_bt_key_trace"
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_ble_adv_payload" "$SCRIPT_DIR/test_ble_adv_payload.c" && "$BUILD_DIR/test_ble_adv_payload"
-build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_plugin_mgr" "$SCRIPT_DIR/test_plugin_mgr.c" "$REPO_ROOT/payload/source/plugin_mgr.c" "$REPO_ROOT/payload/source/http_util.c" "$REPO_ROOT/payload/source/cJSON.c" -lm && "$BUILD_DIR/test_plugin_mgr"
+build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_plugin_mgr" "$SCRIPT_DIR/test_plugin_mgr.c" "$REPO_ROOT/payload/source/plugin_mgr.c" "$REPO_ROOT/payload/source/http_util.c" "$REPO_ROOT/payload/source/sha256.c" "$REPO_ROOT/payload/source/cJSON.c" -lm && "$BUILD_DIR/test_plugin_mgr"
 python3 "$SCRIPT_DIR/test_plugin_manifest.py"
 python3 "$SCRIPT_DIR/test_plugin_device_save.py"
 

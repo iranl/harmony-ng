@@ -20,6 +20,9 @@
 #include "timezone_db.h"
 #include "json_number.h"
 
+/* No plugins installed: the sanitizer only asks which device types belong to a plugin */
+int plugin_mgr_resolve_device_plugin(const char *t, char *out, size_t sz) { (void)t; (void)out; (void)sz; return 0; }
+
 static int g_failures;
 #define CHECK(cond, msg) do { if (!(cond)) { g_failures++; printf("  FAIL %s\n", msg); } else printf("  PASS %s\n", msg); } while (0)
 
