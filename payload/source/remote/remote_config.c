@@ -938,9 +938,16 @@ void apply_theme(const char *name) {
     g_screen_dirty = true;
 }
 
+/* Theme of a remote whose settings name none (first start, older settings file) */
+#define DEFAULT_THEME "colourful"
+
 void load_settings_conf(void) {
+    bool theme_set = false;
     FILE *f = fopen(SETTINGS_CONFIG_FILE, "r");
-    if (!f) return;
+    if (!f) {
+        theme_load(DEFAULT_THEME);
+        return;
+    }
     char line[128];
     while (fgets(line, sizeof(line), f)) {
         char key[64] = {0};
@@ -971,7 +978,10 @@ void load_settings_conf(void) {
             else if (strcmp(key, "language") == 0 || strcmp(key, "lang") == 0) {
                 g_language = remote_lang_from_code(sval);
             }
-            else if (strcmp(key, "theme") == 0) theme_load(sval);
+            else if (strcmp(key, "theme") == 0) {
+                theme_load(sval);
+                theme_set = true;
+            }
             else if (strcmp(key, "layout") == 0) {
                 g_home_layout = strcmp(sval, "grid") == 0 ? HOME_LAYOUT_GRID
                               : strcmp(sval, "list") == 0 ? HOME_LAYOUT_LIST
@@ -992,6 +1002,7 @@ void load_settings_conf(void) {
         }
     }
     fclose(f);
+    if (!theme_set) theme_load(DEFAULT_THEME);
     /* 0 kept the screen on, and the remote awake, until the battery was empty */
     g_timeout_seconds = rf_clamp_screen_timeout(g_timeout_seconds);
     if (access("/data/debug_logging.conf", F_OK) == 0) {
