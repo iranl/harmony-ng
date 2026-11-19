@@ -1143,7 +1143,8 @@ static int save_repositories(cJSON *arr) {
     if (!arr) return -1;
     char *out = cJSON_Print(arr);
     if (!out) return -1;
-    mkdir("/data/harmony/config", 0755);
+    mkdir(HARMONY_PLUGIN_ROOT, 0755);
+    mkdir(HARMONY_PLUGIN_ROOT "/config", 0755);
     int ret = write_file_atomic_sized(HARMONY_REPOSITORIES_FILE, out, strlen(out));
     free(out);
     return ret;

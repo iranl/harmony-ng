@@ -12,7 +12,7 @@
 
 cJSON *config_store_devices_copy(void) {
     size_t len = 0;
-    char *txt = read_file_text_alloc("/data/harmony/config/devices.json", 32768, &len);
+    char *txt = read_file_text_alloc(HARMONY_PLUGIN_ROOT "/config/devices.json", 32768, &len);
     if (!txt) return NULL;
     cJSON *obj = cJSON_Parse(txt);
     free(txt);
@@ -149,19 +149,19 @@ int main(void) {
     /* 6. Enable / Disable toggle */
     rc = plugin_mgr_set_enabled("test-roku", 0);
     assert(rc == 0);
-    assert(access("/data/harmony/plugins/test-roku/disabled", F_OK) == 0);
+    assert(access(HARMONY_PLUGIN_ROOT "/plugins/test-roku/disabled", F_OK) == 0);
 
     rc = plugin_mgr_set_enabled("test-roku", 1);
-    assert(access("/data/harmony/plugins/test-roku/disabled", F_OK) != 0);
+    assert(access(HARMONY_PLUGIN_ROOT "/plugins/test-roku/disabled", F_OK) != 0);
     printf("[+] Plugin enable/disable toggling verified.\n");
 
     /* 6b. A disabled plugin stays disabled when it is installed again */
     plugin_mgr_set_enabled("test-roku", 0);
     rc = plugin_mgr_install_archive("/tmp/test_mock_plug.tar.gz", err, sizeof(err));
     assert(rc == 0);
-    assert(access("/data/harmony/plugins/test-roku/disabled", F_OK) == 0);
+    assert(access(HARMONY_PLUGIN_ROOT "/plugins/test-roku/disabled", F_OK) == 0);
     plugin_mgr_set_enabled("test-roku", 1);
-    assert(access("/data/harmony/plugin-data/test-roku", F_OK) == 0);
+    assert(access(HARMONY_PLUGIN_ROOT "/plugin-data/test-roku", F_OK) == 0);
     printf("[+] Reinstall keeps the disabled state; data dir created.\n");
 
     /* 6c. Watchdog: a plugin that does not stay up is restarted with a growing gap, and one
@@ -180,8 +180,8 @@ int main(void) {
     printf("[+] Watchdog backoff and stop-by-request verified.\n");
 
     /* 7. In-use guard test */
-    mkdir("/data/harmony/config", 0755);
-    FILE *dev_f = fopen("/data/harmony/config/devices.json", "w");
+    mkdir(HARMONY_PLUGIN_ROOT "/config", 0755);
+    FILE *dev_f = fopen(HARMONY_PLUGIN_ROOT "/config/devices.json", "w");
     assert(dev_f != NULL);
     fprintf(dev_f, "{\"devices\":[{\"id\":\"1\",\"name\":\"Living Room TV\",\"type\":\"plugin:test-roku\",\"plugin\":\"test-roku\"}]}\n");
     fclose(dev_f);
@@ -196,7 +196,7 @@ int main(void) {
     assert(plugin_mgr_is_in_use_by_device("non-existent-plugin", NULL, 0) == 0);
 
     /* Clear devices so uninstall can proceed */
-    dev_f = fopen("/data/harmony/config/devices.json", "w");
+    dev_f = fopen(HARMONY_PLUGIN_ROOT "/config/devices.json", "w");
     assert(dev_f != NULL);
     fprintf(dev_f, "{\"devices\":[]}\n");
     fclose(dev_f);
@@ -231,7 +231,7 @@ int main(void) {
     /* 9. Uninstall plugin */
     rc = plugin_mgr_uninstall("test-roku");
     assert(rc == 0);
-    assert(access("/data/harmony/plugins/test-roku", F_OK) != 0);
+    assert(access(HARMONY_PLUGIN_ROOT "/plugins/test-roku", F_OK) != 0);
 
     installed = plugin_mgr_get_installed_json();
     found = 0;
@@ -280,9 +280,9 @@ int main(void) {
     system("kill -9 $(cat /tmp/test_http_pid 2>/dev/null) 2>/dev/null; rm -f /tmp/test_http_pid");
 
     assert(rc == 0);
-    assert(access("/data/harmony/plugins/test-dev-plug/manifest.json", R_OK) == 0);
-    assert(access("/data/harmony/plugins/test-dev-plug/run.sh", X_OK) == 0);
-    assert(access("/data/harmony/plugins/test-dev-plug/sub/helper.sh", X_OK) == 0);
+    assert(access(HARMONY_PLUGIN_ROOT "/plugins/test-dev-plug/manifest.json", R_OK) == 0);
+    assert(access(HARMONY_PLUGIN_ROOT "/plugins/test-dev-plug/run.sh", X_OK) == 0);
+    assert(access(HARMONY_PLUGIN_ROOT "/plugins/test-dev-plug/sub/helper.sh", X_OK) == 0);
     printf("[+] Direct dev raw GitHub/HTTP download and manifest files verified.\n");
 
     /* Archive download: a SHA-256 that does not match refuses the install, the right one passes */
@@ -306,7 +306,7 @@ int main(void) {
 
     /* Clean up dev plugin */
     plugin_mgr_uninstall("test-dev-plug");
-    assert(access("/data/harmony/plugins/test-dev-plug", F_OK) != 0);
+    assert(access(HARMONY_PLUGIN_ROOT "/plugins/test-dev-plug", F_OK) != 0);
 
     /* Clean up temp packaging files */
     system("rm -rf /tmp/test_pkg_src /tmp/test_mock_plug.tar.gz /tmp/test_dev_src");

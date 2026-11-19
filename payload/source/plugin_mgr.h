@@ -4,11 +4,15 @@
 #include "cJSON.h"
 #include <stddef.h>
 
-#define HARMONY_PLUGINS_DIR         "/data/harmony/plugins"
+/* Where plugins and their state live; a host test sets its own folder (-DHARMONY_PLUGIN_ROOT) */
+#ifndef HARMONY_PLUGIN_ROOT
+#define HARMONY_PLUGIN_ROOT         "/data/harmony"
+#endif
+#define HARMONY_PLUGINS_DIR         HARMONY_PLUGIN_ROOT "/plugins"
 #define HARMONY_PLUGINS_RUN_DIR     "/tmp/plugins"
 /* Per-plugin state kept across updates (passed as HARMONY_PLUGIN_DATA) */
-#define HARMONY_PLUGINS_DATA_DIR    "/data/harmony/plugin-data"
-#define HARMONY_REPOSITORIES_FILE   "/data/harmony/config/repositories.json"
+#define HARMONY_PLUGINS_DATA_DIR    HARMONY_PLUGIN_ROOT "/plugin-data"
+#define HARMONY_REPOSITORIES_FILE   HARMONY_PLUGIN_ROOT "/config/repositories.json"
 #define HARMONY_DEFAULT_REPO_URL    "https://raw.githubusercontent.com/iranl/harmony-ng-plugins/main/repository.json"
 
 #ifdef __cplusplus
