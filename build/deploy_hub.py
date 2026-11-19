@@ -87,8 +87,11 @@ def parse_space_reply(reply: str) -> tuple[int | None, int]:
     kernel, e.g. /tmp) has no usable figure, so its free space is unknown.
     """
     parts = reply.strip().split()
-    avail_kb = int(parts[0]) if parts and parts[0].isdigit() else None
-    total_kb = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None
+    if len(parts) < 3 or parts[0] == "unknown" or not parts[0].isdigit():
+        old_kb = int(parts[-1]) if parts and parts[-1].isdigit() else 0
+        return None, old_kb
+    avail_kb = int(parts[0])
+    total_kb = int(parts[1]) if parts[1].isdigit() else None
     old_kb = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
     if total_kb == 0:
         avail_kb = None
@@ -136,6 +139,7 @@ class HubDeployer:
 
         self.deploy_failures: list[str] = []
         self.remote_hashes: dict[str, str] = {}
+        self.staged_ram_bb = False
         # Set once the Hub's services were stopped, cleared when the last step started them again
         self.services_stopped = False
 
@@ -222,7 +226,8 @@ class HubDeployer:
         size_kb = (src.stat().st_size + 1023) // 1024
         space_check = (
             f"mkdir -p '{ddir}' 2>/dev/null; rm -f '{dst}.new' 2>/dev/null; "
-            f"a=$(df -k '{ddir}' 2>/dev/null | awk 'END {{print $(NF-2), $(NF-4)}}'); o=0; "
+            f"a=$( (/cache/bin/busybox df -k '{ddir}' 2>/dev/null || /tmp/busybox df -k '{ddir}' 2>/dev/null || df -k '{ddir}' 2>/dev/null) | "
+            f"awk 'END {{ if (NR > 0 && NF >= 3) print $(NF-2), $(NF-4) }}' ); o=0; "
             f"[ -f '{dst}' ] && o=$(ls -l '{dst}' 2>/dev/null | awk '{{print int(($5+1023)/1024)}}'); "
             f'echo "${{a:-unknown unknown}} ${{o:-0}}"'
         )
@@ -294,6 +299,8 @@ class HubDeployer:
         try:
             return self._deploy()
         finally:
+            if self.staged_ram_bb and not self.dry_run:
+                self.run_ssh("rm -f /tmp/busybox 2>/dev/null || true")
             if self.services_stopped:
                 print("[!] Deployment ended early: starting the Hub services again...", file=sys.stderr)
                 self.run_ssh(self.RESTART_CMD)
@@ -349,6 +356,24 @@ class HubDeployer:
             print(f"[-] Not built for the Hub (MIPS) in {self.bin_dir}: {', '.join(wrong)}. Nothing was changed.",
                   file=sys.stderr)
             return False
+
+        # If stock BusyBox lacks df, stage local BusyBox in RAM (/tmp)
+        # so free space checks and tools work before /cache/bin/busybox is deployed.
+        has_df = self.run_ssh("test -x /cache/bin/busybox && /cache/bin/busybox df -k / >/dev/null 2>&1 || type df >/dev/null 2>&1")
+        if has_df.returncode != 0 and not self.dry_run:
+            local_bb = self.bin_dir / "busybox"
+            if local_bb.is_file():
+                try:
+                    with open(local_bb, "rb") as f_in:
+                        stage_res = subprocess.run(
+                            self.get_ssh_cmd("cat > /tmp/busybox && chmod 755 /tmp/busybox"),
+                            stdin=f_in,
+                            capture_output=True,
+                        )
+                    if stage_res.returncode == 0:
+                        self.staged_ram_bb = True
+                except Exception as e:
+                    print(f"[!] Warning during RAM BusyBox staging: {e}", file=sys.stderr)
 
         if not self.webui_only:
             # 1. Run automated backup first
