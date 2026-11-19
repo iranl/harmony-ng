@@ -1,0 +1,75 @@
+{
+  "version": "2.5.3",
+  "files": {
+    "bin/mips/hub_util": {
+      "size": 193280,
+      "md5": "2c3da58914ddaa6b6700a37b5e983c52",
+      "sha256": "6bc0d4899ac67cfb5133f8871667661a3e7d0b18399428394bd755f80604d71e"
+    },
+    "bin/mips/hub_daemon": {
+      "size": 693708,
+      "md5": "9838bcb35074f4e292657110a6dc4b4e",
+      "sha256": "fd7229d10428d408c498e13b986191e68cdd5d58417c47fede099626be19851c"
+    },
+    "bin/mips/hub_rf": {
+      "size": 492076,
+      "md5": "1467f15398f9ab8cb2598e46fb52d9dc",
+      "sha256": "69704601a47bf12f42c69c947c5c1c26857db751854b3eb5682951b1c1e3d735"
+    },
+    "bin/mips/hub_btstack": {
+      "size": 511512,
+      "md5": "a8b9e6f4fb3d96e43cf638e25f544cb5",
+      "sha256": "a0713f7edfd762f30989dc41644a663598b0158b871cedff1c89badf8d19968a"
+    },
+    "bin/mips/hub_sntp": {
+      "size": 193280,
+      "md5": "2c3da58914ddaa6b6700a37b5e983c52",
+      "sha256": "6bc0d4899ac67cfb5133f8871667661a3e7d0b18399428394bd755f80604d71e"
+    },
+    "bin/mips/hub_sync": {
+      "size": 193280,
+      "md5": "2c3da58914ddaa6b6700a37b5e983c52",
+      "sha256": "6bc0d4899ac67cfb5133f8871667661a3e7d0b18399428394bd755f80604d71e"
+    },
+    "bin/mips/mknod": {
+      "size": 193280,
+      "md5": "2c3da58914ddaa6b6700a37b5e983c52",
+      "sha256": "6bc0d4899ac67cfb5133f8871667661a3e7d0b18399428394bd755f80604d71e"
+    },
+    "bin/mips/register_ehci": {
+      "size": 193280,
+      "md5": "2c3da58914ddaa6b6700a37b5e983c52",
+      "sha256": "6bc0d4899ac67cfb5133f8871667661a3e7d0b18399428394bd755f80604d71e"
+    },
+    "bin/mips/eth_fix": {
+      "size": 193280,
+      "md5": "2c3da58914ddaa6b6700a37b5e983c52",
+      "sha256": "6bc0d4899ac67cfb5133f8871667661a3e7d0b18399428394bd755f80604d71e"
+    },
+    "bin/arm/remote_ui": {
+      "size": 486700,
+      "md5": "a71d9a41e81daea03ca8e79995e33fab",
+      "sha256": "202b730ab357d904208d5e01817edd07354eaf330f6b3cbcef135e875fda2c81"
+    },
+    "bin/arm/remote_ui.ota.gz": {
+      "size": 436640,
+      "md5": "03374830ac95d39e958725f6a75ff1e4",
+      "sha256": "9f9189faabd26872b134c1a0180d4b0767cddad6bbfcb683c98d1caee9d8983b"
+    },
+    "bin/arm/elite_ui.ota.gz": {
+      "size": 436640,
+      "md5": "03374830ac95d39e958725f6a75ff1e4",
+      "sha256": "9f9189faabd26872b134c1a0180d4b0767cddad6bbfcb683c98d1caee9d8983b"
+    },
+    "www.tar.gz": {
+      "size": 561126,
+      "md5": "7dcbb3a4785f1e6252c41f69b8944501",
+      "sha256": "ae93c541090bd41c3ad6fb0f6ae549bc0d699a1ddbddde079be281c815d129d8"
+    },
+    "hub_ota.tar.gz": {
+      "size": 3031843,
+      "md5": "0e659395835eb703166d8fe799e7854a",
+      "sha256": "81261bef363cec2b39d81d886c259e4a4d9276750cda4c6191fdc43c16708ad8"
+    }
+  }
+}
