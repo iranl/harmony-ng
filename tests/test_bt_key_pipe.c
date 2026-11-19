@@ -161,6 +161,7 @@ uint8_t hci_send_cmd_packet(uint8_t *packet, int size) { UNUSED(packet); UNUSED(
 void gap_local_bd_addr(bd_addr_t out) { memset(out, 0, 6); }
 void bt_adv_handle_cmd(const char *args) { record("adv %s", args); }
 void forget_ble_remote(void) {}
+void forget_classic_host(const bd_addr_t addr) { UNUSED(addr); }
 void start_user_scan(void) {}
 void stop_user_scan(void) {}
 void start_user_pair(const char *addr_str) { UNUSED(addr_str); }

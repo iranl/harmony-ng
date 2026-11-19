@@ -1,0 +1,33 @@
+#!/bin/sh
+# harmony-ng hub_sshd
+# The Hub's SSH server start. rcS.local and init.sh copy this file to /usr/sbin/dropbear, the path
+# the stock boot script starts (a copy, so it needs nothing else in /data/harmony and keeps working
+# when an older build, which ships no file of this name, is deployed over this one).
+#
+# Key logins only: -s refuses password logins, -g also refuses them for root. -K 300 sends a
+# keepalive every 5 minutes.
+#
+# The server binary is the first of: a separate dropbear in /data/harmony/bin (older installs),
+# the multi-call binary of an update package, the multi-call binary of the USB root tool, the
+# one of the serial guide in /usr/sbin (skipped when it is the USB root tool's boot script, a shell script).
+# "hub_sshd --binary" prints the binary it would start (exit 1 when there is none), starts nothing.
+
+for _b in /data/harmony/bin/dropbear /data/harmony/bin/dropbearmulti /data/dropbearmulti /usr/sbin/dropbearmulti; do
+    [ -f "$_b" ] && [ -x "$_b" ] && [ -s "$_b" ] || continue
+    if [ "$_b" = /usr/sbin/dropbearmulti ]; then
+        _first=""
+        read -r _first < "$_b" 2>/dev/null
+        case "$_first" in "#!"*) continue ;; esac
+    fi
+    if [ "$1" = "--binary" ]; then
+        echo "$_b"
+        exit 0
+    fi
+    export PATH=/data/harmony/bin:/cache/bin:$PATH
+    case "$_b" in
+        *dropbearmulti) exec "$_b" dropbear -s -g -K 300 "$@" ;;
+        *) exec "$_b" -s -g -K 300 "$@" ;;
+    esac
+done
+echo "dropbear: no SSH server binary found" >&2
+exit 1

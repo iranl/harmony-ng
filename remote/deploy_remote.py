@@ -21,6 +21,14 @@ import sys
 import tarfile
 
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
+
+# Shared SSH host key policy: tools/ssh_hostkeys.py (tools/ next to this script in a release bundle)
+for _hk_dir in (SCRIPT_DIR, SCRIPT_DIR / "tools", SCRIPT_DIR.parent / "tools"):
+    if (_hk_dir / "ssh_hostkeys.py").is_file():
+        if str(_hk_dir) not in sys.path:
+            sys.path.append(str(_hk_dir))
+        break
+import ssh_hostkeys  # noqa: E402
 BIN_DIR = SCRIPT_DIR / "bin"
 RCS_LOCAL_FILE = SCRIPT_DIR / "rcS.local"
 THEMES_DIR = BIN_DIR / "themes"
@@ -246,7 +254,7 @@ def main() -> None:
     parser.add_argument("--user", default="root", help="SSH username (default root)")
     parser.add_argument("--key", type=pathlib.Path, help="SSH private key path")
     parser.add_argument("--factory-reset", action="store_true",
-                        help="Revert the Harmony remote to stock firmware (restores stock scripts & permissions)")
+                        help="Revert the Harmony remote to stock firmware with remote/factory_reset.sh (deletes its settings, logs and SSH access)")
     parser.add_argument("--reboot", action="store_true",
                         help="Reboot the remote instead of hot-restarting remote_ui (it also reboots when an old process still holds the watchdog)")
     parser.add_argument("--no-sync", action="store_true",
@@ -255,7 +263,12 @@ def main() -> None:
                         help="Run only the ready-to-go check, which changes nothing on the remote")
     parser.add_argument("--no-screen", action="store_true",
                         help="Run remote_ui in no-screen mode (for remotes with a broken screen)")
+    ssh_hostkeys.add_reset_option(parser, "the remote")
     args = parser.parse_args()
+    # Before any USB or device work: a stop here leaves the device untouched
+    ssh_hostkeys.require_known_hosts()
+    if args.reset_host_key:
+        ssh_hostkeys.reset_host(args.ip)
 
     if not args.factory_reset:
         wrong = wrong_arch_files()
@@ -265,7 +278,7 @@ def main() -> None:
 
     target = f"{args.user}@{args.ip}"
     # The keepalive ends a command within 15 s if the remote resets, rather than waiting forever
-    ssh_opts = ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
+    ssh_opts = ["-o", "BatchMode=yes", *ssh_hostkeys.ssh_options(args.ip), "-o", "LogLevel=ERROR",
                 "-o", "ConnectTimeout=8", "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=3"]
     key = args.key if args.key and args.key.is_file() else default_ssh_key()
     if key:
@@ -284,8 +297,9 @@ def main() -> None:
     print("[*] Testing SSH connection...")
     probe = run_cmd(["ssh"] + ssh_opts + [target, "uname -a"])
     if probe.returncode != 0:
-        print(f"[-] Cannot connect to {target} over SSH: {probe.stderr.strip()}")
-        print("    Verify USB cable is connected and PC interface is set to 192.168.2.2/24.")
+        if not ssh_hostkeys.report_failure(probe.stderr, args.ip):
+            print(f"[-] Cannot connect to {target} over SSH: {probe.stderr.strip()}")
+            print("    Verify USB cable is connected and PC interface is set to 192.168.2.2/24.")
         sys.exit(1)
     print(f"[+] Remote system online: {probe.stdout.strip()}")
 
@@ -297,27 +311,40 @@ def main() -> None:
         if conf != "RESET":
             print("[-] Confirmation mismatch. Aborting reset.")
             sys.exit(1)
-        print("[*] Performing stock revert...")
-        revert_cmd = (
-            "if [ -x /data/init.sh ]; then /data/init.sh stop 2>/dev/null || true; fi; "
-            "killall -9 init.sh remote_ui elite_ui codex_elite remote_watchdog.sh elite_watchdog.sh codex_watchdog.sh 2>/dev/null || true; "
-            "if [ -f /data/stock_backup/rcS.local.orig ] && ! grep -q 'usbeth' /data/stock_backup/rcS.local.orig 2>/dev/null && ! grep -q 'dropbear' /data/stock_backup/rcS.local.orig 2>/dev/null && ! grep -q 'exit 0' /data/stock_backup/rcS.local.orig 2>/dev/null; then "
-            "  cp -f /data/stock_backup/rcS.local.orig /etc/init.d/rcS.local; "
-            "  chmod 755 /etc/init.d/rcS.local; "
-            "else "
-            "  printf '#!/bin/sh\\n/usr/bin/flashuboot /lib/firmware/u-boot.bin 2>/dev/null || true\\n' > /etc/init.d/rcS.local; "
-            "  chmod 755 /etc/init.d/rcS.local; "
-            "fi; "
-            "chmod +x /usr/bin/watchdog /usr/bin/usbhid /usr/bin/hal /opt/luaworks/luaworks /opt/luadraws/luadraws /usr/sbin/bluetoothd /usr/bin/dbus-daemon 2>/dev/null || true; "
-            "rm -f /etc/nowatchdog /etc/tdeenable /data/reboot_counter /data/codex_elite.conf /data/remote_ui.conf /tmp/codex_elite.log /tmp/remote_ui.log /tmp/remote-init.log /tmp/remote_stop /tmp/remote_supervisors.pid /tmp/elite_stop /tmp/elite_supervisors.pid 2>/dev/null || true; "
-            "rm -f /usr/bin/sync /usr/sbin/dropbear /usr/sbin/dropbearkey /usr/sbin/dbclient /usr/sbin/scp 2>/dev/null || true; "
-            "rm -f /usr/bin/head /usr/bin/tail /usr/bin/which /usr/bin/find /usr/bin/tar /usr/bin/xargs /usr/bin/xz /usr/bin/bzcat /usr/bin/bunzip2 /usr/bin/lzma /usr/bin/unlzma /usr/bin/diff /usr/bin/patch /usr/bin/awk /usr/bin/sed 2>/dev/null || true; "
-            "/data/remote_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true; sleep 1; "
-            "rm -f /data/remote_* /data/elite_* /data/codex_* /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox /data/init.sh /data/safe_reboot.sh /data/factory_reset.sh 2>/dev/null || true; "
-            "rm -rf /data/stock_backup /data/assets /data/themes 2>/dev/null || true; "
-            "reboot -f 2>/dev/null &"
-        )
-        run_cmd(["ssh"] + ssh_opts + [target, revert_cmd])
+        print("[*] Performing stock revert (factory_reset.sh)...")
+        # The remote's one reset script (the same that Settings > Factory Reset runs), sent on the
+        # standard input of ONE login that saves it, runs it without its own reboot and then
+        # reboots: the script deletes the SSH keys, so a second login would be refused. Run with
+        # HUP and PIPE ignored and its output in a file, so a cut login does not stop it half way
+        reset_script = SCRIPT_DIR / "factory_reset.sh"
+        if not reset_script.is_file() or reset_script.stat().st_size == 0:
+            print(f"[-] {reset_script} is missing or empty; nothing on the remote was changed.")
+            sys.exit(1)
+        data = reset_script.read_bytes()
+        # the script runs only when it arrived complete (MD5 checked on the remote)
+        login_cmd = ("rm -f /tmp/factory_reset.log; cat > /tmp/factory_reset.sh; "
+                     f"if [ \"$(md5sum < /tmp/factory_reset.sh | cut -c1-32)\" != {hashlib.md5(data).hexdigest()} ]; then "
+                     "echo '[-] The reset script did not arrive complete; nothing was changed.'; exit 1; fi; "
+                     "(trap '' HUP PIPE; sh /tmp/factory_reset.sh --confirm --no-reboot > /tmp/factory_reset.log 2>&1 && "
+                     "echo factory-reset-steps-done >> /tmp/factory_reset.log && "
+                     "{ (sleep 1; reboot -f) </dev/null >/dev/null 2>&1 & }); "
+                     "cat /tmp/factory_reset.log; grep -q '^factory-reset-steps-done$' /tmp/factory_reset.log")
+        res = subprocess.run(["ssh"] + ssh_opts + [target, login_cmd],
+                             input=data, capture_output=True, check=False)
+        out = res.stdout.decode(errors="replace")
+        for line in out.splitlines():
+            if line.strip() and line.strip() != "factory-reset-steps-done":
+                print(line)
+        if "factory-reset-steps-done" not in out.split():
+            # with the mark the reset is done, whatever the exit code (the reboot may cut it)
+            print(f"[-] The factory reset was not confirmed (exit code {res.returncode}): {res.stderr.decode(errors='replace').strip()}")
+            if res.returncode == 255:
+                print("    The connection was lost. The reset may still have finished: the remote then reboots by itself.")
+                print("    If it does not come back with the stock firmware and SSH refuses the key, power-cycle it.")
+            else:
+                print("    The remote was not rebooted. Run it again; if SSH refuses the key (the reset got as far as")
+                print("    removing it), power-cycle the remote.")
+            sys.exit(1)
         print("[+] The remote is rebooting into official Logitech firmware.")
         sys.exit(0)
 
@@ -465,6 +492,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    if sys.version_info < (3, 11):
-        sys.exit(f"This tool needs Python 3.11 or newer (this is Python {sys.version.split()[0]}).")
+    if sys.version_info < (3, 13):
+        sys.exit(f"This tool needs Python 3.13 or newer (this is Python {sys.version.split()[0]}).")
     main()

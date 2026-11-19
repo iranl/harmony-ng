@@ -10,15 +10,15 @@ Stock Logitech firmware permanently restricts the Harmony Hub to 2.4 GHz Wi-Fi (
 
 **HarmonyNG** introduces a dynamic USB host subsystem and network watchdog:
 - **Standard Harmony Hub (USB Host Mode)**:
-  - Dynamically reconfigures the Atheros AR9344 SoC PHY register (`set_phy_host`) and attaches the dormant `ar7240-ehci.0` platform driver to provide true High-Speed (480 Mbps) USB 2.0 host functionality.
+  - Dynamically switches the USB controller to host mode (`start_usb_eth.sh` unloads the gadget drivers and loads `ehci-hcd`) and registers the dormant `ar7240-ehci.0` platform device with `register_ehci`, a `hub_util` applet, to provide true High-Speed (480 Mbps) USB 2.0 host functionality.
   - Requires an **OTG Micro-USB Ethernet Adapter with Power Cable** to provide both 5V DC power and a 10/100 Mbps RJ45 port.
 - **Harmony Hub Pro 2400 (Native Onboard RJ45 & PoE)**:
   - Features a dedicated onboard Atheros GMAC interface (**`eth1`**) wired to a physical RJ45 port with 802.3af Power-over-Ethernet (PoE) hardware.
   - **No USB Host Mode Required**: USB controller remains permanently in **USB Gadget Mode (`046D:C132`)**, allowing full PC USB HID control and console access simultaneously with active wired networking!
   - `network_manager.sh` detects onboard `eth1` automatically, manages routing and DNS transitions, and keeps the stock Logitech HAL notified via `/tmp/eth_conn_pipe`.
 - **Automatic Hotplug & Dynamic Failover**: The built-in network monitor (`network_manager.sh`) checks Ethernet PHY carrier state every 3 seconds:
-  - **Ethernet Connected (Link Up)**: All traffic immediately migrates to Ethernet (`eth1` on Pro 2400, or `eth2` / `eth0` on standard Hub). Subnet routes and default gateway are switched to the wired interface.
-  - **Ethernet Disconnected (Cable Unplugged / Switch Off)**: Traffic automatically falls back to 2.4 GHz Wi-Fi (`ath0`) within 1–2 seconds without dropping daemon services or activities.
+  - **Ethernet Connected (Link Up)**: All traffic immediately migrates to Ethernet (`eth1` on Pro 2400; on a standard Hub the USB adapter's interface, usually `eth2`: `network_manager.sh` never takes `eth0` or `eth1` as a USB adapter). Subnet routes and default gateway are switched to the wired interface.
+  - **Ethernet Disconnected (Cable Unplugged / Switch Off)**: Traffic automatically falls back to 2.4 GHz Wi-Fi (`ath0`) without dropping daemon services or activities: within a few seconds with a static address (the monitor notices the lost link at its next 3-second check), and after a new DHCP lease in DHCP mode (the monitor waits up to 10 more seconds for it).
 - **Unified Static IP Handover**: When configured with a static IP, the Hub maintains the **exact same IP address** across both Ethernet and Wi-Fi. Upon link handover, gratuitous ARP frames (`arping -U -A`) notify your home router and switches instantly, keeping all open Home Assistant, MQTT, WebSocket, and REST connections alive with zero reconnection delay.
 - **MIPS Big-Endian Offload Correction (`eth_fix`)**: The Hub's MIPS 24Kc big-endian architecture causes hardware TX checksum corruption in vendor USB Ethernet drivers (such as Realtek `r8152.ko`). HarmonyNG includes a dedicated userspace helper ([`eth_fix`](../payload/source/hub_util.c)) that automatically disables buggy hardware offloads via `SIOCETHTOOL` ioctl so that the Linux kernel computes 100% compliant TCP/UDP checksums in software.
 
@@ -58,9 +58,9 @@ HarmonyNG bundles kernel drivers for these USB Ethernet chipsets in `/cache/modu
 | Chipset Family | USB Vendor:Product IDs | Driver Modules | Notes |
 | :--- | :--- | :--- | :--- |
 | **Realtek RTL8152 / RTL8153** | `0BDA:8152`, `0BDA:8153`, `2357:0601` | `r8152.ko` + `eth_fix` | **Tested & verified** (`0BDA:8152`, `0BDA:8153`). 10/100M Fast Ethernet. Automatic checksum fix applied on load. |
-| **ASIX AX88772 / AX88178** | `0B95:7720`, `0B95:772A`, `0B95:1720`, `0B95:1780`, `077B:2226` | `usbnet.ko`, `asix.ko` | Common in generic USB-to-LAN adapters. Standard software checksumming. |
+| **ASIX AX88772 / AX88178** | `0B95:7720`, `0B95:772A`, `0B95:1720`, `0B95:1780`, `077B:2226`, `0846:1040` | `usbnet.ko`, `asix.ko` | Common in generic USB-to-LAN adapters. Standard software checksumming. |
 | **SMSC / Microchip LAN9500** | `0424:9500`, `0424:EC00` | `usbnet.ko`, `smsc95xx.ko` | Standard embedded Ethernet chipset. |
-| **Davicom DM9601** | `0A46:9601`, `0A46:0268` | `usbnet.ko`, `dm9601.ko` | Common low-cost 10/100 adapters. |
+| **Davicom DM9601** | `0A46:9601`, `0A46:0268`, `0A46:6688`, `0A46:8515` | `usbnet.ko`, `dm9601.ko` | Common low-cost 10/100 adapters. |
 | **USB CDC-Ethernet (Standard)** | Any USB device with Class `02` Subclass `06` | `usbnet.ko`, `cdc_ether.ko` | Standard Linux USB Communication Device Class. |
 | **Realtek RTL8150** | `0BDA:8150` | `rtl8150.ko` | Legacy 10/100M USB 1.1/2.0 adapter. |
 
@@ -74,11 +74,13 @@ Open the Web Console at `http://<YOUR_HUB_IP>:8089` and navigate to the **Networ
 - **Active Connection**: Displays `Ethernet` or `Dual (Ethernet Active + Wi-Fi Standby)`.
 - **Active Interface**: Shows the active network device (e.g., `eth2` or `ath0`).
 - **Ethernet Adapter**: Shows connection state, speed (`100Base-TX Link Up`), interface name, and IP address.
-- **Wi-Fi Status**: Shows SSID, signal, and standby state.
+- **Wi-Fi Status**: Shows `Connected` with the SSID and the IP address, or `Disconnected`. Which link is on standby is shown in the Active Interface row.
 
 ### Configuring IP Assignment (DHCP vs. Static IP)
 
 You can configure IP assignment directly in the Web Console under **Network Configuration**
+
+The settings are stored on the Hub in `/data/harmony/ethernet.conf`, one `KEY=value` per line: `ETH_ENABLED` (`1` or `0`; with `0` the USB port stays in device mode), `ETH_FALLBACK_WIFI` (`1` or `0`), `ETH_MODE` (`dhcp` or `static`), `ETH_IP`, `ETH_NETMASK`, `ETH_GATEWAY` and `ETH_DNS` (one or several servers, separated by commas or spaces), and `USB_WIFI_SETUP` (`1` or `0`, Wi-Fi setup over USB, section 5). Without the file the Hub uses Ethernet with DHCP, falls back to Wi-Fi, and offers the USB setup.
 
 > [!TIP]
 > **Static IP Recommended**: Configuring a **Static IP** matching your Hub's Wi-Fi IP address provides zero-drop failover. When you plug in or unplug the Ethernet cable, the Hub switches interfaces and announces its MAC via Gratuitous ARP without waiting for a DHCP server lease.
@@ -92,12 +94,125 @@ The network subsystem exposes full diagnostic and configuration REST endpoints:
 ### GET `/api/network-status`
 Returns live status for both Ethernet and Wi-Fi interfaces, USB host mode, and active routing
 
-### POST `/api/network/config`
-Updates IP assignment settings without requiring a full Hub reboot
+### POST `/api/ethernet-save` (or `/ethernet`)
+Saves the Ethernet settings and, with `"apply": "apply"`, applies them without a reboot. Every save
+replaces the whole file: send all fields (API.md 8.3)
+
+The fields are `eth_enabled`, `eth_fallback_wifi`, `eth_mode` (`dhcp` or `static`), `eth_ip`,
+`eth_netmask`, `eth_gateway`, `eth_dns` and `usb_wifi_setup` (the only one that keeps its stored
+value when left out; the web UI has no control for it yet). In `static` mode an address that
+cannot work is refused with `400` and nothing is saved.
+
+### Wi-Fi: GET `/api/wifi-scan`, POST `/api/wifi-test`, POST `/api/wifi-save` (or `/wifi`)
+Scan for networks, test a network and its password, and save the Wi-Fi settings (API.md 8.2)
 
 ---
 
-## 5. Troubleshooting & Diagnostics
+## 5. Setting the Wi-Fi over USB (Hub on no network)
+
+When the Hub is on no network (a new router, a changed Wi-Fi password, a move) and you cannot
+reach the web UI, set the Wi-Fi from a computer over USB, as the stock firmware allowed:
+
+1. Connect the Hub's micro-USB port to the computer with a data cable, in place of its power
+   supply (or Ethernet adapter): the Hub starts with the computer as its power source. The
+   computer must be connected while the Hub starts (see Limits below).
+2. Wait about a minute for the Hub to start.
+3. Run, with Python 3.13 or newer:
+
+   ```bash
+   python tools/set_wifi_usb.py --status
+   python tools/set_wifi_usb.py --ssid "YourNetworkName"     # asks for the password
+   python tools/set_wifi_usb.py --ssid "Guest" --encryption NONE
+   ```
+
+   The Hub tries the network first, for up to about 15 s. When it works, the settings are saved
+   and the tool prints the Hub's new address (the web UI is then at `http://<address>:8089/`).
+   When it does not, the Hub keeps its previous Wi-Fi settings and the tool prints the reason
+   (wrong password, network not found, a value the Hub cannot use). The password can also come
+   from the environment variable `HARMONY_WIFI_PASS`. For 2 minutes after such an attempt
+   `--status` shows it as the last attempt and the Hub as back on its previous network. Right
+   after Windows set the USB device up again, the Hub may not answer for about a minute: the
+   tool then opens the device again and retries for up to 60 s.
+4. Put the power supply (or the Ethernet adapter) back: the Hub starts again on its network.
+
+On Linux the user needs read and write access to the Hub's USB device node (or run the tool with
+`sudo`; the udev rule is in [`FIRST_INSTALL_HUB.md`](FIRST_INSTALL_HUB.md), Prerequisites);
+Windows and macOS need no driver. `python tools/root_hub_usb.py --skip-fw-check
+--wifi-only --no-reboot --wifi-ssid "YourNetworkName"` does the same, with extra LAN checks.
+
+Only the Wi-Fi network can be read and set this way: the password is never sent back, and every
+other request of the stock USB protocol (SSH upload, boot trigger, factory reset, firmware) is
+refused. The same works in the Hub's emergency boot mode (after more than five failed boots).
+
+Like the stock firmware, the Hub answers any computer on its USB port without a login: it can
+read the network name and address and set another network (each failed attempt takes the Hub off
+Wi-Fi for about 12 s). To turn the USB setup off, clear the "Wi-Fi setup over USB" switch in
+the web UI (Network page; in the legacy web UI it sits in the Ethernet & IP settings and is
+saved with them), send `"usb_wifi_setup": false` with `POST /api/ethernet-save` (API.md 8.3),
+or put `USB_WIFI_SETUP=0` in
+`/data/harmony/ethernet.conf`. Requests are then refused at once; from the next start of the Hub
+services or boot `hub_usbwifi` is not started and the boot does not wait for a computer (so
+Ethernet over USB always starts). With it off and no Wi-Fi network, the way back is an Ethernet
+adapter (with Ethernet over USB on) or a factory reset.
+
+### Limits
+- **USB port mode**: the Hub's one USB port is either a USB device (this setup) or a USB host
+  (Ethernet over USB), and it can switch to host mode only, not back, until the next restart. At
+  boot, with Ethernet over USB on (the default), the Hub waits for a computer on the port: the
+  sign is `usbhid` connecting to `hub_usbwifi` a second time, which it does when a computer sets
+  the USB device up. Then the port stays a USB device for that boot and Ethernet over USB is not
+  started (`/tmp/harmony-network.log` says so). The wait is 6 s, or 20 s once the USB device
+  controller has counted interrupts (`/proc/udc`); interrupts alone never keep the port a device,
+  so an adapter or a charger always ends in host mode as before, at most 20 s later. A computer
+  plugged in after that is not seen until the Hub is restarted with the computer connected. With
+  Ethernet turned off in the settings, and on the Harmony Pro 2400 (onboard Ethernet), the port is
+  always a USB device; with `USB_WIFI_SETUP=0` the boot does not wait at all. The mode decided is
+  kept in `/tmp/harmony_usb_port_mode`: a restart of the Hub services starts `usbhid` again only
+  in device mode.
+- **2.4 GHz WPA/WPA2 pass phrase or open networks only** (`WPA2-PSK`, `WPA-PSK`, `NONE`): WEP,
+  enterprise (`WPA-EAP`, `WPA2-ENTERPRISE`) and any other encryption value are refused.
+  The network is saved with `scan_ssid=1`, so hidden networks work too.
+- The Hub must be close enough to the access point: the test needs the connection to come up
+  within about 12 s. The address comes from DHCP (or the static address in the Ethernet
+  settings) and can take a few more seconds.
+
+### How it works
+The stock firmware's `/usr/bin/usbhid` (still started by the stock boot script) presents the Hub
+as the USB HID device `046D:C129` (`046D:C132` on the Pro) and passes the 64-byte reports to a
+program on `127.0.0.1:16716`: stock that was `hal`, which harmony-ng does not run. `init.sh`
+starts `hub_usbwifi` (a `hub_util` applet, `payload/source/usb_wifi.c`) there instead. It speaks
+the stock file protocol for one virtual file, `/sys/wifi/connect`:
+
+- the stream starts with one connection type byte from `usbhid` (`0x06`), then 64-byte frames
+  both ways;
+- a request is `FF <command> <sequence> <parameter count> <parameters>`: open `0x01` (path, mode
+  `W` or `R`, size), write `0x03` (handle, frame count, then the data frames
+  `<flags> <length> <data>`), read `0x04` (handle, frames wanted), close `0x07`, ping `0x00`;
+- an answer is `FF <command> <sequence | 0x80> ...`; a refusal is `FF <command> FF 01 01 <code>`
+  (byte 2 is `0xFF`): `0x0B` for any other file or command, `0x0C` for a request it cannot parse,
+  `0x04` for an unknown handle;
+- writing `ssid,<name>\npassword,<password>\nencryption,<WPA2-PSK|WPA-PSK|NONE>\n` sets the
+  network; the write is answered when the attempt has ended, always with success once the request
+  was understood, and the result is in the status;
+- reading returns `key,value` lines: `ssid`, `encryption`, `password` (always empty),
+  `connect_status` (`connected`, `inactive`, `connecting`, or `failed` for 2 minutes after a failed
+  USB attempt), `ip_address`, `error_code` (`none` or the reason), `last_attempt`, and
+  `firmware,harmony-ng`.
+
+The Wi-Fi test and save are the same code as the web UI's (`payload/source/wifi_config.c`), and one
+test runs at a time across the web UI and USB. A Hub with no network stored runs no
+`wpa_supplicant` (it cannot start without its file): the test starts it on the network being
+tried. On failure each Wi-Fi file gets its previous content back, or is removed when there was
+none. While a test runs, copies of the previous files and a mark are kept on flash next to them
+(`/etc/wpa_supplicant*.pretest`): a test cut short by a kill or a power cut is undone when
+`hub_daemon` or `hub_usbwifi` starts next. Each attempt is logged in `/tmp/harmony-init.log`
+(network name and result, never the password). On the Hub, `/data/harmony/bin/hub_usbwifi --status`
+prints what the computer reads, and `/tmp/harmony_usbwifi.state` counts the connections from
+`usbhid` (it connects again each time a computer configures the device).
+
+---
+
+## 6. Troubleshooting & Diagnostics
 
 ### Checking Interface Status via SSH
 ```bash
@@ -112,30 +227,18 @@ dmesg | grep -E 'ehci|r8152|usbnet|asix'
 
 # View network manager watchdog logs
 cat /tmp/harmony-network.log
+
+# Show the Ethernet settings in use and the active link (interface:state:address)
+/data/harmony/network_manager.sh status
+
+# Apply /data/harmony/ethernet.conf after a change made by hand
+/data/harmony/network_manager.sh apply
 ```
 
 ### Offload Check
 If connecting over Ethernet shows successful TCP handshakes but hangs on data reception, ensure `eth_fix` has executed:
 ```bash
-/data/harmony/bin/hub_eth_fix eth2
+/data/harmony/bin/eth_fix eth2
 # Expected output: [+] eth2: TX checksum offload disabled
 ```
 This is automatically handled by `start_usb_eth.sh` and `network_manager.sh`.
-
----
-
-## 6. Recovery Access Point (Fail-safe Mode)
-
-If neither Ethernet nor configured Wi-Fi networks can associate after failover attempts, `recovery_ap.sh` automatically launches a standalone Wi-Fi hotspot on interface `ath1`:
-
-- **SSID**: `Harmony-Recovery-<MAC_SUFFIX>`
-- **IP Address**: `192.168.76.1`
-- **Default WPA2 Passphrase**: `harmonyrecovery`
-
-Connect to this SSID from a laptop or phone, open `http://192.168.76.1` in your browser, and reconfigure your Wi-Fi credentials via the WebUI.
-
-To customize the recovery AP passphrase, create `/data/harmony/recovery_ap.conf`:
-```sh
-WPA_PASSPHRASE="your_custom_passphrase"
-WPA_ENABLED=1
-```

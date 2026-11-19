@@ -181,13 +181,13 @@ static void render_settings_factory_reset(void) {
         fb_draw_text_aa(8, card_y + 10, "REVERT TO STOCK FIRMWARE", RGB_YELLOW, &g_font_title);
         fb_draw_text_aa(8, card_y + 36, "Removes custom software", RGB_WHITE, &g_font_main);
         fb_draw_text_aa(8, card_y + 56, "and restores official Logitech UI.", RGB_WHITE, &g_font_main);
-        fb_draw_text_aa(8, card_y + 82, "Configs preserved on flash:", RGB_TEAL, &g_font_main);
-        fb_draw_text_aa(8, card_y + 100, "/data/remote_settings.conf", RGB_GREEN, &g_font_main);
+        fb_draw_text_aa(8, card_y + 82, "Deletes settings, Hub names,", RGB_TEAL, &g_font_main);
+        fb_draw_text_aa(8, card_y + 100, "logs and SSH keys.", RGB_GREEN, &g_font_main);
     } else {
         fb_draw_text_aa(8, card_y + 10, "ARE YOU ABSOLUTELY SURE?", RGB_RED, &g_font_title);
         fb_draw_text_aa(8, card_y + 36, "Remote will restore stock startup,", RGB_WHITE, &g_font_main);
         fb_draw_text_aa(8, card_y + 56, "sync flash, and reboot to Logitech.", RGB_WHITE, &g_font_main);
-        fb_draw_text_aa(8, card_y + 82, "Re-running install restores setups.", RGB_TEAL, &g_font_main);
+        fb_draw_text_aa(8, card_y + 82, "The RF pairing is kept.", RGB_TEAL, &g_font_main);
         fb_draw_text_aa(8, card_y + 100, "Device reboots immediately.", RGB_YELLOW, &g_font_main);
     }
 

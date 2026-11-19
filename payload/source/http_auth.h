@@ -15,6 +15,21 @@
 #define HARMONY_USERS_JSON "/data/harmony/config/users.json"
 #define HARMONY_AUTH_CONF  "/data/harmony/webui_auth.conf"
 #define HARMONY_TOKENS_JSON "/data/harmony/config/tokens.json"
+/* Personal access tokens: at most this many in all, and per operator (role user) account. One
+ * entry is about 350 bytes in the file, so the list stays far below HTTP_TOKENS_FILE_MAX, the
+ * size every reader accepts. */
+#define HTTP_TOKENS_MAX 64
+#define HTTP_TOKENS_PER_OPERATOR 10
+#define HTTP_TOKENS_FILE_MAX 65536
+/* Where POST /api/auth/tokens-reset moves an unreadable token file */
+#define HTTP_TOKENS_JSON_BAD "/data/harmony/config/tokens.json.bad"
+/* A request waits at most this long for the token file lock (503 after) */
+#define HTTP_TOKENS_LOCK_WAIT_MS 3000
+/* Token creates and deletes per operator account and minute (429 after) */
+#define HTTP_TOKENS_WRITES_PER_MIN 30
+/* The 500 text for a token file that cannot be read */
+#define HTTP_TOKENS_UNREADABLE_MSG "config/tokens.json cannot be read (cut, or larger than 64 KB) and was left unchanged; " \
+    "an admin can move it aside with POST /api/auth/tokens-reset (every access token then has to be created again)"
 
 enum http_role {
     ROLE_NONE = 0,
@@ -33,7 +48,6 @@ struct user_account {
 extern "C" {
 #endif
 
-void http_auth_init(void);
 void compute_ha1(const char *username, const char *realm, const char *password, char ha1_out[65]);
 int load_user_accounts(struct user_account *users, int max_users, int *auth_enabled);
 int save_user_accounts(const struct user_account *users, int count, int auth_enabled);
@@ -53,6 +67,38 @@ void http_auth_note_success(const char *client_ip);
 /* End the sessions of one account (deleted, renamed, demoted, new password), or all of them */
 void http_auth_drop_user_sessions(const char *username);
 void http_auth_drop_all_sessions(void);
+/* Authentication went from off to on. While it was off every client was admin, so anybody could
+ * have made or changed an account or a token: adds "to_check": {"users": [...], "tokens": [...]}
+ * to the reply, every account except owner (the one the switching request names, NULL for none)
+ * and every personal access token (no hashes; "owner_missing": true when its account is gone), for
+ * the UIs to show at once. */
+void http_auth_add_switch_check(cJSON *reply, const struct user_account *users, int count, const char *owner);
+
+/* tokens.json is read, changed and written under one lock. http_tokens_lock() returns 0, or -1
+ * when another request held it for 3 s (it never blocks in the kernel: the Hub has no futex). */
+int http_tokens_lock(void);
+void http_tokens_unlock(void);
+/* *root = the file as an object with a "tokens" array (an empty list when there is no file).
+ * Returns -1 and leaves *root NULL when the file exists but cannot be read or parsed: the caller
+ * must then leave the file alone. */
+int http_tokens_load(cJSON **root);
+/* Writes the list; 0, or -1 when it was not stored */
+int http_tokens_save(const cJSON *root);
+/* With the lock held: 0 when this operator account may change one more token now, else -1 and
+ * *retry_after seconds */
+int http_tokens_rate_check(const char *account, int *retry_after);
+/* Deletes the tokens owned by an account (deleted account, or a name used again). Returns how
+ * many, HTTP_TOKENS_BUSY when the lock was not free, or -1 when the file could not be read or
+ * written (left as it was). Takes the lock itself. */
+#define HTTP_TOKENS_BUSY (-3)
+int http_tokens_remove_owner(const char *owner);
+/* After an import replaced the accounts: removes the tokens left by deleted accounts whose name an
+ * imported account now has (names not in before). 0, or below 0 when one could not be removed. */
+int http_tokens_remove_new_names(const struct user_account *before, int before_count,
+                                 const struct user_account *after, int after_count);
+/* With the lock held: moves an unreadable token file aside and starts an empty list. 0 done,
+ * 1 the file is readable (nothing done), -1 failed */
+int http_tokens_reset_unreadable(void);
 
 enum http_role http_auth_check_request(const char *req, const char *client_ip,
                                        const char *method, char *out_user, size_t out_user_len);

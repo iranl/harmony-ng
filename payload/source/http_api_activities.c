@@ -16,6 +16,7 @@
 #include <strings.h>
 #include <pthread.h>
 #include <time.h>
+#include "http_api_devices.h"
 
 static cJSON *build_activity_steps_cjson(const char *seq_text) {
     cJSON *arr = cJSON_CreateArray();
@@ -797,6 +798,8 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
                     cJSON_Delete(root); /* NULL once the store took it */
                 }
                 config_store_unlock();
+                /* its key bindings in the remote maps: no editor shows them any more */
+                if (success) remote_maps_drop_section("activities", act_id_str);
             }
             cJSON_Delete(params);
         }

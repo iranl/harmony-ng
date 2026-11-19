@@ -45,8 +45,6 @@ HUB_BINARIES = [
     "hub_daemon",
     "hub_rf",
     "hub_btstack",
-    "hub_dhcpd",
-    "hub_portal",
     "hub_sntp",
     "hub_sync",
     "mknod",

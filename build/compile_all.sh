@@ -56,23 +56,18 @@ BUILD_STAMP="$OUT/.build_stamp"
 # Extra OTA release key for test builds only, e.g. OTA_KEY_CFLAGS=-DOTA_EXTRA_PUBKEY=0x12,0x34,... (32 bytes)
 OTA_KEY_CFLAGS="${OTA_KEY_CFLAGS:-}"
 COMPAT_SRC=""
+# Build date in UTC (YYYYMMDD) for the time sync in hub_ntp.c: a clock before it is not set yet
+CFLAGS="$CFLAGS -DHUB_BUILD_DATE_UTC=$(date -u +%Y%m%d)"
 
 TARGET="${1:-all}"
 
 build_util() {
     echo "[-] Building hub_util..."
-    "$CC" $CFLAGS $OTA_KEY_CFLAGS -Ipayload/source -o "$BIN/hub_util" payload/source/hub_util.c payload/source/hub_ntp.c payload/source/ota_verify.c payload/source/tweetnacl.c payload/source/sha256.c payload/source/cJSON.c $COMPAT_SRC -lm
-    for app in hub_sync sync mknod register_ehci eth_fix hub_dhcpd hub_portal hub_sntp; do
+    # unused functions are left out (the Wi-Fi code shares http_util.c with hub_daemon)
+    "$CC" $CFLAGS $OTA_KEY_CFLAGS -ffunction-sections -fdata-sections -Wl,--gc-sections -Ipayload/source -o "$BIN/hub_util" payload/source/hub_util.c payload/source/hub_ntp.c payload/source/ota_verify.c payload/source/tweetnacl.c payload/source/sha256.c payload/source/cJSON.c payload/source/usb_wifi.c payload/source/wifi_config.c payload/source/http_util.c $COMPAT_SRC -lm
+    for app in hub_sync sync mknod register_ehci eth_fix hub_sntp hub_usbwifi; do
         ln -sf hub_util "$BIN/$app"
     done
-}
-
-build_dhcpd() {
-    build_util
-}
-
-build_portal() {
-    build_util
 }
 
 build_sntp() {
@@ -93,6 +88,7 @@ build_daemon() {
         payload/source/http_api_custom_icons.c \
         payload/source/http_api_network.c \
         payload/source/hub_network_util.c \
+        payload/source/wifi_config.c \
         payload/source/http_api_remotes.c \
         payload/source/http_api_ota.c \
         payload/source/http_api_backup.c \
@@ -233,12 +229,6 @@ case "$TARGET" in
     sntp)
         build_sntp
         ;;
-    portal)
-        build_portal
-        ;;
-    dhcpd)
-        build_dhcpd
-        ;;
     btstack)
         build_btstack
         ;;
@@ -282,7 +272,7 @@ case "$TARGET" in
         ;;
     *)
         echo "Unknown target: $TARGET"
-        echo "Usage: $0 [all|hub|daemon|util|sntp|portal|dhcpd|btstack|register_ehci|eth_fix|mknod|rf|remote|apk] (elite = remote)"
+        echo "Usage: $0 [all|hub|daemon|util|sntp|btstack|register_ehci|eth_fix|mknod|rf|remote|apk] (elite = remote)"
         exit 1
         ;;
 esac
@@ -295,7 +285,7 @@ fi
 # an earlier build left in payload/bin is not copied, and its old copy in build/output goes,
 # so build/output and MANIFEST.txt describe one build
 BUILT=""
-for f in hub_util hub_btstack hub_dhcpd hub_portal hub_daemon hub_sntp hub_rf hub_sync sync register_ehci eth_fix mknod dropbearmulti; do
+for f in hub_util hub_btstack hub_daemon hub_sntp hub_rf hub_sync sync register_ehci eth_fix mknod hub_usbwifi dropbearmulti; do
     if [ -e "$BIN/$f" ] && { [ "$f" = dropbearmulti ] || [ "$BIN/$f" -nt "$BUILD_STAMP" ] || \
             { [ -L "$BIN/$f" ] && [ "$BIN/$(readlink "$BIN/$f")" -nt "$BUILD_STAMP" ]; }; }; then
         cp -a "$BIN/$f" "$OUT/" 2>/dev/null || cp -f "$BIN/$f" "$OUT/"

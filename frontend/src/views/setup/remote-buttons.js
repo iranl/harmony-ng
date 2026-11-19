@@ -7,7 +7,9 @@ import { api } from '../../api/index.js';
 import { store } from '../../store.js';
 import { toast } from '../../components/toast.js';
 import { confirm } from '../../components/confirm.js';
+import { t } from '../../i18n/index.js';
 import { loadRemoteRenderer, setRendererTheme } from '../../remote/remote-renderer.js';
+import { defaultBinding } from './remote-key-fallback.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -21,47 +23,80 @@ const poly = (...pts) => ({ poly: pts });
 // The keys the remote sends to the Hub, by the names map_button_code() gives them.
 // Ha1..Ha4 (KEY_PROG1..4) run left to right, then top to bottom: lights left, plugs right.
 const KEYS = [
-  { id: 'PowerOffActivity', label: 'Off', ...pad(125, 88, 92, 30, 15), text: 'Off', size: 18 },
-  { id: 'Rewind', label: 'Rewind', ...pad(97, 950, 145, 50), glyph: 'rew' },
-  { id: 'Play', label: 'Play', ...pad(276, 948, 80, 66, 10), glyph: 'play' },
-  { id: 'FastForward', label: 'Fast forward', ...pad(392, 950, 143, 50), glyph: 'ff' },
-  { id: 'Record', label: 'Record', ...pad(97, 1032, 145, 50), glyph: 'rec' },
-  { id: 'Pause', label: 'Pause', ...pad(276, 1018, 80, 66, 10), glyph: 'pause' },
-  { id: 'Stop', label: 'Stop', ...pad(392, 1032, 143, 50), glyph: 'stop' },
-  { id: 'Exit', label: 'Exit', ...poly([97, 1112], [270, 1112], [234, 1165], [97, 1165]), text: 'Exit', at: [168, 1139] },
-  { id: 'Menu', label: 'Menu', ...poly([535, 1112], [362, 1112], [398, 1165], [535, 1165]), text: 'Menu', at: [464, 1139] },
-  { id: 'VolumeUp', label: 'Volume up', ...poly([95, 1195], [205, 1195], [158, 1298], [95, 1298]), text: 'Vol +', at: [134, 1250] },
-  { id: 'VolumeDown', label: 'Volume down', ...poly([95, 1306], [158, 1306], [205, 1410], [95, 1410]), text: 'Vol −', at: [134, 1356] },
-  { id: 'ChannelUp', label: 'Channel / page up', ...poly([537, 1195], [427, 1195], [474, 1298], [537, 1298]), text: 'Ch +', at: [498, 1250] },
-  { id: 'ChannelDown', label: 'Channel / page down', ...poly([537, 1306], [474, 1306], [427, 1410], [537, 1410]), text: 'Ch −', at: [498, 1356] },
-  { id: 'DirectionUp', label: 'Up', ...poly([316, 1300], [252, 1232], [316, 1165], [381, 1232]), glyph: 'up', at: [316, 1200] },
-  { id: 'DirectionRight', label: 'Right', ...poly([316, 1300], [381, 1232], [446, 1300], [381, 1367]), glyph: 'right', at: [412, 1300] },
-  { id: 'DirectionDown', label: 'Down', ...poly([316, 1300], [381, 1367], [316, 1435], [252, 1367]), glyph: 'down', at: [316, 1400] },
-  { id: 'DirectionLeft', label: 'Left', ...poly([316, 1300], [252, 1367], [188, 1300], [252, 1232]), glyph: 'left', at: [220, 1300] },
+  { id: 'PowerOffActivity', label: 'Off', ...pad(125, 88, 92, 30, 15), text: 'Off', size: 18 },  // i18n-ok: legend printed on the remote
+  { id: 'Rewind', ...pad(97, 950, 145, 50), glyph: 'rew' },
+  { id: 'Play', ...pad(276, 948, 80, 66, 10), glyph: 'play' },
+  { id: 'FastForward', ...pad(392, 950, 143, 50), glyph: 'ff' },
+  { id: 'Record', ...pad(97, 1032, 145, 50), glyph: 'rec' },
+  { id: 'Pause', ...pad(276, 1018, 80, 66, 10), glyph: 'pause' },
+  { id: 'Stop', ...pad(392, 1032, 143, 50), glyph: 'stop' },
+  { id: 'Exit', label: 'Exit', ...poly([97, 1112], [270, 1112], [234, 1165], [97, 1165]), text: 'Exit', at: [168, 1139] },  // i18n-ok: legend printed on the remote
+  { id: 'Menu', label: 'Menu', ...poly([535, 1112], [362, 1112], [398, 1165], [535, 1165]), text: 'Menu', at: [464, 1139] },  // i18n-ok: legend printed on the remote
+  { id: 'VolumeUp', ...poly([95, 1195], [205, 1195], [158, 1298], [95, 1298]), text: 'Vol +', at: [134, 1250] },  // i18n-ok: legend printed on the remote
+  { id: 'VolumeDown', ...poly([95, 1306], [158, 1306], [205, 1410], [95, 1410]), text: 'Vol −', at: [134, 1356] },  // i18n-ok: legend printed on the remote
+  { id: 'ChannelUp', ...poly([537, 1195], [427, 1195], [474, 1298], [537, 1298]), text: 'Ch +', at: [498, 1250] },  // i18n-ok: legend printed on the remote
+  { id: 'ChannelDown', ...poly([537, 1306], [474, 1306], [427, 1410], [537, 1410]), text: 'Ch −', at: [498, 1356] },  // i18n-ok: legend printed on the remote
+  { id: 'DirectionUp', ...poly([316, 1300], [252, 1232], [316, 1165], [381, 1232]), glyph: 'up', at: [316, 1200] },
+  { id: 'DirectionRight', ...poly([316, 1300], [381, 1232], [446, 1300], [381, 1367]), glyph: 'right', at: [412, 1300] },
+  { id: 'DirectionDown', ...poly([316, 1300], [381, 1367], [316, 1435], [252, 1367]), glyph: 'down', at: [316, 1400] },
+  { id: 'DirectionLeft', ...poly([316, 1300], [252, 1367], [188, 1300], [252, 1232]), glyph: 'left', at: [220, 1300] },
   { id: 'Select', label: 'OK', circle: [316, 1300, 56], text: 'OK', size: 26 },
-  { id: 'VolumeMute', label: 'Mute', ...poly([97, 1438], [234, 1438], [270, 1490], [97, 1490]), glyph: 'mute', at: [168, 1464] },
-  { id: 'Back', label: 'Back', ...poly([535, 1438], [398, 1438], [362, 1490], [535, 1490]), glyph: 'back', at: [464, 1464] },
-  { id: 'Dvr', label: 'DVR', ...pad(97, 1532, 141, 53, 10), text: 'DVR' },
-  { id: 'Guide', label: 'Guide', ...pad(247, 1532, 140, 53, 10), text: 'Guide' },
-  { id: 'Info', label: 'Info', ...pad(396, 1532, 139, 53, 10), text: 'Info' },
-  { id: 'Red', label: 'Red', ...pad(97, 1618, 86, 44), bar: '#ef4444' },
-  { id: 'Green', label: 'Green', ...pad(215, 1618, 85, 44), bar: '#22c55e' },
-  { id: 'Yellow', label: 'Yellow', ...pad(332, 1618, 86, 44), bar: '#facc15' },
-  { id: 'Blue', label: 'Blue', ...pad(450, 1618, 85, 44), bar: '#3b82f6' },
-  { id: 'Ha1', label: 'Light 1', ...pad(97, 1690, 145, 52), glyph: 'bulb' },
-  { id: 'RockerUp', label: 'Dimmer +', ...pad(276, 1690, 80, 66, 10), text: '+', size: 30 },
-  { id: 'Ha2', label: 'Plug 1', ...pad(392, 1690, 143, 52), glyph: 'plug' },
-  { id: 'Ha3', label: 'Light 2', ...pad(97, 1772, 145, 52), glyph: 'bulb' },
-  { id: 'RockerDown', label: 'Dimmer −', ...pad(276, 1760, 80, 66, 10), text: '−', size: 30 },
-  { id: 'Ha4', label: 'Plug 2', ...pad(392, 1772, 143, 52), glyph: 'plug' },
+  { id: 'VolumeMute', ...poly([97, 1438], [234, 1438], [270, 1490], [97, 1490]), glyph: 'mute', at: [168, 1464] },
+  { id: 'Back', ...poly([535, 1438], [398, 1438], [362, 1490], [535, 1490]), glyph: 'back', at: [464, 1464] },
+  { id: 'Dvr', label: 'DVR', ...pad(97, 1532, 141, 53, 10), text: 'DVR' },  // i18n-ok: legend printed on the remote
+  { id: 'Guide', label: 'Guide', ...pad(247, 1532, 140, 53, 10), text: 'Guide' },  // i18n-ok: legend printed on the remote
+  { id: 'Info', label: 'Info', ...pad(396, 1532, 139, 53, 10), text: 'Info' },  // i18n-ok: legend printed on the remote
+  { id: 'Red', ...pad(97, 1618, 86, 44), bar: '#ef4444' },
+  { id: 'Green', ...pad(215, 1618, 85, 44), bar: '#22c55e' },
+  { id: 'Yellow', ...pad(332, 1618, 86, 44), bar: '#facc15' },
+  { id: 'Blue', ...pad(450, 1618, 85, 44), bar: '#3b82f6' },
+  { id: 'Ha1', ...pad(97, 1690, 145, 52), glyph: 'bulb' },
+  { id: 'RockerUp', ...pad(276, 1690, 80, 66, 10), text: '+', size: 30 },
+  { id: 'Ha2', ...pad(392, 1690, 143, 52), glyph: 'plug' },
+  { id: 'Ha3', ...pad(97, 1772, 145, 52), glyph: 'bulb' },
+  { id: 'RockerDown', ...pad(276, 1760, 80, 66, 10), text: '−', size: 30 },
+  { id: 'Ha4', ...pad(392, 1772, 143, 52), glyph: 'plug' },
 ];
 const KEY_BY_ID = Object.fromEntries(KEYS.map(k => [k.id, k]));
+
+// Key names as the editor shows them, in the chosen language. Keys whose name is printed on the
+// remote (Off, Exit, Menu, OK, DVR, Guide, Info) keep it.
+function keyLabel(k) {
+  return ({
+    Rewind: t('rkey_rewind', 'Rewind'),
+    Play: t('play', 'Play'),
+    FastForward: t('rkey_fast_forward', 'Fast forward'),
+    Record: t('rkey_record', 'Record'),
+    Pause: t('pause', 'Pause'),
+    Stop: t('stop', 'Stop'),
+    VolumeUp: t('rkey_volume_up', 'Volume up'),
+    VolumeDown: t('rkey_volume_down', 'Volume down'),
+    ChannelUp: t('rkey_channel_up', 'Channel / page up'),
+    ChannelDown: t('rkey_channel_down', 'Channel / page down'),
+    DirectionUp: t('dir_up', 'Up'),
+    DirectionRight: t('dir_right', 'Right'),
+    DirectionDown: t('dir_down', 'Down'),
+    DirectionLeft: t('dir_left', 'Left'),
+    VolumeMute: t('mute', 'Mute'),
+    Back: t('back', 'Back'),
+    Red: t('color_red', 'Red'),
+    Green: t('color_green', 'Green'),
+    Yellow: t('color_yellow', 'Yellow'),
+    Blue: t('color_blue', 'Blue'),
+    Ha1: t('rkey_light_1', 'Light 1'),
+    RockerUp: t('rkey_dimmer_up', 'Dimmer +'),
+    Ha2: t('rkey_plug_1', 'Plug 1'),
+    Ha3: t('rkey_light_2', 'Light 2'),
+    RockerDown: t('rkey_dimmer_down', 'Dimmer −'),
+    Ha4: t('rkey_plug_2', 'Plug 2'),
+  })[k.id] || k.label;
+}
 const PHYSICAL_NAV_KEYS = new Set(['Ha1', 'Ha2', 'Ha3', 'Ha4', 'RockerUp', 'RockerDown']);
 
 // The two capacitive keys under the screen stay on the remote
 const NAV_KEYS = [
-  { id: 'activities', text: 'ACTIVITIES', rect: [110, 848, 142, 45, 4] },
-  { id: 'devices', text: 'DEVICES', rect: [378, 848, 142, 45, 4] },
+  { id: 'activities', text: 'ACTIVITIES', rect: [110, 848, 142, 45, 4] },  // i18n-ok: legend printed on the remote
+  { id: 'devices', text: 'DEVICES', rect: [378, 848, 142, 45, 4] },  // i18n-ok: legend printed on the remote
 ];
 
 function svg(tag, attrs = {}, children = []) {
@@ -136,11 +171,6 @@ function keyLegend(k) {
   return svg('text', { x: cx, y: cy, class: 'eb-label', 'font-size': k.size || 20, text: k.text });
 }
 
-// The Hub falls back to these when the running activity doesn't bind a key
-function defaultBindings(acts) {
-  return acts['-1'] ?? acts.default ?? acts['53591842'] ?? Object.values(acts)[0];
-}
-
 function actionOf(b) {
   const a = b.action || b.type || '';
   if (a === 'device_cmd' || a === 'command' || (!a && b.command && (b.deviceId || b.targetDevice))) return 'command';
@@ -164,38 +194,44 @@ export function createButtonEditor() {
 
   const activities = () => (store.get('activities.list') || []).filter(a => String(a.id) !== '-1');
   const deviceById = id => devices.find(d => String(d.id) === String(id));
-  const deviceName = id => deviceById(id)?.name || `Device ${id}`;
-  const activityName = id => activities().find(a => String(a.id) === String(id))?.name || `Activity ${id}`;
+  const deviceName = id => deviceById(id)?.name || t('device_fallback_name', 'Device {id}', { id });
+  const activityName = id => activities().find(a => String(a.id) === String(id))?.name || t('activity_n', 'Activity {id}', { id });
   const ctxKind = () => ctx.slice(0, 1);
   const ctxId = () => ctx.slice(2);
-  const ctxName = () => (ctxKind() === 'd' ? deviceName(ctxId()) : ctxId() === '-1' ? 'No activity' : activityName(ctxId()));
+  const ctxName = () => (ctxKind() === 'd' ? deviceName(ctxId()) : ctxId() === '-1' ? t('no_activity', 'No activity') : activityName(ctxId()));
 
   function describe(b) {
     switch (actionOf(b)) {
       case 'command': return `${deviceName(b.deviceId || b.targetDevice)} › ${b.command}`;
-      case 'activity': return `Start ${activityName(b.activityId || b.targetActivity || b.deviceId)}`;
-      case 'poweroff': return 'Turn everything off';
-      case 'none': return 'Nothing';
-      default: return `Not supported by the Hub (${b.action || b.type})`;
+      case 'activity': return t('start_activity_name', 'Start {name}', { name: activityName(b.activityId || b.targetActivity || b.deviceId) });
+      case 'poweroff': return t('turn_everything_off', 'Turn everything off');
+      case 'none': return t('binding_nothing', 'Nothing');
+      default: return t('binding_unsupported', 'Not supported by the Hub ({action})', { action: b.action || b.type });
     }
   }
 
   // What a key press does in the current context, and where that comes from
   function resolveBinding(keyId) {
-    if (keyId === 'PowerOffActivity') return { source: 'fixed', text: 'Turn everything off' };
+    if (keyId === 'PowerOffActivity') return { source: 'fixed', text: t('turn_everything_off', 'Turn everything off') };
     const acts = map.activities || {};
     if (ctxKind() === 'd') {
       const own = map.devices?.[ctxId()]?.[keyId];
       if (own?.command) return { source: 'here', binding: own, text: `${deviceName(ctxId())} › ${own.command}` };
       const same = sameNameCommand(ctxId(), keyId);
       if (same) return { source: 'name', text: `${deviceName(ctxId())} › ${same}` };
-      return { source: 'none', text: 'Nothing' };
+      return { source: 'none', text: t('binding_nothing', 'Nothing') };
     }
-    const own = acts[ctxId()]?.[keyId];
+    const ownEntry = acts[ctxId()];
+    const own = ownEntry?.[keyId];
+    // A key bound to something that is not a binding (null in a hand-edited map) stops the Hub
+    // there: it sends nothing and does not look at the defaults
+    if (ctxId() !== '-1' && ownEntry && Object.hasOwn(ownEntry, keyId) && !(own && typeof own === 'object')) {
+      return { source: 'none', text: t('binding_nothing', 'Nothing') };
+    }
     if (own && ctxId() !== '-1') return { source: 'here', binding: own, text: describe(own) };
-    const def = defaultBindings(acts)?.[keyId];
+    const def = defaultBinding(acts, keyId);
     if (def) return { source: ctxId() === '-1' && acts['-1'] ? 'here' : 'default', binding: def, text: describe(def) };
-    return { source: 'none', text: 'Nothing' };
+    return { source: 'none', text: t('binding_nothing', 'Nothing') };
   }
 
   // The device's command named like the key, which the Hub sends when nothing is bound
@@ -210,6 +246,8 @@ export function createButtonEditor() {
     const entry = (map[kind][ctxId()] = map[kind][ctxId()] || {});
     if (binding) entry[keyId] = binding;
     else delete entry[keyId];
+    // An empty entry would count as an activity entry for the Hub's fallback (and bind nothing)
+    if (!Object.keys(entry).length) delete map[kind][ctxId()];
     dirty = true;
     refresh();
   }
@@ -220,7 +258,7 @@ export function createButtonEditor() {
     viewBox: `${VIEW.x} ${VIEW.y} ${VIEW.w} ${VIEW.h}`,
     class: 'eb-svg',
     role: 'group',
-    'aria-label': 'Harmony remote keys',
+    'aria-label': t('harmony_remote_keys', 'Harmony remote keys'),
   }, [
     svg('rect', { x: 40, y: 10, width: 560, height: 1880, rx: 130, class: 'eb-body' }),
     svg('rect', { x: SCREEN.x - 4, y: SCREEN.y - 4, width: SCREEN.w + 8, height: SCREEN.h + 8, rx: 6, class: 'eb-screen' }),
@@ -241,7 +279,9 @@ export function createButtonEditor() {
     const g = svg('g', { class: 'eb-nav', tabindex: 0, role: 'button' }, [
       svg('rect', { x, y, width: w, height: hgt, rx: r }),
       svg('text', { x: x + w / 2, y: y + hgt / 2, class: 'eb-label', 'font-size': 17, text: k.text }),
-      svg('title', { text: `Shows the remote's ${k.text.toLowerCase()} screen; this key stays on the remote` }),
+      svg('title', { text: k.id === 'activities'
+        ? t('remote_nav_activities_tip', "Shows the remote's activities screen; this key stays on the remote")
+        : t('remote_nav_devices_tip', "Shows the remote's devices screen; this key stays on the remote") }),
     ]);
     g.addEventListener('click', () => { screenView = k.id; showScreen(); });
     picture.appendChild(g);
@@ -317,13 +357,13 @@ export function createButtonEditor() {
   // ── Header: context, save ──
   const ctxSelect = h('select', {
     className: 'form-select',
-    'aria-label': 'Bindings for',
+    'aria-label': t('bindings_for', 'Bindings for'),
     onchange: () => { ctx = ctxSelect.value; screenView = null; refresh(); showScreen(); },
   });
-  const dirtyBadge = h('span', { className: 'badge badge-accent', text: 'Unsaved changes', style: { display: 'none' } });
+  const dirtyBadge = h('span', { className: 'badge badge-accent', text: t('unsaved_changes', 'Unsaved changes'), style: { display: 'none' } });
   const revertBtn = h('button', {
     className: 'btn btn-secondary btn-sm',
-    text: 'Revert',
+    text: t('revert', 'Revert'),
     onclick: () => load(slot),
   });
   const otherSlot = () => (slot === 1 ? 2 : 1);
@@ -332,14 +372,14 @@ export function createButtonEditor() {
     onclick: async () => {
       const from = otherSlot();
       const ok = await confirm.ask({
-        title: 'Copy Remote Mappings',
-        message: `Copy all button mappings from Slot ${from} to Slot ${slot}? Any existing mappings on Slot ${slot} will be overwritten.`,
+        title: t('copy_remote_mappings', 'Copy Remote Mappings'),
+        message: t('copy_slot_mappings_confirm', 'Copy all button mappings from Slot {from} to Slot {to}? Any existing mappings on Slot {to} will be overwritten.', { from, to: slot }),
         danger: true,
       });
       if (!ok) return;
       try {
         await api.copyRFMapping(from, slot);
-        toast.success(`Copied mappings from Slot ${from} to Slot ${slot}`);
+        toast.success(t('copied_slot_mappings', 'Copied mappings from Slot {from} to Slot {to}', { from, to: slot }));
         load(slot);
       } catch (e) {
         toast.error(e.message);
@@ -348,73 +388,73 @@ export function createButtonEditor() {
   });
   const saveBtn = h('button', {
     className: 'btn btn-primary btn-sm',
-    text: 'Save to Hub',
+    text: t('save_to_hub', 'Save to Hub'),
     onclick: async () => {
       if (loadError) {
-        toast.error(`Not saved: the Hub's key map was not loaded (${loadError}). Press Revert to load it again.`);
+        toast.error(t('keymap_not_saved_not_loaded', "Not saved: the Hub's key map was not loaded ({error}). Press Revert to load it again.", { error: loadError }));
         return;
       }
       try {
         await api.saveRFMapping(map, slot);
         dirty = false;
         refresh();
-        toast.success('Saved. The Hub uses the new bindings from the next key press.');
+        toast.success(t('keymap_saved_next_press', 'Saved. The Hub uses the new bindings from the next key press.'));
       } catch (e) {
         toast.error(e.message);
       }
     },
   });
-  const title = h('h4', { className: 'card-title', text: 'Buttons' });
+  const title = h('h4', { className: 'card-title', text: t('buttons_title', 'Buttons') });
 
   // ── Theme and home layout: the remote's look, which the Hub sets in its settings push ──
   let physicalNavEnabled = false;
 
   const themeSelect = h('select', {
     className: 'form-select',
-    'aria-label': 'Remote theme',
+    'aria-label': t('remote_theme', 'Remote theme'),
     onchange: () => setTheme(themeSelect.value),
   });
   const layoutSelect = h('select', {
     className: 'form-select',
-    'aria-label': 'Home layout',
-    onchange: () => sendRemoteSetting({ layout: layoutSelect.value }, 'Home layout').then(() => showScreen()),
+    'aria-label': t('home_layout', 'Home layout'),
+    onchange: () => sendRemoteSetting({ layout: layoutSelect.value }, t('home_layout', 'Home layout')).then(() => showScreen()),
   }, [
-    h('option', { value: 'theme', text: "The theme's" }),
-    h('option', { value: 'list', text: 'List' }),
-    h('option', { value: 'grid', text: 'Grid' }),
-    h('option', { value: 'carousel', text: 'Carousel' }),
+    h('option', { value: 'theme', text: t('layout_theme_default', "The theme's") }),
+    h('option', { value: 'list', text: t('layout_list', 'List') }),
+    h('option', { value: 'grid', text: t('layout_grid', 'Grid') }),
+    h('option', { value: 'carousel', text: t('layout_carousel', 'Carousel') }),
   ]);
   function updateLayoutOptions() {
     if (physicalNavEnabled) {
-      layoutSelect.replaceChildren(h('option', { value: 'list', text: 'List' }));
+      layoutSelect.replaceChildren(h('option', { value: 'list', text: t('layout_list', 'List') }));
       layoutSelect.value = 'list';
       layoutSelect.disabled = true;
     } else {
       layoutSelect.disabled = false;
       layoutSelect.replaceChildren(
-        h('option', { value: 'theme', text: "The theme's" }),
-        h('option', { value: 'list', text: 'List' }),
-        h('option', { value: 'grid', text: 'Grid' }),
-        h('option', { value: 'carousel', text: 'Carousel' })
+        h('option', { value: 'theme', text: t('layout_theme_default', "The theme's") }),
+        h('option', { value: 'list', text: t('layout_list', 'List') }),
+        h('option', { value: 'grid', text: t('layout_grid', 'Grid') }),
+        h('option', { value: 'carousel', text: t('layout_carousel', 'Carousel') })
       );
     }
   }
   const physicalNavSelect = h('select', {
     className: 'form-select',
-    'aria-label': 'Physical button navigation',
+    'aria-label': t('physical_button_navigation', 'Physical button navigation'),
     onchange: async () => {
       const enabled = physicalNavSelect.value === '1';
       physicalNavEnabled = enabled;
       updateLayoutOptions();
       const change = { physical_nav: enabled ? 1 : 0, physicalNavEnabled: enabled };
       if (enabled) change.layout = 'list';
-      await sendRemoteSetting(change, 'Physical button navigation');
+      await sendRemoteSetting(change, t('physical_button_navigation', 'Physical button navigation'));
       refresh();
       showScreen();
     },
   }, [
-    h('option', { value: '0', text: 'Disabled' }),
-    h('option', { value: '1', text: 'Enabled (Locks layout to List)' }),
+    h('option', { value: '0', text: t('disabled', 'Disabled') }),
+    h('option', { value: '1', text: t('physical_nav_enabled_list', 'Enabled (Locks layout to List)') }),
   ]);
 
   const remoteConfigPath = () => `/api/rf/remote-config?slot=${slot}`;
@@ -438,13 +478,13 @@ export function createButtonEditor() {
       // The Hub rebuilds the remote's settings from the whole object
       const cfg = await api.request(remoteConfigPath());
       await api.request(remoteConfigPath(), { method: 'POST', body: JSON.stringify({ ...cfg, ...change, slot }) });
-      toast.success(`${label} sent to the remote.`);
+      toast.success(t('setting_sent_to_remote', '{setting} sent to the remote.', { setting: label }));
     } catch (e) {
       toast.error(e.message);
     }
   }
   async function setTheme(name) {
-    await sendRemoteSetting({ theme: name }, 'Theme');
+    await sendRemoteSetting({ theme: name }, t('theme_lbl', 'Theme'));
     const renderer = await loadRemoteRenderer();
     if (renderer) await setRendererTheme(renderer, name);
     drawScreen();
@@ -456,21 +496,21 @@ export function createButtonEditor() {
   function ctxOptions() {
     const opt = (value, text) => h('option', { value, text });
     return [
-      h('optgroup', { label: 'Activities' }, [
+      h('optgroup', { label: t('activities', 'Activities') }, [
         ...activities().map(a => opt(`a:${a.id}`, a.name)),
-        opt('a:-1', 'No activity (defaults for all activities)'),
+        opt('a:-1', t('ctx_no_activity_defaults', 'No activity (defaults for all activities)')),
       ]),
-      h('optgroup', { label: 'Devices (on the remote\'s Devices screen)' }, devices.map(d => opt(`d:${d.id}`, d.name))),
+      h('optgroup', { label: t('ctx_devices_on_remote', 'Devices (on the remote\'s Devices screen)') }, devices.map(d => opt(`d:${d.id}`, d.name))),
     ];
   }
 
   function sourceBadge(source) {
     const [cls, text] = {
-      here: ['badge-success', ctxKind() === 'd' ? 'This device' : ctxId() === '-1' ? 'Default' : 'This activity'],
-      default: ['badge-accent', 'Inherited'],
-      name: ['badge-accent', 'Same name'],
-      fixed: ['', 'Fixed'],
-      none: ['', 'Unbound'],
+      here: ['badge-success', ctxKind() === 'd' ? t('source_this_device', 'This device') : ctxId() === '-1' ? t('source_default', 'Default') : t('source_this_activity', 'This activity')],
+      default: ['badge-accent', t('source_inherited', 'Inherited')],
+      name: ['badge-accent', t('source_same_name', 'Same name')],
+      fixed: ['', t('source_fixed', 'Fixed')],
+      none: ['', t('source_unbound', 'Unbound')],
     }[source];
     return h('span', { className: `badge ${cls}`, text });
   }
@@ -511,7 +551,7 @@ export function createButtonEditor() {
       return same ? `${deviceName(ctxId())} › ${same}` : null;
     }
     if (ctxId() === '-1') return null;
-    const def = defaultBindings(map.activities || {})?.[keyId];
+    const def = defaultBinding(map.activities || {}, keyId);
     return def ? describe(def) : null;
   }
 
@@ -519,16 +559,16 @@ export function createButtonEditor() {
     const k = KEY_BY_ID[selected];
     const r = resolveBinding(selected);
     const rows = [
-      h('div', { className: 'eb-key-head' }, [h('strong', { text: k.label }), h('code', { text: k.id }), sourceBadge(r.source)]),
+      h('div', { className: 'eb-key-head' }, [h('strong', { text: keyLabel(k) }), h('code', { text: k.id }), sourceBadge(r.source)]),
       h('p', { className: `eb-key-now${r.source === 'default' || r.source === 'name' ? ' eb-inherited' : ''}`, text: r.text }),
     ];
     if (r.source === 'default') {
-      rows.push(h('p', { className: 'text-dim eb-hint', text: 'Inherited from the No activity bindings. Set a binding to override it here.' }));
+      rows.push(h('p', { className: 'text-dim eb-hint', text: t('inherited_from_defaults_hint', 'Inherited from the default bindings. Set a binding to override it here.') }));
     } else if (r.source === 'name') {
-      rows.push(h('p', { className: 'text-dim eb-hint', text: 'Inherited: the Hub sends the device\'s command of the same name. Set a binding to override it.' }));
+      rows.push(h('p', { className: 'text-dim eb-hint', text: t('inherited_same_name_hint', 'Inherited: the Hub sends the device\'s command of the same name. Set a binding to override it.') }));
     }
     if (r.source === 'fixed') {
-      rows.push(h('p', { className: 'text-dim eb-hint', text: 'The Hub always turns everything off for this key.' }));
+      rows.push(h('p', { className: 'text-dim eb-hint', text: t('power_off_key_fixed_hint', 'The Hub always turns everything off for this key.') }));
       keyPanel.replaceChildren(...rows);
       return;
     }
@@ -538,21 +578,21 @@ export function createButtonEditor() {
     const own = isDevice ? map.devices?.[ctxId()]?.[selected] : map.activities?.[ctxId()]?.[selected];
     const mode = own ? (isDevice ? 'command' : actionOf(own)) : (isDefaults ? 'none' : 'inherit');
 
-    const fallback = isDevice ? sameNameCommand(ctxId(), selected) : (isDefaults ? null : defaultBindings(map.activities || {})?.[selected]);
+    const fallback = isDevice ? sameNameCommand(ctxId(), selected) : (isDefaults ? null : defaultBinding(map.activities || {}, selected));
     const modes = isDevice
-      ? [['inherit', `Use the command of the same name${fallback ? ` (${fallback})` : ' (none)'}`], ['command', 'Send a command']]
+      ? [['inherit', fallback ? t('mode_same_name_command', 'Use the command of the same name ({command})', { command: fallback }) : t('mode_same_name_none', 'Use the command of the same name (none)')], ['command', t('mode_send_command', 'Send a command')]]
       : [
-        ...(isDefaults ? [] : [['inherit', `Use the default${fallback ? ` (${describe(fallback)})` : ' (nothing)'}`]]),
-        ['command', 'Send a device command'],
-        ['activity', 'Start an activity'],
-        ['poweroff', 'Turn everything off'],
-        ['none', isDefaults ? 'Nothing' : 'Nothing (ignore the default)'],
+        ...(isDefaults ? [] : [['inherit', fallback ? t('mode_use_default', 'Use the default ({binding})', { binding: describe(fallback) }) : t('mode_use_default_nothing', 'Use the default (nothing)')]]),
+        ['command', t('mode_send_device_command', 'Send a device command')],
+        ['activity', t('mode_start_activity', 'Start an activity')],
+        ['poweroff', t('turn_everything_off', 'Turn everything off')],
+        ['none', isDefaults ? t('binding_nothing', 'Nothing') : t('mode_nothing_ignore_default', 'Nothing (ignore the default)')],
       ];
     if (mode.startsWith('unsupported:')) modes.push([mode, describe(own)]);
 
     const modeSelect = h('select', {
       className: 'form-select',
-      'aria-label': `When ${k.label} is pressed`,
+      'aria-label': t('when_key_pressed', 'When {key} is pressed', { key: keyLabel(k) }),
       onchange: () => {
         const m = modeSelect.value;
         if (m === 'inherit' || (m === 'none' && isDefaults)) setBinding(selected, null);
@@ -568,7 +608,7 @@ export function createButtonEditor() {
       },
     }, modes.map(([v, text]) => h('option', { value: v, text, selected: v === mode })));
 
-    rows.push(h('label', { className: 'eb-field' }, [h('span', { text: `When pressed${isDevice ? ` on ${ctxName()}` : ` in ${ctxName()}`}` }), modeSelect]));
+    rows.push(h('label', { className: 'eb-field' }, [h('span', { text: isDevice ? t('when_pressed_on', 'When pressed on {name}', { name: ctxName() }) : t('when_pressed_in', 'When pressed in {name}', { name: ctxName() }) }), modeSelect]));
 
     if (mode === 'command') {
       const devId = isDevice ? ctxId() : String(own.deviceId || own.targetDevice || '');
@@ -579,36 +619,36 @@ export function createButtonEditor() {
         const devOpt = d => h('option', { value: String(d.id), text: d.name, selected: String(d.id) === devId });
         const devSelect = h('select', {
           className: 'form-select',
-          'aria-label': 'Device',
+          'aria-label': t('device', 'Device'),
           onchange: () => {
             const dev = deviceById(devSelect.value);
             const keep = dev?.commands?.some(c => (c.name || c) === own.command) ? own.command : null;
             update({ deviceId: devSelect.value, command: keep || sameNameCommand(devSelect.value, selected) || sortedCommands(dev)[0] || '' });
           },
         }, inAct.size
-          ? [h('optgroup', { label: `In ${ctxName()}` }, devices.filter(d => inAct.has(String(d.id))).map(devOpt)),
-            h('optgroup', { label: 'Other devices' }, devices.filter(d => !inAct.has(String(d.id))).map(devOpt))]
+          ? [h('optgroup', { label: t('devices_in_ctx', 'In {name}', { name: ctxName() }) }, devices.filter(d => inAct.has(String(d.id))).map(devOpt)),
+            h('optgroup', { label: t('other_devices', 'Other devices') }, devices.filter(d => !inAct.has(String(d.id))).map(devOpt))]
           : devices.map(devOpt));
-        rows.push(h('label', { className: 'eb-field' }, [h('span', { text: 'Device' }), devSelect]));
+        rows.push(h('label', { className: 'eb-field' }, [h('span', { text: t('device', 'Device') }), devSelect]));
       }
       const cmdSelect = h('select', {
         className: 'form-select',
-        'aria-label': 'Command',
+        'aria-label': t('command_label', 'Command'),
         onchange: () => update({ command: cmdSelect.value }),
       }, commandOptions(deviceById(devId), own.command));
-      rows.push(h('label', { className: 'eb-field' }, [h('span', { text: 'Command' }), cmdSelect]));
+      rows.push(h('label', { className: 'eb-field' }, [h('span', { text: t('command_label', 'Command') }), cmdSelect]));
     } else if (mode === 'activity') {
       const actSelect = h('select', {
         className: 'form-select',
-        'aria-label': 'Activity',
+        'aria-label': t('activity', 'Activity'),
         onchange: () => setBinding(selected, { type: 'activity_start', action: 'activity_start', activityId: actSelect.value }),
       }, activities().map(a => h('option', { value: String(a.id), text: a.name, selected: String(a.id) === String(own.activityId || own.targetActivity) })));
-      rows.push(h('label', { className: 'eb-field' }, [h('span', { text: 'Activity' }), actSelect]));
+      rows.push(h('label', { className: 'eb-field' }, [h('span', { text: t('activity', 'Activity') }), actSelect]));
     }
     if (physicalNavEnabled && PHYSICAL_NAV_KEYS.has(selected)) {
       const rows = [
-        h('div', { className: 'eb-key-head' }, [h('strong', { text: k.label }), h('code', { text: k.id }), h('span', { className: 'badge badge-accent', text: 'Physical Nav' })]),
-        h('p', { className: 'text-dim eb-hint', style: { marginTop: '10px' }, text: 'Reserved for physical screen navigation (Select / Back / Up / Down / Tab) on the remote. Cannot be mapped when physical button navigation is enabled.' })
+        h('div', { className: 'eb-key-head' }, [h('strong', { text: keyLabel(k) }), h('code', { text: k.id }), h('span', { className: 'badge badge-accent', text: t('physical_nav_badge', 'Physical Nav') })]),
+        h('p', { className: 'text-dim eb-hint', style: { marginTop: '10px' }, text: t('physical_nav_reserved_hint', 'Reserved for physical screen navigation (Select / Back / Up / Down / Tab) on the remote. Cannot be mapped when physical button navigation is enabled.') })
       ];
       keyPanel.replaceChildren(...rows);
       return;
@@ -617,31 +657,33 @@ export function createButtonEditor() {
     if (own) {
       const after = inheritedText(selected);
       rows.push(h('div', { className: 'eb-remove-row' }, [
-        h('button', { className: 'btn btn-secondary btn-sm', text: 'Remove binding', onclick: () => setBinding(selected, null) }),
-        h('span', { className: 'text-dim', text: after ? `Then inherits ${after}` : 'Then does nothing' }),
+        h('button', { className: 'btn btn-secondary btn-sm', text: t('remove_binding', 'Remove binding'), onclick: () => setBinding(selected, null) }),
+        h('span', { className: 'text-dim', text: after ? t('then_inherits', 'Then inherits {binding}', { binding: after }) : t('then_does_nothing', 'Then does nothing') }),
       ]));
     }
     keyPanel.replaceChildren(...rows);
   }
 
   function refresh() {
-    title.textContent = `Buttons (Slot ${slot})`;
-    copyBtn.textContent = `📋 Copy from Slot ${otherSlot()}`;
+    title.textContent = t('buttons_slot_title', 'Buttons (Slot {slot})', { slot });
+    const copyLabel = t('copy_from_slot', 'Copy from Slot {slot}', { slot: otherSlot() });
+    copyBtn.textContent = `📋 ${copyLabel}`;
     dirtyBadge.style.display = dirty ? '' : 'none';
     KEYS.forEach((k) => {
       const isReserved = physicalNavEnabled && PHYSICAL_NAV_KEYS.has(k.id);
       const r = resolveBinding(k.id);
-      const { g, title: t } = hotspots[k.id];
+      const { g, title: tip } = hotspots[k.id];
       if (isReserved) {
+        const reserved = t('key_reserved_physical_nav', '{key}: Reserved for physical screen navigation', { key: keyLabel(k) });
         g.setAttribute('class', `eb-key eb-disabled eb-nav-reserved${k.id === selected ? ' eb-selected' : ''}`);
-        g.setAttribute('aria-label', `${k.label}: Reserved for physical screen navigation`);
+        g.setAttribute('aria-label', reserved);
         g.setAttribute('aria-disabled', 'true');
-        t.textContent = `${k.label}: Reserved for physical screen navigation`;
+        tip.textContent = reserved;
       } else {
         g.removeAttribute('aria-disabled');
         g.setAttribute('class', `eb-key eb-${r.source}${k.id === selected ? ' eb-selected' : ''}`);
-        g.setAttribute('aria-label', `${k.label}: ${r.text}`);
-        t.textContent = `${k.label}: ${r.text}`;
+        g.setAttribute('aria-label', `${keyLabel(k)}: ${r.text}`);
+        tip.textContent = `${keyLabel(k)}: ${r.text}`;
       }
     });
     renderKeyPanel();
@@ -699,10 +741,10 @@ export function createButtonEditor() {
     devices = devs?.devices || [];
     // Only a reply from the Hub starts an empty map ({"ok":true,"mappings":[]} = no map yet);
     // after a failed read the editor shows nothing and must not save over the Hub's map
-    if (!mapError && !(m && typeof m === 'object' && !Array.isArray(m))) mapError = 'unexpected reply';
+    if (!mapError && !(m && typeof m === 'object' && !Array.isArray(m))) mapError = t('unexpected_reply', 'unexpected reply');
     loadError = mapError;
     saveBtn.disabled = Boolean(loadError);
-    if (loadError) toast.error(`Cannot load the key map of slot ${slot}: ${loadError}. Saving is off until it loads.`);
+    if (loadError) toast.error(t('keymap_load_failed_slot', 'Cannot load the key map of slot {slot}: {error}. Saving is off until it loads.', { slot, error: loadError }));
     map = !loadError ? m : {};
     delete map.ok; delete map.mappings; // the Hub's reply when it has no map yet
     map.activities = map.activities || {};
@@ -723,18 +765,18 @@ export function createButtonEditor() {
       title,
       h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' } }, [dirtyBadge, copyBtn, revertBtn, saveBtn]),
     ]),
-    h('label', { className: 'eb-field eb-ctx' }, [h('span', { text: 'Bindings for' }), ctxSelect]),
+    h('label', { className: 'eb-field eb-ctx' }, [h('span', { text: t('bindings_for', 'Bindings for') }), ctxSelect]),
     h('div', { className: 'eb-layout' }, [
       h('div', { className: 'eb-picture-col' }, [
         pictureWrap,
         h('div', { className: 'eb-legend' }, [
-          h('span', {}, [h('span', { className: 'eb-swatch eb-here' }), 'Set here']),
-          h('span', {}, [h('span', { className: 'eb-swatch eb-default' }), 'Inherited']),
-          h('span', {}, [h('span', { className: 'eb-swatch eb-none' }), 'Unbound']),
+          h('span', {}, [h('span', { className: 'eb-swatch eb-here' }), t('legend_set_here', 'Set here')]),
+          h('span', {}, [h('span', { className: 'eb-swatch eb-default' }), t('source_inherited', 'Inherited')]),
+          h('span', {}, [h('span', { className: 'eb-swatch eb-none' }), t('source_unbound', 'Unbound')]),
         ]),
-        h('label', { className: 'eb-field eb-theme' }, [h('span', { text: 'Remote theme' }), themeSelect]),
-        h('label', { className: 'eb-field eb-theme' }, [h('span', { text: 'Home layout' }), layoutSelect]),
-        h('label', { className: 'eb-field eb-theme' }, [h('span', { text: 'Physical button navigation' }), physicalNavSelect]),
+        h('label', { className: 'eb-field eb-theme' }, [h('span', { text: t('remote_theme', 'Remote theme') }), themeSelect]),
+        h('label', { className: 'eb-field eb-theme' }, [h('span', { text: t('home_layout', 'Home layout') }), layoutSelect]),
+        h('label', { className: 'eb-field eb-theme' }, [h('span', { text: t('physical_button_navigation', 'Physical button navigation') }), physicalNavSelect]),
       ]),
       h('div', { className: 'eb-panel-col' }, [keyPanel]),
     ]),

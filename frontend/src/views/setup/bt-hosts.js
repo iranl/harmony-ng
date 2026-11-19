@@ -4,6 +4,7 @@ import { api } from '../../api/index.js';
 import { store } from '../../store.js';
 import { t } from '../../i18n/index.js';
 import { toast } from '../../components/toast.js';
+import { confirm } from '../../components/confirm.js';
 
 export function createView() {
   const container = h('div', { className: 'setup-subview-bthosts', style: { display: 'flex', flexDirection: 'column', gap: '16px' } });
@@ -17,22 +18,22 @@ export function createView() {
         onclick: () => loadStatus(),
       }),
     ]),
-    h('div', { id: 'bt-status-content', className: 'text-dim', text: 'Loading BT status...' }),
+    h('div', { id: 'bt-status-content', className: 'text-dim', text: t('loading_bt_status', 'Loading BT status...') }),
   ]);
 
   const pairCard = h('div', { className: 'card' }, [
     h('div', { className: 'card-header' }, [
-      h('h4', { className: 'card-title', text: 'Pairing Mode' }),
+      h('h4', { className: 'card-title', text: t('pairing_mode', 'Pairing Mode') }),
     ]),
-    h('p', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '12px' }, text: 'Make Harmony Hub discoverable as a Bluetooth HID Keyboard to pair with Nvidia Shield, Apple TV, Fire TV, or PC.' }),
+    h('p', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '12px' }, text: t('bt_pairing_mode_desc', 'Make Harmony Hub discoverable as a Bluetooth HID Keyboard to pair with Nvidia Shield, Apple TV, Fire TV, or PC.') }),
     h('div', { style: { display: 'flex', gap: '8px' } }, [
       h('button', {
         className: 'btn btn-primary',
-        text: '📶 Enable BT Pairing (60s)',
+        text: `📶 ${t('enable_bt_pairing_60', 'Enable BT Pairing (60s)')}`,
         onclick: async () => {
           try {
             await api.setBtPairing(true, 'Harmony Keyboard');
-            toast.success('Hub is now discoverable as Bluetooth Keyboard!');
+            toast.success(t('hub_discoverable_bt_keyboard', 'Hub is now discoverable as Bluetooth Keyboard!'));
             loadStatus();
           } catch (e) {
             toast.error(e.message);
@@ -41,11 +42,11 @@ export function createView() {
       }),
       h('button', {
         className: 'btn btn-secondary',
-        text: 'Disable Pairing',
+        text: t('disable_pairing', 'Disable Pairing'),
         onclick: async () => {
           try {
             await api.setBtPairing(false);
-            toast.info('Disabled BT pairing mode');
+            toast.info(t('bt_pairing_disabled', 'Disabled BT pairing mode'));
             loadStatus();
           } catch (e) {
             toast.error(e.message);
@@ -57,9 +58,9 @@ export function createView() {
 
   const hostsCard = h('div', { className: 'card' }, [
     h('div', { className: 'card-header' }, [
-      h('h4', { className: 'card-title', text: 'Connected Hosts' }),
+      h('h4', { className: 'card-title', text: t('connected_hosts', 'Connected Hosts') }),
     ]),
-    h('div', { id: 'bt-hosts-mount', className: 'text-dim', text: 'Loading hosts...' }),
+    h('div', { id: 'bt-hosts-mount', className: 'text-dim', text: t('loading_hosts', 'Loading hosts...') }),
   ]);
 
   // pushed: a bt_status object from the Hub (WebSocket); fetched when absent
@@ -78,16 +79,16 @@ export function createView() {
 
       const grid = h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '8px' } }, [
         h('div', { className: 'card', style: { margin: 0, padding: '8px' } }, [
-          h('div', { className: 'card-sub', text: 'Stack State' }),
-          h('div', { style: { fontWeight: 'bold' }, text: data?.state || 'Running' }),
+          h('div', { className: 'card-sub', text: t('stack_state', 'Stack State') }),
+          h('div', { style: { fontWeight: 'bold' }, text: data?.state || t('state_running', 'Running') }),
         ]),
         h('div', { className: 'card', style: { margin: 0, padding: '8px' } }, [
-          h('div', { className: 'card-sub', text: 'Pairing' }),
-          h('div', { style: { fontWeight: 'bold', color: isPairing ? 'var(--accent)' : 'inherit' }, text: isPairing ? 'Discoverable' : 'Off' }),
+          h('div', { className: 'card-sub', text: t('pairing', 'Pairing') }),
+          h('div', { style: { fontWeight: 'bold', color: isPairing ? 'var(--accent)' : 'inherit' }, text: isPairing ? t('discoverable', 'Discoverable') : t('pairing_state_off', 'Off') }),
         ]),
         h('div', { className: 'card', style: { margin: 0, padding: '8px' } }, [
-          h('div', { className: 'card-sub', text: 'Active Link' }),
-          h('div', { style: { fontWeight: 'bold', color: isConnected ? 'var(--success)' : 'inherit' }, text: isConnected ? 'Connected' : 'Idle' }),
+          h('div', { className: 'card-sub', text: t('active_link', 'Active Link') }),
+          h('div', { style: { fontWeight: 'bold', color: isConnected ? 'var(--success)' : 'inherit' }, text: isConnected ? t('connected', 'Connected') : t('state_idle', 'Idle') }),
         ]),
       ]);
 
@@ -96,36 +97,57 @@ export function createView() {
       hostsMount.innerHTML = '';
       const hosts = data?.hosts || data?.pairedHosts || [];
       if (hosts.length === 0) {
-        hostsMount.textContent = 'No paired Bluetooth hosts.';
+        hostsMount.textContent = t('no_paired_bt_hosts', 'No paired Bluetooth hosts.');
       } else {
         const list = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } });
         hosts.forEach(hItem => {
           // hub_btstack lists hosts as { addr, name, connected, paired }
           const bdaddr = hItem.addr || hItem.bdaddr || hItem.address || String(hItem);
-          const state = hItem.connected ? 'Connected' : (hItem.paired === false ? 'Not paired (no link key)' : 'Paired');
+          const state = hItem.connected ? t('connected', 'Connected') : (hItem.paired === false ? t('not_paired_no_key', 'Not paired (no link key)') : t('paired', 'Paired'));
           const row = h('div', {
             className: 'card',
             style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', margin: 0 },
           }, [
             h('div', {}, [
-              h('div', { style: { fontWeight: 'bold' }, text: hItem.name || 'Bluetooth Host' }),
+              h('div', { style: { fontWeight: 'bold' }, text: hItem.name || t('bluetooth_host', 'Bluetooth Host') }),
               h('div', { className: 'text-dim', style: { fontSize: '11px' }, text: `${bdaddr} • ${state}` }),
             ]),
             h('div', { style: { display: 'flex', gap: '6px' } }, [
               h('button', {
                 className: 'btn btn-secondary btn-sm',
-                text: 'Connect',
+                text: t('connect', 'Connect'),
                 onclick: async () => {
                   await api.connectBt(bdaddr);
-                  toast.info(`Connecting to ${bdaddr}...`);
+                  toast.info(t('connecting_to', 'Connecting to {name}...', { name: bdaddr }));
                 },
               }),
               h('button', {
                 className: 'btn btn-danger btn-sm',
-                text: 'Disconnect',
+                text: t('disconnect', 'Disconnect'),
                 onclick: async () => {
                   await api.disconnectBt(bdaddr);
-                  toast.info('Disconnected');
+                  toast.info(t('disconnected', 'Disconnected'));
+                },
+              }),
+              h('button', {
+                className: 'btn btn-danger btn-sm',
+                text: t('bt_forget_host', 'Forget'),
+                onclick: async () => {
+                  const name = hItem.name || bdaddr;
+                  const ok = await confirm.ask({
+                    title: t('bt_forget_host_title', 'Forget Bluetooth host'),
+                    message: t('bt_forget_host_confirm', 'Forget {name} ({addr})?', { name, addr: bdaddr }),
+                    confirmText: t('bt_forget_host', 'Forget'),
+                    danger: true,
+                  });
+                  if (!ok) return;
+                  try {
+                    await api.forgetBtHost(bdaddr);
+                    toast.success(t('bt_host_forgotten', 'Bluetooth host forgotten'));
+                    loadStatus();
+                  } catch (e) {
+                    toast.error(t('bt_forget_failed', 'Forget failed: {error}', { error: e.message }));
+                  }
                 },
               }),
             ]),
@@ -135,7 +157,7 @@ export function createView() {
         hostsMount.appendChild(list);
       }
     } catch (e) {
-      statusMount.textContent = `Error: ${e.message}`;
+      statusMount.textContent = t('error_msg', 'Error: {error}', { error: e.message });
     }
   }
 

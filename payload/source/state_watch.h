@@ -16,6 +16,10 @@ int state_watch_start(void);
  * Returns 1 when an event was emitted. */
 int state_watch_offer_rf_status(cJSON *obj);
 
+/* GET /api/rf/status from hub_rf (at most 1.5 s in all): the parsed object, or NULL without a 200
+ * answer. Any thread. */
+cJSON *state_watch_fetch_rf_status(void);
+
 /* hub_btstack's status file carries hosts[] (addr, name, connected, paired), host and state, but
  * no top-level ok, running, connected or pairing. Adds them when missing: running = hub_btstack's
  * pid is alive (true without a pid), connected = host.connected or any hosts[].connected,

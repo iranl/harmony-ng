@@ -1,4 +1,6 @@
 // Core HTTP and WebSocket client for Harmony Hub
+import { t } from '../i18n/index.js';
+
 export class HarmonyClientCore {
   constructor(hub = null) {
     this.wsPendingReqs = new Map();
@@ -179,7 +181,7 @@ export class HarmonyClientCore {
       clearTimeout(timeout);
       if (res.status === 401) {
         if (!ignoreUnauthorized) this.handleUnauthorized();
-        throw new Error('Authentication failed. Check hub credentials.');
+        throw new Error(t('auth_failed_check_credentials', 'Authentication failed. Check hub credentials.'));
       }
       const text = await res.text();
       let j = null;
@@ -190,23 +192,29 @@ export class HarmonyClientCore {
       }
 
       if (!res.ok) {
-        let errMsg = `Hub returned HTTP ${res.status}`;
+        let errMsg = null;
         if (j && (j.error || j.message || j.reply)) {
           errMsg = j.error || j.message || j.reply;
         } else if (text && text.length < 200 && !text.includes('<!DOCTYPE')) {
           errMsg = text;
         }
-        if (res.status === 409 && errMsg.startsWith('Hub returned')) {
-          errMsg = 'Activity switch already in progress';
+        if (!errMsg) {
+          errMsg = res.status === 409
+            ? t('activity_switch_in_progress', 'Activity switch already in progress')
+            : t('hub_returned_http', 'Hub returned HTTP {status}', { status: res.status });
         }
-        throw new Error(errMsg);
+        // the reply stays readable for a caller that shows more than the message (lists of a 409)
+        const httpErr = new Error(errMsg);
+        httpErr.status = res.status;
+        httpErr.data = j;
+        throw httpErr;
       }
 
       return j !== null ? j : text;
     } catch (err) {
       clearTimeout(timeout);
       if (err.name === 'AbortError') {
-        throw new Error('Connection timed out. Check IP and network.');
+        throw new Error(t('connection_timed_out', 'Connection timed out. Check IP and network.'));
       }
       throw err;
     }
@@ -247,7 +255,7 @@ export class HarmonyClientCore {
   async testConnection() {
     try {
       if (!this.baseUrl && !this.hub.host) {
-        return { ok: false, error: 'No hub configured' };
+        return { ok: false, error: t('hub_not_configured', 'No hub configured') };
       }
       const data = await this.request('/health', { timeout: 3000 });
       return { ok: true, data };

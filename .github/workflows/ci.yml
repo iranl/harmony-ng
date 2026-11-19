@@ -17,7 +17,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: '3.11'
+          python-version: '3.13'
       - name: Verify Version Sync
         run: |
           python scripts/bump_version.py --sync
@@ -111,23 +111,31 @@ jobs:
           ls -lh payload/bin/hub_* payload/bin/register_ehci payload/bin/eth_fix payload/bin/mknod
 
   test-mock-system:
-    # The host tools run on the user's own Python: test the oldest supported version (see
-    # docs/FIRST_INSTALL_*.md) and a current one.
-    name: Full User-Space Mocking & Integration Tests (Python ${{ matrix.python }})
-    runs-on: ubuntu-latest
+    # Firmware code (Hub daemons, remote UI, device scripts, web UI) built and run on the host
+    # against mock hardware; Python only drives the tests. Runs on every change. The host tools
+    # have their own workflow (host-tools.yml). The tests are split in four groups that run on
+    # separate machines at the same time (tests/run_mock_suite.sh, SUITE_GROUP).
+    name: Firmware Tests (group ${{ matrix.group }} of 4)
+    # The host gcc builds every test: a pinned image keeps it from changing under the suite
+    # (implicit declarations are errors from gcc 14 on; the suite treats them as errors anyway)
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
-        python: ['3.11', '3.13']
+        group: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v7
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: ${{ matrix.python }}
+          python-version: '3.13'
       - name: Install PyYAML (docs/openapi.yaml validation) and aioharmony (Logitech shim test)
         run: python -m pip install pyyaml aioharmony==1.0.8
-      - name: Run Full Automated Mock Test Suite
+      - name: Show the host compiler
+        run: gcc --version
+      - name: Run Firmware Test Suite (group ${{ matrix.group }} of 4)
+        env:
+          SUITE_GROUP: ${{ matrix.group }}
         run: |
           chmod +x tests/run_mock_suite.sh
           ./tests/run_mock_suite.sh

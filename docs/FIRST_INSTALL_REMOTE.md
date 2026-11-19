@@ -19,7 +19,9 @@ This guide covers initial USB rooting and installation of the **HarmonyNG** cust
 - **Micro-USB Cable**: Connect directly to the remote's bottom port (NOT the charging cradle base).
 - **Host PC**: Windows 10/11, macOS, or Linux.
 - **USB network adapter with a static IP**: Windows needs the RNDIS driver; macOS and Linux need no driver. All need a static IP on the remote's subnet (see [`RNDIS_AND_NETWORK_SETUP.md`](RNDIS_AND_NETWORK_SETUP.md)).
-- **Python 3.11 or newer**: Installed on host PC (`pip install pyusb`).
+- **Python 3.13 or newer**: Installed on host PC (standard library only; USB HID goes through `ctypes` and, on Linux, the USB device node `/dev/bus/usb/<bus>/<device>`). Ubuntu 24.04 and Debian 12 ship an older Python: there, install 3.13 from python.org or with `uv python install 3.13`.
+- **Linux only**: the kernel binds no driver to Logitech's Harmony USB IDs (046D:C110-C14F are ignored on purpose), so there is no `/dev/hidraw*` node; the tools open the USB device node directly. They need read and write access to it: run them with `sudo`, or add the udev rule of [`FIRST_INSTALL_HUB.md`](FIRST_INSTALL_HUB.md) (Prerequisites, Linux), which covers the remote (`046d:c12b`) too. Without access the tools say that the device is on USB but may not be opened, and name the node.
+- **OpenSSH client and `tar`**: `ssh`, `scp` and `ssh-keygen` in the PATH (the tools run these programs), and `tar`, which `deploy_remote.py` uses to pack the themes.
 
 ### Choose Your Installation Method
 
@@ -33,11 +35,21 @@ This guide covers initial USB rooting and installation of the **HarmonyNG** cust
 git clone https://github.com/iranl/harmony-ng.git
 cd harmony-ng
 
+# Bootlin ARM toolchain (the one the release build uses), unpacked into build/toolchains/
+mkdir -p build/toolchains
+curl -fsSLO https://toolchains.bootlin.com/downloads/releases/toolchains/armv5-eabi/tarballs/armv5-eabi--uclibc--stable-2017.05-toolchains-1-1.tar.bz2
+tar -xjf armv5-eabi--uclibc--stable-2017.05-toolchains-1-1.tar.bz2 -C build/toolchains/
+
 # Compile ARM userspace binaries
 ./build/compile_all.sh remote
 # BusyBox with tar, used for the remote backup (the release bundle ships it in bin/)
 ./build/build_busybox.sh arm
+# The SSH programs deploy_remote.py installs as /data/dropbear, /data/dropbearkey and /data/scp
+# (the release build makes the same copies; a git checkout has only dropbearmulti_musl)
+for n in dropbear dropbearkey scp; do cp remote/bin/dropbearmulti_musl remote/bin/$n; done
 ```
+
+Without these copies `deploy_remote.py` installs no `/data/dropbear` and says nothing. `remote_ui` starts SSH from that file when the USB cable is plugged in, so SSH then works only until the cable is unplugged once, and comes back only at a boot with USB connected.
 
 ---
 
@@ -49,31 +61,40 @@ cd harmony-ng
 1. Connect the remote directly to your host PC via Micro-USB (bottom port).
 2. Check USB connection and driver status at any time:
    ```bash
+   # From repo root:
    python remote/setup_remote.py --check-usb
+
+   # Or from extracted release zip (there the tool is tools/setup_remote.py, in every command of this guide):
+   python tools/setup_remote.py --check-usb
    ```
-3. Root the remote without installing anything yet, so you can take the stock backup in section 3 first:
+3. Root the remote (step 1 installs no HarmonyNG program yet, so the backup of section 3 still sees the stock files):
    ```bash
    python remote/setup_remote.py --step 1
    ```
-   Running `python remote/setup_remote.py` without `--step` also works, but when the remote is already in USB Ethernet mode it goes straight on to step 2, which installs `remote_ui` and stops the stock UI before you have a backup.
+   Step 1 is not without changes: over USB HID it turns the remote's USB HID mode off for good (`/usr/bin/usbhid` is made non-executable), stops the stock UI, replaces `/etc/init.d/rcS.local` with a boot script that starts USB Ethernet and SSH, removes `/data/remote_ui`, and turns the stock watchdog off (`/etc/nowatchdog`). With the stock UI stopped, go on with section 4 to get a UI on the screen again.
+
+   Running `python remote/setup_remote.py` without `--step` also works: in USB HID mode it runs step 1; when the remote is in USB Ethernet mode with the stock HTTP port open it runs step 2, which installs SSH, takes the backup (section 3) and then installs `remote_ui` at once (if the backup fails, for example because the PC has no ARM BusyBox, the install still continues); when SSH already answers it only prints the state and ends.
+
+   Other options: `--key <file>` (the SSH private key; default: the newest `~/.ssh/harmony_owner_*` key, created as `harmony_owner_ed25519` when there is none), `--ssh-config` (see item 6 below), `--no-screen` (no-screen mode, for a remote with a broken screen), `--step 2` (only step 2; needs the stock HTTP port 8088 on `192.168.2.1`) and `--factory-reset` (reverts the remote through that stock HTTP port while it still answers, after you typed `FACTORY-RESET`; section 7 has the usual ways).
 
 > [!TIP]
-> **Windows 10 & 11 Automated Setup**: If Windows binds the remote as a serial COM port or fails to bind RNDIS after reboot, `setup_remote.py` automatically prompts for Administrator elevation to install the included WHQL-signed RNDIS driver and configure `192.168.2.2/24` (no manual Device Manager or WSL2 needed). You can also run the standalone installer at any time:
+> **Windows 10 & 11 Automated Setup**: If Windows binds the remote as a serial COM port or fails to bind RNDIS after reboot, a run of `setup_remote.py` without `--step` prompts for Administrator elevation, right after it rebooted the remote out of USB HID mode, to install the included WHQL-signed RNDIS driver and configure `192.168.2.2/24` (no manual Device Manager or WSL2 needed). `--step 1` does not start the installer, and a run that finds the driver problem already at its start stops and asks for it. In those cases, or at any time, run the standalone installer yourself:
 > ```powershell
 > powershell -ExecutionPolicy Bypass -File tools/setup_remote_driver.ps1
 > ```
 
 The tool automatically:
 1. **Detects USB & Network State**: Checks whether the remote is connected in USB HID mode, USB Ethernet mode, missing Windows RNDIS driver (Code 28), or disconnected.
-2. **Validates Windows Driver & Host Static IP**: Confirms the host network adapter has IP `192.168.2.2/24` assigned, giving exact PowerShell commands if unconfigured.
+2. **Validates Windows Driver & Host Static IP**: Confirms the host network adapter has an address in `192.168.2.x`, and prints the command that sets `192.168.2.2/24` if not (PowerShell on Windows, `networksetup` on macOS, `ip` on Linux).
 3. **Validates & Displays Firmware Version**: Queries `/sys/sysinfo` over USB HID and checks against official Logitech SUS servers. *(Failure to read firmware mode over USB HID safely halts execution).* If the remote is not on latest v4.15.330, it prompts:
    ```text
    [!] Remote firmware is 4.15.260, but latest official firmware is 4.15.330.
    [?] Download and install latest official firmware (4.15.330) first? (y/N):
    ```
-   If confirmed, it downloads `remote_111_4.15.330.hfw2`, flashes it cleanly via USB HID, waits for the reboot, and resumes rooting automatically. *(Pass `--skip-fw-check` to bypass).*
-4. **Dynamic Execution**: If already in USB Ethernet mode with HTTP/SSH active, it skips HID staging and proceeds directly to permanent installation. Otherwise, it stages the self-extracting Dropbear payload to `/sys/dropbear`, arms `/tde/enable`, and reboots into multi-user mode.
+   If confirmed, it downloads the bundle to `firmware/remote_<skin>_<version>.hfw2` (named after the skin the remote reports, for example `remote_111_4.15.330.hfw2`), flashes it cleanly via USB HID, waits for the reboot, and resumes rooting automatically. *(Pass `--skip-fw-check` to skip the prompt and the update; the tool still asks Logitech's update service for the latest version once at start, to show the remote's state.)*
+4. **Dynamic Execution**: If already in USB Ethernet mode with SSH active, it reports the remote as online and ends. With only the stock HTTP port open, it skips HID staging and runs step 2 (permanent SSH, backup, then `remote_ui`). Otherwise, it stages the self-extracting Dropbear payload to `/sys/dropbear`, arms `/tde/enable`, and reboots into multi-user mode.
 5. **Post-Step Status**: Prints verified connection state upon completion.
+6. **SSH config**: prints a `Host 192.168.2.1 harmony-remote` entry (user `root`, the tool's key) for your `~/.ssh/config` when that file does not name `192.168.2.1` yet. With `--ssh-config` it appends the entry itself, so `ssh harmony-remote` works. Without the entry, pass the key: `ssh -i ~/.ssh/harmony_owner_ed25519 root@192.168.2.1`.
 
 
 > [!TIP]
@@ -86,6 +107,7 @@ The tool automatically:
 > # Extract all 1,350 official icons directly from firmware bundle (no remote connection needed):
 > python tools/harmony_firmware.py extract-icons --archive build/icons.tar.gz
 > ```
+> `extract-icons` needs 7-Zip (`7z` or `7zz` in the PATH) and downloads the remote firmware to `firmware/` when no bundle is there yet. The archive is for the Hub deploy, which looks for `build/icons.tar.gz` in a git checkout and for `icons.tar.gz` in the folder of the Hub release bundle (there: `--archive icons.tar.gz`).
 > `flash` writes a bundle only when its intended skins list the skin the device reports over USB (a remote without a bundle of its own gets the remote bundle the tool picks for it); `--force` overrides that check.
 
 ---
@@ -107,6 +129,8 @@ Pass `--no-backup` to skip the automatic backup during setup.
 > [!NOTE]
 > Backups and restores use uncompressed tar archives (`.tar`, not `.tar.gz`). Embedded BusyBox on the device does not use gzip to avoid memory and CPU bottlenecks on flash.
 
+Every rooted remote answers at `192.168.2.1` and gets a new SSH host key when it is rooted. `setup_remote.py` forgets the recorded key of that address when it installs SSH and records the new one; the other tools refuse a remote whose key changed and name `--reset-host-key` (see "SSH host keys" in `docs/FIRST_INSTALL_HUB.md`). The keys are recorded per account: if you root the remote from Windows and deploy from WSL (or root with `sudo` and deploy without), the first deploy stops on the old key; run it once with `--reset-host-key`.
+
 ---
 
 ## 4. Deploy HarmonyNG Firmware
@@ -124,18 +148,20 @@ python deploy_remote.py --ip 192.168.2.1
 
 The script:
 1. Checks that the remote is ready (its commands, a BusyBox with `tar` for the themes, and space on `/data`), and stops with what to do if not. `python remote/deploy_remote.py --check` runs only this check.
-2. Copies `remote_ui` to `/data/remote_ui`.
+2. Copies `remote_ui` to `/data/remote_ui`, and with it `remote_sync`, BusyBox, the SSH programs (`dropbear`, `dropbearkey`, `scp`), the scripts and the themes. Only `remote_ui` and `remote_sync` are required: another file that is missing in `bin/` is left out without a message.
 3. Installs safe startup persistence into `/etc/init.d/rcS.local`.
-4. Disables the stock `luadraws` runtime to free `/dev/fb0` and `/dev/rfspi`.
-5. Starts `remote_ui` with immediate vector graphics rendering.
+4. Disables the stock `luadraws` runtime to free `/dev/fb0` and `/dev/rfspi`, and deletes the stock `/data/resources/ActivityList.json`.
+5. Starts `remote_ui` with immediate vector graphics rendering. It restarts `remote_ui` without a reboot; it reboots the remote only with `--reboot`, or when an old process still holds the hardware watchdog.
+
+Other options: `--key <file>` (the SSH private key; default: the file named by `$SSH_KEY`, else the newest `~/.ssh/harmony_owner_*` key), `--user`, `--no-sync` (does not ask for a full configuration sync from the Hub after the start) and `--no-screen` (no-screen mode, for a remote with a broken screen).
 
 ---
 
 ## 5. RF Pairing with Harmony Hub
 
-1. On the remote's touch screen, tap the **Settings** dock icon.
-2. Select **RF Pairing Menu** -> **Start Pairing to Hub**.
-3. In the Hub Web console (`http://<YOUR_HUB_IP>:8089`), navigate to **Harmony RF Remote** and click **Start Hub Pairing Mode**.
+1. On the remote, open **Settings** (the gear in the status bar) -> **SYSTEM** -> **RF Pairing & Link**.
+2. Select **Start Pairing to Hub**.
+3. In the Hub Web console (`http://<YOUR_HUB_IP>:8089`), open the RF remote page and click **Pair Slot 1** (or **Pair Slot 2**); in the new web UI the button is **Pair Remote (Hub Listen)**. The Hub keeps pairing open for 30 seconds.
 4. Within 5 seconds, the Hub and remote exchange RF security tokens, the status badge turns green, and activities and button maps synchronize automatically over 2.4 GHz RF.
 
 ---
@@ -145,15 +171,19 @@ The script:
 The custom `remote_ui` firmware includes power management settings to maximize battery life:
 
 1. **Button Backlight Control**:
-   - In **Settings** on the touch screen, tap **Button Backlight**:
+   - In **Settings** -> **DISPLAY** on the touch screen, tap **Button Backlight**:
      - `OFF`: Always keeps physical keypad LEDs off (maximum battery savings).
-     - `ON`: Illuminates keypads on remote pickup or button press.
-     - `NIGHT`: Automatically turns off button backlights between **22:00 and 07:00** while keeping the screen active on touch.
-2. **Gyroscope Poll Rate**:
-   - Tap **Gyro Poll Rate** in Settings:
+     - `ON`: Illuminates keypads whenever the screen is on (remote pickup or button press).
+     - `NIGHT` (default): Lights the buttons only inside the night window set with **Night Starts** and **Night Ends** (Settings -> DISPLAY; default 22:00 to 07:00, one hour per tap); they stay off during the day.
+2. **Gyroscope Rate**:
+   - Tap **Gyroscope Rate** in Settings -> POWER:
      - `10 Hz` (**Recommended**): Cuts pickup standby power by over 60% while detecting lift gestures.
      - `25 Hz`: Balanced response.
-     - `50 Hz`: High sensitivity.
+     - `50 Hz` (default), `100 Hz`: High sensitivity.
+3. **Deep Standby**:
+   - Tap **Deep Standby** in Settings -> POWER: how long after the screen went dark the remote, on battery, suspends: `AT ONCE` (default, 2 seconds), `15m`, `30m`, `60m`, `120m`, `240m` or `NEVER`.
+4. **Tilt / Pickup Wake**:
+   - Tap **Tilt / Pickup Wake** in Settings -> POWER to turn waking by motion `ON` or `OFF`.
 
 ---
 
@@ -175,15 +205,23 @@ To reset the remote to factory state without SSH or even if userland software is
 
 ### Software Stock Revert (Over SSH / USB Network)
 
-To cleanly remove HarmonyNG software and restore stock Logitech binaries over SSH:
+To cleanly remove HarmonyNG software and restore stock Logitech binaries over SSH. Every way below, and Settings > Factory Reset on the remote, runs the same script, `remote/factory_reset.sh` (on the remote `/data/factory_reset.sh`). It deletes the remote's settings, the Hub's activity and device names stored on it, its logs and SSH access (authorized keys and host keys); the RF pairing with the Hub is kept by the radio chip, and the stock firmware's own data (`/data/resources`) stays. The hardware button combination above wipes everything.
 
 ```bash
 # Using Python:
 python tools/factory_reset.py --target remote --remote-ip 192.168.2.1
 
-# Or using deployment script:
+# Or using deployment script (from extracted release zip: python deploy_remote.py ...):
 python remote/deploy_remote.py --ip 192.168.2.1 --factory-reset
 ```
+
+Both ask for a typed word before they change anything: `tools/factory_reset.py` for `FACTORY-RESET`
+(`--force` skips the question), `deploy_remote.py --factory-reset` for `RESET`.
+
+Both stop the runtime, put back the stock boot script (the saved original, or a clean one), make
+the stock programs executable again, remove the HarmonyNG files and links and reboot. SSH access
+goes with them (the Dropbear files and the boot trigger `/etc/tdeenable`): to get it back, root
+the remote again (section 2).
 
 ---
 
@@ -197,7 +235,7 @@ The Harmony Elite features a **128 MB NAND Flash** with 64 MB mobile DDR RAM:
 
 | Partition | Mount Point | Filesystem | Total Size | Available Space | Notes |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `nand0,0` | `/` (root) | SquashFS | 16.0 MB | 0 KB (Read-Only) | Kernel 2.6.31-arm and base rootfs. |
+| `nand0,0` | `/` (root) | SquashFS | 16.0 MB | 0 KB (Read-Only) | Kernel 2.6.37 and base rootfs. |
 | `nand0,1` | `/data` | JFFS2/UBIFS | 64.0 MB | **~32 MB Free** | Generous writable partition. |
 | `nand0,2` | `/opt` | SquashFS/JFFS2 | 32.0 MB | ~8 MB Free | Stock Lua UI (`luadraws`) and HBUS binaries. |
 

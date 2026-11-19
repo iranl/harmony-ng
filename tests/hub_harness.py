@@ -29,12 +29,12 @@ HUB_BIN = os.path.join(BUILD_DIR, "hub_daemon_test")
 MOCK_LIB = os.path.join(BUILD_DIR, "libmock_hardware.so")
 SAMPLE_CONFIG = os.path.join(TESTS_DIR, "fixtures", "ha", "sample_config")
 
-# Sources of the host build of hub_daemon (keep in sync with build/compile_all.sh and
-# tests/run_tests.sh)
+# Sources of the host build of hub_daemon (keep in sync with build/compile_all.sh;
+# tests/run_tests.sh builds through build_hub_daemon_test)
 HUB_DAEMON_SOURCES = [
     "hub_daemon.c", "http_server.c", "http_util.c", "http_auth.c", "http_api_auth.c",
     "http_api_activities.c", "http_api_devices.c", "http_api_commands.c",
-    "http_api_custom_icons.c", "http_api_network.c", "hub_network_util.c",
+    "http_api_custom_icons.c", "http_api_network.c", "hub_network_util.c", "wifi_config.c",
     "http_api_remotes.c", "http_api_ota.c", "http_api_backup.c", "http_api_system.c",
     "http_api_plugins.c", "plugin_mgr.c",
     "config_store.c", "bt_migrate.c", "config_sanitize.c", "orchestrator.c",
@@ -59,20 +59,38 @@ def _sources_newer_than(out):
     return False
 
 
+def _build_command_changed(out, cmd):
+    """True when the binary was built with another command (other flags, sources or output):
+    a binary left by a coverage or sanitizer build must not stand in for the plain one."""
+    try:
+        with open(out + ".cmd") as f:
+            return f.read() != "\n".join(cmd)
+    except OSError:
+        return True
+
+
 def build_hub_daemon_test(force=False, extra_cflags=None, out=HUB_BIN):
-    """Compile the host daemon with -DTEST_HARNESS=1 (when missing, when a source changed, or
-    with force)."""
-    if os.path.exists(out) and not force and not _sources_newer_than(out):
-        return out
-    os.makedirs(BUILD_DIR, exist_ok=True)
-    cmd = ["gcc", "-Wall", "-O2", "-g", "-DTEST_HARNESS=1", "-I" + os.path.join(REPO_ROOT, "payload", "source")]
+    """Compile the host daemon with -DTEST_HARNESS=1 (when missing, when a source changed, when
+    the compile command changed, or with force)."""
+    cmd = ["gcc", "-Wall", "-O2", "-g", "-Werror=implicit-function-declaration", "-DTEST_HARNESS=1",
+           "-I" + os.path.join(REPO_ROOT, "payload", "source")]
     cmd += list(extra_cflags or [])
     cmd += [os.path.join(REPO_ROOT, "payload", "source", s) for s in HUB_DAEMON_SOURCES]
     cmd += ["-lpthread", "-lm", "-o", out]
+    if (os.path.exists(out) and not force and not _sources_newer_than(out)
+            and not _build_command_changed(out, cmd)):
+        return out
+    os.makedirs(BUILD_DIR, exist_ok=True)
+    try:
+        os.unlink(out + ".cmd")
+    except OSError:
+        pass
     res = subprocess.run(cmd, capture_output=True, text=True)
     if res.returncode != 0:
         sys.stderr.write(res.stderr)
         raise RuntimeError("hub_daemon_test compilation failed")
+    with open(out + ".cmd", "w") as f:
+        f.write("\n".join(cmd))
     return out
 
 
@@ -167,12 +185,22 @@ class HubHarness:
             out = self.log_file
         else:
             out = subprocess.DEVNULL
+        # Another daemon already on the port (a test left running, a second suite run) would
+        # answer the health check while ours failed to bind: refuse to start instead.
+        if _port_answers(self.host, self.port):
+            shutil.rmtree(self.mock_dir, ignore_errors=True)
+            self.mock_dir = None
+            raise RuntimeError("port %d is already in use by another process" % self.port)
         self.proc = subprocess.Popen([self.hub_bin, "--dry-run", "--port", str(self.port)] + self.extra_args,
                                      env=env, stdout=out, stderr=subprocess.STDOUT)
         for _ in range(50):
             time.sleep(0.1)
+            if self.proc.poll() is not None:
+                break
             st, _ = self.http_get("/health")
             if st == 200:
+                if self.proc.poll() is not None:
+                    break  # the answer came from another process
                 return
         self.stop()
         raise RuntimeError("hub_daemon_test did not come up on port %d" % self.port)
@@ -203,6 +231,16 @@ class HubHarness:
 
     def ws(self, path="/ws", headers=None, timeout=5.0):
         return WsClient(self.host, self.port, path, headers=headers, timeout=timeout)
+
+
+def _port_answers(host, port):
+    """True when something accepts TCP connections on host:port"""
+    try:
+        s = socket.create_connection((host, port), timeout=0.5, source_address=source_address_for(host))
+        s.close()
+        return True
+    except OSError:
+        return False
 
 
 def source_address_for(host):

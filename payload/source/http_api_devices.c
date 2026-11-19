@@ -12,6 +12,8 @@
 #include "config_sanitize.h"
 #include "plugin_mgr.h"
 #include "cJSON.h"
+#include "bt_common.h"
+#include "state_watch.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,6 +22,11 @@
 #include <strings.h>
 #include <errno.h>
 #include <pthread.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <netinet/in.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 /* The IR port mask of a device (its controlPort, 0..7), or all ports when it has none */
 static uint8_t device_ir_ports(const char *dev_id) {
@@ -100,6 +107,420 @@ static int device_delay_fields_in_range(const cJSON *p) {
         int v;
         if (j && device_int_field(j, &v) && (v < 0 || v > DEVICE_DELAY_MAX_MS)) return 0;
     }
+    return 1;
+}
+
+/* Device references: what still uses a device, so that a delete can be refused (a deleted device
+ * left its steps, key bindings and trigger behind, and they were skipped in silence). */
+#define DEVICE_USER_KEYS_MAX 32
+
+/* j (string or number) names the device id */
+static int names_device(const cJSON *j, const char *dev_id) {
+    char buf[64];
+    if (cJSON_IsString(j) && j->valuestring) return strcmp(j->valuestring, dev_id) == 0;
+    if (cJSON_IsNumber(j)) {
+        snprintf(buf, sizeof(buf), "%ld", (long)j->valuedouble);
+        return strcmp(buf, dev_id) == 0;
+    }
+    return 0;
+}
+
+/* Some "deviceId" (or "targetDevice") below j names the device, or a "deviceIds" list holds it */
+static int tree_uses_device(const cJSON *j, const char *dev_id) {
+    const cJSON *c;
+    cJSON_ArrayForEach(c, j) {
+        if (c->string && (strcmp(c->string, "deviceId") == 0 || strcmp(c->string, "targetDevice") == 0) &&
+            names_device(c, dev_id)) return 1;
+        if (c->string && strcmp(c->string, "deviceIds") == 0 && cJSON_IsArray(c)) {
+            const cJSON *e;
+            cJSON_ArrayForEach(e, c) if (names_device(e, dev_id)) return 1;
+        }
+        if ((cJSON_IsObject(c) || cJSON_IsArray(c)) && tree_uses_device(c, dev_id)) return 1;
+    }
+    return 0;
+}
+
+/* A section of a remote map that no longer has its activity ("activities/<id>") or its device
+ * ("devices/<id>", a page left from before deleted devices' pages were removed): no editor shows
+ * it, so its bindings cannot be changed and must not hold a device. "-1" and "default" are the
+ * fallback sections. */
+static int stale_section(const char *path, const cJSON *act_ids, const cJSON *dev_ids) {
+    const char *id;
+    const cJSON *ids;
+    if (strncmp(path, "activities/", 11) == 0) {
+        id = path + 11;
+        ids = act_ids;
+        if (strcmp(id, "-1") == 0 || strcmp(id, "default") == 0) return 0;
+    } else if (strncmp(path, "devices/", 8) == 0) {
+        id = path + 8;
+        ids = dev_ids;
+    } else {
+        return 0;
+    }
+    if (strchr(id, '/')) return 0;
+    return cJSON_GetObjectItemCaseSensitive(ids, id) == NULL; /* ids: id -> name */
+}
+
+/* Key bindings of a remote map that name the device, as "activities/10/VolumeUp", counted per
+ * section ("activities/10", "devices/5") in groups. The map's own page for the device
+ * ("devices/<id>") belongs to the device and is not counted, nor are the sections of activities
+ * that no longer exist. */
+static void map_keys_using(const cJSON *j, const char *dev_id, const char *path, int depth,
+                           const cJSON *act_ids, const cJSON *dev_ids, cJSON *keys, int *count,
+                           const char *group, cJSON *groups) {
+    const cJSON *c;
+    int idx = 0;
+    cJSON_ArrayForEach(c, j) {
+        char sub[192];
+        if (c->string) snprintf(sub, sizeof(sub), "%s%s%s", path, path[0] ? "/" : "", c->string);
+        else snprintf(sub, sizeof(sub), "%s/%d", path, idx);
+        idx++;
+        if (depth == 1 && strcmp(path, "devices") == 0 && c->string && strcmp(c->string, dev_id) == 0) continue;
+        if (depth == 1 && stale_section(sub, act_ids, dev_ids)) continue;
+        if (c->string && (strcmp(c->string, "deviceId") == 0 || strcmp(c->string, "targetDevice") == 0) &&
+            names_device(c, dev_id)) {
+            if (*count < DEVICE_USER_KEYS_MAX) cJSON_AddItemToArray(keys, cJSON_CreateString(path));
+            (*count)++;
+            const char *g = group ? group : path;
+            cJSON *n = cJSON_GetObjectItemCaseSensitive(groups, g);
+            if (n) cJSON_SetNumberValue(n, n->valuedouble + 1);
+            else cJSON_AddNumberToObject(groups, g, 1);
+            continue;
+        }
+        if (cJSON_IsObject(c) || cJSON_IsArray(c)) {
+            map_keys_using(c, dev_id, sub, depth + 1, act_ids, dev_ids, keys, count, depth == 1 ? sub : group, groups);
+        }
+    }
+}
+
+static void add_map_users(cJSON *users, const char *file, const char *type, int slot, const char *dev_id,
+                          const cJSON *act_ids, const cJSON *dev_ids) {
+    size_t len = 0;
+    char *txt = read_file_text_alloc(config_store_path(file), 512 * 1024, &len);
+    cJSON *map = txt ? cJSON_Parse(txt) : NULL;
+    free(txt);
+    if (!map) return;
+    cJSON *keys = cJSON_CreateArray();
+    cJSON *groups = cJSON_CreateObject();
+    int count = 0;
+    map_keys_using(map, dev_id, "", 0, act_ids, dev_ids, keys, &count, NULL, groups);
+    cJSON_Delete(map);
+    if (count == 0) {
+        cJSON_Delete(keys);
+        cJSON_Delete(groups);
+        return;
+    }
+    /* per section, with its name, for a message people can read: "46 keys in TV (DTT)" */
+    cJSON *ga = cJSON_CreateArray();
+    const cJSON *g;
+    cJSON_ArrayForEach(g, groups) {
+        cJSON *o = cJSON_CreateObject();
+        const char *sec = g->string;
+        if (strncmp(sec, "activities/", 11) == 0) {
+            const char *aid = sec + 11;
+            int fallback = strcmp(aid, "-1") == 0 || strcmp(aid, "default") == 0;
+            cJSON_AddStringToObject(o, "type", fallback ? "no_activity" : "activity");
+            cJSON_AddStringToObject(o, "id", aid);
+            const cJSON *nm = cJSON_GetObjectItemCaseSensitive(act_ids, aid);
+            if (cJSON_IsString(nm)) cJSON_AddStringToObject(o, "name", nm->valuestring);
+        } else if (strncmp(sec, "devices/", 8) == 0) {
+            cJSON_AddStringToObject(o, "type", "device_page");
+            cJSON_AddStringToObject(o, "id", sec + 8);
+            const cJSON *nm = cJSON_GetObjectItemCaseSensitive(dev_ids, sec + 8);
+            if (cJSON_IsString(nm)) cJSON_AddStringToObject(o, "name", nm->valuestring);
+        } else {
+            cJSON_AddStringToObject(o, "type", "other");
+            cJSON_AddStringToObject(o, "id", sec);
+        }
+        cJSON_AddNumberToObject(o, "count", g->valuedouble);
+        cJSON_AddItemToArray(ga, o);
+    }
+    cJSON_Delete(groups);
+    cJSON *u = cJSON_CreateObject();
+    cJSON_AddStringToObject(u, "type", type);
+    if (slot > 0) cJSON_AddNumberToObject(u, "slot", slot);
+    cJSON_AddNumberToObject(u, "count", count);
+    cJSON_AddItemToObject(u, "keys", keys);
+    cJSON_AddItemToObject(u, "groups", ga);
+    cJSON_AddItemToArray(users, u);
+}
+
+static void id_text(const cJSON *j, char *out, size_t out_sz) {
+    out[0] = '\0';
+    if (cJSON_IsString(j) && j->valuestring) snprintf(out, out_sz, "%s", j->valuestring);
+    else if (cJSON_IsNumber(j)) snprintf(out, out_sz, "%ld", (long)j->valuedouble);
+}
+
+/* Which touchscreen remote slots hub_rf reports active (GET /api/rf/status, "slots"[].active),
+ * into paired[1..2]; stays 0 when hub_rf does not answer */
+static int rf_slots_active(int paired[3]) {
+    paired[1] = paired[2] = 0;
+    cJSON *st = state_watch_fetch_rf_status();
+    const cJSON *slots = st ? cJSON_GetObjectItemCaseSensitive(st, "slots") : NULL;
+    int answered = cJSON_IsArray(slots);
+    const cJSON *sl;
+    cJSON_ArrayForEach(sl, slots) {
+        const cJSON *jn = cJSON_GetObjectItemCaseSensitive(sl, "slot");
+        int k = cJSON_IsNumber(jn) ? jn->valueint : 0;
+        if (k >= 1 && k <= 2) paired[k] = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(sl, "active"));
+    }
+    cJSON_Delete(st);
+    return answered;
+}
+
+/* The slot's remote_slot<N>_version.json names a remote (remote_id or skin; an unpair clears both
+ * and keeps the file): require_remote. Else: the file exists. */
+static int slot_version_file_counts(int slot, int require_remote) {
+    char name[40];
+    snprintf(name, sizeof(name), "remote_slot%d_version.json", slot);
+    if (!require_remote) return access(config_store_path(name), F_OK) == 0;
+    size_t len = 0;
+    char *txt = read_file_text_alloc(config_store_path(name), 8192, &len);
+    cJSON *v = txt ? cJSON_Parse(txt) : NULL;
+    free(txt);
+    const cJSON *rid = v ? cJSON_GetObjectItemCaseSensitive(v, "remote_id") : NULL;
+    const cJSON *skin = v ? cJSON_GetObjectItemCaseSensitive(v, "skin") : NULL;
+    int named = (cJSON_IsString(rid) && rid->valuestring[0]) || (cJSON_IsNumber(skin) && skin->valueint != 0);
+    cJSON_Delete(v);
+    return named;
+}
+
+/* Key bindings that use the device, in the maps of paired touchscreen slots and of the Bluetooth
+ * remote. A slot counts when hub_rf reports it active, or, not active, when its version file still
+ * names a remote (remote_id or skin: an unpair clears them); when hub_rf does not answer, when its
+ * version file exists. A map of any other slot (an old file, an unpaired remote) cannot be opened
+ * by the legacy editor and does not count. Sections of activities and pages of devices that no longer exist
+ * do not count either. Read without the configuration lock (the maps are not under it). */
+static cJSON *device_map_users(const char *dev_id) {
+    cJSON *users = cJSON_CreateArray();
+    cJSON *act_ids = cJSON_CreateObject(); /* id -> name */
+    cJSON *dev_ids = cJSON_CreateObject();
+    cJSON *devs_root = config_store_devices_copy();
+    const cJSON *devs = devs_root ? cJSON_GetObjectItemCaseSensitive(devs_root, "devices") : (const cJSON *)0;
+    const cJSON *d;
+    cJSON_ArrayForEach(d, devs) {
+        char did[64];
+        id_text(cJSON_GetObjectItemCaseSensitive(d, "id"), did, sizeof(did));
+        const cJSON *nm = cJSON_GetObjectItemCaseSensitive(d, "name");
+        if (did[0] && !cJSON_GetObjectItemCaseSensitive(dev_ids, did)) {
+            cJSON_AddStringToObject(dev_ids, did, cJSON_IsString(nm) && nm->valuestring ? nm->valuestring : did);
+        }
+    }
+    cJSON_Delete(devs_root);
+    cJSON *acts_root = config_store_activities_copy();
+    const cJSON *acts = acts_root ? (cJSON_IsArray(acts_root) ? acts_root
+                                     : cJSON_GetObjectItemCaseSensitive(acts_root, "activities")) : NULL;
+    const cJSON *a;
+    cJSON_ArrayForEach(a, acts) {
+        char aid[64];
+        id_text(cJSON_GetObjectItemCaseSensitive(a, "id"), aid, sizeof(aid));
+        const cJSON *nm = cJSON_GetObjectItemCaseSensitive(a, "name");
+        if (aid[0] && !cJSON_GetObjectItemCaseSensitive(act_ids, aid)) {
+            cJSON_AddStringToObject(act_ids, aid, cJSON_IsString(nm) && nm->valuestring ? nm->valuestring : aid);
+        }
+    }
+    cJSON_Delete(acts_root);
+
+    int paired[3];
+    int answered = rf_slots_active(paired);
+    for (int slot = 1; slot <= 2; slot++) {
+        char name[40];
+        if (!paired[slot] && !slot_version_file_counts(slot, answered)) continue;
+        snprintf(name, sizeof(name), "remote_slot%d_map.json", slot);
+        add_map_users(users, name, "remote_map", slot, dev_id, act_ids, dev_ids);
+    }
+    add_map_users(users, "bt_remote_map.json", "bt_remote_map", 0, dev_id, act_ids, dev_ids);
+    cJSON_Delete(act_ids);
+    cJSON_Delete(dev_ids);
+    return users;
+}
+
+/* What uses the device in the configuration: activities (sequences, device lists) and other
+ * devices (Bluetooth trigger), appended to users. 0 when the device does not exist, else 1.
+ * Call with config_store_lock() held. */
+static int device_config_users(const char *dev_id, cJSON *users) {
+    cJSON *devs_root = config_store_devices_copy();
+    const cJSON *devs = devs_root ? cJSON_GetObjectItemCaseSensitive(devs_root, "devices") : NULL;
+    int exists = 0;
+    const cJSON *d;
+    cJSON_ArrayForEach(d, devs) {
+        char did[64];
+        id_text(cJSON_GetObjectItemCaseSensitive(d, "id"), did, sizeof(did));
+        if (strcmp(did, dev_id) == 0) {
+            exists = 1;
+            continue;
+        }
+        if (names_device(cJSON_GetObjectItemCaseSensitive(d, "btTriggerDeviceId"), dev_id)) {
+            const cJSON *jn = cJSON_GetObjectItemCaseSensitive(d, "name");
+            cJSON *u = cJSON_CreateObject();
+            cJSON_AddStringToObject(u, "type", "device");
+            cJSON_AddStringToObject(u, "id", did);
+            cJSON_AddStringToObject(u, "name", cJSON_IsString(jn) && jn->valuestring ? jn->valuestring : "");
+            cJSON_AddStringToObject(u, "field", "btTriggerDeviceId");
+            cJSON_AddItemToArray(users, u);
+        }
+    }
+    cJSON_Delete(devs_root);
+    if (!exists) return 0;
+
+    cJSON *acts_root = config_store_activities_copy();
+    const cJSON *acts = acts_root ? (cJSON_IsArray(acts_root) ? acts_root
+                                     : cJSON_GetObjectItemCaseSensitive(acts_root, "activities")) : NULL;
+    const cJSON *a;
+    cJSON_ArrayForEach(a, acts) {
+        cJSON *fields = cJSON_CreateArray();
+        const cJSON *f;
+        cJSON_ArrayForEach(f, a) {
+            if (!f->string) continue;
+            int used = 0;
+            if (strcmp(f->string, "deviceIds") == 0 && cJSON_IsArray(f)) {
+                const cJSON *e;
+                cJSON_ArrayForEach(e, f) if (names_device(e, dev_id)) used = 1;
+            } else if (cJSON_IsObject(f) || cJSON_IsArray(f)) {
+                used = tree_uses_device(f, dev_id);
+            } else if (strcmp(f->string, "deviceId") == 0) {
+                used = names_device(f, dev_id);
+            }
+            if (used) cJSON_AddItemToArray(fields, cJSON_CreateString(f->string));
+        }
+        if (cJSON_GetArraySize(fields) == 0) {
+            cJSON_Delete(fields);
+            continue;
+        }
+        char aid[64];
+        id_text(cJSON_GetObjectItemCaseSensitive(a, "id"), aid, sizeof(aid));
+        const cJSON *jn = cJSON_GetObjectItemCaseSensitive(a, "name");
+        cJSON *u = cJSON_CreateObject();
+        cJSON_AddStringToObject(u, "type", "activity");
+        cJSON_AddStringToObject(u, "id", aid);
+        cJSON_AddStringToObject(u, "name", cJSON_IsString(jn) && jn->valuestring ? jn->valuestring : "");
+        cJSON_AddItemToObject(u, "fields", fields);
+        cJSON_AddItemToArray(users, u);
+    }
+    cJSON_Delete(acts_root);
+    return 1;
+}
+
+/* The ids of the configured devices or activities ("devices" or "activities"), as strings */
+/* NULL when the configuration cannot be read (no memory): nothing may be removed then */
+static cJSON *configured_ids(const char *what) {
+    int devices = strcmp(what, "devices") == 0;
+    cJSON *root = devices ? config_store_devices_copy() : config_store_activities_copy();
+    if (!root) return NULL;
+    cJSON *ids = cJSON_CreateArray();
+    const cJSON *list = !root ? (const cJSON *)0 : cJSON_IsArray(root) ? root : cJSON_GetObjectItemCaseSensitive(root, what);
+    const cJSON *it;
+    cJSON_ArrayForEach(it, list) {
+        char id[64];
+        id_text(cJSON_GetObjectItemCaseSensitive(it, "id"), id, sizeof(id));
+        if (id[0]) cJSON_AddItemToArray(ids, cJSON_CreateString(id));
+    }
+    cJSON_Delete(root);
+    return ids;
+}
+
+static int id_listed(const cJSON *ids, const char *id) {
+    const cJSON *e;
+    cJSON_ArrayForEach(e, ids) {
+        if (cJSON_IsString(e) && strcmp(e->valuestring, id) == 0) return 1;
+    }
+    return 0;
+}
+
+static volatile int s_drop_busy; /* one rewrite of the maps at a time (they share a temp name) */
+
+int remote_maps_drop_section(const char *section, const char *id) {
+    if (!section || !id || !id[0]) return 0;
+    /* only once the configuration no longer has it (its save may have failed) */
+    cJSON *ids = configured_ids(section);
+    if (!ids || id_listed(ids, id)) {
+        cJSON_Delete(ids);
+        return 0;
+    }
+    /* No futex on the Hub: wait for another delete's rewrite with a flag and short sleeps (5 s) */
+    int waited_ms = 0;
+    while (__sync_lock_test_and_set(&s_drop_busy, 1)) {
+        if (waited_ms >= 5000) {
+            printf("[-] Maps busy: %s/%s left in the remote maps\n", section, id);
+            cJSON_Delete(ids);
+            return 0;
+        }
+        usleep(2000);
+        waited_ms += 2;
+    }
+    static const char *const files[] = { "remote_slot1_map.json", "remote_slot2_map.json", "bt_remote_map.json" };
+    for (size_t i = 0; i < sizeof(files) / sizeof(files[0]); i++) {
+        char path[256];
+        snprintf(path, sizeof(path), "%s", config_store_path(files[i]));
+        char stale[300];
+        snprintf(stale, sizeof(stale), "%s.drop", path);
+        unlink(stale); /* left by a power cut during an earlier rewrite */
+        /* The map editors save a whole file with no lock; a save in between is not overwritten:
+         * the file is read again when it changed while it was being edited here (a few tries) */
+        for (int attempt = 0; attempt < 3; attempt++) {
+            struct stat before, after;
+            if (stat(path, &before) != 0) break;
+            size_t len = 0;
+            char *txt = read_file_text_alloc(path, 512 * 1024, &len);
+            cJSON *map = txt ? cJSON_Parse(txt) : NULL;
+            free(txt);
+            cJSON *sec = map ? cJSON_GetObjectItemCaseSensitive(map, section) : NULL;
+            int removed = 0;
+            if (cJSON_IsObject(sec)) {
+                for (cJSON *c = sec->child, *next; c; c = next) {
+                    next = c->next;
+                    /* this id, and (devices) the pages of devices deleted before pages went with them */
+                    if (c->string && (strcmp(c->string, id) == 0 || (strcmp(section, "devices") == 0 && !id_listed(ids, c->string)))) {
+                        cJSON_Delete(cJSON_DetachItemViaPointer(sec, c));
+                        removed++;
+                    }
+                }
+            }
+            if (!removed) {
+                cJSON_Delete(map);
+                break;
+            }
+            /* compact, as the editors save it: the readers take maps up to 200000 bytes */
+            char *out = cJSON_PrintUnformatted(map);
+            cJSON_Delete(map);
+            /* own temp file (one name per map: rewrites are serialized, and a file left by a power
+             * cut is replaced by the next one), written and synced, then the map is compared once
+             * more right before the rename: an editor save (a rename too: new inode) in between is
+             * read again */
+            char tmp[300];
+            snprintf(tmp, sizeof(tmp), "%s.drop", path);
+            int fd = out ? open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0644) : -1;
+            size_t olen = out ? strlen(out) : 0, done = 0;
+            while (fd >= 0 && done < olen) {
+                ssize_t w = write(fd, out + done, olen - done);
+                if (w <= 0) break;
+                done += (size_t)w;
+            }
+            int written = fd >= 0 && done == olen && fsync(fd) == 0;
+            if (fd >= 0) close(fd);
+            free(out);
+            if (!written) {
+                unlink(tmp);
+                printf("[-] Could not remove %s/%s from %s\n", section, id, files[i]);
+                break;
+            }
+            if (stat(path, &after) != 0 || after.st_mtime != before.st_mtime || after.st_size != before.st_size ||
+                after.st_ino != before.st_ino) {
+                unlink(tmp);
+                continue; /* saved meanwhile: read it again */
+            }
+            if (rename(tmp, path) != 0) {
+                unlink(tmp);
+                printf("[-] Could not remove %s/%s from %s\n", section, id, files[i]);
+            } else {
+                printf("[*] Removed %d %s section(s) from %s\n", removed, section, files[i]);
+                if (i == 2) hub_send_btstack_cmd("reload_map");
+            }
+            break;
+        }
+    }
+    cJSON_Delete(ids);
+    __sync_lock_release(&s_drop_busy);
     return 1;
 }
 
@@ -976,7 +1397,26 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                 dev_id = dev_buf;
             }
             if (dev_id[0]) {
+                cJSON *users = device_map_users(dev_id); /* the maps are not under the lock */
                 config_store_lock();
+                /* Refused while activities, other devices or remote key maps still use the device
+                 * (as agreed in #220): the reply lists them so they can be changed first */
+                int exists = device_config_users(dev_id, users);
+                if (exists && cJSON_GetArraySize(users) > 0) {
+                    config_store_unlock();
+                    cJSON *err = cJSON_CreateObject();
+                    cJSON_AddBoolToObject(err, "ok", 0);
+                    cJSON_AddStringToObject(err, "error", "Device is in use: remove it from these activities, devices and remote keys first");
+                    cJSON_AddStringToObject(err, "deviceId", dev_id);
+                    cJSON_AddItemToObject(err, "users", users);
+                    cJSON_Delete(p);
+                    send_cjson_resp(client_fd, 409, err);
+                    cJSON_Delete(err);
+                    close(client_fd);
+                    return 1;
+                }
+                cJSON_Delete(users);
+
                 cJSON *root = config_store_devices_copy();
                 if (root) {
                     cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
@@ -1001,6 +1441,8 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                     cJSON_Delete(root); /* NULL once the store took it */
                 }
                 config_store_unlock();
+                /* its own page in the remote maps: a new device given the same id would inherit it */
+                if (success) remote_maps_drop_section("devices", dev_id);
             }
             cJSON_Delete(p);
         }

@@ -178,10 +178,27 @@ install_bundle() {
 
 # The helpers built into hub_util are symlinks to it
 link_hub_util() {
-  for _app in hub_sync sync mknod register_ehci eth_fix hub_dhcpd hub_portal hub_sntp; do
+  for _app in hub_sync sync mknod register_ehci eth_fix hub_sntp; do
     [ -f "/data/harmony/bin/$_app" ] && [ ! -L "/data/harmony/bin/$_app" ] && rm -f "/data/harmony/bin/$_app" 2>/dev/null || true
     ln -sf /data/harmony/bin/hub_util "/data/harmony/bin/$_app" 2>/dev/null || true
   done
+}
+
+link_dropbear() {
+  if [ -s /data/harmony/bin/dropbearmulti ] && [ -x /data/harmony/bin/dropbearmulti ]; then
+    for _app in dropbear dropbearkey dbclient scp; do
+      [ -f "/data/harmony/bin/$_app" ] && [ ! -L "/data/harmony/bin/$_app" ] && rm -f "/data/harmony/bin/$_app" 2>/dev/null || true
+      ln -sf /data/harmony/bin/dropbearmulti "/data/harmony/bin/$_app" 2>/dev/null || true
+    done
+    for _app in dropbearkey dbclient scp; do
+      ln -sf /data/harmony/bin/dropbearmulti "/usr/sbin/$_app" 2>/dev/null || true
+    done
+    _harm_m=$(md5sum /data/harmony/bin/dropbearmulti 2>/dev/null | awk '{print $1}')
+    _data_m=$(md5sum /data/dropbearmulti 2>/dev/null | awk '{print $1}')
+    if [ -n "$_harm_m" ] && { [ "$_harm_m" = "$_data_m" ] || [ "$_harm_m" = "3733327fd04bca282dbf06f33da0bf6c" ]; }; then
+      rm -f /data/dropbearmulti /usr/sbin/dropbearmulti 2>/dev/null || true
+    fi
+  fi
 }
 
 get_local_version() {
@@ -280,6 +297,92 @@ EOF
   return 0
 }
 
+# The reboot at the end of an update must not cut an activity switch in the middle (the devices
+# were left half switched). hub_daemon refuses to start an update while one runs, but a switch can
+# start during the download: wait until GET /api/activity (loopback, no login) reports no switch,
+# no queued request and no steps left to send, twice 1 s apart (a finished switch hands over to its
+# queued follower in between). Gives up after UPDATE_ACTIVITY_WAIT_SECS (600 s) and reboots anyway
+# (the new files are installed already). A query that fails is "unknown", not "no switch": only a
+# hub_daemon that is not running means no switch; one that does not answer for
+# UPDATE_ACTIVITY_FAIL_SECS (60 s) in a row lets the reboot go on. Times are real seconds from
+# /proc/uptime (a query can take 3 s; no steps when SNTP sets the clock), counted from the sleeps
+# when it cannot be read.
+UPTIME_FILE="${UPDATE_UPTIME_FILE:-/proc/uptime}"
+now_secs() {
+  _up=""
+  read -r _up _rest 2>/dev/null < "$UPTIME_FILE"
+  _up="${_up%%.*}"
+  case "$_up" in ''|*[!0-9]*) echo "" ;; *) echo "$_up" ;; esac
+}
+# seconds since $1 (now_secs), or $2 (counted from the sleeps) when the uptime cannot be read
+since_secs() {
+  _n=$(now_secs)
+  if [ -n "$1" ] && [ -n "$_n" ]; then echo $((_n - $1)); else echo "$2"; fi
+}
+wait_activity_switch() {
+  local max="${UPDATE_ACTIVITY_WAIT_SECS:-600}"
+  local fail_max="${UPDATE_ACTIVITY_FAIL_SECS:-60}"
+  case "$max" in ''|*[!0-9]*) max=600 ;; esac
+  case "$fail_max" in ''|*[!0-9]*) fail_max=60 ;; esac
+  local start
+  start=$(now_secs)
+  local counted=0
+  local fail_start=""
+  local fail_counted=0
+  local idle=0
+  local said=0
+  local st
+  local qstart
+  while [ "$(since_secs "$start" "$counted")" -lt "$max" ]; do
+    qstart=$(now_secs)
+    if st=$($WGET -q -T 3 -O - "http://127.0.0.1:8089/api/activity" 2>/dev/null); then
+      fail_start=""
+      fail_counted=0
+      if ! echo "$st" | grep -q '"busy":[[:space:]]*true' && \
+         ! echo "$st" | grep -q '"sending":[[:space:]]*true' && \
+         ! echo "$st" | grep -q '"queued":[[:space:]]*"'; then
+        idle=$((idle + 1))
+        if [ "$idle" -ge 2 ]; then
+          [ "$said" = 1 ] && echo "[+] Activity switch finished after $(since_secs "$start" "$counted") s."
+          return 0
+        fi
+        sleep 1
+        counted=$((counted + 1))
+        continue
+      fi
+      idle=0
+      if [ "$said" = 0 ]; then
+        echo "[*] An activity switch is running: the reboot waits until it has finished (at most ${max} s)."
+        said=1
+      fi
+    else
+      idle=0
+      if ! pidof hub_daemon >/dev/null 2>&1; then
+        return 0
+      fi
+      if [ -z "$fail_start" ]; then
+        fail_start="$qstart" # from the start of the first failed query
+        [ -z "$fail_start" ] && fail_start="none"
+      fi
+      _fs="$fail_start"
+      [ "$_fs" = "none" ] && _fs=""
+      fail_counted=$((fail_counted + 2))
+      if [ "$(since_secs "$_fs" "$fail_counted")" -ge "$fail_max" ]; then
+        echo "[!] hub_daemon has not answered for $(since_secs "$_fs" "$fail_counted") s: rebooting anyway."
+        return 0
+      fi
+    fi
+    sleep 2
+    counted=$((counted + 2))
+  done
+  if [ "$idle" -gt 0 ]; then
+    echo "[*] Waited $(since_secs "$start" "$counted") s: rebooting."
+  else
+    echo "[!] The activity switch is still running after $(since_secs "$start" "$counted") s: rebooting anyway."
+  fi
+  return 0
+}
+
 do_apply() {
   touch /tmp/hub_updating.flag 2>/dev/null || true
   TMPDIR="/tmp/ota_update"
@@ -354,6 +457,11 @@ do_apply() {
       if [ -f "$TMPDIR/pkg/bin/hub_util" ]; then
         link_hub_util
       fi
+      link_dropbear
+      # The package no longer has the recovery access point: its script, settings and the
+      # hub_util links it used go (the reboot after the update stops one still running)
+      rm -f /data/harmony/recovery_ap.sh /data/harmony/scripts/recovery_ap.sh /data/harmony/bin/recovery_ap.sh \
+            /data/harmony/recovery_ap.conf /data/harmony/bin/hub_portal /data/harmony/bin/hub_dhcpd 2>/dev/null || true
       for b in $BUNDLE_BINS; do
         [ -f "$TMPDIR/pkg/bin/$b" ] && rm -f "/cache/bin/$b" 2>/dev/null
       done
@@ -489,6 +597,7 @@ do_apply() {
   # 7. Sync filesystem
   /data/harmony/bin/hub_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || sync 2>/dev/null || true
 
+  wait_activity_switch
   echo "[+] Update to v${NEW_VER} applied successfully. Initiating safe Hub reboot..."
   if [ -x /data/harmony/safe_reboot.sh ]; then
     /data/harmony/safe_reboot.sh &

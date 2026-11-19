@@ -10,7 +10,7 @@
  * is refused: line breaks and other control characters, and lengths wpa_supplicant rejects.
  * A pre-shared key of exactly 64 hex digits is the raw key and is written without quotes.
  *
- * Header only, so the API (hub_daemon) and the recovery portal (hub_util) share it.
+ * Header only, used by the Wi-Fi settings API in hub_daemon.
  */
 
 #include <stddef.h>

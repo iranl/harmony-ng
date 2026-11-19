@@ -62,7 +62,6 @@ cJSON *hub_ws_snapshot_object(int msg_id) {
     cJSON *hub = cJSON_CreateObject();
     struct hub_settings cs;
     config_store_get_settings(&cs);
-    cJSON_AddStringToObject(hub, "hub_id", hub_info_id());
     cJSON_AddStringToObject(hub, "hub_name", cs.hub_name[0] ? cs.hub_name : "Harmony Hub");
     hub_info_add_status_fields(hub, &cs);
     cJSON_DeleteItemFromObjectCaseSensitive(hub, "commit");

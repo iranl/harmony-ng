@@ -50,6 +50,7 @@ if str(REPO_DIR) not in sys.path:
     sys.path.insert(0, str(REPO_DIR))
 
 from tools.harmony_hid import (
+    usb_open_failure_message,
     HarmonyHid,
     HARMONY_VID,
     HUB_PID,
@@ -493,16 +494,22 @@ def flash_firmware(
     hid: Optional[HarmonyHid] = None
     connected_pid = None
 
+    tried = []
     for pid in target_pids:
         candidate = HarmonyHid(pid=pid)
         if candidate.open():
             hid = candidate
             connected_pid = pid
             break
+        tried.append(candidate)
 
     if not hid or not connected_pid:
-        print("[-] No compatible Harmony device detected over USB HID.", file=sys.stderr)
-        print("    Ensure device is plugged into USB and powered on.", file=sys.stderr)
+        failure = usb_open_failure_message(tried)
+        if failure:
+            print("[-] " + failure.replace("\n", "\n    "), file=sys.stderr)
+        else:
+            print("[-] No compatible Harmony device detected over USB HID.", file=sys.stderr)
+            print("    Ensure device is plugged into USB and powered on.", file=sys.stderr)
         return False
 
     if connected_pid == REMOTE_PID:
@@ -762,15 +769,21 @@ def main():
                 probe_pids = [REMOTE_PID]
             else:
                 probe_pids = [REMOTE_PID, HUB_PID, HUB_PRO_PID]
+            tried = []
             for pid in probe_pids:
                 test_hid = HarmonyHid(pid=pid)
                 if test_hid.open():
                     connected_pid = pid
                     test_hid.close()
                     break
+                tried.append(test_hid)
 
             if not connected_pid:
-                print("[-] No Harmony device detected over USB. Specify --firmware manually or connect device.", file=sys.stderr)
+                failure = usb_open_failure_message(tried)
+                if failure:
+                    print("[-] " + failure.replace("\n", "\n    "), file=sys.stderr)
+                else:
+                    print("[-] No Harmony device detected over USB. Specify --firmware manually or connect device.", file=sys.stderr)
                 sys.exit(1)
 
             if connected_pid == REMOTE_PID:
@@ -813,6 +826,6 @@ def main():
 
 
 if __name__ == "__main__":
-    if sys.version_info < (3, 11):
-        sys.exit(f"This tool needs Python 3.11 or newer (this is Python {sys.version.split()[0]}).")
+    if sys.version_info < (3, 13):
+        sys.exit(f"This tool needs Python 3.13 or newer (this is Python {sys.version.split()[0]}).")
     main()

@@ -18,7 +18,7 @@ export function createView() {
         onclick: () => loadSystemInfo(),
       }),
     ]),
-    h('div', { id: 'sys-stats-content', className: 'text-dim', text: 'Loading stats...' }),
+    h('div', { id: 'sys-stats-content', className: 'text-dim', text: t('loading_stats', 'Loading stats...') }),
   ]);
 
   // Services Card
@@ -67,7 +67,7 @@ export function createView() {
           try {
             toast.info(t('checking_update', 'Checking for update...'));
             const st = await api.checkUpdate(true);
-            toast.success(st?.message || 'Update check finished');
+            toast.success(st?.message || t('update_check_finished', 'Update check finished'));
           } catch (e) {
             toast.error(e.message);
           }
@@ -110,8 +110,8 @@ export function createView() {
           h('option', { value: 'daemon', text: 'hub_daemon' }),
           h('option', { value: 'btstack', text: 'hub_btstack' }),
           h('option', { value: 'rf', text: 'hub_rf' }),
-          h('option', { value: 'network', text: 'Network Manager' }),
-          h('option', { value: 'system', text: 'System / Kernel (logread)' }),
+          h('option', { value: 'network', text: t('log_source_network', 'Network Manager') }),
+          h('option', { value: 'system', text: t('log_source_system', 'System / Kernel (logread)') }),
         ]),
         h('button', {
           className: 'btn btn-secondary btn-sm',
@@ -136,7 +136,7 @@ export function createView() {
         whiteSpace: 'pre-wrap',
         color: 'var(--text-muted)',
       },
-      text: 'Loading logs...',
+      text: t('loading_logs', 'Loading logs...'),
     }),
   ]);
 
@@ -154,22 +154,22 @@ export function createView() {
       statsMount.innerHTML = '';
       const grid = h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' } }, [
         h('div', { className: 'card', style: { margin: 0, padding: '10px' } }, [
-          h('div', { className: 'card-sub', text: 'Firmware Version' }),
-          h('div', { style: { fontSize: '15px', fontWeight: 'bold', marginTop: '4px' }, text: info?.version || status?.version || 'Custom' }),
+          h('div', { className: 'card-sub', text: t('firmware_version', 'Firmware Version') }),
+          h('div', { style: { fontSize: '15px', fontWeight: 'bold', marginTop: '4px' }, text: info?.version || status?.version || t('version_custom', 'Custom') }),
         ]),
         h('div', { className: 'card', style: { margin: 0, padding: '10px' } }, [
-          h('div', { className: 'card-sub', text: 'Flash Free Space' }),
-          h('div', { style: { fontSize: '15px', fontWeight: 'bold', marginTop: '4px' }, text: disk ? `${disk.totalCombinedFreeMb} MB (${disk.totalCombinedMb} MB)` : 'Unknown' }),
+          h('div', { className: 'card-sub', text: t('flash_free_space', 'Flash Free Space') }),
+          h('div', { style: { fontSize: '15px', fontWeight: 'bold', marginTop: '4px' }, text: disk ? `${disk.totalCombinedFreeMb} MB (${disk.totalCombinedMb} MB)` : t('unknown', 'Unknown') }),
         ]),
         h('div', { className: 'card', style: { margin: 0, padding: '10px' } }, [
-          h('div', { className: 'card-sub', text: 'Uptime' }),
-          h('div', { style: { fontSize: '15px', fontWeight: 'bold', marginTop: '4px' }, text: info?.uptime || status?.uptime || 'Active' }),
+          h('div', { className: 'card-sub', text: t('uptime', 'Uptime') }),
+          h('div', { style: { fontSize: '15px', fontWeight: 'bold', marginTop: '4px' }, text: info?.uptime || status?.uptime || t('status_active', 'Active') }),
         ]),
       ]);
 
       statsMount.appendChild(grid);
     } catch (e) {
-      statsMount.textContent = `Error: ${e.message}`;
+      statsMount.textContent = t('error_msg', 'Error: {error}', { error: e.message });
     }
   }
 
@@ -188,11 +188,11 @@ export function createView() {
           h('span', { style: { fontWeight: '600', fontSize: '13px' }, text: name }),
           h('button', {
             className: `btn btn-sm ${enabled ? 'btn-primary' : 'btn-secondary'}`,
-            text: enabled ? 'Enabled' : 'Disabled',
+            text: enabled ? t('enabled', 'Enabled') : t('disabled', 'Disabled'),
             onclick: async () => {
               try {
                 await toggleFn(!enabled);
-                toast.success(`${name} toggled`);
+                toast.success(t('service_toggled', '{name} toggled', { name }));
                 loadServices();
               } catch (e) {
                 toast.error(e.message);
@@ -203,12 +203,12 @@ export function createView() {
       };
 
       const settings = await api.getSettings().catch(() => ({}));
-      srvMount.appendChild(createSrvRow('mDNS discovery (_harmony-ng._tcp)', 'mdns', (en) => api.saveSettings({ mdns_enabled: en ? 1 : 0 }), settings.mdns_enabled !== false));
-      srvMount.appendChild(createSrvRow('Logitech protocol compatibility (port 8088, no authentication)', 'legacy', (en) => api.saveSettings({ legacy_enabled: en ? 1 : 0 }), Boolean(settings.legacy_enabled)));
-      srvMount.appendChild(createSrvRow('Harmony RF Transceiver (CC2544)', 'rf', (en) => api.toggleRfService(en), srv.rf !== false));
-      srvMount.appendChild(createSrvRow('Bluetooth Stack (BT HID/UART)', 'bt', (en) => api.toggleBtService(en), srv.bt !== false));
+      srvMount.appendChild(createSrvRow(t('service_mdns', 'mDNS discovery (_harmony-ng._tcp)'), 'mdns', (en) => api.saveSettings({ mdns_enabled: en ? 1 : 0 }), settings.mdns_enabled !== false));
+      srvMount.appendChild(createSrvRow(t('service_legacy', 'Logitech protocol compatibility (port 8088, no authentication)'), 'legacy', (en) => api.saveSettings({ legacy_enabled: en ? 1 : 0 }), Boolean(settings.legacy_enabled)));
+      srvMount.appendChild(createSrvRow(t('service_rf', 'Harmony RF Transceiver (CC2544)'), 'rf', (en) => api.toggleRfService(en), srv.rf !== false));
+      srvMount.appendChild(createSrvRow(t('service_bt', 'Bluetooth Stack (BT HID/UART)'), 'bt', (en) => api.toggleBtService(en), srv.bt !== false));
     } catch (e) {
-      srvMount.textContent = `Error loading services: ${e.message}`;
+      srvMount.textContent = t('error_loading_services', 'Error loading services: {error}', { error: e.message });
     }
   }
 
@@ -235,12 +235,12 @@ export function createView() {
     const logsMount = container.querySelector('#sys-logs-content');
     if (!logsMount) return;
     try {
-      logsMount.textContent = 'Loading logs...';
+      logsMount.textContent = t('loading_logs', 'Loading logs...');
       const logData = await api.getLogs(source);
       logsMount.textContent = typeof logData === 'string' ? logData : (logData?.logs || logData?.output || JSON.stringify(logData, null, 2));
       logsMount.scrollTop = logsMount.scrollHeight;
     } catch (e) {
-      logsMount.textContent = `Error fetching logs: ${e.message}`;
+      logsMount.textContent = t('error_fetching_logs', 'Error fetching logs: {error}', { error: e.message });
     }
   }
 

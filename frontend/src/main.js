@@ -4,7 +4,7 @@ import { api } from './api/index.js';
 import { router } from './router.js';
 import { connection } from './utils/connection.js';
 import { getActiveHub } from './storage.js';
-import { getInitialLanguage, setLanguage } from './i18n/index.js';
+import { getInitialLanguage, setLanguage, t } from './i18n/index.js';
 import { createStatusPill } from './components/status-pill.js';
 import { installUnauthorizedHandler } from './components/login-modal.js';
 import { initIconCache } from './icons/cache.js';
@@ -34,7 +34,7 @@ async function initApp() {
     api.updateHub(hub);
     store.set('hub', hub);
     const hubNameEl = document.getElementById('header-hub-name');
-    if (hubNameEl) hubNameEl.textContent = hub.name || `Hub (${hub.host})`;
+    if (hubNameEl) hubNameEl.textContent = hub.name || t('hub_with_host', 'Hub ({host})', { host: hub.host });
   }
 
   // 3. Status Pill
@@ -170,3 +170,7 @@ async function initApp() {
 }
 
 document.addEventListener('DOMContentLoaded', initApp);
+// a list of accounts and tokens to check kept from before a reload (the Users page login reloads)
+document.addEventListener('DOMContentLoaded', () => {
+  import('./components/hub-decisions.js').then((m) => m.installSwitchCheck(api)).catch(() => {});
+});

@@ -17,7 +17,7 @@ import {
   sourceLabel,
   safeImportName
 } from '../irdb.js';
-import { t, setLanguage, getInitialLanguage } from '../i18n.js';
+import { t, setLanguage, getInitialLanguage, tf, tfHtml } from '../i18n.js';
 import iconMetadata from '../icon-metadata.json';
 import {
   initIconCache,
@@ -53,6 +53,8 @@ import {
 } from './app_icons_ui.js';
 import { deviceDelayError } from './form_limits.js';
 import { HarmonyAppIconPicker } from './app_icons_picker.js';
+import { showAlert } from './app_icons_ui.js';
+import { deviceUsersOf, deviceUsersText } from './decision_dialogs.js';
 
 export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
   bindNavigationAndDeviceEvents() {
@@ -91,7 +93,7 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
         if (banner) banner.style.display = 'none';
         showToast(t('dry_run_disabled', 'Dry-Run disabled. Physical hardware commands active.'), 'success');
       } catch (err) {
-        showToast(`Failed to disable Dry-Run: ${err.message}`, 'error');
+        showToast(tf('dry_run_disable_failed', { error: err.message }), 'error');
       } finally {
         if (btn) btn.disabled = false;
       }
@@ -627,13 +629,13 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
       }
 
       const stat = document.getElementById('devEditStatus');
-      const delayProblem = deviceDelayError('Inter-device delay', idd) || deviceDelayError('Inter-key delay', ikd) ||
-        deviceDelayError('Hold inter-key delay', hikd) || (pod < 0 ? 'Power-on delay must not be negative' : null);
+      const delayProblem = deviceDelayError(t('delay_label_inter_device'), idd) || deviceDelayError(t('delay_label_inter_key'), ikd) ||
+        deviceDelayError(t('delay_label_hold_inter_key'), hikd) || (pod < 0 ? t('power_on_delay_negative') : null);
       if (delayProblem) {
         if (stat) stat.innerHTML = `<span style="color:var(--danger)">${delayProblem}</span>`;
         return;
       }
-      if (stat) stat.textContent = 'Saving...';
+      if (stat) stat.textContent = t('saving_ellipsis');
       try {
         await this.client.saveDeviceDetails({
           deviceId: devId,
@@ -656,12 +658,12 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
           btTriggerDeviceId: btTrigDevId,
           btTriggerCommandName: btTrigCmdName
         });
-        if (stat) stat.innerHTML = '<span style="color:var(--success)">Saved!</span>';
+        if (stat) stat.innerHTML = `<span style="color:var(--success)">${t('saved_status')}</span>`;
         await this.refreshData();
         const box = document.getElementById('devEditConfigBox');
         if (box) setTimeout(() => { box.style.display = 'none'; }, 1000);
       } catch (err) {
-        if (stat) stat.innerHTML = '<span style="color:var(--danger)">' + err.message + '</span>';
+        if (stat) stat.innerHTML = '<span style="color:var(--danger)">' + escapeHtml(err.message) + '</span>';
       }
     });
 
@@ -674,7 +676,7 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
       const startBtn = document.getElementById('btnCurDevBtStartPair');
       if (helpBox) helpBox.style.display = 'block';
       if (startBtn) startBtn.disabled = true;
-      if (statusMsg) statusMsg.textContent = 'Hub is in pairing mode. Waiting for device to pair...';
+      if (statusMsg) statusMsg.textContent = t('hub_pairing_waiting_device');
 
       try {
         const initialBtSt = await this.client.getBtStatus().catch(() => null);
@@ -715,7 +717,7 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
               await this.client.linkBtDevice(newlyPairedAddr, devId);
               await this.refreshData();
               if (statusMsg) {
-                statusMsg.innerHTML = `<span style="color:var(--success)">✓ Successfully paired and linked to ${newlyPairedAddr}!</span>`;
+                statusMsg.innerHTML = `<span style="color:var(--success)">✓ ${tfHtml('paired_and_linked_to', { addr: newlyPairedAddr })}</span>`;
               }
               setTimeout(() => {
                 if (helpBox) helpBox.style.display = 'none';
@@ -732,7 +734,7 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
             if (pairedAddr) {
               clearInterval(this._btPairPollTimer);
               this._btPairPollTimer = null;
-              if (statusMsg) statusMsg.innerHTML = `<span style="color:var(--success)">✓ Successfully paired to ${pairedAddr}!</span>`;
+              if (statusMsg) statusMsg.innerHTML = `<span style="color:var(--success)">✓ ${tfHtml('paired_to', { addr: pairedAddr })}</span>`;
               setTimeout(() => {
                 if (helpBox) helpBox.style.display = 'none';
                 if (startBtn) startBtn.disabled = false;
@@ -853,16 +855,16 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
       const raw = document.getElementById('editCmdPayload')?.value.trim();
       const stat = document.getElementById('cmdEditStatus');
       if (!raw) return alert(t("no_signal_test"));
-      if (stat) stat.textContent = 'Testing signal...';
+      if (stat) stat.textContent = t('testing_signal');
       try {
         if (raw.startsWith('0000 ') || raw.startsWith('0000')) {
           await this.client.blastPronto(raw, devId);
         } else {
           await this.client.sendCommand(devId, document.getElementById('editCmdName')?.value.trim());
         }
-        if (stat) stat.innerHTML = '<span style="color:var(--success)">✓ Blasted successfully!</span>';
+        if (stat) stat.innerHTML = `<span style="color:var(--success)">✓ ${t('blasted_successfully')}</span>`;
       } catch (err) {
-        if (stat) stat.innerHTML = '<span style="color:var(--danger)">Error: ' + err.message + '</span>';
+        if (stat) stat.innerHTML = `<span style="color:var(--danger)">${tfHtml('error_msg', { error: err.message })}</span>`;
       }
     });
     document.getElementById('editCmdType')?.addEventListener('change', (e) => {
@@ -886,7 +888,7 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
       const stat = document.getElementById('cmdEditStatus');
       if (!name) return alert(t("enter_cmd_name"));
 
-      if (stat) stat.textContent = 'Saving changes...';
+      if (stat) stat.textContent = t('saving_changes');
       try {
         const payloadData = {
           deviceId: devId,
@@ -900,7 +902,7 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
           payloadData.port = port;
         }
         await this.client.saveLearnedCommand(payloadData);
-        if (stat) stat.innerHTML = '<span style="color:var(--success)">✓ Saved!</span>';
+        if (stat) stat.innerHTML = `<span style="color:var(--success)">✓ ${t('saved_status')}</span>`;
         setTimeout(() => {
           const modal = document.getElementById('cmdEditModal');
           if (modal) modal.style.display = 'none';
@@ -908,14 +910,21 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
         await this.refreshData();
         this.renderIrView();
       } catch (err) {
-        if (stat) stat.innerHTML = '<span style="color:var(--danger)">Error: ' + err.message + '</span>';
+        if (stat) stat.innerHTML = `<span style="color:var(--danger)">${tfHtml('error_msg', { error: err.message })}</span>`;
       }
     });
     document.getElementById('btnDeleteCurrentDevice')?.addEventListener('click', async () => {
       const devId = document.getElementById('manageDeviceSelect')?.value;
       if (!devId) return;
       if (!await showConfirm(t('delete_device_all_cmds_confirm'), { title: t('delete_device', 'Delete Device'), okText: t('delete', 'Delete') })) return;
-      await this.client.deleteDevice(devId);
+      try {
+        await this.client.deleteDevice(devId);
+      } catch (err) {
+        const users = deviceUsersOf(err);
+        if (users) await showAlert(deviceUsersText(users), { title: t('device_in_use_title', 'Device in use'), icon: '⚠️' });
+        else alert(tf('error_msg', { error: err.message }));
+        return;
+      }
       await this.refreshData();
       this.renderIrView();
     });

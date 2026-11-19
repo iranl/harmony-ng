@@ -297,6 +297,14 @@ static int activity_known(const char *id) {
     return found;
 }
 
+/* g_current_act copied under g_act_lock, for code that reads it without holding the lock: the
+ * main loop and request threads both write it (switch, cancel, check of the saved activity) */
+static void current_act_copy(char *buf, size_t len) {
+    pthread_mutex_lock(&g_act_lock);
+    snprintf(buf, len, "%s", g_current_act);
+    pthread_mutex_unlock(&g_act_lock);
+}
+
 /* After a transition completed: start the queued request, if any */
 static void orch_start_queued(void) {
     char next[32];
@@ -308,8 +316,10 @@ static void orch_start_queued(void) {
     strncpy(next, g_queued_act, sizeof(next) - 1);
     next[sizeof(next) - 1] = '\0';
     g_queued_act[0] = '\0';
+    char cur[sizeof(g_current_act)];
+    snprintf(cur, sizeof(cur), "%s", g_current_act);
     pthread_mutex_unlock(&g_act_lock);
-    if (strcmp(next, g_current_act) == 0) {
+    if (strcmp(next, cur) == 0) {
         printf("[*] Orch: queued request %s is the activity reached, nothing to do\n", next);
         pthread_mutex_lock(&g_act_lock);
         set_state(g_state); /* publishes the emptied queue */
@@ -331,11 +341,13 @@ int orch_is_sending(void) {
     return g_queue_len > 0 || g_bg_len > 0;
 }
 
+/* Returns a copy taken under the lock, one buffer per thread (as config_store.c does): a caller
+ * on an HTTP worker reads it while the main loop may be switching the activity. The copy stays
+ * valid until the same thread calls again. */
 const char *orch_get_current_activity(void) {
-    pthread_mutex_lock(&g_act_lock);
-    const char *ret = g_current_act;
-    pthread_mutex_unlock(&g_act_lock);
-    return ret;
+    static __thread char s_copy[sizeof(g_current_act)];
+    current_act_copy(s_copy, sizeof(s_copy));
+    return s_copy;
 }
 
 orch_state_t orch_get_state(void) {
@@ -378,15 +390,16 @@ static void cancel_locked(void) {
         strncpy(g_current_act, ORCH_POWEROFF_ID, sizeof(g_current_act) - 1);
         save_current_activity(g_current_act);
         set_state(ORCH_STATE_IDLE);
-        pthread_mutex_unlock(&g_act_lock);
     } else {
         set_state((strcmp(g_current_act, ORCH_POWEROFF_ID) == 0) ? ORCH_STATE_IDLE : ORCH_STATE_RUNNING);
         write_activity_mirror(g_current_act); /* a cancelled start: back to the activity the Hub is in */
-        pthread_mutex_unlock(&g_act_lock);
     }
-    if (g_progress_cb) {
-        g_progress_cb(g_current_act, g_state, 0, 0, "Sequence cancelled", 0, -1, g_cb_user_data);
-    }
+    /* what the progress event reports, taken in the same hold of the lock */
+    char cur[sizeof(g_current_act)];
+    snprintf(cur, sizeof(cur), "%s", g_current_act);
+    orch_state_t st = g_state;
+    pthread_mutex_unlock(&g_act_lock);
+    if (g_progress_cb) g_progress_cb(cur, st, 0, 0, "Sequence cancelled", 0, -1, g_cb_user_data);
 }
 
 int orch_enqueue_steps(const orch_step_t *steps, size_t count) {
@@ -681,14 +694,17 @@ static int orch_tick_locked(void) {
     } else {
         set_state(g_state); /* after a Switched marker: publishes sending false when nothing is left */
     }
+    char reached[sizeof(g_current_act)];
+    snprintf(reached, sizeof(reached), "%s", g_current_act);
+    orch_state_t reached_state = g_state;
     pthread_mutex_unlock(&g_act_lock);
     clear_activity_target();
 
     if (g_progress_cb) {
-        g_progress_cb(g_current_act, g_state, 0, 0, "Transition completed", 0, g_failed_steps, g_cb_user_data);
+        g_progress_cb(reached, reached_state, 0, 0, "Transition completed", 0, g_failed_steps, g_cb_user_data);
     }
     if (g_failed_steps > 0) {
-        printf("[!] Orch: %d step(s) of the switch to %s could not be sent\n", g_failed_steps, g_current_act);
+        printf("[!] Orch: %d step(s) of the switch to %s could not be sent\n", g_failed_steps, reached);
         fflush(stdout);
     }
     if (g_recheck_current && g_bg_len == 0) {
@@ -709,7 +725,9 @@ static int orch_compile_transition(const char *target_id) {
     }
     size_t main_count = 0, bg_count = 0;
     uint32_t sw_ms = 0, end_ms = 0;
-    if (orch_build_steps(g_current_act, target_id, main_steps, ORCH_MAX_STEPS, &main_count,
+    char cur[sizeof(g_current_act)];
+    current_act_copy(cur, sizeof(cur));
+    if (orch_build_steps(cur, target_id, main_steps, ORCH_MAX_STEPS, &main_count,
                          bg_steps, ORCH_MAX_STEPS, &bg_count, &sw_ms, &end_ms) != 0) {
         free(main_steps);
         free(bg_steps);
@@ -856,7 +874,9 @@ static int switch_activity_locked(const char *target_activity_id, int dry_run,
             if (main_steps && bg_steps) {
                 size_t main_count = 0, bg_count = 0;
                 uint32_t sw_ms = 0, end_ms = 0;
-                orch_build_steps(g_current_act, target_activity_id, main_steps, ORCH_MAX_STEPS, &main_count,
+                char cur[sizeof(g_current_act)];
+                current_act_copy(cur, sizeof(cur));
+                orch_build_steps(cur, target_activity_id, main_steps, ORCH_MAX_STEPS, &main_count,
                                  bg_steps, ORCH_MAX_STEPS, &bg_count, &sw_ms, &end_ms);
                 orch_format_preview_json(target_activity_id, main_steps, main_count,
                                          bg_steps, bg_count, sw_ms, end_ms,
@@ -880,8 +900,10 @@ static int switch_activity_locked(const char *target_activity_id, int dry_run,
     int rc = orch_compile_transition(target_activity_id);
     if (rc != 0) {
         clear_activity_target();
+        pthread_mutex_lock(&g_act_lock);
         set_state((strcmp(g_current_act, ORCH_POWEROFF_ID) == 0) ? ORCH_STATE_IDLE : ORCH_STATE_RUNNING);
         write_activity_mirror(g_current_act);
+        pthread_mutex_unlock(&g_act_lock);
         return -1;
     }
 

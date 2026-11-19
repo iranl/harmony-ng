@@ -571,10 +571,6 @@ int hub_mdns_fd(void) {
     return g_fd;
 }
 
-const char *hub_mdns_instance(void) {
-    return g_info.instance;
-}
-
 void hub_mdns_shutdown(void) {
     responder_stop(1);
 }

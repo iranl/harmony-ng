@@ -1,4 +1,5 @@
 import { HarmonyClientCore } from './api_core.js';
+import { t, tf } from '../i18n.js';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -12,16 +13,16 @@ export function parseBtScript(script) {
     const m = line.match(/^(TEXT|KEY|WAIT)(?:\s+(.*))?$/i);
     const op = m ? m[1].toUpperCase() : '';
     const arg = m && m[2] ? m[2].trim() : '';
-    if (!m || !arg) throw new Error(`Script line ${idx + 1}: expected TEXT words, KEY name or WAIT ms`);
+    if (!m || !arg) throw new Error(tf('bt_script_line_bad', { line: idx + 1 }));
     if (op === 'WAIT') {
       const ms = Number(arg);
-      if (!Number.isInteger(ms) || ms < 0 || ms > 10000) throw new Error(`Script line ${idx + 1}: WAIT takes 0 to 10000 ms`);
+      if (!Number.isInteger(ms) || ms < 0 || ms > 10000) throw new Error(tf('bt_script_wait_range', { line: idx + 1 }));
       steps.push({ op, ms });
     } else {
       steps.push({ op, arg: op === 'TEXT' ? m[2] : arg });
     }
   });
-  if (!steps.length) throw new Error('The script has no steps');
+  if (!steps.length) throw new Error(t('bt_script_no_steps'));
   return steps;
 }
 
@@ -322,6 +323,11 @@ export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
 
   async disconnectBt(bdaddr = '') {
     return this.postJson('/api/bt-disconnect', { bdaddr: bdaddr || '' });
+  }
+
+  // Remove a paired host: its link key, its link and the devices' links to it (admin)
+  async forgetBtHost(addr) {
+    return this.postJson('/api/bt-forget-host', { addr: String(addr || '') });
   }
 
   async linkBtDevice(bdaddr, deviceId) {

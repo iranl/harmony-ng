@@ -25,6 +25,8 @@ remote key, infrared emitters on Home Assistant's infrared platform (so any core
 use the Hub as its blaster), a firmware update entity, and one child device with its own remote for
 every configured IR or Bluetooth device. Services for raw IR, Bluetooth keys, the activity Help flow
 and cancel. Entities are keyed on the Hub's factory unit id, so an IP change never breaks them.
+The Hub refuses to install an update while an activity switch runs (`409`, status
+`activity_switch`): install it again once the switch has finished.
 
 **Pros.** The complete feature set and the lowest latency; no broker; nothing to configure on the
 Hub; one integration for several Hubs.
@@ -33,31 +35,53 @@ Hub; one integration for several Hubs.
 Home Assistant must reach port 8089 of the Hub directly.
 
 **Configure.**
-1. Hub: nothing. If "Require authentication" is on (System page), create a Personal Access Token
-   on the Users page (role User is enough) and keep it for the next step.
+1. Hub: nothing. If "Require authentication" is on (legacy web UI: System page, card "User Accounts
+   & Access Control"), create a Personal Access Token there with role Admin and keep it for the
+   next step (the new web UI has the tokens on its "Users & Auth" page). A User token covers only
+   activities, device commands, raw IR and Bluetooth keys. An operator account can also create its
+   own token (role User) with `POST /api/auth/tokens` (API.md 11.1).
+   Each time authentication is turned on, the web UI lists every other account and every token
+   (this one too) to check: keep this token (Keep all, or simply do not delete it).
 2. Home Assistant: install `ha-harmony-ng` through HACS. The Hub appears under Settings, Devices
    and services as a discovered device (mDNS); confirm it, choose the API transport and paste the
    token if you created one. Without mDNS across your network, add the integration by hand with
    the Hub's address.
 
+What the token's role allows: a token of role User can start and stop activities and send device
+commands, raw IR and Bluetooth keys. Checking for and installing a firmware update, the activity
+Help flow, `Sync`, remote wake and sleep and the IR capture mode need a token of role Admin; with a
+User token the Hub answers them with `403`. Where to find the settings: in the legacy web UI (the
+default) the "Require authentication" switch and the Personal Access Tokens are both on the System
+page, in the card "User Accounts & Access Control"; the new web UI has the tokens on its
+"Users & Auth" page and no "Require authentication" switch. mDNS discovery is on by default and can
+be switched off on the System page ("mDNS discovery"); the names and TXT keys the Hub announces are
+in API.md, section 1.11.
+
 ## 2. The harmony-ng integration over MQTT
 
 **What it is.** The same integration, with the broker in between: the Hub publishes a retained state
-tree under its base topic (`hub`, `activity_state`, `bt`, `rf`, `config`, `inventory/*`,
-`remote/<slot>/button`) and answers commands on `<base>/cmd` with a reply on `<base>/cmd/response`.
+tree under its base topic (`status`, `hub`, `activity_state`, `bt`, `rf`, `config`, `inventory/*`)
+plus live events that are not retained (`remote/<slot>/button`, `progress`, `ir/received`), and
+answers commands on `<base>/cmd` with a reply on `<base>/cmd/response`. A command is answered only
+when it carries a string `id`.
 A parity test in the integration proves the two transports produce the same entity states.
 
 **You get.** The same entities as layer 1.
 
 **Pros.** Home Assistant needs no direct connection to the Hub (useful across VLANs or with a remote
 Home Assistant); other MQTT consumers (Node-RED, dashboards, loggers) read the same retained
-topics; QoS 1 delivery.
+topics; QoS 1 delivery (state topics, button events and command replies; `progress` and
+`ir/received` are QoS 0).
 
-**Cons.** A broker to run; the broker adds a hop; the integration is still required.
+**Cons.** A broker to run; the broker adds a hop; the integration is still required. The Hub's own
+authentication does not apply to MQTT: every command that arrives on the Hub's topics runs with
+admin rights, so whoever may publish to the broker controls the Hub. Protect the broker.
 
 **Configure.**
 1. Hub: web UI, Settings, MQTT: enable, broker host and port, username and password, base topic
-   (default `harmony/hub`), client id. Save. The connection badge turns green.
+   (default `harmony/hub`), client id. "Create Home Assistant entities automatically" is ticked by
+   default: untick it unless you also want the entities of layer 3 next to the integration's own.
+   Save. The connection badge turns green.
 2. Home Assistant: the MQTT integration pointed at the same broker; install `ha-harmony-ng` and,
    in its flow, choose the MQTT transport and the base topic.
 
@@ -73,25 +97,35 @@ sensors `Activity ID`, `IP Address`, `Firmware`, `IR Devices`, `IR Commands`, bu
 pressed on the remote, a pulse from an MQTT-type device) is available to automations through the
 topics in [API.md 8.1](API.md#81-mqtt-v2): an MQTT trigger on `<base>/remote/<slot>/button`, a
 publish to `<base>/send_command` or `<base>/cmd`. The MQTT page of the new web UI has a helper that
-writes the automation YAML for `send_command`.
+writes the automation YAML for `send_command`. The other topics the Hub listens on are
+`<base>/activity/set`, `<base>/command/<device>/<command>`, `<base>/sync`,
+`<base>/remote/<n>/sleep`, `<base>/ir/raw` and the fixed topic `harmony/ir/pronto`.
 
 **Pros.** Nothing to install in Home Assistant beyond MQTT; works with any MQTT client, not only
 Home Assistant; the entities created by the first MQTT layer of harmony-ng keep their ids.
 
 **Cons.** A small, fixed entity set: no per-device remotes, no key event entities, no IR emitters;
-commands from Home Assistant go through automations or scripts, not entity services.
+commands from Home Assistant go through automations or scripts, not entity services. As in layer 2,
+whoever may publish to the broker controls the Hub with admin rights.
 
 **Configure.**
 1. Hub: the MQTT settings of layer 2 with "Create Home Assistant entities automatically" ticked and
    the discovery prefix equal to the one of your MQTT integration (`homeassistant` unless you
-   changed it). Save.
+   changed it). The box is ticked by default. The ids of the entities are built from the MQTT
+   client id (default `harmony-local-mqtt`): give every Hub its own client id, or two Hubs
+   overwrite each other's entities, and expect new entities after a change of the client id. Save.
 2. Home Assistant: nothing. The device appears under the MQTT integration within seconds; it is
    republished whenever Home Assistant restarts (birth message), when the Hub reconnects, when you
    rename an activity or the Hub, and when you press `Sync`. Unticking the box removes the entities.
 
 **MQTT-type devices.** A device of type MQTT in the Hub's configuration is driven through the
 broker: a command to it (from an activity sequence, the remote or Home Assistant) publishes `1` and,
-after the pulse time, `0` on the device's topic template (device editor, "Device MQTT Bridge"). That
+after the pulse time, `0` on the device's topic. The topic is built from the device's `mqttTopic`
+template (default `{root}/button/{device}/{command}`: base topic, device name, command name) and
+the pulse time is its `mqttPulseMs` (default 1000 ms). Neither web UI shows a field for the two:
+the legacy UI writes `{base_topic}/button/<device name in lower case>/{command}` and 1000 ms when
+it creates a device of type MQTT, and `POST /api/device-save` changes them (see
+[API.md 8.1](API.md#81-mqtt-v2)). That
 is how a plug, a relay or a Node-RED flow becomes a device in an activity.
 
 ## 4. The Logitech protocol (core Harmony integration)
@@ -105,7 +139,8 @@ stock client (the `aioharmony` library, Homebridge plugins) talk to it unchanged
 **You get.** What a stock Hub gave: the Hub as a `remote` entity (activities, `send_command` to a
 device) and the `Activities` select. Entities are keyed on the stock `remoteId` stored on the Hub,
 so a Hub that was used with the core integration before harmony-ng gets its old device, entity ids
-and history back.
+and history back. A Hub that has no stock provisioning file gets a `remoteId` derived from its hub
+id: its entities are stable, but they are not the old ones.
 
 **Pros.** Nothing custom in Home Assistant and no broker; existing automations and dashboards built
 on the core integration keep working; other stock clients work too.

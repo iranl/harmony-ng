@@ -73,7 +73,8 @@ int orch_is_busy(void);
 /* Steps of the last switch or Help still to send, including background steps */
 int orch_is_sending(void);
 
-/* Current activity ID string ("-1" = PowerOff) */
+/* Current activity ID string ("-1" = PowerOff): a per-thread copy, valid until the same
+ * thread calls again */
 const char *orch_get_current_activity(void);
 
 /* Get current state enum */

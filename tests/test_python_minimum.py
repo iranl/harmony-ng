@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 The host tools run on the user's own Python. Each one must stop at once with a clear message on a
-Python older than 3.11 (the minimum in docs/FIRST_INSTALL_*.md), and must not stop on a supported one.
-Runs every tool as __main__ with --help: once with sys.version_info set to 3.10, once unchanged.
+Python older than 3.13 (the minimum in docs/FIRST_INSTALL_*.md), and must not stop on a supported one.
+Runs every tool as __main__ with --help: once with sys.version_info set to 3.12, once unchanged.
 """
 
 import os
@@ -14,16 +14,18 @@ TOOLS = [
     "build/deploy_hub.py",
     "remote/setup_remote.py",
     "remote/deploy_remote.py",
+    "remote/bootstrap_serial.py",
     "tools/restore_stock.py",
     "tools/harmony_firmware.py",
     "tools/root_hub_usb.py",
     "tools/migrate_hub_configs.py",
     "tools/backup_hub.py",
     "tools/factory_reset.py",
+    "tools/set_wifi_usb.py",
 ]
 RUN = (
     "import runpy, sys\n"
-    "if sys.argv[1] == 'old': sys.version_info = (3, 10, 12, 'final', 0)\n"
+    "if sys.argv[1] == 'old': sys.version_info = (3, 12, 3, 'final', 0)\n"
     "tool = sys.argv[2]\n"
     "sys.argv = [tool, '--help']\n"
     "runpy.run_path(tool, run_name='__main__')\n"
@@ -47,10 +49,10 @@ def check(cond, name, detail=""):
 
 
 def main():
-    print("[-] host tools refuse Python < 3.11 with a clear message")
+    print("[-] host tools refuse Python < 3.13 with a clear message")
     for tool in TOOLS:
         r = run("old", tool)
-        check(r.returncode == 1 and "needs Python 3.11 or newer" in r.stderr, "%s stops on 3.10" % tool,
+        check(r.returncode == 1 and "needs Python 3.13 or newer" in r.stderr, "%s stops on 3.12" % tool,
               "rc=%d %s" % (r.returncode, (r.stderr or r.stdout).strip()[-200:]))
         r = run("current", tool)
         check(r.returncode == 0 and "needs Python" not in r.stderr, "%s runs on %d.%d" % (tool, *sys.version_info[:2]),

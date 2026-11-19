@@ -9,6 +9,35 @@ touch /etc/nowatchdog 2>/dev/null || true
 chmod -x /usr/bin/watchdog /opt/luaworks/luaworks 2>/dev/null || true
 killall -9 watchdog 2>/dev/null || true
 
+# SSH: the stock boot script starts /usr/sbin/dropbear right after this file (the emergency mode
+# below starts it too). It becomes a copy of /data/harmony/hub_sshd (key logins only), written
+# only when it differs; a copy, not a link, so it does not depend on /data/harmony later. Only the
+# stock BusyBox applets are used here (no readlink, no cmp).
+_sshd_src=/data/harmony/hub_sshd
+_sshd_bin=""
+if [ -s "$_sshd_src" ] && grep -q '^# harmony-ng hub_sshd$' "$_sshd_src" 2>/dev/null; then
+	_sshd_bin=$(sh "$_sshd_src" --binary 2>/dev/null)
+fi
+if [ -n "$_sshd_bin" ] && [ -x "$_sshd_bin" ]; then
+	_sshd_cur=""
+	[ -f /usr/sbin/dropbear ] && [ ! -L /usr/sbin/dropbear ] && _sshd_cur=$(cat /usr/sbin/dropbear 2>/dev/null)
+	if [ "$_sshd_cur" != "$(cat "$_sshd_src")" ]; then
+		cp "$_sshd_src" /usr/sbin/dropbear.new 2>/dev/null && chmod 755 /usr/sbin/dropbear.new &&
+			mv -f /usr/sbin/dropbear.new /usr/sbin/dropbear
+	fi
+elif [ ! -s /usr/sbin/dropbear ]; then
+	_fb=""
+	if [ -x /data/harmony/bin/dropbearmulti ] && [ -s /data/harmony/bin/dropbearmulti ]; then
+		_fb=/data/harmony/bin/dropbearmulti
+	elif [ -x /data/dropbearmulti ] && [ -s /data/dropbearmulti ]; then
+		_fb=/data/dropbearmulti
+	fi
+	if [ -n "$_fb" ]; then
+		printf '#!/bin/sh\nexec %s dropbear -s -g -K 300 "$@"\n' "$_fb" > /usr/sbin/dropbear.new &&
+			chmod 755 /usr/sbin/dropbear.new && mv -f /usr/sbin/dropbear.new /usr/sbin/dropbear
+	fi
+fi
+
 # 1. Reboot counter emergency check
 COUNT=0
 REBOOT_FILE="/data/harmony/reboot_counter"
@@ -34,7 +63,8 @@ if [ "$COUNT" -gt 5 ]; then
 	load_modules /etc/modules.wlan 2>/dev/null || true
 	/sbin/wlanconfig ath0 create wlandev wifi0 wlanmode sta 2>/dev/null || true
 	/usr/sbin/wpa_supplicant -s -iath0 -c /etc/wpa_supplicant.conf &
-	udhcpc -i ath0 -b 2>/dev/null &
+	# pid file: a Wi-Fi set over USB asks this udhcpc for a new lease (SIGUSR1)
+	udhcpc -i ath0 -p /var/run/udhcpc.ath0.pid -b 2>/dev/null &
 
 	# Ensure pristine stock SquashFS /bin/sh and /bin/busybox are NEVER shadowed on unionfs
 	rm -f /data/bin/sh /data/bin/ash /data/bin/busybox 2>/dev/null || true
@@ -64,15 +94,23 @@ EOF
 		chmod 644 "$prof" 2>/dev/null || true
 	done
 
-	# Start Dropbear SSH
-	DROPBEAR_BIN="/data/harmony/bin/dropbear"
-	if [ -x "$DROPBEAR_BIN" ]; then
-		echo '#!/bin/sh' > /usr/sbin/dropbear
-		echo "exec $DROPBEAR_BIN -K 300 \"\$@\"" >> /usr/sbin/dropbear
-		chmod 755 /usr/sbin/dropbear
+	# Wi-Fi setup over USB (see init.sh 5.1): the stock boot script ends with this file in this
+	# mode, before it would start usbhid, so both are started here. The port stays a USB device.
+	# Not when USB_WIFI_SETUP=0 is in ethernet.conf (the setting is off).
+	if [ -x /data/harmony/bin/hub_util ] &&
+		! tr -d ' \t"\r' < /data/harmony/ethernet.conf 2>/dev/null | grep -q '^USB_WIFI_SETUP=0$'; then
+		/data/harmony/bin/hub_util usbwifi >> /tmp/emergency_recovery.log 2>&1 &
+		[ -x /usr/bin/usbhid ] && /usr/bin/usbhid -s &
+	fi
+
+	# Start Dropbear SSH, key logins only (/usr/sbin/dropbear is set above; the server binary
+	# directly when that file is not usable)
+	if [ -s /usr/sbin/dropbear ] && [ -x /usr/sbin/dropbear ]; then
 		/usr/sbin/dropbear
-	elif [ -x /usr/sbin/dropbear ]; then
-		/usr/sbin/dropbear
+	elif [ -x /data/harmony/bin/dropbearmulti ] && [ -s /data/harmony/bin/dropbearmulti ]; then
+		/data/harmony/bin/dropbearmulti dropbear -s -g -K 300
+	elif [ -x /data/dropbearmulti ] && [ -s /data/dropbearmulti ]; then
+		/data/dropbearmulti dropbear -s -g -K 300
 	fi
 
 	exit 0

@@ -1,10 +1,10 @@
 #include "http_api_network.h"
 #include "hub_network_util.h"
-#include "atomic_file.h"
 #include "http_util.h"
 #include "config_store.h"
 #include "cJSON.h"
 #include "wpa_conf.h"
+#include "wifi_config.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -130,6 +130,7 @@ int http_api_network_handle(int client_fd, const char *method, const char *clean
         cJSON_AddStringToObject(st, "wifi_ssid", wifi_ssid);
 
         cJSON *cfg = cJSON_CreateObject();
+        int usb_wifi = 1; /* Wi-Fi setup over USB (hub_util usbwifi): on unless USB_WIFI_SETUP=0 */
         FILE *cff = fopen(config_store_path("ethernet.conf"), "r");
         if (cff) {
             char cline[128];
@@ -152,9 +153,11 @@ int http_api_network_handle(int client_fd, const char *method, const char *clean
                 else if (strcmp(k, "ETH_NETMASK") == 0) cJSON_AddStringToObject(cfg, "eth_netmask", v);
                 else if (strcmp(k, "ETH_GATEWAY") == 0) cJSON_AddStringToObject(cfg, "eth_gateway", v);
                 else if (strcmp(k, "ETH_DNS") == 0) cJSON_AddStringToObject(cfg, "eth_dns", v);
+                else if (strcmp(k, "USB_WIFI_SETUP") == 0) usb_wifi = strcmp(v, "0") != 0;
             }
             fclose(cff);
         }
+        cJSON_AddBoolToObject(cfg, "usb_wifi_setup", usb_wifi);
         cJSON_AddItemToObject(st, "config", cfg);
 
         char ifconfig_buf[8192] = {0};
@@ -172,8 +175,8 @@ int http_api_network_handle(int client_fd, const char *method, const char *clean
         return 1;
     }
 
-    /* Route: GET /api/wifi-scan or GET /api/wifi/scan */
-    if ((strcmp(clean_path, "/api/wifi-scan") == 0 || strcmp(clean_path, "/api/wifi/scan") == 0) && strcmp(method, "GET") == 0) {
+    /* Route: GET /api/wifi-scan */
+    if (strcmp(clean_path, "/api/wifi-scan") == 0 && strcmp(method, "GET") == 0) {
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", 1);
         cJSON *networks = cJSON_CreateArray();
@@ -248,9 +251,7 @@ int http_api_network_handle(int client_fd, const char *method, const char *clean
             const char *raw_ssid = (p_ssid && cJSON_IsString(p_ssid)) ? p_ssid->valuestring : "";
             if (raw_ssid[0]) {
                 /* written as typed: wpa_supplicant reads a quoted value without escapes */
-                char esc_ssid[128] = {0};
                 char esc_pass[128] = {0};
-                snprintf(esc_ssid, sizeof(esc_ssid), "%s", raw_ssid);
 
                 int is_open = (p_open && ((cJSON_IsBool(p_open) && cJSON_IsTrue(p_open)) || (cJSON_IsNumber(p_open) && p_open->valueint == 1) || (cJSON_IsString(p_open) && strcmp(p_open->valuestring, "1") == 0)));
                 int is_hidden = (p_hid && ((cJSON_IsBool(p_hid) && cJSON_IsTrue(p_hid)) || (cJSON_IsNumber(p_hid) && p_hid->valueint == 1) || (cJSON_IsString(p_hid) && strcmp(p_hid->valuestring, "1") == 0)));
@@ -291,44 +292,17 @@ int http_api_network_handle(int client_fd, const char *method, const char *clean
                     }
                 }
 
-                char wpa_buf[1024];
-                if (is_open) {
-                    snprintf(wpa_buf, sizeof(wpa_buf),
-                        "ctrl_interface=/var/run/wpa_supplicant\n"
-                        "update_config=1\n\n"
-                        "network={\n"
-                        "\tssid=\"%s\"\n"
-                        "\tkey_mgmt=NONE\n"
-                        "%s"
-                        "}\n",
-                        esc_ssid,
-                        is_hidden ? "\tscan_ssid=1\n" : "");
-                } else {
-                    snprintf(wpa_buf, sizeof(wpa_buf),
-                        "ctrl_interface=/var/run/wpa_supplicant\n"
-                        "update_config=1\n\n"
-                        "network={\n"
-                        "\tssid=\"%s\"\n"
-                        "\tpsk=%s%s%s\n"
-                        "%s"
-                        "}\n",
-                        esc_ssid, wpa_psk_quote(esc_pass), esc_pass, wpa_psk_quote(esc_pass),
-                        is_hidden ? "\tscan_ssid=1\n" : "");
-                }
-
-                /* both or neither: a failed second write puts the first file back */
-                if (atomic_file_write_pair("/etc/wpa_supplicant.conf", "/etc/wpa_supplicant.ath0.conf",
-                                           wpa_buf, 16384) != 0) {
+                /* both files or neither (wifi_config.c); a failed save keeps the old ones */
+                int reboot_after = strcmp(app_mode, "reboot") == 0;
+                if (wifi_config_save(raw_ssid, esc_pass, is_open, is_hidden, should_apply && !reboot_after) != 0) {
                     cJSON_Delete(params);
                     send_json_error(client_fd, 500, "Could not save the Wi-Fi settings (flash full?)");
                     close(client_fd);
                     return 1;
                 }
 
-                if (strcmp(app_mode, "reboot") == 0) {
+                if (reboot_after) {
                     system("/data/harmony/bin/safe_reboot.sh 2>/dev/null || (killall -9 hub_rf hub_btstack 2>/dev/null; /data/harmony/bin/hub_sync 2>/dev/null; sleep 2; reboot -f) &");
-                } else if (should_apply) {
-                    system("/usr/sbin/wpa_cli -i ath0 reconfigure 2>/dev/null || killall -HUP wpa_supplicant 2>/dev/null &");
                 }
 
                 cJSON_Delete(params);
@@ -366,6 +340,7 @@ int http_api_network_handle(int client_fd, const char *method, const char *clean
             cJSON *p_mask = cJSON_GetObjectItemCaseSensitive(params, "eth_netmask");
             cJSON *p_gw = cJSON_GetObjectItemCaseSensitive(params, "eth_gateway");
             cJSON *p_dns = cJSON_GetObjectItemCaseSensitive(params, "eth_dns");
+            cJSON *p_usb = cJSON_GetObjectItemCaseSensitive(params, "usb_wifi_setup");
 
             int eth_en = 1;
             if (p_en) {
@@ -378,6 +353,16 @@ int http_api_network_handle(int client_fd, const char *method, const char *clean
                 if (cJSON_IsBool(p_fb)) eth_fb = cJSON_IsTrue(p_fb);
                 else if (cJSON_IsNumber(p_fb)) eth_fb = (p_fb->valueint != 0);
                 else if (cJSON_IsString(p_fb)) eth_fb = (strcmp(p_fb->valuestring, "0") != 0 && strcasecmp(p_fb->valuestring, "false") != 0);
+            }
+
+            /* Unlike the other fields, usb_wifi_setup left out keeps the stored value: the web UIs
+             * send it only after reading the stored value, and an Ethernet save from an older
+             * client must not turn the USB setup back on */
+            int usb_wifi = wifi_usb_setup_setting(config_store_path("ethernet.conf"));
+            if (p_usb) {
+                if (cJSON_IsBool(p_usb)) usb_wifi = cJSON_IsTrue(p_usb);
+                else if (cJSON_IsNumber(p_usb)) usb_wifi = (p_usb->valueint != 0);
+                else if (cJSON_IsString(p_usb)) usb_wifi = (strcmp(p_usb->valuestring, "0") != 0 && strcasecmp(p_usb->valuestring, "false") != 0);
             }
 
             const char *mode_val = (p_mode && cJSON_IsString(p_mode) && strcasecmp(p_mode->valuestring, "static") == 0) ? "static" : "dhcp";
@@ -410,8 +395,9 @@ int http_api_network_handle(int client_fd, const char *method, const char *clean
                 "ETH_IP=\"%s\"\n"
                 "ETH_NETMASK=\"%s\"\n"
                 "ETH_GATEWAY=\"%s\"\n"
-                "ETH_DNS=\"%s\"\n",
-                eth_en, eth_fb, mode_val, valid_ip, valid_mask, valid_gw, valid_dns);
+                "ETH_DNS=\"%s\"\n"
+                "USB_WIFI_SETUP=%d\n",
+                eth_en, eth_fb, mode_val, valid_ip, valid_mask, valid_gw, valid_dns, usb_wifi);
 
             if (write_file_content(config_store_path("ethernet.conf"), conf_buf) != 0) {
                 cJSON_Delete(params);

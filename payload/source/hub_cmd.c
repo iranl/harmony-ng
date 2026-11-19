@@ -682,6 +682,19 @@ cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin) {
         return NULL; /* hub_cmd_poll delivers the reply */
     }
     if (strcmp(action, "update_apply") == 0) {
+        cJSON *blocked = ota_update_apply_blocked();
+        if (blocked) {
+            cJSON *rb = ack_with(req, action, 409, blocked);
+            /* ack_with copies the reply's fields only on success: these tell this 409 apart */
+            static const char *const keep[] = { "status", "busy", "sending", "queued" };
+            for (size_t k = 0; rb && k < sizeof(keep) / sizeof(keep[0]); k++) {
+                const cJSON *v = cJSON_GetObjectItemCaseSensitive(blocked, keep[k]);
+                if (v && !cJSON_GetObjectItemCaseSensitive(rb, keep[k])) cJSON_AddItemToObject(rb, keep[k], cJSON_Duplicate(v, 1));
+            }
+            cJSON_Delete(blocked);
+            return rb;
+        }
+
         cJSON *rest = ota_update_apply(req);
         int code = !rest ? 500 : cJSON_IsTrue(cJSON_GetObjectItem(rest, "ok")) ? 200 : 409;
         cJSON *r = ack_with(req, action, code, rest);

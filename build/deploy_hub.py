@@ -20,6 +20,15 @@ import sys
 import tempfile
 import time
 
+# Shared SSH host key policy: tools/ssh_hostkeys.py (tools/ next to this script in a release bundle)
+for _hk_dir in (pathlib.Path(__file__).resolve().parent, pathlib.Path(__file__).resolve().parent / "tools",
+                pathlib.Path(__file__).resolve().parent.parent / "tools"):
+    if (_hk_dir / "ssh_hostkeys.py").is_file():
+        if str(_hk_dir) not in sys.path:
+            sys.path.append(str(_hk_dir))
+        break
+import ssh_hostkeys  # noqa: E402
+
 
 def find_default_ssh_key() -> str | None:
     """Find newest harmony_owner key or standard SSH key."""
@@ -84,6 +93,22 @@ def parse_space_reply(reply: str) -> tuple[int | None, int]:
     if total_kb == 0:
         avail_kb = None
     return avail_kb, old_kb
+
+
+# The Hub has no recovery access point any more. On a Hub deployed with an older release this
+# stops one still running (portal loop, DHCP server, hostapd, ath1) and removes its script, its
+# settings, its log and the hub_util links it used (hub_portal, hub_dhcpd).
+RECOVERY_AP_CLEANUP = (
+    "if [ -f /var/run/hub-recovery-ap.pid ]; then "
+    "_l=$(cat /var/run/hub-recovery-ap.pid 2>/dev/null); [ -n \"$_l\" ] && kill -9 \"$_l\" 2>/dev/null; "
+    "rm -f /var/run/hub-recovery-ap.pid /tmp/hostapd-recovery.conf; "
+    "killall -9 hub_portal hub_dhcpd hostapd 2>/dev/null; "
+    "ifconfig ath1 down 2>/dev/null; wlanconfig ath1 destroy 2>/dev/null; "
+    "fi; "
+    "rm -f /data/harmony/recovery_ap.sh /data/harmony/scripts/recovery_ap.sh /data/harmony/bin/recovery_ap.sh "
+    "/data/harmony/recovery_ap.conf /data/harmony/bin/hub_portal /data/harmony/bin/hub_dhcpd "
+    "/tmp/harmony-recovery.log 2>/dev/null || true"
+)
 
 
 class HubDeployer:
@@ -157,7 +182,7 @@ class HubDeployer:
         cmd = [
             "ssh",
             "-o", "BatchMode=yes",
-            "-o", "StrictHostKeyChecking=no",
+            *ssh_hostkeys.ssh_options(self.hub_host),
             "-o", "ConnectTimeout=5",
         ]
         if self.ssh_key and os.path.isfile(self.ssh_key):
@@ -220,7 +245,7 @@ class HubDeployer:
             return False
 
         # SCP upload
-        scp_cmd = ["scp", "-O", "-q", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no"]
+        scp_cmd = ["scp", "-O", "-q", "-o", "BatchMode=yes", *ssh_hostkeys.ssh_options(self.hub_host)]
         if self.ssh_key and os.path.isfile(self.ssh_key):
             scp_cmd.extend(["-i", self.ssh_key])
         scp_cmd.extend([str(src), f"{self.hub_user}@{self.hub_host}:{stage}"])
@@ -309,7 +334,8 @@ class HubDeployer:
             print("Dry run: Hub is only read, nothing is changed")
         probe = self.run_ssh("uname -m")
         if probe.returncode != 0:
-            print(f"[-] Cannot reach {self.hub_user}@{self.hub_host} over SSH.", file=sys.stderr)
+            if not ssh_hostkeys.report_failure(probe.stderr, self.hub_host):
+                print(f"[-] Cannot reach {self.hub_user}@{self.hub_host} over SSH.", file=sys.stderr)
             return False
         # The Hub is a MIPS board. The remote (ARM) answers at 192.168.2.1 with the same key:
         # the Hub's boot script and binaries would leave it without a UI and without SSH.
@@ -366,7 +392,7 @@ class HubDeployer:
                 "if [ -x /data/harmony/init.sh ]; then /data/harmony/init.sh stop; "
                 "elif [ -x /data/harmony/scripts/init.sh ]; then /data/harmony/scripts/init.sh stop; "
                 "else killall -15 hub_rf 2>/dev/null || true; sleep 1; "
-                "killall -9 hub_rf hub_daemon hub_btstack hub_dhcpd hub_portal hal luaworks luadraws lua 2>/dev/null || true; fi; "
+                "killall -9 hub_rf hub_daemon hub_btstack hal luaworks luadraws lua 2>/dev/null || true; fi; "
                 "for _p in $(ps | grep '/data/codex/' | sed 's/^[ ]*//' | cut -d' ' -f1 2>/dev/null); do [ -n \"$_p\" ] && [ \"$_p\" != \"$$\" ] && kill -9 \"$_p\" 2>/dev/null || true; done; "
                 "for _p in $(ps | grep 'init\\.sh' | sed 's/^[ ]*//' | cut -d' ' -f1 2>/dev/null); do [ -n \"$_p\" ] && [ \"$_p\" != \"$$\" ] && kill -9 \"$_p\" 2>/dev/null || true; done; "
                 "/data/harmony/bin/hub_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || sync 2>/dev/null || true"
@@ -388,10 +414,14 @@ class HubDeployer:
                 "rm -rf /data/codex-backups /data/codexmqtt /data/harmony-backups /cache/crashlog-*.json 2>/dev/null; "
                 "rm -f /data/harmony/mqtt_config.json /data/harmony/elite_remote_map.json /data/harmony/bt_devices.json /data/devices.json /data/activities.json /data/harmony/devices.json /data/harmony/config/.imported /data/remote_ui.ota.gz /data/remote_ui.version 2>/dev/null || true; "
                 "rm -f /cache/codex_*.ota.gz /cache/codex_*.ota /cache/*.new /cache/*/*.new /data/harmony/*.new /data/harmony/*/*.new /data/rf_pair_test /data/test_hub_tx /data/codex_rf /data/hub_rf /data/harmony/bin/codex_* /cache/bin/codex_* /var/run/codex_* 2>/dev/null || true; "
+                "if [ -s /data/harmony/bin/dropbearmulti ] && [ -x /data/harmony/bin/dropbearmulti ]; then _harm_m=$(md5sum /data/harmony/bin/dropbearmulti 2>/dev/null | awk '{print $1}'); _data_m=$(md5sum /data/dropbearmulti 2>/dev/null | awk '{print $1}'); if [ -n \"$_harm_m\" ] && { [ \"$_harm_m\" = \"$_data_m\" ] || [ \"$_harm_m\" = \"3733327fd04bca282dbf06f33da0bf6c\" ]; }; then rm -f /data/dropbearmulti /usr/sbin/dropbearmulti 2>/dev/null || true; fi; for _a in dropbear dropbearkey dbclient scp; do [ -f /data/harmony/bin/$_a ] && [ ! -L /data/harmony/bin/$_a ] && rm -f /data/harmony/bin/$_a 2>/dev/null; ln -sf /data/harmony/bin/dropbearmulti /data/harmony/bin/$_a 2>/dev/null || true; done; for _a in dropbearkey dbclient scp; do ln -sf /data/harmony/bin/dropbearmulti /usr/sbin/$_a 2>/dev/null || true; done; fi; "
                 "mkdir -p /data/harmony/bin /data/harmony/www/assets /data/harmony/config /data/harmony/custom_icons"
             )
             if not self.dry_skip("move legacy /data/codex files to /data/harmony and remove obsolete files"):
                 self.run_ssh(mig_paths_cmd)
+
+            if not self.dry_skip("remove the recovery access point files (recovery_ap.sh, recovery_ap.conf, hub_portal and hub_dhcpd links)"):
+                self.run_ssh(RECOVERY_AP_CLEANUP)
 
             # Stock config conversion via migrate_hub_configs.py if needed
             has_dev_res = self.run_ssh("[ -f /data/harmony/config/devices.json ] && echo 1 || echo 0")
@@ -412,7 +442,7 @@ class HubDeployer:
                     with tempfile.TemporaryDirectory() as tmp_dir:
                         tmp_p = pathlib.Path(tmp_dir)
                         # Pull /data/resources
-                        scp_pull = ["scp", "-O", "-q", "-r", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no"]
+                        scp_pull = ["scp", "-O", "-q", "-r", "-o", "BatchMode=yes", *ssh_hostkeys.ssh_options(self.hub_host)]
                         if self.ssh_key and os.path.isfile(self.ssh_key):
                             scp_pull.extend(["-i", self.ssh_key])
                         scp_pull.extend([f"{self.hub_user}@{self.hub_host}:/data/resources", str(tmp_p / "resources")])
@@ -421,7 +451,7 @@ class HubDeployer:
                         out_dir = tmp_p / "out"
                         mig_res = subprocess.run([sys.executable, str(mig_script), "--src", str(tmp_p / "resources"), "--dest", str(out_dir)], capture_output=True, text=True)
                         if (out_dir / "config" / "devices.json").is_file():
-                            scp_push = ["scp", "-O", "-q", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no"]
+                            scp_push = ["scp", "-O", "-q", "-o", "BatchMode=yes", *ssh_hostkeys.ssh_options(self.hub_host)]
                             if self.ssh_key and os.path.isfile(self.ssh_key):
                                 scp_push.extend(["-i", self.ssh_key])
                             # Push config/*.json
@@ -446,7 +476,7 @@ class HubDeployer:
             if (self.bin_dir / "hub_util").is_file():
                 self.deploy_file_if_changed(self.bin_dir / "hub_util", "/data/harmony/bin/hub_util", "755")
                 util_setup = (
-                    "for _app in hub_sync sync mknod register_ehci eth_fix hub_dhcpd hub_portal hub_sntp; do "
+                    "for _app in hub_sync sync mknod register_ehci eth_fix hub_sntp; do "
                     "  [ -f /data/harmony/bin/$_app ] && [ ! -L /data/harmony/bin/$_app ] && rm -f /data/harmony/bin/$_app 2>/dev/null; "
                     "  ln -sf /data/harmony/bin/hub_util /data/harmony/bin/$_app 2>/dev/null || true; "
                     "done"
@@ -457,12 +487,38 @@ class HubDeployer:
             else:
                 core_bins = [
                     "hub_daemon", "hub_rf", "hub_sntp", "hub_btstack", "hub_sync",
-                    "hub_dhcpd", "hub_portal", "mknod", "register_ehci", "eth_fix"
+                    "mknod", "register_ehci", "eth_fix"
                 ]
             for b in core_bins:
                 src = self.bin_dir / b
                 if src.is_file():
                     self.deploy_file_if_changed(src, f"/data/harmony/bin/{b}", "755")
+
+            # Dropbear SSH server
+            dropbear_src = None
+            if (self.bin_dir / "dropbearmulti").is_file():
+                dropbear_src = self.bin_dir / "dropbearmulti"
+            elif (self.repo_root / "tools" / "bin" / "dropbearmulti_mips").is_file():
+                dropbear_src = self.repo_root / "tools" / "bin" / "dropbearmulti_mips"
+
+            if dropbear_src:
+                self.deploy_file_if_changed(dropbear_src, "/data/harmony/bin/dropbearmulti", "755")
+                dropbear_links = (
+                    "for _a in dropbear dropbearkey dbclient scp; do "
+                    "  [ -f /data/harmony/bin/$_a ] && [ ! -L /data/harmony/bin/$_a ] && rm -f /data/harmony/bin/$_a 2>/dev/null; "
+                    "  ln -sf /data/harmony/bin/dropbearmulti /data/harmony/bin/$_a 2>/dev/null || true; "
+                    "done; "
+                    "for _a in dropbearkey dbclient scp; do "
+                    "  ln -sf /data/harmony/bin/dropbearmulti /usr/sbin/$_a 2>/dev/null || true; "
+                    "done; "
+                    "_harm_m=$(md5sum /data/harmony/bin/dropbearmulti 2>/dev/null | awk '{print $1}'); "
+                    "_data_m=$(md5sum /data/dropbearmulti 2>/dev/null | awk '{print $1}'); "
+                    "if [ -n \"$_harm_m\" ] && { [ \"$_harm_m\" = \"$_data_m\" ] || [ \"$_harm_m\" = \"3733327fd04bca282dbf06f33da0bf6c\" ]; }; then "
+                    "  rm -f /data/dropbearmulti /usr/sbin/dropbearmulti 2>/dev/null || true; "
+                    "fi"
+                )
+                if not self.dry_skip("create dropbear multicall symlinks and safely deduplicate"):
+                    self.run_ssh(dropbear_links)
 
             # Extended BusyBox
             local_bb = self.bin_dir / "busybox"
@@ -703,11 +759,16 @@ def main() -> None:
     parser.add_argument("--dry-run", "-n", action="store_true", help="Read Hub state and report changes without modifying Hub")
     parser.add_argument("--no-backup", action="store_true", help="Skip pre-deployment backup")
     parser.add_argument("--stage-remote-ota", action="store_true", help="Stage local remote_ui.ota.gz into Hub /tmp/remote_ui.ota.gz (RAM tmpfs) for offline testing")
+    ssh_hostkeys.add_reset_option(parser, "the Hub")
 
     args = parser.parse_args()
     target_host = args.flag_host or args.host
     if not target_host:
         parser.error("HUB_ADDRESS is required (pass as first argument or --host=IP)")
+    # Before any USB or device work: a stop here leaves the device untouched
+    ssh_hostkeys.require_known_hosts()
+    if args.reset_host_key:
+        ssh_hostkeys.reset_host(target_host)
 
     ui_choice = "legacy"
     if args.ui_new:
@@ -733,6 +794,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    if sys.version_info < (3, 11):
-        sys.exit(f"This tool needs Python 3.11 or newer (this is Python {sys.version.split()[0]}).")
+    if sys.version_info < (3, 13):
+        sys.exit(f"This tool needs Python 3.13 or newer (this is Python {sys.version.split()[0]}).")
     main()

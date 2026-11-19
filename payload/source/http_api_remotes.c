@@ -935,6 +935,99 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
         return 1;
     }
 
+    /* Route: POST /api/bt-forget-host {"addr": "XX:XX:XX:XX:XX:XX"}: remove a paired Bluetooth host
+     * for good. The devices linked to it lose their link (devices.json, through the store), the
+     * default host file goes when it names it, then hub_btstack drops its link key, closes its
+     * link and forgets it (host_forget). Admin only: not in the user role's list. */
+    if (strcmp(clean_path, "/api/bt-forget-host") == 0 && strcmp(method, "POST") == 0) {
+        cJSON *params = parse_request_params(body);
+        char addr[32] = {0};
+        if (params) {
+            cJSON *ja = cJSON_GetObjectItem(params, "addr");
+            if (!ja) ja = cJSON_GetObjectItem(params, "bdaddr");
+            if (ja && cJSON_IsString(ja)) strncpy(addr, ja->valuestring, sizeof(addr) - 1);
+            cJSON_Delete(params);
+        }
+        if (!hub_valid_bdaddr(addr) || strcmp(addr, "00:00:00:00:00:00") == 0) {
+            send_json_error(client_fd, 400, "addr must be a Bluetooth address (XX:XX:XX:XX:XX:XX)");
+            close(client_fd);
+            return 1;
+        }
+        for (char *c = addr; *c; c++) *c = (char)toupper((unsigned char)*c);
+        /* the link key lives in hub_btstack: without it the host would stay paired, so nothing
+         * is changed while it is not running */
+        if (!is_proc_running("hub_btstack")) {
+            send_json_error(client_fd, 503, "Bluetooth is off: turn it on to forget a host");
+            close(client_fd);
+            return 1;
+        }
+        int cleared = 0, save_failed = 0;
+        config_store_lock();
+        cJSON *root = config_store_devices_copy();
+        cJSON *devs = root ? cJSON_GetObjectItemCaseSensitive(root, "devices") : NULL;
+        cJSON *dev_item = NULL;
+        if (devs && cJSON_IsArray(devs)) {
+            cJSON_ArrayForEach(dev_item, devs) {
+                int linked = 0;
+                const char *keys[] = {"bdaddr", "btHost"};
+                for (int k = 0; k < 2; k++) {
+                    cJSON *ja = cJSON_GetObjectItemCaseSensitive(dev_item, keys[k]);
+                    if (ja && cJSON_IsString(ja) && strcasecmp(ja->valuestring, addr) == 0) linked = 1;
+                }
+                if (linked) {
+                    cJSON_DeleteItemFromObjectCaseSensitive(dev_item, "bdaddr");
+                    cJSON_DeleteItemFromObjectCaseSensitive(dev_item, "btHost");
+                    cleared++;
+                }
+            }
+        }
+        if (cleared > 0) {
+            if (config_store_save_devices(root) == 0) root = NULL;
+            else save_failed = 1;
+        }
+        cJSON_Delete(root); /* NULL once the store took it */
+        config_store_unlock();
+        if (save_failed) {
+            send_json_error(client_fd, 500, "devices.json could not be saved: host not forgotten");
+            close(client_fd);
+            return 1;
+        }
+        /* bthid_host_target: "bdaddr=XX:..." (hub_btstack's), the default host of devices
+         * without their own */
+        int default_cleared = 0;
+        char host_path[256];
+        snprintf(host_path, sizeof(host_path), "%s", config_store_path("bthid_host_target"));
+        FILE *hf = fopen(host_path, "r");
+        if (hf) {
+            char line[128];
+            int match = 0;
+            while (fgets(line, sizeof(line), hf)) {
+                const char *v = strncmp(line, "bdaddr=", 7) == 0 ? line + 7 : line;
+                if (strncasecmp(v, addr, 17) == 0) match = 1;
+            }
+            fclose(hf);
+            if (match && unlink(host_path) == 0) default_cleared = 1;
+        }
+        /* Straight to the running hub_btstack: the file fallback of hub_send_btstack_cmd() is
+         * dropped when hub_btstack starts more than 10 s later, and the key would stay. */
+        char pipe_cmd[64];
+        snprintf(pipe_cmd, sizeof(pipe_cmd), "host_forget %s\n", addr);
+        if (hub_send_btstack_cmd_live(pipe_cmd) != 0) {
+            send_json_error(client_fd, 500, "hub_btstack did not take the command: the link key is kept, try again");
+            close(client_fd);
+            return 1;
+        }
+        cJSON *st = cJSON_CreateObject();
+        cJSON_AddBoolToObject(st, "ok", 1);
+        cJSON_AddStringToObject(st, "addr", addr);
+        cJSON_AddNumberToObject(st, "devices_cleared", cleared);
+        cJSON_AddBoolToObject(st, "default_host_cleared", default_cleared);
+        send_cjson_resp(client_fd, 200, st);
+        cJSON_Delete(st);
+        close(client_fd);
+        return 1;
+    }
+
     /* Route: POST /api/bt-link-device */
     if (strcmp(clean_path, "/api/bt-link-device") == 0 && strcmp(method, "POST") == 0) {
         cJSON *params = parse_request_params(body);
@@ -957,8 +1050,15 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
             close(client_fd);
             return 1;
         }
-        int success = 0;
-        if (dev_id[0]) {
+        if (!dev_id[0]) {
+            send_json_error(client_fd, 400, "deviceId required");
+            close(client_fd);
+            return 1;
+        }
+        /* found: no such device is 404, a failed save 500. hub_btstack sends a link again after
+         * any answer but 200 and 404/400: it used to see {"ok":false} for both. */
+        int success = 0, found = 0;
+        {
             config_store_lock();
             cJSON *root = config_store_devices_copy();
             if (root) {
@@ -976,6 +1076,7 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
                             if (bdaddr[0]) {
                                 cJSON_AddStringToObject(dev_item, "bdaddr", bdaddr);
                             }
+                            found = 1;
                             if (config_store_save_devices(root) == 0) {
                                 root = NULL;
                                 success = 1;
@@ -987,6 +1088,11 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
                 cJSON_Delete(root); /* NULL once the store took it */
             }
             config_store_unlock();
+        }
+        if (!found || !success) {
+            send_json_error(client_fd, found ? 500 : 404, found ? "devices.json could not be saved" : "no device with that id");
+            close(client_fd);
+            return 1;
         }
         cJSON *st = cJSON_CreateObject();
         cJSON_AddBoolToObject(st, "ok", success);

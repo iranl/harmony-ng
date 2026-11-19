@@ -1,6 +1,6 @@
 import { saveRemoteLayout } from '../storage.js';
 import { RemoteEngineBtInput } from './engine_bt_input.js';
-import { t } from '../i18n.js';
+import { t, tf, tfHtml } from '../i18n.js';
 import { escapeHtml } from '../html_escape.js';
 
 export class RemoteEngineViews extends RemoteEngineBtInput {
@@ -19,7 +19,7 @@ export class RemoteEngineViews extends RemoteEngineBtInput {
         slotEl.className = `grid-slot-empty ${this.editMode ? 'clickable' : ''}`;
         if (this.editMode) {
           slotEl.innerHTML = `<span class="slot-add-icon">+</span>`;
-          slotEl.title = t("tap_to_add_btn").replace("{slot}", i + 1);
+          slotEl.title = tf("tap_to_add_btn", { slot: i + 1 });
           slotEl.addEventListener('click', () => {
             this.openSlotEditorModal(null, i);
           });
@@ -38,7 +38,7 @@ export class RemoteEngineViews extends RemoteEngineBtInput {
     el.setAttribute('data-slot', slotIndex);
 
     el.innerHTML = `
-      <span class="btn-label">${escapeHtml(btn.label || btn.command || 'Btn')}</span>
+      <span class="btn-label">${escapeHtml(btn.label || btn.command || t('screen_btn_fallback'))}</span>
       ${this.editMode ? `<span class="btn-edit-badge">✎</span>` : ''}
     `;
 
@@ -293,7 +293,7 @@ export class RemoteEngineViews extends RemoteEngineBtInput {
     modal.innerHTML = `
       <div class="modal-card">
         <div class="modal-header">
-          <h3>${isEdit ? t('customize_button') : t('add_button')} (${t('row_col_format').replace('{row}', row).replace('{col}', col)})</h3>
+          <h3>${isEdit ? t('customize_button') : t('add_button')} (${tfHtml('row_col_format', { row: row, col: col })})</h3>
           <button type="button" class="btn btn-ghost btn-sm" id="btnModalClose">✕</button>
         </div>
         <div class="modal-body">
@@ -326,9 +326,9 @@ export class RemoteEngineViews extends RemoteEngineBtInput {
           <div class="form-group">
             <label>${t('hold_repeat', 'Hold Repeat')}</label>
             <select id="editBtnHoldRepeat" class="form-control">
-              <option value="auto" ${!isEdit || btn.holdRepeat === undefined ? 'selected' : ''}>Auto (${this.isRepeatableCommand(currentCmd, isEdit ? btn.label : '') ? 'Repeat' : 'Single'})</option>
-              <option value="yes" ${isEdit && btn.holdRepeat === true ? 'selected' : ''}>Enabled (Repeat while held)</option>
-              <option value="no" ${isEdit && btn.holdRepeat === false ? 'selected' : ''}>Disabled (Single press only)</option>
+              <option value="auto" ${!isEdit || btn.holdRepeat === undefined ? 'selected' : ''}>${this.isRepeatableCommand(currentCmd, isEdit ? btn.label : '') ? t('hold_repeat_auto_repeat') : t('hold_repeat_auto_single')}</option>
+              <option value="yes" ${isEdit && btn.holdRepeat === true ? 'selected' : ''}>${t('hold_repeat_enabled')}</option>
+              <option value="no" ${isEdit && btn.holdRepeat === false ? 'selected' : ''}>${t('hold_repeat_disabled')}</option>
             </select>
           </div>
         </div>
@@ -351,7 +351,7 @@ export class RemoteEngineViews extends RemoteEngineBtInput {
     const updateHoldRepeatOption = () => {
       if (holdRepeatSelect && holdRepeatSelect.options[0]) {
         const rep = this.isRepeatableCommand(cmdSelect.value, labelInput.value);
-        holdRepeatSelect.options[0].textContent = `Auto (${rep ? 'Repeat' : 'Single'})`;
+        holdRepeatSelect.options[0].textContent = rep ? t('hold_repeat_auto_repeat') : t('hold_repeat_auto_single');
       }
     };
 
@@ -367,7 +367,7 @@ export class RemoteEngineViews extends RemoteEngineBtInput {
       cmdSelect.innerHTML = newCmds.map(c => {
         const name = c.name || c;
         return `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`;
-      }).join('') || '<option value="">(No commands available)</option>';
+      }).join('') || `<option value="">${t('no_commands_avail')}</option>`;
       if (cmdSelect.value) {
         labelInput.value = cmdSelect.value;
       } else {

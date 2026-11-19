@@ -39,7 +39,12 @@ DROPBEAR_MIPS_PATH = BIN_DIR / "dropbearmulti_mips"
 if str(REPO_DIR) not in sys.path:
     sys.path.insert(0, str(REPO_DIR))
 
-from tools.harmony_hid import HarmonyHid, HUB_PID, HUB_PRO_PID, ALL_HUB_PIDS
+from tools.harmony_hid import HarmonyHid, HUB_PID, HUB_PRO_PID, ALL_HUB_PIDS, usb_open_failure_message
+
+# Shared SSH host key policy (tools/ssh_hostkeys.py, next to this file)
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.append(str(SCRIPT_DIR))
+import ssh_hostkeys  # noqa: E402
 
 
 BOOTSTRAP_SCRIPT_TEMPLATE = b"""#!/bin/sh
@@ -57,7 +62,7 @@ cp /etc/dropbear/authorized_keys /home/root/.ssh/authorized_keys
 chmod 700 /root /root/.ssh /home/root /home/root/.ssh
 chmod 600 /etc/dropbear/authorized_keys /root/.ssh/authorized_keys /home/root/.ssh/authorized_keys
 
-# Phase 2: Set blank root password fallback in /etc/passwd
+# Phase 2: Set blank root password fallback in /etc/passwd (serial console only: SSH takes keys)
 sed -i 's/^root:[^:]*:/root::/' /etc/passwd
 
 # Phase 3: Disable hardware watchdog
@@ -68,7 +73,15 @@ chmod 644 /etc/nowatchdog
 /usr/bin/lua -e 'local f=io.open("/usr/sbin/dropbearmulti","rb") f:seek("set",%OFFSET%) local g=io.open("/data/dropbearmulti","wb") while true do local b=f:read(65536) if not b then break end g:write(b) end f:close() g:close()'
 
 chmod 755 /data/dropbearmulti
-ln -sf /data/dropbearmulti /usr/sbin/dropbear
+# /usr/sbin/dropbear (started by the stock boot script) takes keys only: -s refuses password
+# logins, -g also for root. Written under a new name and renamed: this script may be running
+# from that path.
+cat <<'EOF' > /usr/sbin/dropbear.new
+#!/bin/sh
+exec /data/dropbearmulti dropbear -s -g "$@"
+EOF
+chmod 755 /usr/sbin/dropbear.new
+mv -f /usr/sbin/dropbear.new /usr/sbin/dropbear
 ln -sf /data/dropbearmulti /usr/sbin/dropbearkey
 ln -sf /data/dropbearmulti /usr/sbin/dbclient
 ln -sf /data/dropbearmulti /usr/sbin/scp
@@ -78,8 +91,8 @@ if [ ! -r /etc/dropbear/dropbear_rsa_host_key ]; then
     /data/dropbearmulti dropbearkey -t rsa -f /etc/dropbear/dropbear_rsa_host_key
 fi
 
-# Phase 6: Start Dropbear SSH daemon in background and let rcS continue
-/data/dropbearmulti dropbear -R -p 0.0.0.0:22 "$@"
+# Phase 6: Start Dropbear SSH daemon in background and let rcS continue (key logins only)
+/data/dropbearmulti dropbear -s -g -R -p 0.0.0.0:22 "$@"
 exit 0
 """
 
@@ -282,8 +295,7 @@ def backup_stock_partitions(hub_ip: str, priv_key_path: pathlib.Path) -> pathlib
 
     ssh_opts = [
         "-o", "BatchMode=yes",  # never wait at a password prompt the user cannot see
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=" + ("NUL" if sys.platform == "win32" else "/dev/null"),
+        *ssh_hostkeys.ssh_options(hub_ip),
         "-o", "LogLevel=ERROR",
         "-o", "ConnectTimeout=10",
     ]
@@ -298,6 +310,12 @@ def backup_stock_partitions(hub_ip: str, priv_key_path: pathlib.Path) -> pathlib
         "if [ -x /cache/bin/busybox ]; then echo /cache/bin/busybox; elif [ -x /data/harmony/bin/busybox ]; then echo /data/harmony/bin/busybox; elif [ -x /tmp/busybox ]; then echo /tmp/busybox; else echo ''; fi",
     ]
     res = subprocess.run(chk_cmd, capture_output=True, text=True)
+    if res.returncode != 0 and ssh_hostkeys.report_failure(res.stderr, hub_ip, hint=(
+            f"the Hub is rooted, only the stock backup is missing. Record the new key with\n"
+            f"    `python tools/backup_hub.py {hub_ip} {ssh_hostkeys.RESET_OPTION}` (it also saves a backup of the Hub\n"
+            f"    as it is now). The stock backup of /cache and /data needs this tool again with {ssh_hostkeys.RESET_OPTION}.")):
+        print("[-] No stock backup was taken.")
+        return None
     bb_bin = res.stdout.strip()
     uploaded_temp_bb = False
 
@@ -381,7 +399,11 @@ def main() -> None:
     parser.add_argument("--no-reboot", action="store_true", help="Do not reboot Hub after staging Dropbear")
     parser.add_argument("--no-backup", action="store_true", help="Skip automatic stock backup on gaining root")
     parser.add_argument("--skip-fw-check", action="store_true", help="Skip firmware version check and upgrade prompt")
+    ssh_hostkeys.add_reset_option(parser, "the Hub")
     args = parser.parse_args()
+    # Before any USB or device work: a stop here leaves the device untouched
+    if not args.wifi_only:
+        ssh_hostkeys.require_known_hosts()
 
     print("=" * 70)
     print(" LOGITECH HARMONY HUB USB ROOT & PERSISTENCE TOOL")
@@ -391,16 +413,22 @@ def main() -> None:
     print("[*] Searching for Harmony Hub over USB HID (046D:C129 / 046D:C132)...")
     hid = None
     connected_pid = None
+    tried = []
     for pid in ALL_HUB_PIDS:
         candidate = HarmonyHid(pid=pid)
         if candidate.open():
             hid = candidate
             connected_pid = pid
             break
+        tried.append(candidate)
 
     if not hid or not connected_pid:
-        print("[-] Error: Harmony Hub not detected on USB.")
-        print("    Ensure the Hub is connected via micro-USB and powered ON.")
+        failure = usb_open_failure_message(tried)
+        if failure:
+            print("[-] Error: " + failure.replace("\n", "\n    "))
+        else:
+            print("[-] Error: Harmony Hub not detected on USB.")
+            print("    Ensure the Hub is connected via micro-USB and powered ON.")
         sys.exit(1)
 
     dev_label = "Harmony Pro Hub (2400)" if connected_pid == HUB_PRO_PID else "Harmony Hub"
@@ -596,6 +624,8 @@ def main() -> None:
                     print(f"\n[+] SUCCESS: Dropbear SSH is ONLINE at {target_verify_ip}:22!")
                     priv_key_file = private_key_path(pub_path)
                     print(f"    Connect: ssh -i {priv_key_file} root@{target_verify_ip}")
+                    if args.reset_host_key:
+                        ssh_hostkeys.reset_host(target_verify_ip)
                     if not args.no_backup:
                         backup_stock_partitions(target_verify_ip, priv_key_file)
                 else:
@@ -610,6 +640,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    if sys.version_info < (3, 11):
-        sys.exit(f"This tool needs Python 3.11 or newer (this is Python {sys.version.split()[0]}).")
+    if sys.version_info < (3, 13):
+        sys.exit(f"This tool needs Python 3.13 or newer (this is Python {sys.version.split()[0]}).")
     main()

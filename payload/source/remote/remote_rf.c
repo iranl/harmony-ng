@@ -226,6 +226,8 @@ void rf_perform_unpair_cleanup(bool notify_hub) {
     g_active_activity_name[0] = '\0';
     g_config_version = 0;
     g_unpair_confirm_active = false;
+    /* A progress bar still running would put its target screen over "Not paired" when it ends */
+    g_is_switching_activity = false;
     g_current_view = VIEW_NOT_PAIRED;
 
     printf("[+] Remote unpairing & bonding removal complete. Ready to pair to new hub.\n");
@@ -308,20 +310,6 @@ void rf_send_help_answer(const char *dev_id, bool on) {
     rf_build_frame(&f, g_remote_slot, RF_MSG_HELP_ANSWER, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 9);
     rf_send_frame(&f);
     printf("[*] RF TX HELP_ANSWER: %s is %s\n", dev_id, on ? "on" : "off");
-}
-
-void rf_send_device_command(const char *dev_id, const char *cmd) {
-    if (g_rf_fd < 0) return;
-
-    rf_frame_t f;
-    uint8_t payload[25] = {0};
-    strncpy((char *)payload, dev_id, 4);
-    strncpy((char *)&payload[4], cmd, 21);
-    rf_build_frame(&f, g_remote_slot, RF_MSG_DEVICE_CMD_REQUEST, ++g_tx_seq, 0, payload, sizeof(payload));
-
-    rf_send_frame(&f);
-
-    printf("[*] RF TX DEVICE_CMD: dev=%s cmd=%s\n", dev_id, cmd);
 }
 
 void rf_send_screen_button_press(const char *act_id, uint8_t btn_idx, const char *label) {

@@ -17,7 +17,7 @@ import {
   sourceLabel,
   safeImportName
 } from '../irdb.js';
-import { t, setLanguage, getInitialLanguage } from '../i18n.js';
+import { t, setLanguage, getInitialLanguage, tf } from '../i18n.js';
 import iconMetadata from '../icon-metadata.json';
 import {
   initIconCache,
@@ -57,7 +57,7 @@ export class HarmonyAppRemotesB25 extends HarmonyAppHarmonySearch {
   async loadRemotesView() {
     const sel = document.getElementById('b25ActivitySelect');
     if (sel) {
-      sel.innerHTML = '<option value="-1">Off / Idle (Default)</option>' +
+      sel.innerHTML = `<option value="-1">${t('off_idle_default')}</option>` +
         (this.activitiesData.activities || []).map(a => `<option value="${escapeHtml(a.id)}">${escapeHtml(a.name || a.label)}</option>`).join('');
     }
     const tgtDev = document.getElementById('b25TargetDevice');
@@ -119,30 +119,30 @@ export class HarmonyAppRemotesB25 extends HarmonyAppHarmonySearch {
     const isScanning = Boolean(st?.scanning);
 
     if (pairedName) pairedName.textContent = name;
-    if (pairedAddr) pairedAddr.textContent = bdaddr || 'None';
+    if (pairedAddr) pairedAddr.textContent = bdaddr || t('val_none');
 
     if (isScanning) {
-      if (stateText) stateText.textContent = 'Scanning for BLE remotes...';
+      if (stateText) stateText.textContent = t('b25_scanning_ble');
       if (badge) {
         badge.className = 'badge warn';
-        badge.textContent = 'SCANNING';
+        badge.textContent = t('badge_scanning');
       }
     } else {
-      if (stateText) stateText.textContent = st?.state || (isConn ? 'Connected / Ready' : (bdaddr ? 'Paired / Offline' : 'Idle'));
+      if (stateText) stateText.textContent = st?.state || (isConn ? t('b25_state_connected_ready') : (bdaddr ? t('b25_state_paired_offline') : t('idle')));
       if (badge) {
         badge.className = `badge ${isConn ? 'ok' : (bdaddr ? 'warn' : '')}`;
-        badge.textContent = isConn ? 'CONNECTED' : (bdaddr ? 'PAIRED' : 'OFFLINE');
+        badge.textContent = isConn ? t('badge_connected') : (bdaddr ? t('badge_paired') : t('badge_offline'));
       }
     }
 
     if (scanBtn) {
       if (isScanning) {
-        scanBtn.textContent = 'Stop Scanning';
+        scanBtn.textContent = t('stop_scanning');
         scanBtn.classList.remove('btn-primary');
         scanBtn.classList.add('btn-warning');
         scanBtn.setAttribute('data-scanning', 'true');
       } else {
-        scanBtn.textContent = 'Scan for BLE Remotes';
+        scanBtn.textContent = t('scan_ble_remotes');
         scanBtn.classList.remove('btn-warning');
         scanBtn.classList.add('btn-primary');
         scanBtn.removeAttribute('data-scanning');
@@ -153,13 +153,13 @@ export class HarmonyAppRemotesB25 extends HarmonyAppHarmonySearch {
       const curVal = discList.value;
       if (st.devices.length === 0) {
         if (!isScanning && discList.options.length <= 1) {
-          discList.innerHTML = '<option value="">(No remotes found)</option>';
+          discList.innerHTML = `<option value="">${t('b25_no_remotes_found')}</option>`;
         }
       } else {
-        const opts = ['<option value="">(Select remote - ' + st.devices.length + ' found)</option>'];
+        const opts = [`<option value="">${escapeHtml(tf('b25_select_remote_found', { count: st.devices.length }))}</option>`];
         for (const d of st.devices) {
           const addr = d.bdaddr || d.addr || '';
-          const dname = d.name || 'Bluetooth Remote';
+          const dname = d.name || t('bluetooth_remote_generic');
           const rssi = (typeof d.rssi === 'number') ? ` (${d.rssi} dBm)` : '';
           opts.push(`<option value="${escapeHtml(addr)}">${escapeHtml(dname)} - ${escapeHtml(addr)}${escapeHtml(rssi)}</option>`);
         }
@@ -178,7 +178,7 @@ export class HarmonyAppRemotesB25 extends HarmonyAppHarmonySearch {
     if (lbl) lbl.textContent = btnId;
 
     const actSel = document.getElementById('b25ActivitySelect');
-    const actName = actSel ? actSel.options[actSel.selectedIndex]?.text || 'Off / Idle' : 'Off / Idle';
+    const actName = actSel ? actSel.options[actSel.selectedIndex]?.text || t('off_idle') : t('off_idle');
     const modalActLbl = document.getElementById('b25ModalActivityName');
     if (modalActLbl) modalActLbl.textContent = actName;
 
@@ -291,13 +291,13 @@ export class HarmonyAppRemotesB25 extends HarmonyAppHarmonySearch {
   async saveAllB25Mappings() {
     const btn = document.getElementById('b25SaveAllBtn');
     try {
-      if (btn) btn.textContent = 'Saving...';
+      if (btn) btn.textContent = t('saving_ellipsis');
       await this.client.saveRemoteMappings(this.b25MapData);
       alert(t("b25_saved_hub"));
     } catch (err) {
       alert(t('save_failed', 'Save failed: ') + err.message);
     } finally {
-      if (btn) btn.textContent = 'Save All Mappings';
+      if (btn) btn.textContent = t('save_all_mappings');
     }
   }
 
@@ -339,7 +339,7 @@ export class HarmonyAppRemotesB25 extends HarmonyAppHarmonySearch {
     });
 
     this.updateB25ButtonStates();
-    alert(t("auto_mapped_b25").replace("{count}", mapped));
+    alert(tf("auto_mapped_b25", { count: mapped }));
   }
 
   async scanB25Remote() {
@@ -349,23 +349,23 @@ export class HarmonyAppRemotesB25 extends HarmonyAppHarmonySearch {
 
     try {
       if (isScanning) {
-        if (btn) btn.textContent = 'Stopping...';
-        if (log) log.textContent = 'Stopping scan...';
+        if (btn) btn.textContent = t('stopping_ellipsis');
+        if (log) log.textContent = t('b25_stopping_scan');
         await this.client.stopScanBtRemote();
       } else {
         if (btn) {
-          btn.textContent = 'Starting scan...';
+          btn.textContent = t('b25_starting_scan');
           btn.classList.remove('btn-primary');
           btn.classList.add('btn-warning');
           btn.setAttribute('data-scanning', 'true');
         }
-        if (log) log.textContent = 'Scanning for BLE remotes (put remote in pairing mode)...';
+        if (log) log.textContent = t('b25_scanning_pairing_hint');
         await this.client.scanBtRemote();
       }
       const st = await this.client.getBtRemotePairStatus().catch(() => null);
       if (st) this.updateB25StatusUI(st);
     } catch (err) {
-      if (log) log.textContent = (isScanning ? 'Stop scan error: ' : 'Scan error: ') + err.message;
+      if (log) log.textContent = tf(isScanning ? 'b25_stop_scan_error' : 'b25_scan_error', { error: err.message });
       const st = await this.client.getBtRemotePairStatus().catch(() => null);
       if (st) this.updateB25StatusUI(st);
     }
@@ -378,15 +378,15 @@ export class HarmonyAppRemotesB25 extends HarmonyAppHarmonySearch {
     if (!addr) return alert(t("select_discovered_remote", "Select a discovered remote first."));
     try {
       if (btn) btn.disabled = true;
-      if (log) log.textContent = `Pairing with ${addr}... Put remote in pairing mode.`;
+      if (log) log.textContent = tf('b25_pairing_with', { addr: addr });
       await this.client.pairBtRemote(addr);
-      if (log) log.textContent = `Pairing initiated for ${addr}! Connecting...`;
+      if (log) log.textContent = tf('b25_pairing_started', { addr: addr });
       setTimeout(async () => {
         const st = await this.client.getBtRemotePairStatus().catch(() => null);
         if (st) this.updateB25StatusUI(st);
       }, 1500);
     } catch (err) {
-      if (log) log.textContent = 'Pairing failed: ' + err.message;
+      if (log) log.textContent = tf('pairing_failed_error', { error: err.message });
     } finally {
       if (btn) btn.disabled = false;
     }

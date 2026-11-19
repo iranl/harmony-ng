@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import json
 import math
 import os
@@ -38,6 +39,14 @@ REPO_DIR = SCRIPT_DIR.parent
 
 if str(REPO_DIR) not in sys.path:
     sys.path.insert(0, str(REPO_DIR))
+
+# Shared SSH host key policy: tools/ssh_hostkeys.py (this file is in tools/ in a release bundle)
+for _hk_dir in (SCRIPT_DIR, SCRIPT_DIR.parent / "tools"):
+    if (_hk_dir / "ssh_hostkeys.py").is_file():
+        if str(_hk_dir) not in sys.path:
+            sys.path.append(str(_hk_dir))
+        break
+import ssh_hostkeys  # noqa: E402
 
 from tools.usb_state import (
     detect_remote_usb_state,
@@ -146,6 +155,27 @@ def read_json_val(remote_file: str, key: str, timeout: int = 5) -> str:
     with urllib.request.urlopen(req, timeout=timeout) as r:
         res = json.loads(r.read().decode("utf-8"))
         return res.get("data", {}).get(key, "")
+
+
+# Bytes printf may take as they are inside the single quotes of a command sent through the stock
+# web service; every other byte (quotes, backslash, %, line breaks) goes as an octal escape
+PRINTF_PLAIN = frozenset(b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _-./:=,+@#[]()<>|&;!?*~^{}$")
+
+
+def printf_commands(data: bytes, dest: str, max_len: int = 3000) -> list[str]:
+    """Shell commands that write data to dest with printf, each one line of at most about max_len
+    characters (the first one creates the file, the others append)"""
+    tokens = [chr(b) if b in PRINTF_PLAIN else f"\\{b:03o}" for b in data]
+    chunks: list[str] = []
+    cur = ""
+    for tok in tokens:
+        if len(cur) + len(tok) > max_len:
+            chunks.append(cur)
+            cur = ""
+        cur += tok
+    if cur or not chunks:
+        chunks.append(cur)
+    return [f"printf '{c}' {'>' if i == 0 else '>>'} {dest}" for i, c in enumerate(chunks)]
 
 
 def probe_remote(ip: str = REMOTE_IP, port: int = REMOTE_PORT, timeout: float = 1.0) -> bool:
@@ -262,14 +292,27 @@ def wait_for_ssh(ip: str = REMOTE_IP, port: int = 22, timeout_s: int = 60) -> bo
 def remote_ssh_cmd(priv_path: pathlib.Path, ip: str = REMOTE_IP) -> list[str]:
     return [
         "ssh",
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
+        *ssh_hostkeys.ssh_options(ip),
         "-o", "BatchMode=yes",
         "-o", "ConnectTimeout=10",
         "-o", "LogLevel=ERROR",
         "-i", str(priv_path),
         f"root@{ip}",
     ]
+
+
+def forget_remote_host_key() -> None:
+    """Rooting a remote and installing SSH on it gives it a new host key, and every remote
+    answers at the same address: forget the recorded key, so the next connection records
+    the key of the remote that is on the USB cable now."""
+    try:
+        removed = ssh_hostkeys.forget_host(REMOTE_IP)
+    except OSError as e:
+        # Never end the setup here: the next connection names --reset-host-key if the old key stays
+        print(f"[!] Could not forget the recorded SSH host key of {REMOTE_IP}: {e.strerror or e}")
+        return
+    if removed:
+        print(f"[*] Forgot the recorded SSH host key of {REMOTE_IP} (SSH was just installed on this remote).")
 
 
 def find_local_arm_busybox() -> pathlib.Path | None:
@@ -324,6 +367,12 @@ def backup_remote(priv_path: pathlib.Path, ip: str = REMOTE_IP) -> pathlib.Path 
     ssh = remote_ssh_cmd(priv_path, ip)
     staged = False
     try:
+        reach = subprocess.run(ssh + ["true"], capture_output=True, text=True, timeout=30, check=False)
+        if reach.returncode != 0:
+            if not ssh_hostkeys.report_failure(reach.stderr, ip):
+                print(f"[-] Cannot log in to the remote over SSH: {(reach.stderr or '').strip()}")
+            print("[-] Backup skipped.")
+            return None
         bb = find_remote_tar_busybox(ssh)
         if not bb:
             local_bb = find_local_arm_busybox()
@@ -388,7 +437,7 @@ def step1_enable_usb_debug(pubkey_str: str, skip_fw_check: bool = False) -> bool
         sys.path.insert(0, str(REPO_DIR))
 
     try:
-        from tools.harmony_hid import HarmonyHid, REMOTE_PID
+        from tools.harmony_hid import HarmonyHid, REMOTE_PID, usb_open_failure_message
     except ImportError as e:
         print(f"[-] Error: Could not import tools.harmony_hid: {e}")
         return False
@@ -396,6 +445,7 @@ def step1_enable_usb_debug(pubkey_str: str, skip_fw_check: bool = False) -> bool
     print("[*] Connecting to Harmony Remote over USB HID...")
     time.sleep(0.3)
     hid = None
+    tried = []
 
     for pid in (REMOTE_PID, 0xC132):
         h = HarmonyHid(pid=pid)
@@ -403,10 +453,15 @@ def step1_enable_usb_debug(pubkey_str: str, skip_fw_check: bool = False) -> bool
             hid = h
             print(f"[+] Connected to Harmony Remote over USB HID (046D:{pid:04X})")
             break
+        tried.append(h)
 
     if not hid:
-        print("[-] USB connection failed.")
-        print("    Ensure remote is plugged in via USB and powered ON.")
+        failure = usb_open_failure_message(tried)
+        if failure:
+            print("[-] " + failure.replace("\n", "\n    "))
+        else:
+            print("[-] USB connection failed.")
+            print("    Ensure remote is plugged in via USB and powered ON.")
         return False
 
     try:
@@ -497,6 +552,7 @@ def step1_enable_usb_debug(pubkey_str: str, skip_fw_check: bool = False) -> bool
             print("[+] Remote is rebooting into rooted firmware multi-user mode!")
         except Exception as e:
             print(f"[-] Reboot exception (expected if device disconnects): {e}")
+        forget_remote_host_key()
         return True
     except Exception as e:
         print(f"[-] Error over USB HID: {e}")
@@ -636,16 +692,20 @@ def ensure_ssh_key(key_path: pathlib.Path | None = None) -> pathlib.Path:
 def update_ssh_config(key_path: pathlib.Path, write: bool = False) -> None:
     """Offer a Host entry for ~/.ssh/config; write it only when asked (--ssh-config).
 
-    Every remote has the same address over USB and a new host key after each rooting, so
-    the entry does not pin the key (as the project's tools do not)."""
+    The entry uses the host key policy of the project's tools: the key is recorded in the
+    project's known_hosts file and checked. Every remote answers at the same address and
+    gets a new host key when it is rooted; setup_remote.py forgets the old key when it
+    installs SSH, and the tools' --reset-host-key does it by hand."""
     config_path = pathlib.Path.home() / ".ssh" / "config"
     config_entry = (
         f"\nHost {REMOTE_IP} harmony-remote\n"
         f"    HostName {REMOTE_IP}\n"
         f"    User root\n"
         f"    IdentityFile {key_path}\n"
-        f"    StrictHostKeyChecking no\n"
-        f"    UserKnownHostsFile /dev/null\n"
+        f"    StrictHostKeyChecking accept-new\n"
+        f"    UserKnownHostsFile {ssh_hostkeys.known_hosts_value()}\n"
+        f"    HostKeyAlias {ssh_hostkeys.entry_name(REMOTE_IP)}\n"
+        f"    CheckHostIP no\n"
     )
     try:
         existing = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
@@ -787,12 +847,12 @@ def step2_install_permanent_ssh(pub_path: pathlib.Path, no_screen: bool = False,
     rce("killall -9 dropbearmulti dropbear 2>/dev/null; /usr/sbin/dropbear -R -p 0.0.0.0:22")
     time.sleep(1)
 
-    # 9. Verify SSH connection
+    # 9. Verify SSH connection (the first connection records the remote's host key)
+    forget_remote_host_key()
     print("[*] Verifying SSH connectivity...")
     test_cmd = [
         "ssh",
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
+        *ssh_hostkeys.ssh_options(REMOTE_IP),
         "-o", "BatchMode=yes",
         "-o", "ConnectTimeout=5",
         "-i", str(pub_path.with_suffix("")),
@@ -803,7 +863,8 @@ def step2_install_permanent_ssh(pub_path: pathlib.Path, no_screen: bool = False,
         res = subprocess.run(test_cmd, capture_output=True, text=True, check=True)
         print(f"[+] Remote response:\n    {res.stdout.strip()}")
     except subprocess.CalledProcessError as e:
-        print(f"[-] SSH verification error: {e.stderr.strip()}")
+        if not ssh_hostkeys.report_failure(e.stderr, REMOTE_IP):
+            print(f"[-] SSH verification error: {e.stderr.strip()}")
         return False
 
     # Back up the remote before the HarmonyNG runtime changes /data
@@ -816,8 +877,7 @@ def step2_install_permanent_ssh(pub_path: pathlib.Path, no_screen: bool = False,
     print("=" * 70)
     priv_path = pub_path.with_suffix("")
     ssh_opts = [
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
+        *ssh_hostkeys.ssh_options(REMOTE_IP),
         "-o", "BatchMode=yes",
         "-i", str(priv_path),
     ]
@@ -861,6 +921,18 @@ def step2_install_permanent_ssh(pub_path: pathlib.Path, no_screen: bool = False,
         subprocess.run(["scp"] + scp_opts + [str(init_src), f"{target}:/data/{init_src.name}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     else:
         print(f"[-] Warning: init.sh not found (looked for {init_src}); remote_ui will run without its supervisor.")
+
+    # The reset that Settings > Factory Reset runs (deploy_remote.py uploads it too)
+    reset_src = find_candidate([
+        REPO_DIR / "remote" / "factory_reset.sh",
+        REPO_DIR / "factory_reset.sh",
+        SCRIPT_DIR / "factory_reset.sh",
+    ])
+    if reset_src.is_file():
+        print("[*] Uploading /data/factory_reset.sh...")
+        subprocess.run(["scp"] + scp_opts + [str(reset_src), f"{target}:/data/factory_reset.sh"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+    else:
+        print(f"[-] Warning: factory_reset.sh not found (looked for {reset_src}); Settings > Factory Reset will not work.")
 
     # Upload rcS.local recovery script
     rcs_file = find_candidate([
@@ -906,12 +978,13 @@ def main():
     parser.add_argument("--key", type=pathlib.Path, default=DEFAULT_KEY_PATH, help="Path to SSH key.")
     parser.add_argument("--skip-fw-check", action="store_true", help="Skip checking for latest official Logitech firmware.")
     parser.add_argument("--check-usb", "--status", dest="check_usb", action="store_true", help="Check and display USB HID / Ethernet / driver state and exit.")
-    parser.add_argument("--factory-reset", action="store_true", help="Revert the Harmony remote to official stock firmware.")
+    parser.add_argument("--factory-reset", action="store_true", help="Revert the Harmony remote to official stock firmware with factory_reset.sh (deletes its settings, logs and SSH access).")
     parser.add_argument("--no-screen", action="store_true", help="Install in no-screen mode (for remotes with broken screens).")
     parser.add_argument("--backup", action="store_true", help="Only back up the rooted remote over SSH to backups/remote/ and exit.")
     parser.add_argument("--no-backup", action="store_true", help="Do not back up the remote after SSH comes up.")
     parser.add_argument("--ssh-config", action="store_true",
                         help="Add a 'harmony-remote' entry to ~/.ssh/config (otherwise it is only printed).")
+    ssh_hostkeys.add_reset_option(parser, f"the remote ({REMOTE_IP})")
     args = parser.parse_args()
 
     # Pre-execution USB & Network State Detection
@@ -937,24 +1010,39 @@ def main():
         if not probe_remote():
             print(f"[-] Cannot reach remote at {REMOTE_IP}:{REMOTE_PORT}. Ensure USB Ethernet is active.")
             sys.exit(1)
-        print("[*] Reverting remote to stock configuration...")
-        revert_cmds = [
-            "if [ -x /data/init.sh ]; then /data/init.sh stop 2>/dev/null || true; fi",
-            "killall -9 init.sh remote_watchdog.sh remote_ui 2>/dev/null || true",
-            "if [ -f /data/stock_backup/rcS.local.orig ] && ! grep -q 'usbeth' /data/stock_backup/rcS.local.orig 2>/dev/null && ! grep -q 'dropbear' /data/stock_backup/rcS.local.orig 2>/dev/null && ! grep -q 'exit 0' /data/stock_backup/rcS.local.orig 2>/dev/null; then cp -f /data/stock_backup/rcS.local.orig /etc/init.d/rcS.local; chmod 755 /etc/init.d/rcS.local; else printf '#!/bin/sh\\n/usr/bin/flashuboot /lib/firmware/u-boot.bin 2>/dev/null || true\\n' > /etc/init.d/rcS.local; chmod 755 /etc/init.d/rcS.local; fi",
-            "chmod +x /usr/bin/watchdog /usr/bin/usbhid /usr/bin/hal /opt/luaworks/luaworks /opt/luadraws/luadraws /usr/sbin/bluetoothd /usr/bin/dbus-daemon 2>/dev/null || true",
-            "rm -f /etc/nowatchdog /etc/tdeenable /data/reboot_counter /data/remote_ui.conf /tmp/remote_ui.log /tmp/remote-init.log /tmp/remote_stop /tmp/remote_supervisors.pid 2>/dev/null || true",
-            "rm -f /usr/bin/sync /usr/sbin/dropbear /usr/sbin/dropbearkey /usr/sbin/dbclient /usr/sbin/scp 2>/dev/null || true",
-            "rm -f /usr/bin/head /usr/bin/tail /usr/bin/which /usr/bin/find /usr/bin/tar /usr/bin/xargs /usr/bin/xz /usr/bin/bzcat /usr/bin/bunzip2 /usr/bin/lzma /usr/bin/unlzma /usr/bin/diff /usr/bin/patch /usr/bin/awk /usr/bin/sed 2>/dev/null || true",
-            "/data/remote_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true",
-            "sleep 1",
-            "rm -f /data/remote_* /data/init.sh /data/safe_reboot.sh /data/factory_reset.sh /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox 2>/dev/null || true",
-            "rm -rf /data/stock_backup /data/assets 2>/dev/null || true",
-            "reboot -f 2>/dev/null &",
-        ]
-        rce("; ".join(revert_cmds))
-        print("[+] The remote has been reverted and is rebooting into official stock firmware!")
+        print("[*] Reverting remote to stock configuration (factory_reset.sh)...")
+        # The remote's one reset script (the same that Settings > Factory Reset and
+        # deploy_remote.py --factory-reset run), written to /tmp through the stock web service in
+        # one-line printf pieces, checked by its MD5, then run in the background (it reboots the
+        # remote at its end)
+        reset_script = find_candidate([
+            SCRIPT_DIR / "factory_reset.sh",
+            REPO_DIR / "remote" / "factory_reset.sh",
+            REPO_DIR / "factory_reset.sh",
+        ])
+        if not reset_script.is_file():
+            print(f"[-] factory_reset.sh not found (looked for {reset_script}); nothing was changed.")
+            sys.exit(1)
+        data = reset_script.read_bytes()
+        for cmd in printf_commands(data, "/tmp/factory_reset.sh"):
+            rce(cmd)
+        rce('m=$(md5sum /tmp/factory_reset.sh 2>/dev/null | awk "{print \\$1}"); echo "{\\"md5\\": \\"$m\\"}" > /tmp/frmd5.json')
+        try:
+            got = read_json_val("/tmp/frmd5.json", "md5")
+        except (OSError, ValueError) as e:  # no answer, or not JSON
+            got = f"no answer ({e})"
+        if got != hashlib.md5(data).hexdigest():
+            print(f"[-] The reset script did not arrive intact on the remote (MD5 {got}); nothing was changed.")
+            sys.exit(1)
+        rce("(sh /tmp/factory_reset.sh --confirm > /tmp/factory_reset.log 2>&1 &)")
+        print("[+] The reset script arrived intact and runs now: the remote reboots into the official")
+        print("    stock firmware when it is done.")
         sys.exit(0)
+
+    # Before step 1 or 2 change the remote: a stop here leaves it untouched
+    ssh_hostkeys.require_known_hosts()
+    if args.reset_host_key:
+        ssh_hostkeys.reset_host(REMOTE_IP)
 
     pub_path = ensure_ssh_key(args.key)
     priv_path = pub_path.with_suffix("")
@@ -1003,8 +1091,10 @@ def main():
 
     # Dynamic Automated Execution based on USB State
     if pre_state.mode == UsbMode.DISCONNECTED:
-        print("[-] Remote is not detected on USB bus.")
-        print("    Ensure remote is plugged in via direct Micro-USB cable (bottom port) and powered ON.")
+        # error_details: on USB but not openable (Linux); the banner above already said why
+        if not pre_state.error_details:
+            print("[-] Remote is not detected on USB bus.")
+            print("    Ensure remote is plugged in via direct Micro-USB cable (bottom port) and powered ON.")
         sys.exit(1)
 
     if pre_state.mode == UsbMode.DRIVER_ERROR:
@@ -1102,6 +1192,6 @@ def print_success(priv_path: pathlib.Path):
 
 
 if __name__ == "__main__":
-    if sys.version_info < (3, 11):
-        sys.exit(f"This tool needs Python 3.11 or newer (this is Python {sys.version.split()[0]}).")
+    if sys.version_info < (3, 13):
+        sys.exit(f"This tool needs Python 3.13 or newer (this is Python {sys.version.split()[0]}).")
     main()

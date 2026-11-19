@@ -26,7 +26,7 @@ export function createView() {
         onclick: () => {
           selectedActivity = {
             id: '',
-            name: 'New Activity',
+            name: 'New Activity',  // i18n-ok: default name, saved to the Hub as typed
             type: 'Custom',
             icon: '',
             deviceIds: [],
@@ -41,7 +41,7 @@ export function createView() {
     const actList = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px' } });
 
     if (activities.length === 0) {
-      actList.appendChild(h('div', { className: 'text-dim', text: 'No activities configured.' }));
+      actList.appendChild(h('div', { className: 'text-dim', text: t('no_activities_configured', 'No activities configured.') }));
     } else {
       activities.forEach(act => {
         const iconEl = renderActivityIcon(act, 'activity-icon');
@@ -64,7 +64,7 @@ export function createView() {
             iconEl,
             h('div', {}, [
               h('div', { style: { fontWeight: 'bold', fontSize: '14px' }, text: act.name }),
-              h('div', { className: 'text-dim', style: { fontSize: '12px' }, text: `${(act.deviceIds || []).length} assigned devices` }),
+              h('div', { className: 'text-dim', style: { fontSize: '12px' }, text: t('assigned_devices_count', '{count} assigned devices', { count: (act.deviceIds || []).length }) }),
             ]),
           ]),
           h('button', {
@@ -98,7 +98,7 @@ export function createView() {
 
     const header = h('div', { className: 'card-header' }, [
       backBtn,
-      h('h3', { className: 'card-title', text: act.id ? act.name : 'Create Activity' }),
+      h('h3', { className: 'card-title', text: act.id ? act.name : t('create_activity', 'Create Activity') }),
     ]);
 
     // Name & Icon form
@@ -127,11 +127,11 @@ export function createView() {
 
     const infoCard = h('div', { className: 'card' }, [
       h('div', { className: 'form-group' }, [
-        h('label', { className: 'form-label', text: 'Activity Name' }),
+        h('label', { className: 'form-label', text: t('activity_name', 'Activity Name') }),
         nameInput,
       ]),
       h('div', { className: 'form-group' }, [
-        h('label', { className: 'form-label', text: 'Icon' }),
+        h('label', { className: 'form-label', text: t('icon', 'Icon') }),
         iconPreview,
       ]),
     ]);
@@ -172,12 +172,12 @@ export function createView() {
         h('div', { className: 'card-title', text: t('startup_sequence', 'Startup Sequence') }),
         h('button', {
           className: 'btn btn-secondary btn-sm',
-          text: '▶ Test Sequence',
+          text: `▶ ${t('test_sequence', 'Test Sequence')}`,
           onclick: async () => {
             try {
-              toast.info('Running sequence test...');
+              toast.info(t('running_sequence_test', 'Running sequence test...'));
               await api.testActivitySequence(JSON.stringify(act.startSequence));
-              toast.success('Sequence completed');
+              toast.success(t('sequence_completed', 'Sequence completed'));
             } catch (e) {
               toast.error(e.message);
             }
@@ -207,13 +207,13 @@ export function createView() {
         onclick: async () => {
           const ok = await confirm.ask({
             title: t('delete_activity', 'Delete Activity'),
-            message: `Are you sure you want to delete ${act.name}?`,
+            message: t('confirm_delete_device_name', 'Are you sure you want to delete {name}?', { name: act.name }),
             danger: true,
           });
           if (ok) {
             try {
               await api.deleteActivity(act.id);
-              toast.success('Activity deleted');
+              toast.success(t('activity_deleted', 'Activity deleted'));
               const acts = await api.getActivities();
               store.set('activities.list', acts.activities || []);
               selectedActivity = null;

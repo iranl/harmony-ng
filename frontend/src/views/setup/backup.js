@@ -4,6 +4,10 @@ import { api } from '../../api/index.js';
 import { t } from '../../i18n/index.js';
 import { toast } from '../../components/toast.js';
 import { confirm } from '../../components/confirm.js';
+import { installSwitchCheck } from '../../components/hub-decisions.js';
+
+// A restore that turned authentication on (api/system.js): the accounts and tokens to check
+installSwitchCheck(api);
 
 export function createView() {
   const container = h('div', { className: 'setup-subview-backup', style: { display: 'flex', flexDirection: 'column', gap: '16px' } });
@@ -12,26 +16,26 @@ export function createView() {
     h('div', { className: 'card-header' }, [
       h('h3', { className: 'card-title', text: t('backup_export', 'Export Backup') }),
     ]),
-    h('p', { className: 'text-dim', style: { fontSize: '13px', marginBottom: '12px' }, text: 'Download a backup archive of your activities, devices, and remote mappings.' }),
+    h('p', { className: 'text-dim', style: { fontSize: '13px', marginBottom: '12px' }, text: t('backup_export_desc', 'Download a backup archive of your activities, devices, and remote mappings.') }),
     h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } }, [
       h('button', {
         className: 'btn btn-primary',
-        text: '💾 Download Full Backup (JSON)',
+        text: `💾 ${t('download_full_backup', 'Download Full Backup (JSON)')}`,
         onclick: () => downloadExport('all'),
       }),
       h('button', {
         className: 'btn btn-secondary',
-        text: 'Export Activities',
+        text: t('export_activities', 'Export Activities'),
         onclick: () => downloadExport('activities'),
       }),
       h('button', {
         className: 'btn btn-secondary',
-        text: 'Export Devices',
+        text: t('export_devices', 'Export Devices'),
         onclick: () => downloadExport('devices'),
       }),
       h('button', {
         className: 'btn btn-secondary',
-        text: 'Export Remotes',
+        text: t('export_remotes', 'Export Remotes'),
         onclick: () => downloadExport('remotes'),
       }),
     ]),
@@ -40,7 +44,7 @@ export function createView() {
   const importTextarea = h('textarea', {
     className: 'form-textarea',
     rows: 6,
-    placeholder: 'Paste exported JSON backup content here...',
+    placeholder: t('paste_backup_json', 'Paste exported JSON backup content here...'),
   });
 
   const fileInput = h('input', {
@@ -53,7 +57,7 @@ export function createView() {
       const reader = new FileReader();
       reader.onload = (evt) => {
         importTextarea.value = evt.target.result;
-        toast.info('File loaded into text area');
+        toast.info(t('file_loaded_textarea', 'File loaded into text area'));
       };
       reader.readAsText(file);
     },
@@ -64,7 +68,7 @@ export function createView() {
       h('h3', { className: 'card-title', text: t('backup_import', 'Restore Backup') }),
       h('button', {
         className: 'btn btn-secondary btn-sm',
-        text: 'Choose File...',
+        text: t('choose_file', 'Choose File...'),
         onclick: () => fileInput.click(),
       }),
     ]),
@@ -74,20 +78,20 @@ export function createView() {
     ]),
     h('button', {
       className: 'btn btn-primary',
-      text: '📥 Restore Configuration to Hub',
+      text: `📥 ${t('restore_config_to_hub', 'Restore Configuration to Hub')}`,
       onclick: async () => {
         const text = importTextarea.value.trim();
-        if (!text) return toast.warn('Please paste JSON or choose a backup file');
+        if (!text) return toast.warn(t('paste_or_choose_backup', 'Please paste JSON or choose a backup file'));
         const ok = await confirm.ask({
-          title: 'Restore Configuration',
-          message: 'Restoring will overwrite current activities and devices. Continue?',
+          title: t('restore_configuration', 'Restore Configuration'),
+          message: t('restore_overwrite_confirm', 'Restoring will overwrite current activities and devices. Continue?'),
           danger: true,
         });
         if (ok) {
           try {
-            toast.info('Restoring backup to Hub...');
+            toast.info(t('restoring_backup', 'Restoring backup to Hub...'));
             await api.restoreBackup('all', text, false);
-            toast.success('Backup restored successfully!');
+            toast.success(t('backup_restored', 'Backup restored successfully!'));
           } catch (e) {
             toast.error(e.message);
           }
@@ -98,7 +102,7 @@ export function createView() {
 
   async function downloadExport(target) {
     try {
-      toast.info(`Generating ${target} export...`);
+      toast.info(t('generating_export', 'Generating {target} export...', { target }));
       const data = await api.fetchExportText(target);
       const str = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
       const blob = new Blob([str], { type: 'application/json' });
@@ -108,7 +112,7 @@ export function createView() {
       a.download = `harmony_backup_${target}_${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(url);
-      toast.success('Backup downloaded');
+      toast.success(t('backup_downloaded', 'Backup downloaded'));
     } catch (e) {
       toast.error(e.message);
     }

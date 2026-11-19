@@ -169,12 +169,137 @@ sync_to_json() {
     fi
 }
 
+# Removes the access tokens owned by account $1 from tokens.json (an account deleted here, or a
+# name added again: tokens a deleted account of that name left must not come back). The file is
+# rewritten through a temporary file and mv, only when a token was removed; a file that does not
+# look like a token list is left alone. Prints how many were removed.
+remove_owner_tokens() {
+    _tj="${USERS_JSON%/*}/tokens.json"
+    [ -f "$_tj" ] || return 0
+    awk -v owner="$1" '
+        # The value of the "owner" key of one token object, "" when it has none. A key is a
+        # string at the top level of the object followed by ":". Text inside a value (a name with
+        # "owner" in it, whose quotes the writers escape as \") and keys of nested values never
+        # count. Returned as written: account names have no characters JSON escapes.
+        function owner_of(obj,    len, j, k, ch, d, ins, es, str, want) {
+            len = length(obj); d = 0; ins = 0; es = 0; str = ""; want = 0
+            for (j = 1; j <= len; j++) {
+                ch = substr(obj, j, 1)
+                if (ins) {
+                    if (es) { es = 0; str = str ch }
+                    else if (ch == "\\") { es = 1; str = str ch }
+                    else if (ch == "\"") {
+                        ins = 0
+                        if (d == 1) {
+                            if (want) return str
+                            k = j + 1
+                            while (k <= len && index(" \t\r\n", substr(obj, k, 1)) > 0) k++
+                            if (str == "owner" && substr(obj, k, 1) == ":") want = 1
+                        }
+                    } else str = str ch
+                    continue
+                }
+                if (ch == "\"") { ins = 1; str = ""; continue }
+                # an owner value that is not a string (a number, null, an object): no owner
+                if (want && ch != ":" && index(" \t\r\n", ch) == 0) want = 0
+                if (ch == "{" || ch == "[") d++
+                else if (ch == "}" || ch == "]") d--
+            }
+            return ""
+        }
+        { s = s $0 "\n" }
+        END {
+            p = index(s, "\"tokens\"")
+            if (p == 0) exit 2
+            rest = substr(s, p + 8)
+            b = index(rest, "[")
+            if (b == 0) exit 2
+            body = substr(rest, b + 1)
+            n = length(body); depth = 0; instr = 0; esc = 0; start = 0; kept = ""; removed = 0; closed = 0
+            for (i = 1; i <= n; i++) {
+                c = substr(body, i, 1)
+                if (instr) {
+                    if (esc) esc = 0
+                    else if (c == "\\") esc = 1
+                    else if (c == "\"") instr = 0
+                    continue
+                }
+                if (c == "\"") { instr = 1; continue }
+                if (c == "{") { if (depth == 0) start = i; depth++ }
+                else if (c == "}") {
+                    depth--
+                    if (depth == 0) {
+                        obj = substr(body, start, i - start + 1)
+                        if (owner_of(obj) == owner) removed++
+                        else kept = kept (kept == "" ? "" : ",\n") "  " obj
+                    }
+                } else if (c == "]" && depth == 0) { closed = 1; break }
+            }
+            if (!closed) exit 2
+            if (removed == 0) exit 1
+            printf "{\n\"tokens\": [\n%s\n]\n}\n", kept > out
+            print removed
+        }
+    ' out="$_tj.tmp" "$_tj" > "$TMP_CONF.removed"
+    _rc=$?
+    if [ "$_rc" = "0" ] && [ -s "$_tj.tmp" ]; then
+        mv -f "$_tj.tmp" "$_tj" && echo "[+] Removed $(cat "$TMP_CONF.removed") access token(s) of '$1'"
+    else
+        rm -f "$_tj.tmp"
+        [ "$_rc" = "2" ] && echo "[!] $_tj does not look like a token list: tokens of '$1' not removed"
+    fi
+    rm -f "$TMP_CONF.removed"
+    return 0
+}
+
 cmd="$1"
 user="$2"
 pass="$3"
 
 trap 'rm -f "$ACCOUNTS"' EXIT
 load_accounts
+
+# A command that turns authentication on prints the accounts and access tokens to check, as
+# hub_daemon answers at that switch: while it was off anybody on the network was admin. The account
+# the command sets (set-admin, add-user) is not listed.
+CHECK_WAS_ON=0
+grep -q '"auth_enabled"[[:space:]]*:[[:space:]]*true' "$USERS_JSON" 2>/dev/null && CHECK_WAS_ON=1
+# no users.json: hub_daemon counts accounts in webui_auth.conf as authentication on
+[ ! -f "$USERS_JSON" ] && [ -n "$(conf_accounts)" ] && CHECK_WAS_ON=1
+print_switch_check() {
+    [ "$CHECK_WAS_ON" = "0" ] || return 0
+    grep -q '"auth_enabled"[[:space:]]*:[[:space:]]*true' "$USERS_JSON" 2>/dev/null || return 0
+    _own=""
+    case "$cmd" in set-admin|add-user) _own="$user" ;; esac
+    _list=$(json_accounts | while IFS=: read -r u h r; do [ "$u" = "$_own" ] || echo "    account $u ($r)"; done)
+    tokens_json="${USERS_JSON%/*}/tokens.json"
+    if [ -f "$tokens_json" ]; then
+        _list="$_list
+$(awk '
+            {
+                line = $0
+                while (match(line, /"(id|name|role)"[ \t]*:[ \t]*"[^"]*"/)) {
+                    kv = substr(line, RSTART, RLENGTH)
+                    line = substr(line, RSTART + RLENGTH)
+                    k = kv; sub(/^"/, "", k); sub(/".*/, "", k)
+                    v = kv; sub(/^"[^"]*"[ \t]*:[ \t]*"/, "", v); sub(/"$/, "", v)
+                    if (k == "id") { if (id != "") print "    token " id " " nm " (" rl ")"; id = v; nm = ""; rl = "" }
+                    else if (k == "name") nm = v
+                    else if (k == "role") rl = v
+                }
+            }
+            END { if (id != "") print "    token " id " " nm " (" rl ")" }
+        ' "$tokens_json")"
+    fi
+    _list=$(echo "$_list" | grep -v '^$')
+    if [ -n "$_list" ]; then
+        echo "[!] Authentication is on. Check the accounts and access tokens on the Hub and delete any you"
+        echo "    do not recognise (web UI Users page, or DELETE /api/users and /api/auth/tokens):"
+        echo "$_list"
+    fi
+}
+trap 'rc=$?; [ "$rc" = "0" ] && print_switch_check; rm -f "$ACCOUNTS"; exit $rc' EXIT
+trap 'rm -f "$ACCOUNTS" "$TMP_CONF" "$USERS_JSON.tmp" "${USERS_JSON%/*}/tokens.json.tmp"; exit 1' INT TERM HUP
 
 case "$cmd" in
     set-admin)
@@ -211,6 +336,8 @@ case "$cmd" in
         install_conf
         sync_to_json 1 || exit 1
         echo "[+] Admin account configured: $user (Auth enabled)"
+        # a name that no account had: tokens left by a deleted account of that name go
+        if [ "$found" = "0" ]; then remove_owner_tokens "$user"; fi
         ;;
 
     add-user)
@@ -246,6 +373,7 @@ case "$cmd" in
         install_conf
         sync_to_json 1 || exit 1
         echo "[+] Non-admin user account configured: $user (role: user)"
+        if [ "$found" = "0" ]; then remove_owner_tokens "$user"; fi
         ;;
 
     delete)
@@ -288,6 +416,7 @@ case "$cmd" in
         install_conf
         sync_to_json 1 || exit 1
         echo "[+] Deleted user '$user'"
+        remove_owner_tokens "$user"
         ;;
 
     list)

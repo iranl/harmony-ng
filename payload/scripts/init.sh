@@ -9,7 +9,7 @@ sync_fs() {
 
 # / is a union over /data, so these are flash writes: a file is rewritten only when its content
 # changes (every start used to rewrite them), through a temporary name, so a power cut never
-# leaves it empty (the dropbear wrapper is what starts SSH). Usage: write_if_changed PATH MODE
+# leaves it empty. Usage: write_if_changed PATH MODE
 write_if_changed() {
   _wic_new=$(cat)
   if [ -f "$1" ] && [ "$(cat "$1" 2>/dev/null)" = "$_wic_new" ]; then
@@ -66,7 +66,13 @@ case "$1" in
       rm -f /tmp/plugins/*.pid /tmp/plugins/*.sock 2>/dev/null || true
     fi
     # Terminate all daemon processes
-    killall -9 hub_rf hub_daemon hub_btstack hub_dhcpd hub_portal hal luaworks luadraws lua 2>/dev/null || true
+    killall -9 hub_rf hub_daemon hub_btstack hub_usbwifi hal luaworks luadraws lua 2>/dev/null || true
+    # the USB Wi-Fi setup started as "hub_util usbwifi" (no hub_usbwifi link) runs as hub_util
+    for _p in $(pidof hub_util 2>/dev/null); do
+      case "$(tr '\000' ' ' < "/proc/$_p/cmdline" 2>/dev/null)" in
+        *" usbwifi"*) kill -9 "$_p" 2>/dev/null || true ;;
+      esac
+    done
     rm -f /tmp/harmony_watchdog.pid 2>/dev/null || true
     sync_fs
     exit 0
@@ -185,6 +191,8 @@ link_if_changed /data/harmony/bin/hub_sync /cache/bin/sync 2>/dev/null || true
 
 [ -f /data/harmony/bin/safe_reboot.sh ] && chmod +x /data/harmony/bin/safe_reboot.sh 2>/dev/null || true
 [ -f /data/harmony/safe_reboot.sh ] && link_if_changed /data/harmony/safe_reboot.sh /data/harmony/bin/safe_reboot.sh 2>/dev/null || true
+# the web UI's factory reset runs /data/harmony/bin/factory_reset.sh; the installers put it here
+[ -f /data/harmony/factory_reset.sh ] && link_if_changed /data/harmony/factory_reset.sh /data/harmony/bin/factory_reset.sh 2>/dev/null || true
 
 mkdir -p /etc/profile.d 2>/dev/null || true
 write_if_changed /etc/profile.d/00-harmony.sh 644 <<'EOF'
@@ -209,16 +217,28 @@ export PATH=/data/harmony/bin:/cache/bin:$PATH
 EOF
 done
 
-_dropbear_bin=""
-[ -x /data/harmony/bin/dropbear ] && _dropbear_bin=/data/harmony/bin/dropbear
-if [ -n "$_dropbear_bin" ]; then
-  write_if_changed /usr/sbin/dropbear 755 <<EOF
-#!/bin/sh
-export PATH=/data/harmony/bin:/cache/bin:\$PATH
-exec "$_dropbear_bin" -K 300 "\$@"
-EOF
+# SSH: /usr/sbin/dropbear is a copy of /data/harmony/hub_sshd (key logins only), as rcS.local sets
+# it at boot, written only when it differs. A server that already runs keeps its options until it
+# is started again (the next boot).
+_sshd_bin=""
+if [ -s /data/harmony/hub_sshd ] && grep -q '^# harmony-ng hub_sshd$' /data/harmony/hub_sshd 2>/dev/null; then
+  _sshd_bin=$(sh /data/harmony/hub_sshd --binary 2>/dev/null)
+fi
+if [ -n "$_sshd_bin" ] && [ -x "$_sshd_bin" ]; then
+  _sshd_cur=""
+  [ -f /usr/sbin/dropbear ] && [ ! -L /usr/sbin/dropbear ] && _sshd_cur=$(cat /usr/sbin/dropbear 2>/dev/null)
+  if [ "$_sshd_cur" != "$(cat /data/harmony/hub_sshd)" ]; then
+    cp /data/harmony/hub_sshd /usr/sbin/dropbear.new 2>/dev/null && chmod 755 /usr/sbin/dropbear.new &&
+      mv -f /usr/sbin/dropbear.new /usr/sbin/dropbear
+  fi
   if ! ps | grep '[d]ropbear' >/dev/null 2>&1; then
-    /usr/sbin/dropbear
+    # not with this script's ignored SIGHUP: SSH sessions would inherit it. The wrapper directly
+    # when /usr/sbin/dropbear could not be written
+    if [ -x /usr/sbin/dropbear ] && [ -s /usr/sbin/dropbear ]; then
+      (trap - HUP; /usr/sbin/dropbear)
+    else
+      (trap - HUP; sh /data/harmony/hub_sshd)
+    fi
   fi
 fi
 
@@ -239,6 +259,58 @@ if [ -n "$_sntp_bin" ]; then
       sleep 3
     done
   ) &
+fi
+
+# 5.1 Wi-Fi setup over USB. The stock /usr/bin/usbhid (started by the stock boot script) shows
+# the Hub to a computer as its USB HID device and relays the reports to a program on
+# 127.0.0.1:16716, which was the stock hal (not run by harmony-ng). hub_usbwifi (hub_util) listens
+# there and answers the Wi-Fi requests only (set and read /sys/wifi/connect). Started before the
+# network manager: it keeps the USB port a USB device while a computer is using it at boot.
+link_if_changed /data/harmony/bin/hub_util /data/harmony/bin/hub_usbwifi 2>/dev/null || true
+# USB_WIFI_SETUP=0 in ethernet.conf (POST /api/ethernet-save usb_wifi_setup) turns it off
+if tr -d ' \t"\r' < /data/harmony/ethernet.conf 2>/dev/null | grep -q '^USB_WIFI_SETUP=0$'; then
+  echo "$(date) USB Wi-Fi setup is turned off in the settings; hub_usbwifi not started" >> "$LOG"
+elif [ -x /data/harmony/bin/hub_util ]; then
+(
+  _delay=5
+  while true; do
+    [ -f /tmp/harmony_stop ] && exit 0
+    # Not the first start of this boot (init.sh restart, an exit): usbhid still holds its
+    # connection to the old listener, so it is started again while the port is a USB device.
+    # The first time, the stock boot script starts it. Never once the boot switched the port to
+    # host mode (start_usb_eth.sh writes "host" before it removes the device driver, which can
+    # stay loaded when that fails).
+    if [ -f /tmp/harmony_usbwifi.started ] && [ -x /usr/bin/usbhid ] &&
+       [ "$(cat /tmp/harmony_usb_port_mode 2>/dev/null)" != "host" ] &&
+       grep -q '^ath_udc ' /proc/modules 2>/dev/null; then
+      killall -9 usbhid 2>/dev/null || true
+      # a killed usbhid may hold the gadget for a moment: gadgetfs cannot be unmounted and the
+      # new usbhid cannot claim it while it does (as in start_usb_eth.sh)
+      _i=0
+      while [ "$_i" -lt 5 ] && pidof usbhid >/dev/null 2>&1; do
+        sleep 1
+        _i=$(expr "$_i" + 1)
+      done
+      umount /dev/gadget 2>/dev/null || true
+      (trap - HUP; /usr/bin/usbhid -s >/dev/null 2>&1 &)
+    fi
+    touch /tmp/harmony_usbwifi.started
+    echo "$(date) Starting hub_usbwifi..." >> "$LOG"
+    _started=$(date +%s)
+    if [ -x /data/harmony/bin/hub_usbwifi ]; then
+      /data/harmony/bin/hub_usbwifi >> "$LOG" 2>&1
+    else
+      /data/harmony/bin/hub_util usbwifi >> "$LOG" 2>&1
+    fi
+    [ -f /tmp/harmony_stop ] && exit 0
+    _ran=$(expr "$(date +%s)" - "$_started" 2>/dev/null || echo 0)
+    [ "$_ran" -ge 60 ] 2>/dev/null && _delay=5
+    echo "$(date) hub_usbwifi exited, retry in ${_delay}s" >> "$LOG"
+    sleep "$_delay"
+    [ "$_delay" -lt 60 ] && _delay=$(expr "$_delay" + "$_delay")
+  done
+) &
+echo "$!" >> /tmp/harmony_supervisors.pid
 fi
 
 # 5.2 Network Manager (USB Gadget 15s check, Ethernet startup & Wi-Fi fallback)
@@ -398,7 +470,7 @@ cap_log() {
   while true; do
     sleep 60
     [ -f /tmp/harmony_stop ] && exit 0
-    for _log in "$LOG" /tmp/harmony-network.log /tmp/harmony-recovery.log; do
+    for _log in "$LOG" /tmp/harmony-network.log; do
       cap_log "$_log"
     done
   done

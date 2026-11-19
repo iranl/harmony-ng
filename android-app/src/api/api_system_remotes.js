@@ -1,4 +1,7 @@
+import { t } from '../i18n.js';
 import { HarmonyClientActivitiesDevices } from './api_activities_devices.js';
+import { createAppToken, revokeAppToken, loginFields, finishReplace } from '../app_token.js';
+import { saveHub, getSavedHubs } from '../storage.js';
 
 export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
   /* Homatics B25 / Physical BT Remote Mapping */
@@ -399,6 +402,7 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
   }
 
   async login(username, password) {
+    if (this.isNativeApp && this.hub && this.hub.host) return this.loginApp(username, password);
     const res = await fetch(this.baseUrl ? `${this.baseUrl}/api/auth/token` : '/api/auth/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -406,7 +410,7 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
     });
     const data = await res.json();
     if (!res.ok || !data.ok) {
-      throw new Error(data.error || 'Login failed');
+      throw new Error(data.error || t('login_failed'));
     }
     this.token = data.access_token;
     this.authHeader = `Bearer ${this.token}`;
@@ -419,7 +423,51 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
     return data;
   }
 
+  // App: trade the password for an access token, keep only the token in the Hub profile
+  async loginApp(username, password) {
+    // the profile as stored now (the client's copy can be older)
+    const old = (this.hub.id && (await getSavedHubs()).find(h => h.id === this.hub.id)) || this.hub;
+    // the previous login is dropped: deleted on the Hub before the new token is made
+    const replace = { baseUrl: this.baseUrl, hub: old };
+    let r;
+    try {
+      r = await createAppToken(this.baseUrl, username, password, { replace });
+    } catch (err) {
+      if (err.oldRevoked) {
+        // the old token is gone on the Hub: forget it, the app asks for the login again
+        const hub = { ...this.hub, token: null, tokenId: null };
+        if (hub.id) await saveHub(hub);
+        this.hub = hub;
+        this.token = null;
+        this.authHeader = null;
+      }
+      throw err;
+    }
+    const oldKept = await finishReplace(r, replace);
+    const hub = { ...this.hub, username: r.username, ...loginFields(r) };
+    if (hub.id) await saveHub(hub);
+    this.hub = hub;
+    this.token = r.token || null;
+    this.authHeader = this.token ? `Bearer ${this.token}` : null;
+    this.connectWebSocket(true);
+    return { ok: true, username: r.username, role: r.role || 'admin', auth_off: Boolean(r.authOff), old_token_kept: oldKept };
+  }
+
+  // Returns { revoked }: false when the Hub could not delete the token (it then stays valid on
+  // the Hub until an admin deletes it in the token list)
+  async logoutApp() {
+    const revoked = !this.hub.token || await revokeAppToken(this.baseUrl, this.hub);
+    const hub = { ...this.hub, token: null, tokenId: null };
+    if (hub.id) await saveHub(hub);
+    this.hub = hub;
+    this.token = null;
+    this.authHeader = null;
+    this.connectWebSocket(true);
+    return { revoked };
+  }
+
   async logout() {
+    if (this.isNativeApp && this.hub && this.hub.host) return this.logoutApp();
     try {
       if (this.token) {
         await this.request('/api/auth/logout', { method: 'POST' });

@@ -2,6 +2,7 @@
 #include "http_util.h"
 #include "config_store.h"
 #include "harmony_version.h"
+#include "orchestrator.h"
 #include "cJSON.h"
 
 #include <stdio.h>
@@ -247,6 +248,27 @@ cJSON *ota_update_apply(const cJSON *params) {
     return st;
 }
 
+/* update.sh reboots the Hub at the end of an update (and the fallback restarts the services): one
+ * that came while an activity switch ran cut it in the middle and left the devices half switched.
+ * A request is refused while a switch runs, one is queued, or the steps after the switch point are
+ * still being sent; update.sh itself also waits for the switch before its reboot. */
+cJSON *ota_update_apply_blocked(void) {
+    char queued[32] = "";
+    int has_queued = orch_get_queued_activity(queued, sizeof(queued));
+    int busy = orch_is_busy();
+    int sending = orch_is_sending();
+    if (!busy && !sending && !has_queued) return NULL;
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddBoolToObject(o, "ok", 0);
+    cJSON_AddStringToObject(o, "status", "activity_switch");
+    cJSON_AddStringToObject(o, "error", "An activity switch is running: start the update again when it has finished");
+    cJSON_AddBoolToObject(o, "busy", busy);
+    cJSON_AddBoolToObject(o, "sending", sending);
+    if (has_queued) cJSON_AddStringToObject(o, "queued", queued);
+    else cJSON_AddNullToObject(o, "queued");
+    return o;
+}
+
 int http_api_ota_handle(int client_fd, const char *method, const char *clean_path,
                         const char *query, const char *body, const char *req) {
     (void)query;
@@ -275,6 +297,14 @@ int http_api_ota_handle(int client_fd, const char *method, const char *clean_pat
 
     /* Route: POST /api/update-apply */
     if (strcmp(clean_path, "/api/update-apply") == 0 && strcmp(method, "POST") == 0) {
+        cJSON *blocked = ota_update_apply_blocked();
+        if (blocked) {
+            send_cjson_resp(client_fd, 409, blocked);
+            cJSON_Delete(blocked);
+            close(client_fd);
+            return 1;
+        }
+
         cJSON *p = parse_request_params(body);
         cJSON *st = ota_update_apply(p);
         cJSON_Delete(p);

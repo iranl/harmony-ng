@@ -36,7 +36,7 @@ export function createView() {
     mount.innerHTML = '';
 
     if (hubs.length === 0) {
-      mount.appendChild(h('div', { className: 'text-dim', text: 'No custom hubs saved. Using current connection.' }));
+      mount.appendChild(h('div', { className: 'text-dim', text: t('no_saved_hubs', 'No custom hubs saved. Using current connection.') }));
       return;
     }
 
@@ -55,8 +55,8 @@ export function createView() {
       }, [
         h('div', {}, [
           h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [
-            h('span', { style: { fontWeight: 'bold' }, text: hub.name || `Hub (${hub.host})` }),
-            isActive ? h('span', { className: 'badge badge-accent', text: 'Active' }) : null,
+            h('span', { style: { fontWeight: 'bold' }, text: hub.name || t('hub_with_host', 'Hub ({host})', { host: hub.host }) }),
+            isActive ? h('span', { className: 'badge badge-accent', text: t('status_active', 'Active') }) : null,
           ]),
           h('div', { className: 'text-dim', style: { fontSize: '12px' }, text: `http://${hub.host}:${hub.port || 8089}` }),
         ]),
@@ -68,7 +68,7 @@ export function createView() {
               await setActiveHubId(hub.id);
               api.updateHub(hub);
               store.set('hub', hub);
-              toast.success(`Switched to ${hub.name || hub.host}`);
+              toast.success(t('switched_to_hub', 'Switched to {name}', { name: hub.name || hub.host }));
               renderHubs();
             },
           }) : null,
@@ -78,12 +78,12 @@ export function createView() {
             onclick: async () => {
               const ok = await confirm.ask({
                 title: t('delete_hub', 'Delete Hub'),
-                message: `Remove ${hub.name || hub.host} from saved hubs list?`,
+                message: t('remove_hub_confirm', 'Remove {name} from saved hubs list?', { name: hub.name || hub.host }),
                 danger: true,
               });
               if (ok) {
                 await deleteHub(hub.id);
-                toast.info('Hub removed');
+                toast.info(t('hub_removed', 'Hub removed'));
                 renderHubs();
               }
             },
@@ -99,7 +99,7 @@ export function createView() {
     const hostInput = h('input', {
       type: 'text',
       className: 'form-input',
-      placeholder: 'e.g. 192.168.1.1 or harmony-hub.local',
+      placeholder: t('hub_host_placeholder', 'e.g. 192.168.1.1 or harmony-hub.local'),
     });
 
     const portInput = h('input', {
@@ -111,15 +111,15 @@ export function createView() {
     const nameInput = h('input', {
       type: 'text',
       className: 'form-input',
-      placeholder: 'Living Room Hub',
+      placeholder: t('hub_name_placeholder', 'Living Room Hub'),
     });
 
     const content = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } }, [
-      h('label', { className: 'form-label', text: 'Hub IP / Hostname' }),
+      h('label', { className: 'form-label', text: t('hub_ip', 'Hub IP / Hostname') }),
       hostInput,
-      h('label', { className: 'form-label', text: 'Port' }),
+      h('label', { className: 'form-label', text: t('port', 'Port') }),
       portInput,
-      h('label', { className: 'form-label', text: 'Friendly Name' }),
+      h('label', { className: 'form-label', text: t('friendly_name', 'Friendly Name') }),
       nameInput,
     ]);
 
@@ -139,16 +139,16 @@ export function createView() {
             const name = nameInput.value.trim() || `Harmony Hub (${host})`;
 
             if (!host) {
-              toast.warn('Please enter a host or IP');
+              toast.warn(t('enter_host_or_ip', 'Please enter a host or IP'));
               return false;
             }
 
-            toast.info('Testing connection to Hub...');
+            toast.info(t('testing_hub_connection', 'Testing connection to Hub...'));
             const health = await HarmonyClientCore.checkHubHealth(host, port, 3000);
             if (!health.ok) {
               const proceed = await confirm.ask({
-                title: 'Hub Unreachable',
-                message: `Could not reach Hub at http://${host}:${port}/health. Save anyway?`,
+                title: t('hub_unreachable', 'Hub Unreachable'),
+                message: t('hub_unreachable_save', 'Could not reach Hub at {url}. Save anyway?', { url: `http://${host}:${port}/health` }),
               });
               if (!proceed) return false;
             }
@@ -161,7 +161,7 @@ export function createView() {
             };
 
             await saveHub(newHub);
-            toast.success(`Hub ${name} saved!`);
+            toast.success(t('hub_saved', 'Hub {name} saved!', { name }));
             renderHubs();
             return true;
           },

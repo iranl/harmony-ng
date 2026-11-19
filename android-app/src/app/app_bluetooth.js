@@ -1,6 +1,7 @@
 import { HarmonyClient } from '../api.js';
 import { getSavedHubs, saveHub, deleteHub, getActiveHub, setActiveHubId } from '../storage.js';
 import { RemoteEngine } from '../remote-engine.js';
+import { forgetBtHostFlow } from './bt_forget.js';
 import {
   getHarmonyManufacturers,
   searchHarmonyManufacturers,
@@ -17,7 +18,7 @@ import {
   sourceLabel,
   safeImportName
 } from '../irdb.js';
-import { t, setLanguage, getInitialLanguage } from '../i18n.js';
+import { t, setLanguage, getInitialLanguage, tf, tfHtml } from '../i18n.js';
 import iconMetadata from '../icon-metadata.json';
 import {
   initIconCache,
@@ -74,7 +75,7 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
 
     if (pairTarget) {
       const devs = this.inventory.devices || [];
-      pairTarget.innerHTML = '<option value="">-- Select Target Device (Required) --</option>' +
+      pairTarget.innerHTML = `<option value="">${t('select_target_device_required')}</option>` +
         devs.map(d => {
           const isBt = d.type === 'BT' || d.type === 'Bluetooth' || d.isBt;
           return `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name || d.id)}${isBt ? ' (BT)' : ''}</option>`;
@@ -90,12 +91,12 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
 
       if (badge) {
         badge.className = `badge ${isRunning ? 'ok' : 'bad'}`;
-        badge.textContent = isRunning ? 'BTstack Running' : 'Stopped';
+        badge.textContent = isRunning ? t('btstack_running') : t('stopped_status');
       }
-      if (desc) desc.textContent = isRunning ? 'BTstack daemon active (UART hci0) • HID ready' : 'BTstack daemon stopped';
+      if (desc) desc.textContent = isRunning ? t('btstack_daemon_active') : t('btstack_daemon_stopped');
 
-      if (pidEl) pidEl.textContent = isRunning ? `Running (PID ${st.pid || 'Active'})` : 'Stopped';
-      if (backendEl) backendEl.textContent = st.backend ? `Backend: ${st.backend}` : 'Not Running';
+      if (pidEl) pidEl.textContent = isRunning ? tf('running_pid', { pid: st.pid || t('active_lc') }) : t('stopped_status');
+      if (backendEl) backendEl.textContent = st.backend ? tf('backend_value', { name: st.backend }) : t('not_running');
 
       // Host connection
       const host = st.host || {};
@@ -110,7 +111,7 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
       };
 
       const resolveHostDeviceName = (h) => {
-        if (!h) return 'Bluetooth Host';
+        if (!h) return t('bluetooth_host_default');
         const assigned = findAssignedDevice(h);
         if (assigned) return assigned.name || assigned.model || h.name;
         const matchDev = (this.inventory.devices || []).find(d => {
@@ -122,7 +123,7 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
           const btDev = (this.inventory.devices || []).find(d => d.isBt || (d.type && d.type.toLowerCase().includes('bt')));
           if (btDev) return btDev.name || btDev.model;
         }
-        return h.name || 'Bluetooth Host';
+        return h.name || t('bluetooth_host_default');
       };
 
       if (targetNameEl) {
@@ -130,39 +131,39 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
           targetNameEl.textContent = resolveHostDeviceName(host);
           targetNameEl.style.color = 'var(--accent)';
         } else {
-          targetNameEl.textContent = 'None (Disconnected)';
+          targetNameEl.textContent = t('none_disconnected');
           targetNameEl.style.color = 'var(--text-dim)';
         }
       }
       if (targetAddrEl) {
-        targetAddrEl.textContent = isHostConn ? (host.addr || 'Connected') : (host.addr && host.addr !== '00:00:00:00:00:00' ? `Target: ${host.addr}` : 'No active connection');
+        targetAddrEl.textContent = isHostConn ? (host.addr || t('connected')) : (host.addr && host.addr !== '00:00:00:00:00:00' ? tf('target_addr', { addr: host.addr }) : t('no_active_connection'));
       }
       if (hostStateEl) {
-        hostStateEl.textContent = isHostConn ? 'CONNECTED' : (host.pairing ? 'PAIRING...' : 'DISCONNECTED');
+        hostStateEl.textContent = isHostConn ? t('badge_connected') : (host.pairing ? t('pairing_caps') : t('disconnected_caps'));
         hostStateEl.style.color = isHostConn ? 'var(--success)' : (host.pairing ? 'var(--warning)' : 'var(--text-dim)');
       }
       const pairToggleBtn = document.getElementById('btPairToggleBtn');
       if (pairToggleBtn) {
         if (host.pairing) {
-          pairToggleBtn.textContent = 'Stop Pairing Mode';
+          pairToggleBtn.textContent = t('stop_pairing_mode');
           pairToggleBtn.classList.remove('btn-primary');
           pairToggleBtn.classList.add('btn-warning');
         } else {
-          pairToggleBtn.textContent = 'Start Pairing Mode';
+          pairToggleBtn.textContent = t('start_pairing_mode');
           pairToggleBtn.classList.remove('btn-warning');
           pairToggleBtn.classList.add('btn-primary');
         }
       }
-      if (hostDetailEl) hostDetailEl.textContent = isHostConn ? 'BLE HID Link Active' : 'Standby / Idle';
+      if (hostDetailEl) hostDetailEl.textContent = isHostConn ? t('ble_hid_link_active') : t('standby_idle');
 
       // Remote connection
       const rem = st.remote || {};
       const isRemConn = Boolean(rem.connected);
       if (remoteStateEl) {
-        remoteStateEl.textContent = isRemConn ? 'CONNECTED' : 'DISCONNECTED';
+        remoteStateEl.textContent = isRemConn ? t('badge_connected') : t('disconnected_caps');
         remoteStateEl.style.color = isRemConn ? 'var(--success)' : 'var(--text-dim)';
       }
-      if (remoteAddrEl) remoteAddrEl.textContent = rem.addr && rem.addr !== '00:00:00:00:00:00' ? rem.addr : 'Homatics B25 / BLE Remote';
+      if (remoteAddrEl) remoteAddrEl.textContent = rem.addr && rem.addr !== '00:00:00:00:00:00' ? rem.addr : t('b25_ble_remote_label');
 
       // Paired hosts list
       const hosts = st.hosts || (st.host?.addr ? [st.host] : []);
@@ -174,18 +175,19 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
           <div class="queue-row" style="display:flex; justify-content:space-between; align-items:center; padding:8px 10px; background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-sm); margin-bottom:6px; flex-wrap:wrap; gap:8px;">
             <div style="min-width: 180px;">
               <strong>${escapeHtml(resolveHostDeviceName(h))}</strong>
-              <div class="muted mini">${escapeHtml(h.addr)} • <span style="color:${h.connected ? 'var(--success)' : (h.paired === false ? 'var(--warning)' : 'var(--text-dim)')}">${h.connected ? 'Connected' : (h.paired === false ? 'Not paired (no link key)' : 'Paired')}</span></div>
+              <div class="muted mini">${escapeHtml(h.addr)} • <span style="color:${h.connected ? 'var(--success)' : (h.paired === false ? 'var(--warning)' : 'var(--text-dim)')}">${h.connected ? t('connected') : (h.paired === false ? t('host_not_paired_no_key') : t('host_paired'))}</span></div>
             </div>
             <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+              <button type="button" class="btn btn-xs btn-danger btn-bt-forget" data-addr="${escapeHtml(h.addr)}" data-name="${escapeHtml(resolveHostDeviceName(h))}">${escapeHtml(t('bt_forget_host', 'Forget'))}</button>
               <select class="form-control form-control-sm host-assign-sel" data-addr="${escapeHtml(h.addr)}" style="font-size:11px; max-width:180px;">
-                <option value="">-- Assign Device --</option>
+                <option value="">${t('assign_device_option')}</option>
                 ${devs.map(d => `<option value="${escapeHtml(d.id)}" ${assigned && String(assigned.id) === String(d.id) ? 'selected' : ''}>${escapeHtml(d.name || d.id)}</option>`).join('')}
               </select>
-              <button type="button" class="btn btn-xs btn-secondary btn-bt-disconn" data-addr="${escapeHtml(h.addr)}" data-connected="${h.connected ? '1' : ''}">${h.connected ? 'Disconnect' : 'Connect'}</button>
+              <button type="button" class="btn btn-xs btn-secondary btn-bt-disconn" data-addr="${escapeHtml(h.addr)}" data-connected="${h.connected ? '1' : ''}">${h.connected ? t('disconnect') : t('connect')}</button>
             </div>
           </div>
         `;
-        }).join('') : '<div class="muted mini">No paired hosts registered yet.</div>';
+        }).join('') : `<div class="muted mini">${t('no_paired_hosts_yet')}</div>`;
 
         list.querySelectorAll('.host-assign-sel').forEach(selEl => {
           selEl.addEventListener('change', async () => {
@@ -215,14 +217,23 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
             this.loadBtView();
           });
         });
+
+        list.querySelectorAll('.btn-bt-forget').forEach(b => {
+          b.addEventListener('click', async () => {
+            const addr = b.getAttribute('data-addr');
+            const name = b.getAttribute('data-name') || addr;
+            if (await forgetBtHostFlow({ client: this.client, addr, name, t, showConfirm, showToast })) await this.refreshData();
+            this.loadBtView();
+          });
+        });
       }
 
       if (hostSel) {
-        hostSel.innerHTML = '<option value="">Auto (Active Host)</option>' +
+        hostSel.innerHTML = `<option value="">${t('auto_active_host')}</option>` +
           hosts.map(d => `<option value="${escapeHtml(d.addr)}">${escapeHtml(d.name || d.addr)}</option>`).join('');
       }
     } catch (err) {
-      if (desc) desc.textContent = 'Error: ' + err.message;
+      if (desc) desc.textContent = tf('error_msg', { error: err.message });
     }
   }
 
@@ -231,10 +242,10 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
     const name = document.getElementById('btPairName')?.value || 'Harmony Keyboard';
     const target = document.getElementById('btPairTargetDev')?.value || '';
 
-    const isPairing = btn && btn.textContent.toLowerCase().includes('stop');
+    const isPairing = btn && btn.classList.contains('btn-warning'); /* set while pairing; the label is translated */
     if (isPairing) {
       try {
-        if (btn) btn.textContent = 'Stopping pairing...';
+        if (btn) btn.textContent = t('stopping_pairing');
         await this.client.setBtPairing(false);
         showToast(t("bt_pairing_stopped"), 'info');
       } catch (err) {
@@ -250,10 +261,10 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
       return;
     }
     try {
-      if (btn) btn.textContent = 'Entering pairing mode...';
+      if (btn) btn.textContent = t('entering_pairing_mode');
       await this.client.setBtPairing(true, name, target);
       const devObj = (this.inventory.devices || []).find(d => String(d.id) === String(target));
-      showToast(t('hub_now_discoverable').replace('{name}', name).replace('{target}', devObj ? devObj.name : target), 'success');
+      showToast(tf('hub_now_discoverable', { name: name, target: devObj ? devObj.name : target }), 'success');
     } catch (err) {
       alert(t('pairing_mode_failed', 'Pairing mode failed: ') + err.message);
     } finally {
@@ -267,13 +278,13 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
     const target = (document.getElementById('btTargetHostSelect')?.value || '').trim();
     if (!txt) return;
     try {
-      if (stat) stat.textContent = 'Sending text...';
+      if (stat) stat.textContent = t('sending_text');
       await this.client.sendBtText(txt, target);
-      if (stat) stat.innerHTML = '<span style="color:var(--success)">Sent!</span>';
-      this.appendBtLog(`Sent ${txt.length} chars text` + (target ? ' -> ' + target : ''));
+      if (stat) stat.innerHTML = `<span style="color:var(--success)">${t('sent_status')}</span>`;
+      this.appendBtLog(target ? tf('bt_log_text_sent_to', { count: txt.length, target: target }) : tf('bt_log_text_sent', { count: txt.length }));
     } catch (err) {
-      if (stat) stat.innerHTML = `<span style="color:var(--danger)">Error: ${err.message}</span>`;
-      this.appendBtLog(`Text send failed: ${err.message || err}`);
+      if (stat) stat.innerHTML = `<span style="color:var(--danger)">${tfHtml('error_msg', { error: err.message })}</span>`;
+      this.appendBtLog(tf('bt_log_text_failed', { error: err.message || err }));
     }
   }
 
@@ -281,7 +292,7 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
     const el = document.getElementById('btLog');
     if (!el) return;
     const time = new Date().toLocaleTimeString();
-    el.textContent = `[${time}] ${msg}\n` + (el.textContent === 'Ready.' ? '' : el.textContent.slice(0, 2000));
+    el.textContent = `[${time}] ${msg}\n` + ((el.textContent === 'Ready.' || el.textContent === t('ready_status')) ? '' : el.textContent.slice(0, 2000));
   }
 
   async runBtMacroScript() {
@@ -290,11 +301,11 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
     const stat = document.getElementById('btScriptStatus');
     if (!script) return;
     try {
-      if (stat) stat.textContent = 'Running macro script...';
+      if (stat) stat.textContent = t('running_macro_script');
       await this.client.runBtScript(script, delay);
-      if (stat) stat.innerHTML = '<span style="color:var(--success)">Script finished!</span>';
+      if (stat) stat.innerHTML = `<span style="color:var(--success)">${t('script_finished')}</span>`;
     } catch (err) {
-      if (stat) stat.innerHTML = `<span style="color:var(--danger)">Failed: ${err.message}</span>`;
+      if (stat) stat.innerHTML = `<span style="color:var(--danger)">${tfHtml('failed_msg', { error: err.message })}</span>`;
     }
   }
 
@@ -306,10 +317,10 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
     if (!devId || !name || !script) return alert(t("dev_cmd_script_required"));
     try {
       await this.client.saveBtCommand(devId, name, script);
-      if (stat) stat.innerHTML = '<span style="color:var(--success)">Saved!</span>';
+      if (stat) stat.innerHTML = `<span style="color:var(--success)">${t('saved_status')}</span>`;
       await this.refreshData();
     } catch (err) {
-      if (stat) stat.innerHTML = `<span style="color:var(--danger)">Error: ${err.message}</span>`;
+      if (stat) stat.innerHTML = `<span style="color:var(--danger)">${tfHtml('error_msg', { error: err.message })}</span>`;
     }
   }
 
@@ -326,7 +337,7 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
       const st = await this.client.getBtStatus();
       const hosts = st?.hosts || (st?.host?.addr ? [st.host] : []);
       if (hostSel) {
-        hostSel.innerHTML = '<option value="">Auto (Active Host)</option>' +
+        hostSel.innerHTML = `<option value="">${t('auto_active_host')}</option>` +
           hosts.map(d => `<option value="${escapeHtml(d.addr)}">${escapeHtml(d.name || d.addr)}</option>`).join('');
       }
     } catch { }
@@ -339,7 +350,7 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
     const isMacro = c => Boolean(c.isMacro || (c.raw && (String(c.raw).startsWith('BT:SCRIPT:') || String(c.raw).startsWith('MACRO:'))));
     const devs = (this.inventory.devices || []).filter(d => (d.commands || []).some(isMacro));
     if (!devs.length) {
-      list.innerHTML = '<div class="muted mini">No custom Bluetooth macro scripts saved yet.</div>';
+      list.innerHTML = `<div class="muted mini">${t('no_bt_macros')}</div>`;
       return;
     }
     list.innerHTML = devs.map(d => {
@@ -351,7 +362,7 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
             ${cmds.map(c => `
               <div class="pill" style="display:flex; align-items:center; gap:6px; padding:4px 8px;">
                 <span>${escapeHtml(c.name)}</span>
-                <button type="button" class="btn btn-xs btn-ghost btn-del-bt-cmd" data-dev="${escapeHtml(d.id)}" data-cmd="${escapeHtml(c.name)}" style="padding:0 4px; color:var(--danger);" title="Delete macro">×</button>
+                <button type="button" class="btn btn-xs btn-ghost btn-del-bt-cmd" data-dev="${escapeHtml(d.id)}" data-cmd="${escapeHtml(c.name)}" style="padding:0 4px; color:var(--danger);" title="${t('delete_macro')}">×</button>
               </div>
             `).join('')}
           </div>
@@ -363,7 +374,7 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
       btn.addEventListener('click', async () => {
         const devId = btn.getAttribute('data-dev');
         const cmdName = btn.getAttribute('data-cmd');
-        if (!await showConfirm(t('delete_bt_macro_confirm').replace('{name}', cmdName), { title: t('delete_bt_macro'), okText: t('delete') })) return;
+        if (!await showConfirm(tf('delete_bt_macro_confirm', { name: cmdName }), { title: t('delete_bt_macro'), okText: t('delete') })) return;
         try {
           await this.client.deleteBtCommand(devId, cmdName);
           await this.refreshData();

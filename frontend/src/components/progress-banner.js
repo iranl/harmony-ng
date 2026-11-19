@@ -1,5 +1,6 @@
 // Reusable Progress Banner for Activity Transitions, OTA, and System Updates
 import { h } from '../utils/dom.js';
+import { t } from '../i18n/index.js';
 
 export function createProgressBanner({ title = '', message = '', progress = null, onCancel = null }) {
   const container = h('div', { className: 'transition-banner' }, [
@@ -28,7 +29,7 @@ export function createProgressBanner({ title = '', message = '', progress = null
     ]),
     onCancel ? h('button', {
       className: 'btn btn-danger btn-sm',
-      text: 'Cancel',
+      text: t('cancel', 'Cancel'),
       onclick: onCancel,
     }) : null,
   ]);

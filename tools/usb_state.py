@@ -255,10 +255,12 @@ def detect_remote_usb_state(check_firmware: bool = True) -> UsbState:
 
     hid_instance = None
     try:
-        from tools.harmony_hid import HarmonyHid
+        from tools.harmony_hid import HarmonyHid, usb_open_failure_message
+        tried = []
         for candidate_pid in (REMOTE_PID, PRO_PID):
             try:
                 h = HarmonyHid(pid=candidate_pid)
+                tried.append(h)
                 if h.open():
                     hid_instance = h
                     state.mode = UsbMode.USB_HID
@@ -271,6 +273,9 @@ def detect_remote_usb_state(check_firmware: bool = True) -> UsbState:
                     break
             except Exception:
                 continue
+        if not hid_instance:
+            # on USB but not openable (Linux: permissions, device in use): say why
+            state.error_details = usb_open_failure_message(tried)
     except Exception:
         pass
 
@@ -499,8 +504,12 @@ def print_usb_state_banner(state: UsbState, label: str = "USB DEVICE & NETWORK S
 
     else:
         print(" Connection Mode:  [-] DISCONNECTED")
-        print(" Remote is not detected on USB bus.")
-        print(" Ensure remote is plugged directly via Micro-USB (not charging dock).")
+        if state.error_details:
+            for line in state.error_details.splitlines():
+                print(f" {line}")
+        else:
+            print(" Remote is not detected on USB bus.")
+            print(" Ensure remote is plugged directly via Micro-USB (not charging dock).")
 
     print("=" * box_w + "\n")
 

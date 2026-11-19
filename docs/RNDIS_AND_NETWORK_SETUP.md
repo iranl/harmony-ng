@@ -20,13 +20,13 @@ powershell -ExecutionPolicy Bypass -File tools/setup_remote_driver.ps1
 
 The script will automatically:
 1. Install the signed RNDIS driver package into the Windows DriverStore via `pnputil`.
-2. Re-bind `USB\VID_0525&PID_A4A2` (unbinds `usbser.sys` and binds `rndismp.sys`).
+2. Re-bind `USB\VID_0525&PID_A4A2` (unbinds `usbser.sys` and binds `rndismp.sys`). It also looks for `USB\VID_050D&PID_010D` and `USB\VID_0502&PID_3210`.
 3. Locate the new `USB Ethernet/RNDIS Gadget` network adapter.
 4. Assign static IP `192.168.2.2/24` (leaving the default gateway empty so internet routing is not affected).
 5. Verify connectivity to `192.168.2.1`.
 
 > [!TIP]
-> If you run `python remote/setup_remote.py`, it will detect any missing driver or serial port binding on Windows and automatically launch this setup tool for you.
+> A run of `python remote/setup_remote.py` without `--step` (`python tools/setup_remote.py` in the release bundle) launches this setup tool for you on Windows, right after it rebooted the remote from USB HID mode into USB network mode, when it finds a missing driver, a serial port binding or no `192.168.2.x` address. In every other case run the tool yourself: `--step 1` never starts it, and a run that finds the driver problem already at its start stops and asks you to install the driver.
 
 ---
 
@@ -140,9 +140,9 @@ ping 192.168.1.1
 Both devices run a lightweight Dropbear SSH server:
 ```bash
 # SSH into the remote:
-ssh root@192.168.2.1
+ssh -i ~/.ssh/harmony_owner_ed25519 root@192.168.2.1
 
 # SSH into Harmony Hub:
-ssh root@192.168.1.1
+ssh -i ~/.ssh/harmony_owner_ed25519 root@192.168.1.1
 ```
-*(The private SSH key is stored in your user `~/.ssh/` directory).*
+*(The tools create the private SSH key as `~/.ssh/harmony_owner_ed25519`. `ssh` does not try that name by itself, so pass it with `-i`. For the remote, `python remote/setup_remote.py --ssh-config` adds a `harmony-remote` entry to `~/.ssh/config`; after that `ssh harmony-remote` and plain `ssh root@192.168.2.1` work.)*
