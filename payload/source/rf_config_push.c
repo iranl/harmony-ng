@@ -241,6 +241,7 @@ void *config_push_worker(void *arg) {
         char icon_name[64];
         uint16_t icon_id;
         uint8_t icon_type;
+        int power_on_delay;    /* ms the Hub waits after powering it on (orchestrator warmup) */
     } devs[16];
     cJSON *dev_cmds[16] = {0}; /* each device's "commands" array, owned by dev_root */
     cJSON *dev_root = NULL;
@@ -316,6 +317,9 @@ void *config_push_worker(void *arg) {
                                     devs[dev_count].icon_id = icon_id;
                                     strncpy(devs[dev_count].icon_name, custom_name, sizeof(devs[0].icon_name) - 1);
                                     devs[dev_count].icon_name[sizeof(devs[0].icon_name) - 1] = '\0';
+                                    /* Same default as config_store.c */
+                                    cJSON *jpod = cJSON_GetObjectItemCaseSensitive(d_obj, "powerOnDelay");
+                                    devs[dev_count].power_on_delay = cJSON_IsNumber(jpod) ? jpod->valueint : 1500;
 
                                     dev_cmds[dev_count] = cJSON_GetObjectItem(d_obj, "commands");
                                     dev_count++;
@@ -503,7 +507,8 @@ void *config_push_worker(void *arg) {
                             }
                             if (!act_id[0]) continue;
 
-                            struct rf_step_send local_steps[8];
+                            /* One slot stays free for the warmup step added below */
+                            struct rf_step_send local_steps[16];
                             memset(local_steps, 0, sizeof(local_steps)); /* the default steps below copy ids and names without a terminator */
                             int local_count = 0;
 
@@ -512,7 +517,7 @@ void *config_push_worker(void *arg) {
                             if (start_seq && cJSON_IsArray(start_seq)) {
                                 cJSON *sitem = NULL;
                                 cJSON_ArrayForEach(sitem, start_seq) {
-                                    if (local_count >= 8) break;
+                                    if (local_count >= 15) break;
                                     cJSON *cname = cJSON_GetObjectItem(sitem, "command");
                                     cJSON *ctype = cJSON_GetObjectItem(sitem, "type");
                                     cJSON *cdelay = cJSON_GetObjectItem(sitem, "delay");
@@ -540,9 +545,16 @@ void *config_push_worker(void *arg) {
                                         if (d > 20000) d = 20000;
                                         local_steps[local_count].delay_ms = (uint16_t)d;
                                         local_count++;
-                                    } else if (ctype && cJSON_IsString(ctype) && strcmp(ctype->valuestring, "Delay") == 0) {
+                                    } else if (ctype && cJSON_IsString(ctype) && strcasecmp(ctype->valuestring, "Delay") == 0) {
+                                        if (d > 20000) d = 20000;
                                         if (local_count > 0 && d > 0) {
                                             local_steps[local_count - 1].delay_ms += (uint16_t)d;
+                                        } else if (d > 0) {
+                                            /* A delay before the first command is waited for too */
+                                            strncpy(local_steps[0].act_id, act_id, 11);
+                                            strncpy(local_steps[0].name, "Delay", 15);
+                                            local_steps[0].delay_ms = (uint16_t)d;
+                                            local_count = 1;
                                         }
                                     }
                                 }
@@ -565,6 +577,31 @@ void *config_push_worker(void *arg) {
                                 }
                             }
 
+                            /* The Hub waits the longest power-on delay of the activity's devices
+                               before the start sequence (orchestrator_queue.c warmup) */
+                            int warmup = 0;
+                            for (int a = 0; a < act_count && strcmp(act_id, "-1") != 0; a++) {
+                                if (strcmp(acts[a].id, act_id) != 0) continue;
+                                for (int k = 0; k < acts[a].dev_id_count; k++) {
+                                    for (int dv = 0; dv < dev_count; dv++) {
+                                        if (strcmp(acts[a].dev_ids[k], devs[dv].id) == 0 &&
+                                            devs[dv].power_on_delay > warmup) {
+                                            warmup = devs[dv].power_on_delay;
+                                        }
+                                    }
+                                }
+                                break;
+                            }
+                            if (warmup > 20000) warmup = 20000;
+                            if (warmup > 0) {
+                                memmove(&local_steps[1], &local_steps[0], (size_t)local_count * sizeof(local_steps[0]));
+                                memset(&local_steps[0], 0, sizeof(local_steps[0]));
+                                strncpy(local_steps[0].act_id, act_id, 11);
+                                strncpy(local_steps[0].name, "Warmup", 15);
+                                local_steps[0].delay_ms = (uint16_t)warmup;
+                                local_count++;
+                            }
+
                             for (int s = 0; s < local_count && total_step_count < 64; s++) {
                                 act_steps[total_step_count] = local_steps[s];
                                 act_steps[total_step_count].step_idx = (uint8_t)s;
@@ -579,7 +616,7 @@ void *config_push_worker(void *arg) {
                                 if (stop_seq && cJSON_IsArray(stop_seq)) {
                                     cJSON *st_item = NULL;
                                     cJSON_ArrayForEach(st_item, stop_seq) {
-                                        if (total_step_count >= 63 || stop_cnt >= 8) break;
+                                        if (total_step_count >= 63 || stop_cnt >= 16) break;
                                         cJSON *cname = cJSON_GetObjectItem(st_item, "command");
                                         cJSON *ctype = cJSON_GetObjectItem(st_item, "type");
                                         cJSON *cdelay = cJSON_GetObjectItem(st_item, "delay");
@@ -614,8 +651,19 @@ void *config_push_worker(void *arg) {
                                             total_step_count++;
                                             stop_cnt++;
                                         } else if (ctype && cJSON_IsString(ctype) && strcasecmp(ctype->valuestring, "Delay") == 0) {
+                                            if (d > 20000) d = 20000;
                                             if (total_step_count > 0 && stop_cnt > 0 && d > 0) {
                                                 act_steps[total_step_count - 1].delay_ms += (uint16_t)d;
+                                            } else if (d > 0) {
+                                                /* A delay before the first command is waited for too */
+                                                memset(&act_steps[total_step_count], 0, sizeof(act_steps[0]));
+                                                strncpy(act_steps[total_step_count].act_id, act_id, 11);
+                                                strncpy(act_steps[total_step_count].name, "Delay", 15);
+                                                act_steps[total_step_count].delay_ms = (uint16_t)d;
+                                                act_steps[total_step_count].step_idx = 0x80 | (uint8_t)stop_cnt;
+                                                act_steps[total_step_count].total_steps = 1;
+                                                total_step_count++;
+                                                stop_cnt++;
                                             }
                                         }
                                     }

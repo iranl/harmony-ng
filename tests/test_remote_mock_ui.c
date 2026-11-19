@@ -255,6 +255,16 @@ int main(void) {
     assert(test_steps[5].delay_ms == 0);
     printf("[+] Switch -1 -> 2 timing verified: %ums across %d steps\n", total_b, count_b);
 
+    /* Test C: a short sequence keeps its own duration (no 2 s floor) */
+    strncpy(g_rf_steps[g_rf_step_count].act_id, "3", 11);
+    g_rf_steps[g_rf_step_count].step_idx = 0;
+    g_rf_steps[g_rf_step_count].delay_ms = 800;
+    strncpy(g_rf_steps[g_rf_step_count++].name, "InputHdmi3", 15);
+    uint32_t total_c = 0;
+    build_combined_activity_sequence("", "3", test_steps, 32, &total_c);
+    assert(total_c == 800);
+    printf("[+] Short switch timing kept: %ums\n", total_c);
+
     /* 9. A device name longer than its list chunk arrives whole in RF_MSG_NAME_TAIL_CHUNK frames */
     const char *long_name = "Marantz AV Receiver in the Living Room!"; /* 39 bytes: chunk 16 + tails 22 + 1 */
     assert(strlen(long_name) == RF_NAME_SIZE - 1);
