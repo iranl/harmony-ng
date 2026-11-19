@@ -309,6 +309,8 @@ paths:
                 cache_free_kb: 1824
                 cache_used_kb: 3296
                 cache_percent_free: 35
+                stock_resources_kb: 251
+                can_empty_stock_resources: true
 
   /api/network-status:
     get:
@@ -1102,7 +1104,7 @@ paths:
               properties:
                 action:
                   type: string
-                  enum: [reboot, factory_reset, mqtt_publish, auth]
+                  enum: [reboot, factory_reset, clean_stock_resources, mqtt_publish, auth]
                 confirm:
                   type: string
                   description: Required confirmation string ('RESET') for factory_reset
@@ -1127,6 +1129,8 @@ paths:
                 value: {action: reboot}
               factoryReset:
                 value: {action: factory_reset, confirm: RESET}
+              cleanStockResources:
+                value: {action: clean_stock_resources}
               mqttPublish:
                 value: {action: mqtt_publish, topic: harmony/hub/notify, payload: "{\"event\":\"ready\"}"}
               auth:
@@ -1145,9 +1149,9 @@ paths:
         '400':
           description: "factory_reset without confirm RESET; auth: a name of 32 bytes or more or with ':' or a line break, a password over 128 bytes, renaming the admin without the password, or turning authentication on with no admin account and no password"
         '409':
-          description: "reboot while a software update runs (Software update in progress. Manual reboot blocked.); auth: the admin name is taken by another account"
+          description: "reboot while a software update runs (Software update in progress. Manual reboot blocked.); clean_stock_resources: the stock configuration is not imported yet (no /data/harmony/config/devices.json); auth: the admin name is taken by another account"
         '500':
-          description: "factory_reset: the reset script is not installed on this Hub; auth: the accounts could not be saved, or the admin name has access tokens left by a deleted account and the token file cannot be changed"
+          description: "factory_reset: the reset script is not installed on this Hub; clean_stock_resources: some files in /data/resources could not be removed; auth: the accounts could not be saved, or the admin name has access tokens left by a deleted account and the token file cannot be changed"
         '503':
           description: "auth: the token list is busy, try again"
 

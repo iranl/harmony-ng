@@ -142,7 +142,9 @@ Returns the flash space of `/data` (of root `/` when `/data` cannot be read) and
     "cache_total_kb": 8192,
     "cache_free_kb": 2048,
     "cache_used_kb": 6144,
-    "cache_percent_free": 25
+    "cache_percent_free": 25,
+    "stock_resources_kb": 251,
+    "can_empty_stock_resources": true
   }
   ```
 
@@ -373,11 +375,16 @@ Answers of the actions below:
   (`/tmp/hub_updating.flag` exists).
 - `factory_reset`: `{"ok": true, "message": "Factory reset initiated. Reverting to stock firmware and rebooting."}`;
   `400` without `"confirm": "RESET"`.
+- `clean_stock_resources`: empties `/data/resources` (the stock Logitech files, `stock_resources_kb` in
+  the disk status above) and answers `{"ok": true, "freed_kb": 251, "stock_resources_kb": 0, "message": "..."}`;
+  `409` while `/data/harmony/config/devices.json` is missing (the stock import still needs the files),
+  `500` when a file could not be removed. The stock firmware needs these files: after this, a revert to
+  stock needs the golden backup (`tools/restore_stock.py --backup backups/golden_hub_backup_<hub>.tar`).
 - `mqtt_publish`: only `topic` and `payload` are read. `retain` is ignored: the message goes out
   with QoS 0 and is not retained. An empty `payload` is sent as `cmd`. The answer is
   `{"ok": true}` also when MQTT is off or `topic` is empty, so it does not tell whether anything
   was published.
-- A fourth action, `auth`, turns authentication on or off and sets the admin account (11.6).
+- A fifth action, `auth`, turns authentication on or off and sets the admin account (11.6).
 - An unknown or missing `action` answers `200` `{"ok": true}` and does nothing.
 
 #### `POST /api/system-action` or `POST /system`

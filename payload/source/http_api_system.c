@@ -82,26 +82,28 @@ static uint64_t get_stock_resources_kb(void) {
     return (bytes > 0) ? ((bytes + 1023) / 1024) : 0;
 }
 
+/* Returns the number of entries that could not be removed (-1: path not opened) */
 static int empty_directory_contents(const char *path) {
     DIR *d = opendir(path);
     if (!d) return -1;
+    int failed = 0;
     struct dirent *de;
     char subpath[512];
     while ((de = readdir(d)) != NULL) {
         if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0) continue;
-        snprintf(subpath, sizeof(subpath), "%s/%s", path, de->d_name);
+        int n = snprintf(subpath, sizeof(subpath), "%s/%s", path, de->d_name);
+        if (n < 0 || (size_t)n >= sizeof(subpath)) { failed++; continue; }
         struct stat st;
-        if (lstat(subpath, &st) == 0) {
-            if (S_ISDIR(st.st_mode)) {
-                empty_directory_contents(subpath);
-                rmdir(subpath);
-            } else {
-                unlink(subpath);
-            }
+        if (lstat(subpath, &st) != 0) { failed++; continue; }
+        if (S_ISDIR(st.st_mode)) {
+            int sub = empty_directory_contents(subpath);
+            if (sub != 0 || rmdir(subpath) != 0) failed += (sub > 0) ? sub : 1;
+        } else if (unlink(subpath) != 0) {
+            failed++;
         }
     }
     closedir(d);
-    return 0;
+    return failed;
 }
 
 /* /etc is on flash: rewrite only when the content changes (every start applies the settings) */
@@ -422,7 +424,8 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
 
         uint64_t stock_res_kb = get_stock_resources_kb();
         cJSON_AddNumberToObject(st, "stock_resources_kb", (double)stock_res_kb);
-        cJSON_AddBoolToObject(st, "can_empty_stock_resources", stock_res_kb > 0);
+        cJSON_AddBoolToObject(st, "can_empty_stock_resources",
+                              stock_res_kb > 0 && access("/data/harmony/config/devices.json", F_OK) == 0);
 
         send_cjson_resp(client_fd, 200, st);
         cJSON_Delete(st);
@@ -605,15 +608,24 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                     close(client_fd);
                     return 1;
                 }
-            } else if (p_act && cJSON_IsString(p_act) &&
-                       (strcmp(p_act->valuestring, "clean_stock_resources") == 0 ||
-                        strcmp(p_act->valuestring, "empty_stock_resources") == 0)) {
+            } else if (p_act && cJSON_IsString(p_act) && strcmp(p_act->valuestring, "clean_stock_resources") == 0) {
                 cJSON_Delete(params);
+                /* Only after the stock import: the files are its source */
+                if (access("/data/harmony/config/devices.json", F_OK) != 0) {
+                    send_json_error(client_fd, 409, "The stock configuration is not imported yet: /data/resources kept");
+                    close(client_fd);
+                    return 1;
+                }
                 uint64_t before_kb = get_stock_resources_kb();
-                empty_directory_contents("/data/resources");
+                int failed = empty_directory_contents("/data/resources");
                 sync();
                 uint64_t after_kb = get_stock_resources_kb();
                 uint64_t freed_kb = (before_kb > after_kb) ? (before_kb - after_kb) : 0;
+                if (failed > 0 || after_kb > 0) {
+                    send_json_error(client_fd, 500, "Some files in /data/resources could not be removed");
+                    close(client_fd);
+                    return 1;
+                }
 
                 cJSON *resp = cJSON_CreateObject();
                 cJSON_AddBoolToObject(resp, "ok", 1);

@@ -705,7 +705,20 @@
     "harmony_codeset_http_error",
     "harmony_no_codeset",
     "usb_wifi_setup_lbl",
-    "usb_wifi_setup_desc"
+    "usb_wifi_setup_desc",
+    "stock_resources_title",
+    "stock_resources_desc",
+    "empty_stock_resources",
+    "clean_stock_resources_title",
+    "empty_resources",
+    "clean_stock_resources_confirm",
+    "freed_stock_resources_toast",
+    "clean_resources_failed",
+    "stock_resources_used",
+    "stock_resources_empty",
+    "empty_stock_resources_btn",
+    "stock_resources_cleaned",
+    "stock_resources_not_imported"
   ],
   "fr": [
     "hold_repeat",
@@ -1412,7 +1425,20 @@
     "harmony_codeset_http_error",
     "harmony_no_codeset",
     "usb_wifi_setup_lbl",
-    "usb_wifi_setup_desc"
+    "usb_wifi_setup_desc",
+    "stock_resources_title",
+    "stock_resources_desc",
+    "empty_stock_resources",
+    "clean_stock_resources_title",
+    "empty_resources",
+    "clean_stock_resources_confirm",
+    "freed_stock_resources_toast",
+    "clean_resources_failed",
+    "stock_resources_used",
+    "stock_resources_empty",
+    "empty_stock_resources_btn",
+    "stock_resources_cleaned",
+    "stock_resources_not_imported"
   ],
   "nl": [
     "hold_repeat",
@@ -2119,7 +2145,20 @@
     "harmony_codeset_http_error",
     "harmony_no_codeset",
     "usb_wifi_setup_lbl",
-    "usb_wifi_setup_desc"
+    "usb_wifi_setup_desc",
+    "stock_resources_title",
+    "stock_resources_desc",
+    "empty_stock_resources",
+    "clean_stock_resources_title",
+    "empty_resources",
+    "clean_stock_resources_confirm",
+    "freed_stock_resources_toast",
+    "clean_resources_failed",
+    "stock_resources_used",
+    "stock_resources_empty",
+    "empty_stock_resources_btn",
+    "stock_resources_cleaned",
+    "stock_resources_not_imported"
   ],
   "es": [
     "hold_repeat",
@@ -2826,7 +2865,20 @@
     "harmony_codeset_http_error",
     "harmony_no_codeset",
     "usb_wifi_setup_lbl",
-    "usb_wifi_setup_desc"
+    "usb_wifi_setup_desc",
+    "stock_resources_title",
+    "stock_resources_desc",
+    "empty_stock_resources",
+    "clean_stock_resources_title",
+    "empty_resources",
+    "clean_stock_resources_confirm",
+    "freed_stock_resources_toast",
+    "clean_resources_failed",
+    "stock_resources_used",
+    "stock_resources_empty",
+    "empty_stock_resources_btn",
+    "stock_resources_cleaned",
+    "stock_resources_not_imported"
   ],
   "it": [
     "hold_repeat",
@@ -3533,6 +3585,19 @@
     "harmony_codeset_http_error",
     "harmony_no_codeset",
     "usb_wifi_setup_lbl",
-    "usb_wifi_setup_desc"
+    "usb_wifi_setup_desc",
+    "stock_resources_title",
+    "stock_resources_desc",
+    "empty_stock_resources",
+    "clean_stock_resources_title",
+    "empty_resources",
+    "clean_stock_resources_confirm",
+    "freed_stock_resources_toast",
+    "clean_resources_failed",
+    "stock_resources_used",
+    "stock_resources_empty",
+    "empty_stock_resources_btn",
+    "stock_resources_cleaned",
+    "stock_resources_not_imported"
   ]
 }

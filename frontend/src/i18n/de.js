@@ -1249,10 +1249,11 @@ export default {
     "harmony_detail_http_error": "Gerätedetails konnten nicht geladen werden: HTTP {status}",
     "harmony_codeset_http_error": "Codesatz konnte nicht geladen werden: HTTP {status}",
     "harmony_no_codeset": "Kein Codesatz angegeben",
-"empty_stock_resources": "Originalressourcen leeren (~250 kB)",
+    "empty_stock_resources": "Originalressourcen leeren",
     "clean_stock_resources_title": "Originalressourcen leeren",
-    "clean_stock_resources_confirm": "Möchten Sie /data/resources wirklich leeren? Dadurch werden die originalen Logitech-Konfigurationsdateien gelöscht und ca. ~{kb} kB Flash-Speicher freigegeben.",
+    "clean_stock_resources_confirm": "Möchten Sie /data/resources wirklich leeren? Dadurch werden die originalen Logitech-Konfigurationsdateien gelöscht und ca. {kb} kB Flash-Speicher freigegeben. Für eine Rückkehr zur Originalfirmware ist danach das Golden-Backup nötig.",
     "freed_stock_resources_toast": "~{kb} kB Flash-Speicher freigegeben!",
     "empty_stock_resources_btn": "Originalressourcen leeren (~{kb} kB)",
     "stock_resources_empty": "Originalressourcen leer (0 kB)",
+    "stock_resources_not_imported": "Bleibt erhalten, bis die Originalkonfiguration importiert ist.",
 };

@@ -1249,10 +1249,11 @@ export default {
     "harmony_detail_http_error": "Impossibile caricare i dettagli del dispositivo: HTTP {status}",
     "harmony_codeset_http_error": "Impossibile caricare il set di codici: HTTP {status}",
     "harmony_no_codeset": "Nessun set di codici indicato",
-"empty_stock_resources": "Svuota risorse originali (~250 kB)",
+    "empty_stock_resources": "Svuota risorse originali",
     "clean_stock_resources_title": "Svuota risorse originali",
-    "clean_stock_resources_confirm": "Sei sicuro di voler svuotare /data/resources? Questo eliminerà i file di configurazione originali Logitech liberando circa ~{kb} kB di memoria flash.",
+    "clean_stock_resources_confirm": "Sei sicuro di voler svuotare /data/resources? Questo eliminerà i file di configurazione originali Logitech liberando circa {kb} kB di memoria flash. Per tornare al firmware originale servirà poi il backup golden.",
     "freed_stock_resources_toast": "~{kb} kB di memoria flash liberati!",
     "empty_stock_resources_btn": "Svuota risorse originali (~{kb} kB)",
     "stock_resources_empty": "Risorse originali vuote (0 kB)",
+    "stock_resources_not_imported": "Conservate fino all'importazione della configurazione originale.",
 };

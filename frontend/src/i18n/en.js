@@ -1249,10 +1249,11 @@ export default {
     "harmony_detail_http_error": "Failed to load device details: HTTP {status}",
     "harmony_codeset_http_error": "Failed to load codeset: HTTP {status}",
     "harmony_no_codeset": "No codeset specified",
-"empty_stock_resources": "Empty Stock Resources (~250 kB)",
+    "empty_stock_resources": "Empty Stock Resources",
     "clean_stock_resources_title": "Empty Stock Resources",
-    "clean_stock_resources_confirm": "Are you sure you want to empty /data/resources? This will delete stock Logitech config files and free about ~{kb} kB of flash memory.",
+    "clean_stock_resources_confirm": "Are you sure you want to empty /data/resources? This will delete stock Logitech config files and free about {kb} kB of flash memory. A revert to the stock firmware then needs the golden backup.",
     "freed_stock_resources_toast": "Freed ~{kb} kB of flash storage!",
     "empty_stock_resources_btn": "Empty Stock Resources (~{kb} kB)",
     "stock_resources_empty": "Stock Resources Empty (0 kB)",
+    "stock_resources_not_imported": "Kept until the stock configuration is imported.",
 };

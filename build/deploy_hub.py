@@ -504,13 +504,21 @@ class HubDeployer:
 
             if self.clean_stock_resources:
                 has_stock = self.run_ssh("[ -d /data/resources ] && [ -n \"$(ls -A /data/resources 2>/dev/null)\" ] && echo 1 || echo 0").stdout.strip() == "1"
-                if has_stock:
-                    if self.dry_skip("empty /data/resources to reclaim ~250 kB of flash storage"):
-                        pass
-                    else:
-                        print("[*] Emptying /data/resources to reclaim ~250 kB of flash storage...")
-                        self.run_ssh("rm -rf /data/resources/* /data/resources/.* 2>/dev/null || true; mkdir -p /data/resources 2>/dev/null || true; /data/harmony/bin/hub_sync 2>/dev/null || sync 2>/dev/null || true")
+                # Only after the stock import: a failed migration must keep its source files
+                migrated = self.run_ssh("[ -f /data/harmony/config/devices.json ] && echo 1 || echo 0").stdout.strip() == "1"
+                if has_stock and not migrated:
+                    print("[!] /data/harmony/config/devices.json is missing (stock import failed?): /data/resources NOT emptied.")
+                elif has_stock and not self.dry_skip("empty /data/resources to reclaim flash storage"):
+                    print("[*] Emptying /data/resources to reclaim flash storage (a stock revert then needs the golden backup)...")
+                    # Remove the directory itself: a "/data/resources/.*" glob would also match "..", that is /data
+                    res = self.run_ssh(
+                        "rm -rf /data/resources; mkdir -p /data/resources; "
+                        "/data/harmony/bin/hub_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || sync 2>/dev/null || true"
+                    )
+                    if res.returncode == 0:
                         print("[+] /data/resources emptied successfully.")
+                    else:
+                        print(f"[!] Emptying /data/resources failed: {res.stderr.strip()}")
 
             # Query remote hashes for core binaries and configs
             self.query_remote_hashes(
@@ -807,7 +815,8 @@ def main() -> None:
     parser.add_argument("--no-backup", action="store_true", help="Skip pre-deployment backup")
     parser.add_argument("--stage-remote-ota", action="store_true", help="Stage local remote_ui.ota.gz into Hub /tmp/remote_ui.ota.gz (RAM tmpfs) for offline testing")
     ssh_hostkeys.add_reset_option(parser, "the Hub")
-    parser.add_argument("--clean-stock-resources", action="store_true", help="Empty /data/resources to reclaim ~250 kB of flash storage")
+    parser.add_argument("--clean-stock-resources", action="store_true", help="Empty /data/resources (stock Logitech files) after the stock import to reclaim flash storage; "
+                             "a revert to stock then needs the golden backup")
 
     args = parser.parse_args()
     target_host = args.flag_host or args.host

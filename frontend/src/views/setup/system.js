@@ -76,19 +76,19 @@ export function createView() {
       h('button', {
         className: 'btn btn-secondary',
         id: 'btn-empty-stock-res',
-        text: t('empty_stock_resources', 'Empty Stock Resources (~250 kB)'),
+        text: t('empty_stock_resources', 'Empty Stock Resources'),
         onclick: async () => {
           const disk = await api.getSystemDisk().catch(() => null);
-          const kb = disk?.stock_resources_kb || 251;
+          const kb = disk?.stock_resources_kb ?? 0;
           const ok = await confirm.ask({
             title: t('clean_stock_resources_title', 'Empty Stock Resources'),
-            message: t('clean_stock_resources_confirm', `Are you sure you want to empty /data/resources? This will delete stock Logitech config files and free about ~${kb} kB of flash memory.`),
+            message: t('clean_stock_resources_confirm', 'Are you sure you want to empty /data/resources? This will delete stock Logitech config files and free about {kb} kB of flash memory. A revert to the stock firmware then needs the golden backup.', { kb }),
             danger: true,
           });
           if (ok) {
             try {
               const res = await api.cleanStockResources();
-              toast.success(t('freed_stock_resources_toast', `Freed ~${res?.freed_kb || kb} kB of flash storage!`));
+              toast.success(t('freed_stock_resources_toast', 'Freed ~{kb} kB of flash storage!', { kb: res?.freed_kb ?? kb }));
               loadSystemInfo();
             } catch (e) {
               toast.error(e.message);
@@ -195,8 +195,11 @@ export function createView() {
       const emptyResBtn = container.querySelector('#btn-empty-stock-res');
       if (emptyResBtn && disk) {
         const kb = disk.stock_resources_kb ?? 0;
-        emptyResBtn.textContent = kb > 0 ? t('empty_stock_resources_btn', `Empty Stock Resources (~${kb} kB)`) : t('stock_resources_empty', 'Stock Resources Empty (0 kB)');
-        emptyResBtn.disabled = (kb === 0);
+        const canEmpty = disk.can_empty_stock_resources ?? kb > 0;
+        emptyResBtn.textContent = kb === 0 ? t('stock_resources_empty', 'Stock Resources Empty (0 kB)')
+          : canEmpty ? t('empty_stock_resources_btn', 'Empty Stock Resources (~{kb} kB)', { kb })
+          : t('stock_resources_not_imported', 'Kept until the stock configuration is imported.');
+        emptyResBtn.disabled = !canEmpty;
       }
     } catch (e) {
       statsMount.textContent = t('error_msg', 'Error: {error}', { error: e.message });

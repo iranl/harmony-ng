@@ -1249,10 +1249,11 @@ export default {
     "harmony_detail_http_error": "Apparaatgegevens laden mislukt: HTTP {status}",
     "harmony_codeset_http_error": "Codeset laden mislukt: HTTP {status}",
     "harmony_no_codeset": "Geen codeset opgegeven",
-"empty_stock_resources": "Originele bronnen legen (~250 kB)",
+    "empty_stock_resources": "Originele bronnen legen",
     "clean_stock_resources_title": "Originele bronnen legen",
-    "clean_stock_resources_confirm": "Weet u zeker dat u /data/resources wilt legen? Hiermee worden de originele Logitech-configuratiebestanden verwijderd en komt er ongeveer ~{kb} kB flashgeheugen vrij.",
+    "clean_stock_resources_confirm": "Weet u zeker dat u /data/resources wilt legen? Hiermee worden de originele Logitech-configuratiebestanden verwijderd en komt er ongeveer {kb} kB flashgeheugen vrij. Voor een terugkeer naar de originele firmware is daarna de golden back-up nodig.",
     "freed_stock_resources_toast": "~{kb} kB flashgeheugen vrijgemaakt!",
     "empty_stock_resources_btn": "Originele bronnen legen (~{kb} kB)",
     "stock_resources_empty": "Originele bronnen leeg (0 kB)",
+    "stock_resources_not_imported": "Blijven bewaard tot de originele configuratie is geïmporteerd.",
 };
