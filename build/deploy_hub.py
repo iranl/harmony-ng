@@ -439,8 +439,18 @@ class HubDeployer:
                 "rm -rf /data/codex-backups /data/codexmqtt /data/harmony-backups /cache/crashlog-*.json 2>/dev/null; "
                 "rm -f /data/harmony/mqtt_config.json /data/harmony/elite_remote_map.json /data/harmony/bt_devices.json /data/devices.json /data/activities.json /data/harmony/devices.json /data/harmony/config/.imported /data/remote_ui.ota.gz /data/remote_ui.version 2>/dev/null || true; "
                 "rm -f /cache/codex_*.ota.gz /cache/codex_*.ota /cache/*.new /cache/*/*.new /data/harmony/*.new /data/harmony/*/*.new /data/rf_pair_test /data/test_hub_tx /data/codex_rf /data/hub_rf /data/harmony/bin/codex_* /cache/bin/codex_* /var/run/codex_* 2>/dev/null || true; "
-                "if [ -s /data/harmony/bin/dropbearmulti ] && [ -x /data/harmony/bin/dropbearmulti ]; then _harm_m=$(md5sum /data/harmony/bin/dropbearmulti 2>/dev/null | awk '{print $1}'); _data_m=$(md5sum /data/dropbearmulti 2>/dev/null | awk '{print $1}'); if [ -n \"$_harm_m\" ] && { [ \"$_harm_m\" = \"$_data_m\" ] || [ \"$_harm_m\" = \"3733327fd04bca282dbf06f33da0bf6c\" ]; }; then rm -f /data/dropbearmulti /usr/sbin/dropbearmulti 2>/dev/null || true; fi; for _a in dropbear dropbearkey dbclient scp; do [ -f /data/harmony/bin/$_a ] && [ ! -L /data/harmony/bin/$_a ] && rm -f /data/harmony/bin/$_a 2>/dev/null; ln -sf /data/harmony/bin/dropbearmulti /data/harmony/bin/$_a 2>/dev/null || true; done; for _a in dropbearkey dbclient scp; do ln -sf /data/harmony/bin/dropbearmulti /usr/sbin/$_a 2>/dev/null || true; done; fi; "
-                "mkdir -p /data/harmony/bin /data/harmony/www/assets /data/harmony/config /data/harmony/custom_icons"
+                "mkdir -p /data/harmony/bin /data/harmony/www/assets /data/harmony/config /data/harmony/custom_icons; "
+                "if [ -x /data/dropbearmulti ] && [ ! -s /data/harmony/bin/dropbearmulti ]; then cp -p /data/dropbearmulti /data/harmony/bin/dropbearmulti 2>/dev/null || true; fi; "
+                "_dbm=\"\"; [ -s /data/harmony/bin/dropbearmulti ] && [ -x /data/harmony/bin/dropbearmulti ] && _dbm=/data/harmony/bin/dropbearmulti; "
+                "[ -z \"$_dbm\" ] && [ -s /data/dropbearmulti ] && [ -x /data/dropbearmulti ] && _dbm=/data/dropbearmulti; "
+                "if [ -n \"$_dbm\" ]; then "
+                "  if [ \"$_dbm\" = \"/data/harmony/bin/dropbearmulti\" ]; then "
+                "    _harm_m=$(md5sum /data/harmony/bin/dropbearmulti 2>/dev/null | awk '{print $1}'); _data_m=$(md5sum /data/dropbearmulti 2>/dev/null | awk '{print $1}'); "
+                "    if [ -n \"$_harm_m\" ] && { [ \"$_harm_m\" = \"$_data_m\" ] || [ \"$_harm_m\" = \"3733327fd04bca282dbf06f33da0bf6c\" ]; }; then rm -f /data/dropbearmulti /usr/sbin/dropbearmulti 2>/dev/null || true; fi; "
+                "    for _a in dropbear dropbearkey dbclient scp; do [ -f /data/harmony/bin/$_a ] && [ ! -L /data/harmony/bin/$_a ] && rm -f /data/harmony/bin/$_a 2>/dev/null; ln -sf /data/harmony/bin/dropbearmulti /data/harmony/bin/$_a 2>/dev/null || true; done; "
+                "  fi; "
+                "  for _a in dropbearkey dbclient scp; do ln -sf \"$_dbm\" /usr/sbin/$_a 2>/dev/null || true; done; "
+                "fi"
             )
             if not self.dry_skip("move legacy /data/codex files to /data/harmony and remove obsolete files"):
                 self.run_ssh(mig_paths_cmd)
@@ -497,29 +507,7 @@ class HubDeployer:
                 "/cache/icons.tar.gz /etc/init.d/rcS.local"
             )
 
-            # Deploy core binaries
-            if (self.bin_dir / "hub_util").is_file():
-                self.deploy_file_if_changed(self.bin_dir / "hub_util", "/data/harmony/bin/hub_util", "755")
-                util_setup = (
-                    "for _app in hub_sync sync mknod register_ehci eth_fix hub_sntp; do "
-                    "  [ -f /data/harmony/bin/$_app ] && [ ! -L /data/harmony/bin/$_app ] && rm -f /data/harmony/bin/$_app 2>/dev/null; "
-                    "  ln -sf /data/harmony/bin/hub_util /data/harmony/bin/$_app 2>/dev/null || true; "
-                    "done"
-                )
-                if not self.dry_skip("create hub_util symlinks and purge legacy standalone binaries"):
-                    self.run_ssh(util_setup)
-                core_bins = ["hub_daemon", "hub_rf", "hub_btstack"]
-            else:
-                core_bins = [
-                    "hub_daemon", "hub_rf", "hub_sntp", "hub_btstack", "hub_sync",
-                    "mknod", "register_ehci", "eth_fix"
-                ]
-            for b in core_bins:
-                src = self.bin_dir / b
-                if src.is_file():
-                    self.deploy_file_if_changed(src, f"/data/harmony/bin/{b}", "755")
-
-            # Dropbear SSH server
+            # Dropbear SSH server (deploy first so remote scp server is updated and verified)
             dropbear_src = None
             if (self.bin_dir / "dropbearmulti").is_file():
                 dropbear_src = self.bin_dir / "dropbearmulti"
@@ -544,6 +532,28 @@ class HubDeployer:
                 )
                 if not self.dry_skip("create dropbear multicall symlinks and safely deduplicate"):
                     self.run_ssh(dropbear_links)
+
+            # Deploy core binaries
+            if (self.bin_dir / "hub_util").is_file():
+                self.deploy_file_if_changed(self.bin_dir / "hub_util", "/data/harmony/bin/hub_util", "755")
+                util_setup = (
+                    "for _app in hub_sync sync mknod register_ehci eth_fix hub_sntp; do "
+                    "  [ -f /data/harmony/bin/$_app ] && [ ! -L /data/harmony/bin/$_app ] && rm -f /data/harmony/bin/$_app 2>/dev/null; "
+                    "  ln -sf /data/harmony/bin/hub_util /data/harmony/bin/$_app 2>/dev/null || true; "
+                    "done"
+                )
+                if not self.dry_skip("create hub_util symlinks and purge legacy standalone binaries"):
+                    self.run_ssh(util_setup)
+                core_bins = ["hub_daemon", "hub_rf", "hub_btstack"]
+            else:
+                core_bins = [
+                    "hub_daemon", "hub_rf", "hub_sntp", "hub_btstack", "hub_sync",
+                    "mknod", "register_ehci", "eth_fix"
+                ]
+            for b in core_bins:
+                src = self.bin_dir / b
+                if src.is_file():
+                    self.deploy_file_if_changed(src, f"/data/harmony/bin/{b}", "755")
 
             # Extended BusyBox
             local_bb = self.bin_dir / "busybox"

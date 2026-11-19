@@ -332,7 +332,7 @@ def backup_stock_partitions(hub_ip: str, priv_key_path: pathlib.Path) -> pathlib
                     ["ssh"] + ssh_opts + [target, "cat > /tmp/busybox && chmod 755 /tmp/busybox"],
                     input=f_in.read(),
                     check=True,
-                    timeout=30,
+                    timeout=120,
                 )
             bb_bin = "/tmp/busybox"
             uploaded_temp_bb = True
