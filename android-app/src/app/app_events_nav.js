@@ -393,9 +393,9 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
       const defCmds = plug?.device_definition?.default_commands || [];
       const existingNames = new Set((dev.commands || []).map(c => (typeof c === 'string' ? c : c.name || '').toLowerCase()));
       const toAdd = defCmds.filter(c => !existingNames.has(c.name.toLowerCase()));
-      if (toAdd.length === 0) return alert('All plugin commands are already added to this device.');
+      if (toAdd.length === 0) return alert(t('plg_all_cmds_added'));
       const btn = document.getElementById('btnPlugAddAllPresets');
-      if (btn) btn.textContent = 'Adding...';
+      if (btn) btn.textContent = t('plg_adding');
       try {
         for (const c of toAdd) {
           await this.client.saveLearnedCommand({
@@ -411,30 +411,30 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
       } catch (err) {
         alert(t('failed_to_save', 'Failed to save: ') + err.message);
       } finally {
-        if (btn) btn.textContent = '+ Add All';
+        if (btn) btn.textContent = t('plg_add_all');
       }
     });
     document.getElementById('btnTestPlugCustom')?.addEventListener('click', async () => {
       const devId = this.selectedIrDeviceId || document.getElementById('manageDeviceSelect')?.value;
       const name = document.getElementById('plugCustomCmdName')?.value.trim();
       const code = document.getElementById('plugCustomCmdCode')?.value.trim();
-      if (!code) return alert('Please enter a KeyCode or Action.');
+      if (!code) return alert(t('plg_enter_keycode'));
       const stat = document.getElementById('plugCustomStatus');
-      if (stat) stat.textContent = 'Sending test...';
+      if (stat) stat.textContent = t('plg_sending_test');
       try {
         await this.client.sendCommand(devId, name || code);
-        if (stat) stat.innerHTML = '<span style="color:var(--success)">✓ Test command sent!</span>';
+        if (stat) stat.innerHTML = '<span style="color:var(--success)">' + t('plg_test_sent') + '</span>';
       } catch (err) {
-        if (stat) stat.innerHTML = '<span style="color:var(--danger)">Error: ' + escapeHtml(err.message) + '</span>';
+        if (stat) stat.innerHTML = '<span style="color:var(--danger)">' + tfHtml('plg_error_msg', { error: err.message }) + '</span>';
       }
     });
     document.getElementById('btnSavePlugCustom')?.addEventListener('click', async () => {
       const devId = this.selectedIrDeviceId || document.getElementById('manageDeviceSelect')?.value;
       const name = document.getElementById('plugCustomCmdName')?.value.trim();
       const code = document.getElementById('plugCustomCmdCode')?.value.trim();
-      if (!name || !code) return alert('Please enter both Command Name and KeyCode/Action.');
+      if (!name || !code) return alert(t('plg_enter_name_keycode'));
       const stat = document.getElementById('plugCustomStatus');
-      if (stat) stat.textContent = 'Saving command...';
+      if (stat) stat.textContent = t('plg_saving_cmd');
       try {
         await this.client.saveLearnedCommand({
           deviceId: devId,
@@ -442,14 +442,14 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
           raw: code.startsWith('PLUGIN:') ? code : `PLUGIN:${code}`,
           mode: 'plugin'
         });
-        if (stat) stat.innerHTML = '<span style="color:var(--success)">✓ Command saved!</span>';
+        if (stat) stat.innerHTML = '<span style="color:var(--success)">' + t('plg_cmd_saved') + '</span>';
         document.getElementById('plugCustomCmdName').value = '';
         document.getElementById('plugCustomCmdCode').value = '';
         await this.refreshData();
         const dev = (this.inventory.devices || []).find(d => String(d.id) === String(devId));
         if (dev) this.updateStudioDeviceView(dev);
       } catch (err) {
-        if (stat) stat.innerHTML = '<span style="color:var(--danger)">Error: ' + escapeHtml(err.message) + '</span>';
+        if (stat) stat.innerHTML = '<span style="color:var(--danger)">' + tfHtml('plg_error_msg', { error: err.message }) + '</span>';
       }
     });
     document.getElementById('btPresetsFilter')?.addEventListener('input', () => {
@@ -509,12 +509,12 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
               if (!optgroup) {
                 optgroup = document.createElement('optgroup');
                 optgroup.id = 'editDevTypePluginGroup';
-                optgroup.label = 'Community Plugins';
+                optgroup.label = t('plg_community_plugins');
                 typeInp.appendChild(optgroup);
               }
               opt = document.createElement('option');
               opt.value = targetTypeVal;
-              opt.textContent = `${pluginDef?.device_definition?.display_name || pluginDef?.name || plugId} (Plugin)`;
+              opt.textContent = tf('plg_type_option', { name: pluginDef?.device_definition?.display_name || pluginDef?.name || plugId });
               optgroup.appendChild(opt);
             }
             typeInp.value = opt ? opt.value : targetTypeVal;

@@ -1,6 +1,6 @@
 import { HarmonyAppHubsNetwork } from './app_hubs_network.js';
 import { escapeHtml, showToast, showConfirm } from './app_icons_ui.js';
-import { t } from '../i18n.js';
+import { t, tf, tfHtml } from '../i18n.js';
 
 export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
   constructor() {
@@ -47,16 +47,16 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
 
     // Dev direct download from raw GitHub
     document.getElementById('btnDevDownloadPlugin')?.addEventListener('click', async () => {
-      const url = prompt('Enter direct raw GitHub manifest.json URL (e.g. https://raw.githubusercontent.com/user/repo/main/plugins/my-plugin/manifest.json):');
+      const url = prompt(t('plg_dev_prompt'));
       if (!url || !url.trim()) return;
-      showToast('Downloading dev plugin from repository...', 'info');
+      showToast(t('plg_dev_downloading'), 'info');
       try {
         const res = await this.client.installPlugin(url.trim(), true);
         if (res && res.error) throw new Error(res.error);
-        showToast('Dev plugin installed successfully!', 'success');
+        showToast(t('plg_dev_installed'), 'success');
         await this.refreshPluginsList();
       } catch (err) {
-        showToast(`Dev install failed: ${err.message}`, 'error');
+        showToast(tf('plg_dev_install_failed', { error: err.message }), 'error');
       }
     });
 
@@ -72,16 +72,16 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
       const input = document.getElementById('newRepoUrlInput');
       const url = input?.value.trim();
       if (!url || !url.startsWith('http')) {
-        showToast('Please enter a valid HTTP/HTTPS repository JSON URL', 'error');
+        showToast(t('plg_repo_url_invalid'), 'error');
         return;
       }
       try {
         await this.client.updatePluginRepositories('add', url);
-        showToast('Repository added successfully', 'success');
+        showToast(t('plg_repo_added'), 'success');
         if (input) input.value = '';
         await this.refreshRepositories();
       } catch (err) {
-        showToast(`Failed to add repository: ${err.message}`, 'error');
+        showToast(tf('plg_repo_add_failed', { error: err.message }), 'error');
       }
     });
 
@@ -116,7 +116,7 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
     if (!container) return;
 
     try {
-      if (statusEl) statusEl.textContent = 'Loading...';
+      if (statusEl) statusEl.textContent = t('loading');
       const res = await this.client.getPlugins();
       this.installedPlugins = Array.isArray(res) ? res : (res?.plugins || []);
       this.storage = res?.storage || null;
@@ -128,12 +128,12 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
         const pctText = document.getElementById('pluginStoragePctText');
         const bar = document.getElementById('pluginStorageProgressBar');
         if (banner && freeText && totalText && pctText && bar) {
-          freeText.textContent = `${this.storage.free_formatted || '0 B'} free`;
-          totalText.textContent = `${this.storage.total_formatted || '0 B'} total`;
+          freeText.textContent = tf('plg_storage_free', { size: this.storage.free_formatted || '0 B' });
+          totalText.textContent = tf('plg_storage_total', { size: this.storage.total_formatted || '0 B' });
           const pct = this.storage.total_bytes > 0
             ? Math.round((this.storage.used_bytes / this.storage.total_bytes) * 100)
             : 0;
-          pctText.textContent = `${pct}% used`;
+          pctText.textContent = tf('plg_storage_used', { pct });
           bar.style.width = `${pct}%`;
           bar.style.background = pct > 90 ? 'var(--danger)' : 'var(--primary)';
           banner.style.display = 'block';
@@ -142,14 +142,14 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
 
       if (statusEl) {
         const runningCount = this.installedPlugins.filter(p => p.running).length;
-        statusEl.textContent = `${this.installedPlugins.length} installed • ${runningCount} active`;
+        statusEl.textContent = tf('plg_count_status', { installed: this.installedPlugins.length, active: runningCount });
       }
 
       this.renderInstalledPlugins();
       this.updateDeviceStudioPluginTypes();
     } catch (err) {
-      if (statusEl) statusEl.textContent = 'Error';
-      container.innerHTML = `<div class="card error" style="padding: 12px; color: var(--danger);">Failed to load plugins: ${escapeHtml(err.message)}</div>`;
+      if (statusEl) statusEl.textContent = t('plg_error');
+      container.innerHTML = `<div class="card error" style="padding: 12px; color: var(--danger);">${tfHtml('plg_load_failed', { error: err.message })}</div>`;
     }
   }
 
@@ -161,9 +161,9 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
       container.innerHTML = `
         <div class="card" style="text-align: center; padding: 24px; color: var(--text-muted);">
           <div style="font-size: 24px; margin-bottom: 8px;">🔌</div>
-          <div style="font-weight: 600; margin-bottom: 4px;">No Plugins Installed</div>
-          <div class="mini">Explore community drivers in the Marketplace or upload a custom .tar.gz package.</div>
-          <button type="button" class="btn btn-sm btn-primary" style="margin-top: 14px;" onclick="window.harmonyApp && window.harmonyApp.switchPluginTab('marketplace')">Browse Marketplace</button>
+          <div style="font-weight: 600; margin-bottom: 4px;">${t('plg_none_title')}</div>
+          <div class="mini">${t('plg_none_hint')}</div>
+          <button type="button" class="btn btn-sm btn-primary" style="margin-top: 14px;" onclick="window.harmonyApp && window.harmonyApp.switchPluginTab('marketplace')">${t('plg_browse_marketplace')}</button>
         </div>
       `;
       return;
@@ -173,7 +173,8 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
       const isRunning = !!p.running;
       const isEnabled = p.enabled !== false;
       const badgeColor = isRunning ? 'var(--success)' : (isEnabled ? 'var(--warning)' : 'var(--text-muted)');
-      const badgeText = isRunning ? `Running (PID ${p.pid || '?'})` : (isEnabled ? 'Stopped' : 'Disabled');
+      const badgeStyle = `font-size: 11px; border: 1px solid ${badgeColor}; color: ${badgeColor}; background: transparent;`;  // i18n-ok: CSS
+      const badgeText = isRunning ? tf('plg_status_running', { pid: p.pid || '?' }) : (isEnabled ? t('plg_status_stopped') : t('plg_status_disabled'));
 
       return `
         <div class="card" style="margin-bottom: 12px; padding: 14px;">
@@ -181,41 +182,41 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
             <div>
               <div style="display: flex; align-items: center; gap: 8px;">
                 <strong style="font-size: 15px; color: var(--text-main);">${escapeHtml(p.name || p.id)}</strong>
-                <span class="badge" style="font-size: 11px; border: 1px solid ${badgeColor}; color: ${badgeColor}; background: transparent;">${escapeHtml(badgeText)}</span>
+                <span class="badge" style="${badgeStyle}">${escapeHtml(badgeText)}</span>
                 <span class="muted mini">v${escapeHtml(p.version || '1.0.0')}</span>
                 <span class="badge" style="font-size: 11px; border: 1px solid var(--border); color: var(--text-muted); background: transparent;">💾 ${escapeHtml(p.size_formatted || '0 B')}</span>
               </div>
-              <div class="muted mini" style="margin-top: 4px;">${escapeHtml(p.description || 'Community driver plugin')}</div>
+              <div class="muted mini" style="margin-top: 4px;">${escapeHtml(p.description || t('plg_default_desc'))}</div>
             </div>
             <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px;">
               <input type="checkbox" class="plugin-enable-toggle" data-plugin-id="${escapeHtml(p.id)}" ${isEnabled ? 'checked' : ''}>
-              <span>Enabled</span>
+              <span>${t('plg_enabled')}</span>
             </label>
           </div>
 
           ${p.device_definition ? `
             <div style="font-size: 12px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; margin: 8px 0;">
-              <span class="muted">Device Support:</span> <strong>${escapeHtml(p.device_definition.display_name || p.device_definition.device_type)}</strong>
+              <span class="muted">${t('plg_device_support')}</span> <strong>${escapeHtml(p.device_definition.display_name || p.device_definition.device_type)}</strong>
               ${p.device_definition.config_fields ? `<span class="muted mini" style="margin-left: 6px;">(${escapeHtml(p.device_definition.config_fields.map(f => f.label || f.key).join(', '))})</span>` : ''}
             </div>
           ` : ''}
 
           <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px;">
             <div style="display: flex; gap: 6px;">
-              <button type="button" class="btn btn-xs btn-outline btn-plugin-restart" data-plugin-id="${escapeHtml(p.id)}" ${!isEnabled ? 'disabled' : ''}>Restart</button>
+              <button type="button" class="btn btn-xs btn-outline btn-plugin-restart" data-plugin-id="${escapeHtml(p.id)}" ${!isEnabled ? 'disabled' : ''}>${t('plg_restart')}</button>
               ${isRunning
-                ? `<button type="button" class="btn btn-xs btn-outline btn-plugin-stop" data-plugin-id="${escapeHtml(p.id)}">Stop</button>`
-                : `<button type="button" class="btn btn-xs btn-outline btn-plugin-start" data-plugin-id="${escapeHtml(p.id)}" ${!isEnabled ? 'disabled' : ''}>Start</button>`
+                ? `<button type="button" class="btn btn-xs btn-outline btn-plugin-stop" data-plugin-id="${escapeHtml(p.id)}">${t('plg_stop')}</button>`
+                : `<button type="button" class="btn btn-xs btn-outline btn-plugin-start" data-plugin-id="${escapeHtml(p.id)}" ${!isEnabled ? 'disabled' : ''}>${t('plg_start')}</button>`
               }
-              <button type="button" class="btn btn-xs btn-outline btn-plugin-pull-dev" data-plugin-id="${escapeHtml(p.id)}" title="Pull latest committed files directly from git repository without a release">⟳ Pull from Git (Dev)</button>
+              <button type="button" class="btn btn-xs btn-outline btn-plugin-pull-dev" data-plugin-id="${escapeHtml(p.id)}" title="${t('plg_pull_title')}">${t('plg_pull_btn')}</button>
               ${p.device_definition ? `
-                <button type="button" class="btn btn-xs btn-primary btn-plugin-add-dev" data-plugin-id="${escapeHtml(p.id)}" ${!isEnabled ? 'disabled' : ''}>+ Add Device</button>
+                <button type="button" class="btn btn-xs btn-primary btn-plugin-add-dev" data-plugin-id="${escapeHtml(p.id)}" ${!isEnabled ? 'disabled' : ''}>${t('plg_add_device')}</button>
               ` : ''}
               ${(p.manifest?.pairing?.supported || p.pairing?.supported) ? `
-                <button type="button" class="btn btn-xs btn-outline btn-plugin-pair-card" data-plugin-id="${escapeHtml(p.id)}" ${!isEnabled ? 'disabled' : ''}>🔗 ${escapeHtml(p.manifest?.pairing?.button_label || p.pairing?.button_label || 'Pair with TV')}</button>
+                <button type="button" class="btn btn-xs btn-outline btn-plugin-pair-card" data-plugin-id="${escapeHtml(p.id)}" ${!isEnabled ? 'disabled' : ''}>🔗 ${escapeHtml(p.manifest?.pairing?.button_label || p.pairing?.button_label || t('plg_pair_with_tv'))}</button>
               ` : ''}
             </div>
-            <button type="button" class="btn btn-xs btn-ghost btn-plugin-uninstall" data-plugin-id="${escapeHtml(p.id)}" style="color: var(--danger);">Uninstall</button>
+            <button type="button" class="btn btn-xs btn-ghost btn-plugin-uninstall" data-plugin-id="${escapeHtml(p.id)}" style="color: var(--danger);">${t('plg_uninstall')}</button>
           </div>
         </div>
       `;
@@ -226,18 +227,18 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
       btn.addEventListener('click', async () => {
         const id = btn.getAttribute('data-plugin-id');
         btn.disabled = true;
-        btn.textContent = 'Pulling...';
-        showToast(`Pulling files for '${id}' from repository...`, 'info');
+        btn.textContent = t('plg_pulling');
+        showToast(tf('plg_pulling_files', { id }), 'info');
         try {
           const res = await this.client.postJson('/api/plugins/pull', { id });
           if (res && res.error) throw new Error(res.error);
-          showToast(`Plugin '${id}' updated from repository!`, 'success');
+          showToast(tf('plg_pulled', { id }), 'success');
           await this.refreshPluginsList();
         } catch (err) {
-          showToast(`Pull failed: ${err.message}`, 'error');
+          showToast(tf('plg_pull_failed', { error: err.message }), 'error');
         } finally {
           btn.disabled = false;
-          btn.textContent = '⟳ Pull from Git (Dev)';
+          btn.textContent = t('plg_pull_btn');
         }
       });
     });
@@ -248,10 +249,10 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
         const enable = input.checked;
         try {
           await this.client.pluginAction(id, enable ? 'enable' : 'disable');
-          showToast(`Plugin ${id} ${enable ? 'enabled' : 'disabled'}`, 'success');
+          showToast(enable ? tf('plg_toast_enabled', { id }) : tf('plg_toast_disabled', { id }), 'success');
           await this.refreshPluginsList();
         } catch (err) {
-          showToast(`Action failed: ${err.message}`, 'error');
+          showToast(tf('plg_action_failed', { error: err.message }), 'error');
           input.checked = !enable;
         }
       });
@@ -263,10 +264,10 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
         btn.disabled = true;
         try {
           await this.client.pluginAction(id, 'restart');
-          showToast(`Plugin ${id} restarted`, 'success');
+          showToast(tf('plg_toast_restarted', { id }), 'success');
           await this.refreshPluginsList();
         } catch (err) {
-          showToast(`Restart failed: ${err.message}`, 'error');
+          showToast(tf('plg_restart_failed', { error: err.message }), 'error');
         } finally {
           btn.disabled = false;
         }
@@ -279,10 +280,10 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
         btn.disabled = true;
         try {
           await this.client.pluginAction(id, 'start');
-          showToast(`Plugin ${id} started`, 'success');
+          showToast(tf('plg_toast_started', { id }), 'success');
           await this.refreshPluginsList();
         } catch (err) {
-          showToast(`Start failed: ${err.message}`, 'error');
+          showToast(tf('plg_start_failed', { error: err.message }), 'error');
         } finally {
           btn.disabled = false;
         }
@@ -295,10 +296,10 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
         btn.disabled = true;
         try {
           await this.client.pluginAction(id, 'stop');
-          showToast(`Plugin ${id} stopped`, 'success');
+          showToast(tf('plg_toast_stopped', { id }), 'success');
           await this.refreshPluginsList();
         } catch (err) {
-          showToast(`Stop failed: ${err.message}`, 'error');
+          showToast(tf('plg_stop_failed', { error: err.message }), 'error');
         } finally {
           btn.disabled = false;
         }
@@ -308,15 +309,15 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
     container.querySelectorAll('.btn-plugin-uninstall').forEach(btn => {
       btn.addEventListener('click', async () => {
         const id = btn.getAttribute('data-plugin-id');
-        const ok = await showConfirm(`Are you sure you want to uninstall plugin '${id}'? This will stop its daemon and remove all files.`);
+        const ok = await showConfirm(tf('plg_uninstall_confirm_full', { id }));
         if (!ok) return;
         btn.disabled = true;
         try {
           await this.client.uninstallPlugin(id);
-          showToast(`Plugin ${id} uninstalled`, 'success');
+          showToast(tf('plg_toast_uninstalled', { id }), 'success');
           await this.refreshPluginsList();
         } catch (err) {
-          showToast(`Uninstall failed: ${err.message}`, 'error');
+          showToast(tf('plg_uninstall_failed', { error: err.message }), 'error');
         } finally {
           btn.disabled = false;
         }
@@ -343,7 +344,7 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
     if (!container) return;
 
     try {
-      container.innerHTML = '<div class="muted mini" style="padding: 16px; text-align: center;">Fetching marketplace catalog from repositories...</div>';
+      container.innerHTML = '<div class="muted mini" style="padding: 16px; text-align: center;">' + t('plg_market_fetching') + '</div>';
       const res = await this.client.getPluginMarketplace();
       this.marketplaceCatalog = Array.isArray(res) ? res : (res?.marketplace || res?.plugins || []);
 
@@ -363,7 +364,7 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
 
       this.renderMarketplaceCatalog();
     } catch (err) {
-      container.innerHTML = `<div class="card error" style="padding: 12px; color: var(--danger);">Failed to load marketplace catalog: ${escapeHtml(err.message)}</div>`;
+      container.innerHTML = `<div class="card error" style="padding: 12px; color: var(--danger);">${tfHtml('plg_market_load_failed', { error: err.message })}</div>`;
     }
   }
 
@@ -374,8 +375,8 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
     if (!this.marketplaceCatalog || this.marketplaceCatalog.length === 0) {
       container.innerHTML = `
         <div class="card" style="text-align: center; padding: 24px; color: var(--text-muted);">
-          <div>No plugins found in configured repositories.</div>
-          <div class="mini" style="margin-top: 4px;">Check your repository URLs in the Repositories tab.</div>
+          <div>${t('plg_market_empty')}</div>
+          <div class="mini" style="margin-top: 4px;">${t('plg_market_check_repos')}</div>
         </div>
       `;
       return;
@@ -395,17 +396,17 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
               <div style="display: flex; align-items: center; gap: 8px;">
                 <strong style="font-size: 15px; color: var(--text-main);">${escapeHtml(item.name || item.id)}</strong>
                 <span class="muted mini">v${escapeHtml(item.version || '1.0.0')}</span>
-                ${item.author ? `<span class="muted mini">by ${escapeHtml(item.author)}</span>` : ''}
+                ${item.author ? `<span class="muted mini">${tfHtml('plg_by_author', { author: item.author })}</span>` : ''}
               </div>
-              <div class="muted mini" style="margin-top: 4px;">${escapeHtml(item.description || 'Community driver')}</div>
+              <div class="muted mini" style="margin-top: 4px;">${escapeHtml(item.description || t('plg_default_desc_short'))}</div>
             </div>
 
             <div>
               ${isUpToDate
-                ? `<span class="badge" style="color: var(--success); border: 1px solid var(--success); background: transparent;">Installed ✓</span>`
+                ? `<span class="badge" style="color: var(--success); border: 1px solid var(--success); background: transparent;">${t('plg_installed_check')}</span>`
                 : (isUpdateAvailable
-                  ? `<button type="button" class="btn btn-xs btn-primary btn-install-plugin" data-url="${escapeHtml(item.download_url)}" data-id="${escapeHtml(item.id)}">Update to v${escapeHtml(item.version)}</button>`
-                  : `<button type="button" class="btn btn-xs btn-primary btn-install-plugin" data-url="${escapeHtml(item.download_url)}" data-id="${escapeHtml(item.id)}">Install</button>`
+                  ? `<button type="button" class="btn btn-xs btn-primary btn-install-plugin" data-url="${escapeHtml(item.download_url)}" data-id="${escapeHtml(item.id)}">${tfHtml('plg_update_to', { version: item.version })}</button>`
+                  : `<button type="button" class="btn btn-xs btn-primary btn-install-plugin" data-url="${escapeHtml(item.download_url)}" data-id="${escapeHtml(item.id)}">${t('plg_install')}</button>`
                 )
               }
             </div>
@@ -413,7 +414,7 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
 
           ${item.device_definition ? `
             <div style="margin-top: 8px; font-size: 12px; color: var(--text-muted);">
-              Supports: <strong>${escapeHtml(item.device_definition.display_name || item.device_definition.device_type)}</strong>
+              ${t('plg_supports')} <strong>${escapeHtml(item.device_definition.display_name || item.device_definition.device_type)}</strong>
             </div>
           ` : ''}
         </div>
@@ -425,27 +426,27 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
         const url = btn.getAttribute('data-url');
         const id = btn.getAttribute('data-id');
         btn.disabled = true;
-        btn.textContent = 'Installing...';
+        btn.textContent = t('plg_installing_btn');
         await this.installPluginWithFallback(url, id);
         btn.disabled = false;
-        btn.textContent = 'Install';
+        btn.textContent = t('plg_install');
       });
     });
   }
 
   async installPluginWithFallback(downloadUrl, pluginId) {
     try {
-      showToast(`Downloading and installing plugin '${pluginId}'...`, 'info');
+      showToast(tf('plg_downloading_installing', { id: pluginId }), 'info');
       // Step 1: Direct Hub install via URL
       const res = await this.client.installPlugin(downloadUrl);
       if (res && res.error) throw new Error(res.error);
-      showToast(`Plugin '${pluginId}' installed successfully!`, 'success');
+      showToast(tf('plg_installed_ok', { id: pluginId }), 'success');
       await this.refreshPluginsList();
       this.switchPluginTab('installed');
     } catch (err) {
       console.warn('Hub direct download failed, attempting client-side browser proxy fallback:', err);
       try {
-        showToast('Direct download on hub failed, using browser download fallback...', 'info');
+        showToast(t('plg_browser_fallback'), 'info');
         // Step 2: Fetch via browser client and upload as base64 archive
         const response = await fetch(downloadUrl);
         if (!response.ok) throw new Error(`Browser download HTTP ${response.status}`);
@@ -453,30 +454,30 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
         const base64 = await this.blobToBase64(blob);
         const res = await this.client.installPlugin(base64);
         if (res && res.error) throw new Error(res.error);
-        showToast(`Plugin '${pluginId}' installed successfully via fallback!`, 'success');
+        showToast(tf('plg_installed_ok_fallback', { id: pluginId }), 'success');
         await this.refreshPluginsList();
         this.switchPluginTab('installed');
       } catch (fallbackErr) {
-        showToast(`Installation failed: ${fallbackErr.message}`, 'error');
+        showToast(tf('plg_installation_failed', { error: fallbackErr.message }), 'error');
       }
     }
   }
 
   async handlePluginArchiveUpload(file) {
     if (!file.name.endsWith('.tar.gz') && !file.name.endsWith('.tgz')) {
-      showToast('Please upload a .tar.gz or .tgz plugin archive', 'error');
+      showToast(t('plg_upload_wrong_type'), 'error');
       return;
     }
-    showToast(`Uploading and installing '${file.name}'...`, 'info');
+    showToast(tf('plg_uploading_installing', { name: file.name }), 'info');
     try {
       const base64 = await this.fileToBase64(file);
       const res = await this.client.installPlugin(base64);
       if (res && res.error) throw new Error(res.error);
-      showToast(`Plugin archive installed successfully!`, 'success');
+      showToast(t('plg_archive_installed'), 'success');
       await this.refreshPluginsList();
       this.switchPluginTab('installed');
     } catch (err) {
-      showToast(`Archive upload failed: ${err.message}`, 'error');
+      showToast(tf('plg_archive_failed', { error: err.message }), 'error');
     }
   }
 
@@ -515,7 +516,7 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
       this.pluginRepositories = Array.isArray(res) ? res : (res?.repositories || []);
       this.renderRepositories();
     } catch (err) {
-      container.innerHTML = `<div class="card error" style="padding: 12px; color: var(--danger);">Failed to load repositories: ${escapeHtml(err.message)}</div>`;
+      container.innerHTML = `<div class="card error" style="padding: 12px; color: var(--danger);">${tfHtml('plg_repos_load_failed', { error: err.message })}</div>`;
     }
   }
 
@@ -524,7 +525,7 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
     if (!container) return;
 
     if (!this.pluginRepositories || this.pluginRepositories.length === 0) {
-      container.innerHTML = `<div class="card" style="padding: 16px; color: var(--text-muted); text-align: center;">No repositories configured.</div>`;
+      container.innerHTML = `<div class="card" style="padding: 16px; color: var(--text-muted); text-align: center;">${t('plg_no_repos')}</div>`;
       return;
     }
 
@@ -542,10 +543,10 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
         const url = btn.getAttribute('data-url');
         try {
           await this.client.updatePluginRepositories('remove', url);
-          showToast('Repository removed', 'success');
+          showToast(t('plg_repo_removed'), 'success');
           await this.refreshRepositories();
         } catch (err) {
-          showToast(`Failed to remove repository: ${err.message}`, 'error');
+          showToast(tf('plg_repo_remove_failed', { error: err.message }), 'error');
         }
       });
     });
@@ -579,7 +580,7 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
       if (!optgroup) {
         optgroup = document.createElement('optgroup');
         optgroup.id = `${selectId}PluginGroup`;
-        optgroup.label = 'Community Plugins';
+        optgroup.label = t('plg_community_plugins');
         select.appendChild(optgroup);
       }
       optgroup.innerHTML = '';
@@ -594,7 +595,7 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
       pluginsWithDev.forEach(p => {
         const opt = document.createElement('option');
         opt.value = `plugin:${p.id}`;
-        opt.textContent = `${p.device_definition.display_name || p.name} (Plugin)`;
+        opt.textContent = tf('plg_type_option', { name: p.device_definition.display_name || p.name });
         optgroup.appendChild(opt);
       });
     });
@@ -664,7 +665,7 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
     wrap.style.display = 'block';
     wrap.innerHTML = `
       <div class="card" style="padding: 12px; background: var(--bg-card); border: 1px solid var(--border);">
-        <strong style="font-size: 13px; color: var(--accent); margin-bottom: 8px; display: block;">Plugin Configuration: ${escapeHtml(displayName)}</strong>
+        <strong style="font-size: 13px; color: var(--accent); margin-bottom: 8px; display: block;">${tfHtml('plg_config_title_short', { name: displayName })}</strong>
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
           ${fields.map(f => `
             <div>
@@ -677,11 +678,11 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
         ${hasPairing ? `
           <div style="margin-top: 10px; padding: 10px; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 6px; display: flex; justify-content: space-between; align-items: center; gap: 8px;">
             <div>
-              <div style="font-weight: 600; font-size: 12px; color: var(--text-main);">${escapeHtml(pairingDef.title || 'Device Pairing')}</div>
-              <div class="muted mini" id="new_plug_pair_status">${escapeHtml(pairingDef.description || `Pairing required for ${displayName}.`)}</div>
+              <div style="font-weight: 600; font-size: 12px; color: var(--text-main);">${escapeHtml(pairingDef.title || t('plg_device_pairing'))}</div>
+              <div class="muted mini" id="new_plug_pair_status">${escapeHtml(pairingDef.description || tf('plg_pairing_required', { name: displayName }))}</div>
             </div>
             <button type="button" class="btn btn-xs btn-primary btn-trigger-plug-pair" data-plugin-id="${escapeHtml(plug.id)}" data-input-id="plug_cfg_host">
-              🔗 ${escapeHtml(pairingDef.button_label || 'Pair Device')}
+              🔗 ${escapeHtml(pairingDef.button_label || t('plg_pair_device'))}
             </button>
           </div>
         ` : ''}
@@ -761,7 +762,7 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
     wrap.style.display = 'block';
     wrap.innerHTML = `
       <div class="card" style="padding: 10px; background: var(--bg-card); border: 1px solid var(--border); margin-top: 6px;">
-        <strong style="font-size: 12px; color: var(--accent); margin-bottom: 6px; display: block;">Plugin Settings: ${escapeHtml(displayName)}</strong>
+        <strong style="font-size: 12px; color: var(--accent); margin-bottom: 6px; display: block;">${tfHtml('plg_settings_title', { name: displayName })}</strong>
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px;">
           ${fields.map(f => {
             let curVal = '';
@@ -783,11 +784,11 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
         ${hasPairing ? `
           <div style="margin-top: 10px; padding: 10px; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 6px; display: flex; justify-content: space-between; align-items: center; gap: 8px;">
             <div>
-              <div style="font-weight: 600; font-size: 12px; color: var(--text-main);">${escapeHtml(pairingDef.title || 'Device Pairing')}</div>
-              <div class="muted mini" id="edit_plug_pair_status">${escapeHtml(pairingDef.description || `Pairing required for ${displayName}.`)}</div>
+              <div style="font-weight: 600; font-size: 12px; color: var(--text-main);">${escapeHtml(pairingDef.title || t('plg_device_pairing'))}</div>
+              <div class="muted mini" id="edit_plug_pair_status">${escapeHtml(pairingDef.description || tf('plg_pairing_required', { name: displayName }))}</div>
             </div>
             <button type="button" class="btn btn-xs btn-primary btn-trigger-plug-pair" data-plugin-id="${escapeHtml(plug.id)}" data-input-id="edit_plug_cfg_host">
-              🔗 ${escapeHtml(pairingDef.button_label || 'Pair Device')}
+              🔗 ${escapeHtml(pairingDef.button_label || t('plg_pair_device'))}
             </button>
           </div>
         ` : ''}
@@ -808,12 +809,12 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
     const plug = (this.installedPlugins || []).find(p => p.id === pluginId);
     const dispName = plug?.device_definition?.display_name || plug?.name || pluginId;
     const pairingDef = plug?.manifest?.pairing || plug?.pairing || {};
-    const titleText = pairingDef.title || `Pair ${dispName}`;
-    const descText = pairingDef.instructions || 'Ensure the target device is powered on and reachable on the local network.';
-    const hostLabelText = pairingDef.host_label || 'Device IP Address / Host';
-    const promptText = pairingDef.prompt || 'Enter the code shown on your device:';
+    const titleText = pairingDef.title || tf('plg_pair_name', { name: dispName });
+    const descText = pairingDef.instructions || t('plg_pair_instructions');
+    const hostLabelText = pairingDef.host_label || t('plg_pair_host_label');
+    const promptText = pairingDef.prompt || t('plg_pair_prompt');
     const pinLen = Number(pairingDef.pin_length) || 6;
-    const btnLabelText = pairingDef.button_label || 'Pair Device';
+    const btnLabelText = pairingDef.button_label || t('plg_pair_device');
 
     let modal = document.getElementById('pluginPairModal');
     if (!modal) {
@@ -825,7 +826,7 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
         <div class="card" style="width: 90%; max-width: 440px; padding: 20px; background: var(--bg-card); border: 1px solid var(--border); box-shadow: 0 10px 25px rgba(0,0,0,0.5); border-radius: 12px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
             <h3 style="margin: 0; font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
-              <span>🔗</span> <span id="pairModalTitle">Device Pairing</span>
+              <span>🔗</span> <span id="pairModalTitle">${t('plg_device_pairing')}</span>
             </h3>
             <button type="button" class="btn btn-xs btn-ghost" id="pairModalCloseBtn" style="font-size: 16px;">✕</button>
           </div>
@@ -838,15 +839,15 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
             </div>
             <div id="pairStep1Error" style="display: none; color: var(--danger); font-size: 12px; margin-bottom: 10px;"></div>
             <div style="display: flex; justify-content: flex-end; gap: 8px;">
-              <button type="button" class="btn btn-sm btn-outline" id="pairModalCancelBtn">Cancel</button>
-              <button type="button" class="btn btn-sm btn-primary" id="pairModalStartBtn">Start Pairing</button>
+              <button type="button" class="btn btn-sm btn-outline" id="pairModalCancelBtn">${t('cancel')}</button>
+              <button type="button" class="btn btn-sm btn-primary" id="pairModalStartBtn">${t('plg_start_pairing')}</button>
             </div>
           </div>
 
           <div id="pairStep2" style="display: none;">
             <div style="text-align: center; margin-bottom: 16px;">
               <div style="font-size: 28px; margin-bottom: 6px;">🔐</div>
-              <div style="font-weight: 600; font-size: 14px; margin-bottom: 4px;">Verification Code</div>
+              <div style="font-weight: 600; font-size: 14px; margin-bottom: 4px;">${t('plg_verification_code')}</div>
               <div class="muted mini" id="pairModalPrompt"></div>
             </div>
             <div style="margin-bottom: 18px; text-align: center;">
@@ -856,16 +857,16 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
             </div>
             <div id="pairStep2Error" style="display: none; color: var(--danger); font-size: 12px; text-align: center; margin-bottom: 10px;"></div>
             <div style="display: flex; justify-content: flex-end; gap: 8px;">
-              <button type="button" class="btn btn-sm btn-outline" id="pairModalBackBtn">Back</button>
-              <button type="button" class="btn btn-sm btn-primary" id="pairModalConfirmBtn">Verify Code</button>
+              <button type="button" class="btn btn-sm btn-outline" id="pairModalBackBtn">${t('plg_back')}</button>
+              <button type="button" class="btn btn-sm btn-primary" id="pairModalConfirmBtn">${t('plg_verify_code')}</button>
             </div>
           </div>
 
           <div id="pairStep3" style="display: none; text-align: center; padding: 10px 0;">
             <div style="font-size: 32px; color: var(--success); margin-bottom: 8px;">✓</div>
-            <div style="font-weight: 600; font-size: 15px; margin-bottom: 6px;">Successfully Paired!</div>
-            <div class="muted mini" id="pairSuccessMsg" style="margin-bottom: 16px;">The device is now authenticated and ready to receive commands.</div>
-            <button type="button" class="btn btn-sm btn-primary" id="pairModalDoneBtn" style="min-width: 100px;">Done</button>
+            <div style="font-weight: 600; font-size: 15px; margin-bottom: 6px;">${t('plg_paired_title')}</div>
+            <div class="muted mini" id="pairSuccessMsg" style="margin-bottom: 16px;">${t('plg_paired_desc')}</div>
+            <button type="button" class="btn btn-sm btn-primary" id="pairModalDoneBtn" style="min-width: 100px;">${t('plg_done')}</button>
           </div>
         </div>
       `;
@@ -885,7 +886,7 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
         const errEl = modal.querySelector('#pairStep1Error');
         errEl.style.display = 'none';
         if (!host) {
-          errEl.textContent = 'Please enter device IP address or host';
+          errEl.textContent = t('plg_pair_host_required');
           errEl.style.display = 'block';
           modal.querySelector('#pairModalHost').focus();
           return;
@@ -893,7 +894,7 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
 
         const startBtn = modal.querySelector('#pairModalStartBtn');
         startBtn.disabled = true;
-        startBtn.textContent = 'Connecting...';
+        startBtn.textContent = t('plg_connecting');
         try {
           const res = await this.client.pairPlugin(modal._currentPluginId, 'start', host);
           if (res && res.error) throw new Error(res.error);
@@ -903,11 +904,11 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
           modal.querySelector('#pairStep2Error').style.display = 'none';
           modal.querySelector('#pairModalPin').focus();
         } catch (err) {
-          errEl.textContent = `Pairing failed: ${err.message}`;
+          errEl.textContent = tf('plg_pairing_failed', { error: err.message });
           errEl.style.display = 'block';
         } finally {
           startBtn.disabled = false;
-          startBtn.textContent = 'Start Pairing';
+          startBtn.textContent = t('plg_start_pairing');
         }
       });
 
@@ -919,7 +920,7 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
 
         const expLen = modal._expectedPinLength || 6;
         if (pin.length !== expLen) {
-          errEl.textContent = `Please enter the ${expLen}-character verification code`;
+          errEl.textContent = tf('plg_pin_length', { n: expLen });
           errEl.style.display = 'block';
           modal.querySelector('#pairModalPin').focus();
           return;
@@ -927,24 +928,24 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
 
         const confirmBtn = modal.querySelector('#pairModalConfirmBtn');
         confirmBtn.disabled = true;
-        confirmBtn.textContent = 'Verifying...';
+        confirmBtn.textContent = t('plg_verifying');
         try {
           const res = await this.client.pairPlugin(modal._currentPluginId, 'pin', host, pin);
           if (res && res.error) throw new Error(res.error);
           modal.querySelector('#pairStep2').style.display = 'none';
           modal.querySelector('#pairStep3').style.display = 'block';
-          showToast('Device paired successfully!', 'success');
+          showToast(t('plg_paired_toast'), 'success');
 
           ['edit_plug_pair_status', 'new_plug_pair_status'].forEach(id => {
             const el = document.getElementById(id);
-            if (el) el.innerHTML = `<span style="color: var(--success); font-weight: 600;">✓ Paired with ${escapeHtml(host)}</span>`;
+            if (el) el.innerHTML = `<span style="color: var(--success); font-weight: 600;">${tfHtml('plg_paired_with', { host })}</span>`;
           });
         } catch (err) {
-          errEl.textContent = `Verification failed: ${err.message}`;
+          errEl.textContent = tf('plg_verify_failed', { error: err.message });
           errEl.style.display = 'block';
         } finally {
           confirmBtn.disabled = false;
-          confirmBtn.textContent = 'Verify Code';
+          confirmBtn.textContent = t('plg_verify_code');
         }
       });
 

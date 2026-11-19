@@ -29,9 +29,9 @@ export function createView() {
   function renderTabs() {
     tabContainer.innerHTML = '';
     const tabs = [
-      { id: 'installed', label: 'Installed Plugins' },
-      { id: 'marketplace', label: 'Community Marketplace' },
-      { id: 'repositories', label: 'Plugin Repositories' }
+      { id: 'installed', label: t('plg_tab_installed', 'Installed Plugins') },
+      { id: 'marketplace', label: t('plg_tab_marketplace', 'Community Marketplace') },
+      { id: 'repositories', label: t('plg_tab_repositories', 'Plugin Repositories') }
     ];
 
     tabs.forEach(tab => {
@@ -80,7 +80,7 @@ export function createView() {
 
   async function renderContent() {
     contentContainer.innerHTML = '';
-    contentContainer.appendChild(h('div', { className: 'text-dim', text: 'Loading...' }));
+    contentContainer.appendChild(h('div', { className: 'text-dim', text: t('loading', 'Loading...') }));
 
     await loadData();
     contentContainer.innerHTML = '';
@@ -98,18 +98,18 @@ export function createView() {
     const card = h('div', { className: 'card' }, [
       h('div', { className: 'card-header' }, [
         h('div', {}, [
-          h('h3', { className: 'card-title', text: 'Installed Hardware Plugins' }),
-          h('div', { className: 'text-dim', style: { fontSize: '12px' }, text: 'Installed dynamic device drivers & daemons' }),
+          h('h3', { className: 'card-title', text: t('plg_installed_title', 'Installed Hardware Plugins') }),
+          h('div', { className: 'text-dim', style: { fontSize: '12px' }, text: t('plg_installed_desc', 'Installed dynamic device drivers & daemons') }),
         ]),
         h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } }, [
           h('button', {
             className: 'btn btn-secondary btn-sm',
-            text: '📥 Dev Download (GitHub Raw)',
+            text: t('plg_dev_download_btn', '📥 Dev Download (GitHub Raw)'),
             onclick: () => openDevDownloadModal(),
           }),
           h('button', {
             className: 'btn btn-primary btn-sm',
-            text: '+ Upload Plugin (.tar.gz)',
+            text: t('plg_upload_btn', '+ Upload Plugin (.tar.gz)'),
             onclick: () => openUploadModal(),
           }),
         ]),
@@ -133,8 +133,8 @@ export function createView() {
         }
       }, [
         h('div', { style: { display: 'flex', justifyContent: 'space-between', fontSize: '12px' } }, [
-          h('span', { text: `💾 Hub Storage (/data): ${storageInfo.free_formatted || '0 B'} free of ${storageInfo.total_formatted || '0 B'}` }),
-          h('span', { className: 'text-dim', text: `${pct}% used` })
+          h('span', { text: t('plg_storage_line', '💾 Hub Storage (/data): {free} free of {total}', { free: storageInfo.free_formatted || '0 B', total: storageInfo.total_formatted || '0 B' }) }),
+          h('span', { className: 'text-dim', text: t('plg_storage_used', '{pct}% used', { pct }) })
         ]),
         h('div', { style: { width: '100%', height: '6px', background: 'var(--border)', borderRadius: '3px', overflow: 'hidden' } }, [
           h('div', { style: { width: `${pct}%`, height: '100%', background: pct > 90 ? 'var(--danger)' : 'var(--primary)' } })
@@ -145,14 +145,14 @@ export function createView() {
     const list = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } });
 
     if (installedPlugins.length === 0) {
-      list.appendChild(h('div', { className: 'text-dim', style: { padding: '12px' }, text: 'No plugins installed yet. Explore the Community Marketplace to add device integrations.' }));
+      list.appendChild(h('div', { className: 'text-dim', style: { padding: '12px' }, text: t('plg_none_installed', 'No plugins installed yet. Explore the Community Marketplace to add device integrations.') }));
     } else {
       installedPlugins.forEach(p => {
         const isRunning = p.running;
         const isEnabled = p.enabled !== false;
 
         const badgeClass = !isEnabled ? 'badge-secondary' : (isRunning ? 'badge-success' : 'badge-danger');
-        const badgeText = !isEnabled ? 'Disabled' : (isRunning ? `Running (PID ${p.pid})` : 'Stopped');
+        const badgeText = !isEnabled ? t('plg_status_disabled', 'Disabled') : (isRunning ? t('plg_status_running', 'Running (PID {pid})', { pid: p.pid }) : t('plg_status_stopped', 'Stopped'));
 
         const item = h('div', {
           className: 'card',
@@ -172,49 +172,49 @@ export function createView() {
               h('span', { className: `badge ${badgeClass}`, text: badgeText }),
               h('span', { className: 'badge badge-secondary', style: { fontSize: '11px' }, text: `💾 ${p.size_formatted || '0 B'}` }),
             ]),
-            h('div', { className: 'text-dim', style: { fontSize: '13px' }, text: p.description || 'No description provided' }),
-            h('div', { className: 'text-dim', style: { fontSize: '11px' }, text: `ID: ${p.id} | Socket: /tmp/plugins/${p.id}.sock` }),
+            h('div', { className: 'text-dim', style: { fontSize: '13px' }, text: p.description || t('plg_no_description', 'No description provided') }),
+            h('div', { className: 'text-dim', style: { fontSize: '11px' }, text: t('plg_id_socket', 'ID: {id} | Socket: /tmp/plugins/{id}.sock', { id: p.id }) }),
           ]),
           h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [
             h('button', {
               className: `btn btn-sm ${isEnabled ? 'btn-secondary' : 'btn-primary'}`,
-              text: isEnabled ? 'Disable' : 'Enable',
+              text: isEnabled ? t('plg_disable', 'Disable') : t('plg_enable', 'Enable'),
               onclick: async () => {
                 await api.pluginAction(p.id, isEnabled ? 'disable' : 'enable');
-                toast.info(`Plugin ${p.id} ${isEnabled ? 'disabled' : 'enabled'}`);
+                toast.info(isEnabled ? t('plg_toast_disabled', 'Plugin {id} disabled', { id: p.id }) : t('plg_toast_enabled', 'Plugin {id} enabled', { id: p.id }));
                 renderContent();
               }
             }),
             isEnabled && h('button', {
               className: 'btn btn-secondary btn-sm',
-              text: 'Restart',
+              text: t('plg_restart', 'Restart'),
               onclick: async () => {
                 await api.pluginAction(p.id, 'restart');
-                toast.success(`Restarted ${p.name || p.id}`);
+                toast.success(t('plg_restarted', 'Restarted {name}', { name: p.name || p.id }));
                 renderContent();
               }
             }),
             h('button', {
               className: 'btn btn-danger btn-sm',
-              text: 'Uninstall',
+              text: t('plg_uninstall', 'Uninstall'),
               onclick: async () => {
                 const ok = await confirm({
-                  title: 'Uninstall Plugin',
-                  message: `Are you sure you want to uninstall '${p.name || p.id}'?`,
-                  confirmText: 'Uninstall',
+                  title: t('plg_uninstall_title', 'Uninstall Plugin'),
+                  message: t('plg_uninstall_confirm', "Are you sure you want to uninstall '{name}'?", { name: p.name || p.id }),
+                  confirmText: t('plg_uninstall', 'Uninstall'),
                   danger: true
                 });
                 if (ok) {
                   try {
                     const res = await api.uninstallPlugin(p.id);
                     if (res && res.error) {
-                      toast.error(`Cannot uninstall: ${res.error}`);
+                      toast.error(t('plg_cannot_uninstall', 'Cannot uninstall: {error}', { error: res.error }));
                     } else {
-                      toast.success(`Uninstalled ${p.name || p.id}`);
+                      toast.success(t('plg_uninstalled', 'Uninstalled {name}', { name: p.name || p.id }));
                       renderContent();
                     }
                   } catch (err) {
-                    toast.error(`Cannot uninstall: ${err.message}`);
+                    toast.error(t('plg_cannot_uninstall', 'Cannot uninstall: {error}', { error: err.message }));
                   }
                 }
               }
@@ -233,12 +233,12 @@ export function createView() {
     const card = h('div', { className: 'card' }, [
       h('div', { className: 'card-header' }, [
         h('div', {}, [
-          h('h3', { className: 'card-title', text: 'Community Plugin Marketplace' }),
-          h('div', { className: 'text-dim', style: { fontSize: '12px' }, text: 'Curated integrations from official & custom repositories' }),
+          h('h3', { className: 'card-title', text: t('plg_market_title', 'Community Plugin Marketplace') }),
+          h('div', { className: 'text-dim', style: { fontSize: '12px' }, text: t('plg_market_desc', 'Curated integrations from official & custom repositories') }),
         ]),
         h('button', {
           className: 'btn btn-secondary btn-sm',
-          text: '🔄 Refresh Catalog',
+          text: t('plg_refresh_catalog', '🔄 Refresh Catalog'),
           onclick: () => renderContent(),
         }),
       ]),
@@ -247,7 +247,7 @@ export function createView() {
     const grid = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } });
 
     if (marketplacePlugins.length === 0) {
-      grid.appendChild(h('div', { className: 'text-dim', style: { padding: '12px' }, text: 'No plugins found in configured repositories.' }));
+      grid.appendChild(h('div', { className: 'text-dim', style: { padding: '12px' }, text: t('plg_market_empty', 'No plugins found in configured repositories.') }));
     } else {
       marketplacePlugins.forEach(p => {
         const installed = installedPlugins.find(ip => ip.id === p.id);
@@ -275,19 +275,19 @@ export function createView() {
               href: p.homepage,
               target: '_blank',
               style: { fontSize: '11px', color: 'var(--accent)', textDecoration: 'none' },
-              text: 'View Documentation / Source →'
+              text: t('plg_view_docs', 'View Documentation / Source →')
             }),
           ]),
           h('div', {}, [
-            installed && !hasUpdate && h('span', { className: 'badge badge-success', style: { padding: '6px 12px' }, text: 'Installed' }),
+            installed && !hasUpdate && h('span', { className: 'badge badge-success', style: { padding: '6px 12px' }, text: t('plg_installed_badge', 'Installed') }),
             hasUpdate && h('button', {
               className: 'btn btn-accent btn-sm',
-              text: `Update (v${p.version})`,
+              text: t('plg_update_btn', 'Update (v{version})', { version: p.version }),
               onclick: () => installFromRepo(p)
             }),
             !installed && h('button', {
               className: 'btn btn-primary btn-sm',
-              text: 'Install',
+              text: t('plg_install', 'Install'),
               onclick: () => installFromRepo(p)
             })
           ])
@@ -304,12 +304,12 @@ export function createView() {
     const card = h('div', { className: 'card' }, [
       h('div', { className: 'card-header' }, [
         h('div', {}, [
-          h('h3', { className: 'card-title', text: 'Configured Repositories' }),
-          h('div', { className: 'text-dim', style: { fontSize: '12px' }, text: 'Sources used to discover and update community plugins' }),
+          h('h3', { className: 'card-title', text: t('plg_repos_title', 'Configured Repositories') }),
+          h('div', { className: 'text-dim', style: { fontSize: '12px' }, text: t('plg_repos_desc', 'Sources used to discover and update community plugins') }),
         ]),
         h('button', {
           className: 'btn btn-primary btn-sm',
-          text: '+ Add Repository',
+          text: t('plg_add_repo_btn', '+ Add Repository'),
           onclick: () => openAddRepoModal(),
         }),
       ]),
@@ -332,10 +332,10 @@ export function createView() {
         h('div', { style: { wordBreak: 'break-all', fontFamily: 'monospace', fontSize: '13px' }, text: repoUrl }),
         h('button', {
           className: 'btn btn-danger btn-sm',
-          text: 'Remove',
+          text: t('plg_remove', 'Remove'),
           onclick: async () => {
             await api.updatePluginRepositories('remove', repoUrl);
-            toast.info('Repository removed');
+            toast.info(t('plg_repo_removed', 'Repository removed'));
             renderContent();
           }
         })
@@ -349,15 +349,15 @@ export function createView() {
 
   async function installFromRepo(plugin) {
     if (!plugin.download_url) {
-      toast.error('Plugin manifest has no download_url');
+      toast.error(t('plg_no_download_url', 'Plugin manifest has no download_url'));
       return;
     }
-    toast.info(`Installing ${plugin.name}...`);
+    toast.info(t('plg_installing', 'Installing {name}...', { name: plugin.name }));
     try {
       // 1. Primary: Hub direct download
       const res = await api.installPlugin(plugin.download_url);
       if (res && res.ok) {
-        toast.success(`Successfully installed ${plugin.name}!`);
+        toast.success(t('plg_install_ok', 'Successfully installed {name}!', { name: plugin.name }));
         renderContent();
         return;
       }
@@ -365,7 +365,7 @@ export function createView() {
     } catch (directErr) {
       // 2. Client-side browser download fallback (air-gapped hubs / TLS cert issues)
       try {
-        toast.info('Direct download failed, attempting browser proxy download...');
+        toast.info(t('plg_proxy_try', 'Direct download failed, attempting browser proxy download...'));
         const resp = await fetch(plugin.download_url);
         if (!resp.ok) throw new Error(`HTTP error ${resp.status}`);
         const blob = await resp.blob();
@@ -375,18 +375,18 @@ export function createView() {
             const base64 = reader.result.split(',')[1];
             const uploadRes = await api.installPlugin(base64);
             if (uploadRes && uploadRes.ok) {
-              toast.success(`Successfully installed ${plugin.name} via browser proxy!`);
+              toast.success(t('plg_install_ok_proxy', 'Successfully installed {name} via browser proxy!', { name: plugin.name }));
               renderContent();
             } else {
-              toast.error(`Install failed: ${uploadRes?.error || 'Unknown error'}`);
+              toast.error(t('plg_install_failed', 'Install failed: {error}', { error: uploadRes?.error || t('plg_unknown_error', 'Unknown error') }));
             }
           } catch (upErr) {
-            toast.error(`Proxy upload failed: ${upErr.message}`);
+            toast.error(t('plg_proxy_upload_failed', 'Proxy upload failed: {error}', { error: upErr.message }));
           }
         };
         reader.readAsDataURL(blob);
       } catch (proxyErr) {
-        toast.error(`Failed to install plugin: ${proxyErr.message}`);
+        toast.error(t('plg_install_failed_generic', 'Failed to install plugin: {error}', { error: proxyErr.message }));
       }
     }
   }
@@ -395,37 +395,37 @@ export function createView() {
     const urlInput = h('input', {
       type: 'text',
       className: 'form-input',
-      placeholder: 'https://raw.githubusercontent.com/user/repo/main/plugins/my-plugin/manifest.json'
+      placeholder: 'https://raw.githubusercontent.com/user/repo/main/plugins/my-plugin/manifest.json'  // i18n-ok: example URL
     });
     const content = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } }, [
-      h('div', { className: 'text-dim', text: 'Enter a direct link to a raw GitHub manifest.json file or folder. All files listed in manifest will be downloaded directly to the Hub without packaging.' }),
-      h('label', { className: 'form-label', text: 'Raw GitHub Manifest URL' }),
+      h('div', { className: 'text-dim', text: t('plg_dev_intro', 'Enter a direct link to a raw GitHub manifest.json file or folder. All files listed in manifest will be downloaded directly to the Hub without packaging.') }),
+      h('label', { className: 'form-label', text: t('plg_dev_url_label', 'Raw GitHub Manifest URL') }),
       urlInput,
     ]);
 
     createModal({
-      title: 'Download Dev Plugin from GitHub',
+      title: t('plg_dev_title', 'Download Dev Plugin from GitHub'),
       content,
       actions: [
-        { label: 'Cancel' },
+        { label: t('cancel', 'Cancel') },
         {
-          label: 'Download & Install',
+          label: t('plg_download_install', 'Download & Install'),
           variant: 'primary',
           onClick: async () => {
             const url = urlInput.value.trim();
             if (!url) {
-              toast.warn('Please enter a valid URL');
+              toast.warn(t('plg_enter_url', 'Please enter a valid URL'));
               return false;
             }
-            toast.info('Downloading plugin files directly from repository...');
+            toast.info(t('plg_dev_downloading', 'Downloading plugin files directly from repository...'));
             try {
               const res = await api.installPlugin(url, true);
               if (res && res.ok) {
-                toast.success('Dev plugin installed successfully!');
+                toast.success(t('plg_dev_installed', 'Dev plugin installed successfully!'));
                 renderContent();
                 return true;
               } else {
-                toast.error(`Install error: ${res?.error || res?.message || 'Failed'}`);
+                toast.error(t('plg_install_error', 'Install error: {error}', { error: res?.error || res?.message || t('plg_failed', 'Failed') }));
                 return false;
               }
             } catch (err) {
@@ -441,35 +441,35 @@ export function createView() {
   function openUploadModal() {
     const fileInput = h('input', { type: 'file', accept: '.tar.gz,.tgz', className: 'form-input' });
     const content = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } }, [
-      h('div', { className: 'text-dim', text: 'Select a plugin archive (.tar.gz) from your computer to install directly on the Hub.' }),
+      h('div', { className: 'text-dim', text: t('plg_upload_intro', 'Select a plugin archive (.tar.gz) from your computer to install directly on the Hub.') }),
       fileInput,
     ]);
 
     createModal({
-      title: 'Upload Plugin Package',
+      title: t('plg_upload_title', 'Upload Plugin Package'),
       content,
       actions: [
-        { label: 'Cancel' },
+        { label: t('cancel', 'Cancel') },
         {
-          label: 'Upload & Install',
+          label: t('plg_upload_install', 'Upload & Install'),
           variant: 'primary',
           onClick: async () => {
             const file = fileInput.files?.[0];
             if (!file) {
-              toast.warn('Please select a .tar.gz file');
+              toast.warn(t('plg_select_archive', 'Please select a .tar.gz file'));
               return false;
             }
-            toast.info(`Uploading ${file.name}...`);
+            toast.info(t('plg_uploading', 'Uploading {name}...', { name: file.name }));
             const reader = new FileReader();
             reader.onloadend = async () => {
               try {
                 const b64 = reader.result.split(',')[1];
                 const res = await api.installPlugin(b64);
                 if (res && res.ok) {
-                  toast.success('Plugin uploaded and installed!');
+                  toast.success(t('plg_uploaded', 'Plugin uploaded and installed!'));
                   renderContent();
                 } else {
-                  toast.error(`Install error: ${res?.error || 'Failed'}`);
+                  toast.error(t('plg_install_error', 'Install error: {error}', { error: res?.error || t('plg_failed', 'Failed') }));
                 }
               } catch (e) {
                 toast.error(e.message);
@@ -487,26 +487,26 @@ export function createView() {
     const urlInput = h('input', {
       type: 'text',
       className: 'form-input',
-      placeholder: 'https://raw.githubusercontent.com/user/repo/main/repository.json'
+      placeholder: 'https://raw.githubusercontent.com/user/repo/main/repository.json'  // i18n-ok: example URL
     });
     const content = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } }, [
-      h('label', { className: 'form-label', text: 'Repository JSON URL' }),
+      h('label', { className: 'form-label', text: t('plg_repo_url_label', 'Repository JSON URL') }),
       urlInput,
     ]);
 
     createModal({
-      title: 'Add Plugin Repository',
+      title: t('plg_add_repo_title', 'Add Plugin Repository'),
       content,
       actions: [
-        { label: 'Cancel' },
+        { label: t('cancel', 'Cancel') },
         {
-          label: 'Add',
+          label: t('plg_add', 'Add'),
           variant: 'primary',
           onClick: async () => {
             const url = urlInput.value.trim();
             if (!url) return false;
             await api.updatePluginRepositories('add', url);
-            toast.success('Repository added');
+            toast.success(t('plg_repo_added', 'Repository added'));
             renderContent();
             return true;
           }

@@ -117,7 +117,7 @@ export function createView() {
       const savePluginBtn = h('button', {
         className: 'btn btn-primary btn-sm',
         style: { alignSelf: 'flex-start', marginTop: '8px' },
-        text: 'Save Plugin Settings',
+        text: t('plg_save_settings', 'Save Plugin Settings'),
         onclick: async () => {
           try {
             const updatedConfig = {};
@@ -125,7 +125,7 @@ export function createView() {
               updatedConfig[key] = inp.type === 'number' ? Number(inp.value) : inp.value.trim();
             }
             savePluginBtn.disabled = true;
-            savePluginBtn.textContent = 'Saving...';
+            savePluginBtn.textContent = t('plg_saving', 'Saving...');
             await api.saveDeviceDetails({
               id: dev.id,
               deviceId: dev.id,
@@ -133,21 +133,21 @@ export function createView() {
               plugin: pluginId,
               config: updatedConfig,
             });
-            toast.success('Plugin settings saved!');
+            toast.success(t('plg_settings_saved', 'Plugin settings saved!'));
             await refreshInventory();
             dev.config = updatedConfig;
           } catch (e) {
             toast.error(e.message);
           } finally {
             savePluginBtn.disabled = false;
-            savePluginBtn.textContent = 'Save Plugin Settings';
+            savePluginBtn.textContent = t('plg_save_settings', 'Save Plugin Settings');
           }
         }
       });
 
       pluginCard = h('div', { className: 'card' }, [
         h('div', { className: 'card-header' }, [
-          h('h4', { className: 'card-title', text: `🧩 Plugin Configuration: ${pluginId}` }),
+          h('h4', { className: 'card-title', text: t('plg_config_title', '🧩 Plugin Configuration: {id}', { id: pluginId }) }),
         ]),
         fieldsContainer,
         savePluginBtn,
@@ -182,10 +182,10 @@ export function createView() {
             ]));
           });
         } else {
-          fieldsContainer.innerHTML = '<span class="text-dim" style="font-size:12px;">No configurable settings for this plugin.</span>';
+          fieldsContainer.replaceChildren(h('span', { className: 'text-dim', style: { fontSize: '12px' }, text: t('plg_no_settings', 'No configurable settings for this plugin.') }));
         }
       }).catch(() => {
-        fieldsContainer.innerHTML = '<span class="text-dim" style="font-size:12px;">Could not load plugin definition.</span>';
+        fieldsContainer.replaceChildren(h('span', { className: 'text-dim', style: { fontSize: '12px' }, text: t('plg_definition_failed', 'Could not load plugin definition.') }));
       });
     }
 

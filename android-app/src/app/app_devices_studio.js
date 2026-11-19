@@ -413,7 +413,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     if (editName) editName.value = dev.name || '';
     if (editType) {
       editType.disabled = true;
-      editType.title = 'Device type cannot be changed after creation';
+      editType.title = t('plg_type_locked');
       if (isPlugin) {
         const plugVal = (dev.type && dev.type.startsWith('plugin:')) ? dev.type : (pluginId ? `plugin:${pluginId}` : dev.type);
         let opt = editType.querySelector(`option[value="${plugVal}"]`) || editType.querySelector(`option[value="${dev.type}"]`);
@@ -422,12 +422,12 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
           if (!optgroup) {
             optgroup = document.createElement('optgroup');
             optgroup.id = 'editDevTypePluginGroup';
-            optgroup.label = 'Community Plugins';
+            optgroup.label = t('plg_community_plugins');
             editType.appendChild(optgroup);
           }
           opt = document.createElement('option');
           opt.value = plugVal;
-          opt.textContent = `${pluginDef?.device_definition?.display_name || pluginDef?.name || pluginId} (Plugin)`;
+          opt.textContent = tf('plg_type_option', { name: pluginDef?.device_definition?.display_name || pluginDef?.name || pluginId });
           optgroup.appendChild(opt);
         }
         editType.value = opt.value;
@@ -596,14 +596,14 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
 
     const payloadInp = document.getElementById('editCmdPayload');
     if (isPlugin) {
-      if (payloadLabel) payloadLabel.textContent = 'Plugin Keycode / Action';
-      if (payloadInp) payloadInp.placeholder = `PLUGIN:${pluginDef?.id || dev.plugin || 'plugin'}:<Action> or <Action>`;
+      if (payloadLabel) payloadLabel.textContent = t('plg_keycode_label');
+      if (payloadInp) payloadInp.placeholder = tf('plg_keycode_placeholder', { id: pluginDef?.id || dev.plugin || 'plugin' });
     } else if (isBt) {
-      if (payloadLabel) payloadLabel.textContent = 'Bluetooth HID Code';
-      if (payloadInp) payloadInp.placeholder = 'HID:07:0028 or HID:0C:0223';
+      if (payloadLabel) payloadLabel.textContent = t('cmd_bt_hid_code_label');
+      if (payloadInp) payloadInp.placeholder = t('cmd_bt_hid_code_placeholder');
     } else {
-      if (payloadLabel) payloadLabel.textContent = 'Command Data / Signal';
-      if (payloadInp) payloadInp.placeholder = '0000 006d ... or HID:07:0028 or KEY_ENTER';
+      if (payloadLabel) payloadLabel.textContent = t('command_data_signal');
+      if (payloadInp) payloadInp.placeholder = t('ph_cmd_payload_formats');
     }
 
     let modeVal = 'raw';
@@ -899,7 +899,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
 
     const filtered = defCmds.filter(c => !filter || c.name.toLowerCase().includes(filter));
     if (filtered.length === 0) {
-      cont.innerHTML = `<div class="muted mini" style="padding: 12px; text-align: center;">${defCmds.length === 0 ? 'No default commands defined by plugin.' : 'No commands match filter.'}</div>`;
+      cont.innerHTML = `<div class="muted mini" style="padding: 12px; text-align: center;">${defCmds.length === 0 ? t('plg_no_default_cmds') : t('plg_no_cmds_match')}</div>`;
       return;
     }
 
@@ -912,7 +912,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
             <span class="subtle mini" style="margin-left: 6px; font-family: monospace; font-size: 10px;">${escapeHtml(c.keyCode || '')}</span>
           </div>
           <div>
-            ${isAdded ? `<span class="badge ok mini">Added</span>` : `<button type="button" class="btn btn-xs btn-primary btn-plug-preset-add" data-name="${escapeHtml(c.name)}" data-code="${escapeHtml(c.keyCode || '')}">+ Add</button>`}
+            ${isAdded ? `<span class="badge ok mini">${t('plg_added')}</span>` : `<button type="button" class="btn btn-xs btn-primary btn-plug-preset-add" data-name="${escapeHtml(c.name)}" data-code="${escapeHtml(c.keyCode || '')}">${t('plg_add_one')}</button>`}
           </div>
         </div>
       `;
@@ -936,7 +936,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
           if (updatedDev) this.updateStudioDeviceView(updatedDev);
         } catch (err) {
           alert(t('failed_to_save', 'Failed to save: ') + err.message);
-          btn.textContent = '+ Add';
+          btn.textContent = t('plg_add_one');
           btn.disabled = false;
         }
       });
