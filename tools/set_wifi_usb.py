@@ -26,7 +26,7 @@ REPO_DIR = SCRIPT_DIR.parent
 if str(REPO_DIR) not in sys.path:
     sys.path.insert(0, str(REPO_DIR))
 
-from tools.harmony_hid import ALL_HUB_PIDS, HarmonyHid, HidErrorResponse  # noqa: E402
+from tools.harmony_hid import ALL_HUB_PIDS, HarmonyHid, HidErrorResponse, usb_open_failure_message  # noqa: E402
 
 WIFI_PASS_ENV = "HARMONY_WIFI_PASS"
 ENCRYPTIONS = ("WPA2-PSK", "WPA-PSK", "NONE")
@@ -37,20 +37,20 @@ STATUS_RETRY_S = 5
 
 
 class UsbAccessError(Exception):
-    """The Hub is on USB but this user may not open its device (Linux hidraw permissions)."""
+    """The Hub is on USB but could not be opened (Linux: permissions, or the device in use);
+    the text says what to do."""
 
 
 def connect() -> HarmonyHid | None:
-    denied: OSError | None = None
+    tried: list[HarmonyHid] = []
     for pid in ALL_HUB_PIDS:
         hid = HarmonyHid(pid=pid)
         if hid.open():
             return hid
-        err = getattr(hid, "open_error", None)
-        if isinstance(err, PermissionError):
-            denied = err
-    if denied is not None:
-        raise UsbAccessError(str(denied))
+        tried.append(hid)
+    message = usb_open_failure_message(tried)
+    if message:
+        raise UsbAccessError(message)
     return None
 
 
@@ -181,9 +181,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         hid = connect()
     except UsbAccessError as e:
-        print(f"[-] The Hub is on USB, but this user may not open its device ({e}).")
-        print("    Run the tool with sudo, or give your user read and write access to the Hub's")
-        print("    /dev/hidraw* device (a udev rule for 046D:C129 / 046D:C132).")
+        print("[-] " + str(e).replace("\n", "\n    "))
         return 1
     if not hid:
         print("[-] No Harmony Hub found on USB (046D:C129 / 046D:C132).")

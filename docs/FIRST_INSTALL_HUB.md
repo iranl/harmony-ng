@@ -13,7 +13,15 @@ This guide walks you through rooting and installing **HarmonyNG** (`hub_daemon`)
 - **Python 3.13 or newer**: Installed on host PC (no external libraries needed; uses standard library). Ubuntu 24.04 and Debian 12 ship an older Python: there, install 3.13 from python.org or with `uv python install 3.13`.
 - **OpenSSH client**: `ssh`, `scp` and `ssh-keygen` in the PATH. The tools run these programs.
 - **7-Zip** (`7z` or `7zz` in the PATH): only for the icon archive of the deploy (section 4).
-- **Linux only**: read and write access to the Hub's `/dev/hidraw*` node, so run the USB tools as root or add a udev rule for `046d`. Without it the tools report "Harmony Hub not detected on USB".
+- **Linux only**: the kernel binds no driver to Logitech's Harmony USB IDs (046D:C110-C14F are ignored on purpose), so there is no `/dev/hidraw*` node; the tools open the USB device node `/dev/bus/usb/<bus>/<device>` directly. No package is needed, only read and write access to that node: run the USB tools with `sudo`, or add a udev rule as `/etc/udev/rules.d/60-harmony.rules`, run `sudo udevadm control --reload` and connect the device again. This rule gives the user logged in at the desktop access:
+  ```
+  SUBSYSTEM=="usb", ATTR{idVendor}=="046d", ATTR{idProduct}=="c129|c12b|c132", TAG+="uaccess"
+  ```
+  Without a desktop login (e.g. over SSH), on Debian or Ubuntu, use this line instead and add your user to `plugdev` (`sudo usermod -aG plugdev $USER`, then log in again). Do not add `GROUP="plugdev"` where that group does not exist: newer systemd then ignores the whole line.
+  ```
+  SUBSYSTEM=="usb", ATTR{idVendor}=="046d", ATTR{idProduct}=="c129|c12b|c132", MODE="0660", GROUP="plugdev"
+  ```
+  Without access the tools say that the device is on USB but may not be opened, and name the node.
 - **Local Network**: 2.4 GHz 802.11b/g/n Wi-Fi, or direct RJ45 Ethernet cable (Pro 2400).
 
 ### Choose Your Installation Method

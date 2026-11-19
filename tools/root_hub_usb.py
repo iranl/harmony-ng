@@ -39,7 +39,7 @@ DROPBEAR_MIPS_PATH = BIN_DIR / "dropbearmulti_mips"
 if str(REPO_DIR) not in sys.path:
     sys.path.insert(0, str(REPO_DIR))
 
-from tools.harmony_hid import HarmonyHid, HUB_PID, HUB_PRO_PID, ALL_HUB_PIDS
+from tools.harmony_hid import HarmonyHid, HUB_PID, HUB_PRO_PID, ALL_HUB_PIDS, usb_open_failure_message
 
 # Shared SSH host key policy (tools/ssh_hostkeys.py, next to this file)
 if str(SCRIPT_DIR) not in sys.path:
@@ -413,16 +413,22 @@ def main() -> None:
     print("[*] Searching for Harmony Hub over USB HID (046D:C129 / 046D:C132)...")
     hid = None
     connected_pid = None
+    tried = []
     for pid in ALL_HUB_PIDS:
         candidate = HarmonyHid(pid=pid)
         if candidate.open():
             hid = candidate
             connected_pid = pid
             break
+        tried.append(candidate)
 
     if not hid or not connected_pid:
-        print("[-] Error: Harmony Hub not detected on USB.")
-        print("    Ensure the Hub is connected via micro-USB and powered ON.")
+        failure = usb_open_failure_message(tried)
+        if failure:
+            print("[-] Error: " + failure.replace("\n", "\n    "))
+        else:
+            print("[-] Error: Harmony Hub not detected on USB.")
+            print("    Ensure the Hub is connected via micro-USB and powered ON.")
         sys.exit(1)
 
     dev_label = "Harmony Pro Hub (2400)" if connected_pid == HUB_PRO_PID else "Harmony Hub"
