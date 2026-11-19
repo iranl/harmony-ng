@@ -199,6 +199,8 @@ static long http_body_limit(const char *req) {
     static const struct { const char *route; long max; } limits[] = {
         { "POST /import", HTTP_BODY_MAX_LARGE },
         { "POST /api/custom-icons", HTTP_BODY_MAX_LARGE },
+        /* a plugin archive sent as base64 JSON: the android-tv archive alone is over 64 KB */
+        { "POST /api/plugins/install", HTTP_BODY_MAX_LARGE },
         { "POST /api/rf-mapping-save", HTTP_BODY_MAX_MAP },
         { "POST /api/remote-mapping-save", HTTP_BODY_MAX_MAP },
         { "POST /api/ui-remote-layout", HTTP_BODY_MAX_MAP },
