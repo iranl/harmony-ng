@@ -264,6 +264,8 @@ The remote sets no ACK request flag on `RF_MSG_BATTERY_STATUS`, `RF_MSG_REMOTE_C
   - `0x04` `RF_CAP_UNIT_ID`: sends `RF_MSG_UNIT_ID` after every version report
   - `0x08` `RF_CAP_DEVICE_CMDS`: stores and ACKs `RF_MSG_DEVICE_CMD_CHUNK` (device browsing); for
     such a remote a device command frame without an ACK fails the config push like any other frame
+  - `0x10` `RF_CAP_SWITCH_START`: understands the switch start notice of `RF_MSG_ACTIVITY_SYNC`
+    (`payload[24]` `0x02`)
 
 The remote sends this report when its link first comes up, every 24 hours, and before each full config request, so a Hub that restarted learns the capabilities before it builds the push. The Hub keeps them in `/data/harmony/remote_slot<N>_version.json` (`caps`). A remote drops frame types it doesn't know without an ACK, so the Hub must not send newer frame types to a remote that doesn't report them.
 
@@ -381,8 +383,10 @@ while the link is up, also one applied from a settings push, and when the Hub as
 - Hub broadcasts upon activity change or sync query:
   - ID of 1 or 2 characters, or `"-1"` for PowerOff: `payload[0..2]` ID, `payload[3..23]` name (21 bytes).
   - Longer ID (e.g. `"12345678"`): `payload[0..9]` ID (10 bytes), `payload[10..23]` name (14 bytes).
-  - `payload[24]`: `1` = answer to a `RF_MSG_SYNC_REQUEST` (catch-up, no switch overlay), `0` = the activity just changed.
+  - `payload[24]`: `0x00` `RF_ACT_SYNC_COMPLETE` = the activity runs (a switch ended), `0x01` `RF_ACT_SYNC_QUERY` = answer to a `RF_MSG_SYNC_REQUEST` (catch-up, no switch overlay), `0x02` `RF_ACT_SYNC_STARTING` = the Hub started a switch to this activity.
+- hub_rf polls the activity state every 200 ms. When a switch starts it sends `0x02` with the target (from `/tmp/activity_target`), only to remotes that report `RF_CAP_SWITCH_START`: an older remote would take it for the end. When the switch ends it sends `0x00` with the running activity, also when that is the old one (the switch failed).
 - The remote opens the activity's screen (or home for `"-1"`) only while it shows home or an activity screen. In Settings, pairing or the device browser it records the new activity and keeps the page; the activity is there when the user goes back. A switch started on the remote itself always ends on its target screen.
+- Switch screen: `0x02` opens it on home and activity screens (or keeps the one the remote opened for its own switch). After a `0x02`, the next `0x00` closes it, whatever activity it names; the remote's own estimate closes it only 10 s after the estimated end. Without a `0x02` (older Hub) the screen closes on the `0x00` of its target or 400 ms after the estimate, as before. Once a Hub sent `0x02`, a `0x00` for a switch the remote did not show opens no switch screen (that switch is over).
 
 #### `RF_MSG_TIME_SYNC` (`0x10`)
 - Hub transmits time and timezone configuration:
@@ -462,9 +466,10 @@ while the link is up, also one applied from a settings push, and when the Hub as
 - Hub sends the steps the remote shows while an activity starts or stops, one per frame (ACK'd):
   - `payload[0]`: Chunk index in this push (at most 64 steps).
   - `payload[1]`: Step index within its sequence; bit 7 (`0x80`) marks a step of the activity's stop sequence.
-  - `payload[2]`: Number of steps in the start sequence (at most 8 per activity, ending at its `Switched` step); `1` on every stop step.
+  - `payload[2]`: Number of steps in the start sequence (at most 16 per activity, ending at its `Switched` step); `1` on every stop step (at most 16 per activity).
   - `payload[3..11]`: Activity ID (9 bytes), `"-1"` for power off.
-  - `payload[12..13]`: Step delay in ms (16-bit little-endian; 250 when the step has none, capped at 20000; the delay of a `Delay` step that follows is added).
+  - `payload[12..13]`: Step delay in ms (16-bit little-endian; 250 when the step has none, capped at 20000; the delay of a `Delay` step that follows is added, and a `Delay` before the first command is a step named `Delay`).
+- An activity other than `"-1"` whose devices have a `powerOnDelay` starts with a step named `Warmup`: the longest `powerOnDelay` of its devices (1500 ms when a device has none), which the Hub waits before the start sequence.
   - `payload[14..24]`: Step name (11 bytes).
 
 #### `RF_MSG_ACTIVITY_REQUEST` (`0x15`)

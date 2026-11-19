@@ -236,6 +236,9 @@ extern char g_switching_target_id[16];
 extern char g_switching_target_name[48];
 extern uint64_t g_switching_start_ms;
 extern uint32_t g_switching_total_ms;
+/* The Hub announced the shown switch (RF_ACT_SYNC_STARTING): its end notice closes the switch
+ * screen, whatever activity it names */
+extern volatile bool g_switch_hub_started;
 
 extern volatile bool g_is_syncing_config;
 extern uint64_t g_sync_start_ms;

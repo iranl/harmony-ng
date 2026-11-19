@@ -31,18 +31,23 @@ static uint8_t s_seq = 1;
     } while (0)
 
 /* ACTIVITY_SYNC from the Hub, short id format: id, NUL, name at payload[3], query flag at [24] */
-static void hub_activity(const char *id, const char *name, bool query_reply) {
+static void hub_activity_state(const char *id, const char *name, uint8_t state) {
     uint8_t p[25] = {0};
     memcpy(p, id, strlen(id) < 2 ? strlen(id) : 2);
     strncpy((char *)&p[3], name, 20);
-    p[24] = query_reply ? 1 : 0;
+    p[24] = state;
     rf_frame_t rf;
     rf_build_frame(&rf, 1, RF_MSG_ACTIVITY_SYNC, s_seq++, 0, p, 25);
     handle_hub_frame_remote(&rf);
 }
 
+static void hub_activity(const char *id, const char *name, bool query_reply) {
+    hub_activity_state(id, name, query_reply ? RF_ACT_SYNC_QUERY : RF_ACT_SYNC_COMPLETE);
+}
+
 static void reset_state(const char *running) {
     g_is_switching_activity = false;
+    g_switch_hub_started = false;
     g_initial_sync_received = true;
     snprintf(g_active_activity_id, sizeof(g_active_activity_id), "%s", running);
     g_last_switch_target_id[0] = '\0';
@@ -164,6 +169,55 @@ int main(void) {
     if (g_is_switching_activity) remote_show_switch_target(); /* the main loop at the bar's end */
     CHECK(!g_is_switching_activity && g_current_view == VIEW_NOT_PAIRED,
           "unpair during a Hub switch: the bar ends, \"Not paired\" stays");
+
+    /* Last: once the Hub sent a start notice, the remote takes it for a Hub that announces its
+       switches (a live change without one opens no progress bar) */
+
+    /* 10. A switch the Hub started, on home: the bar opens on the start notice and closes on the end */
+    reset_state("-1");
+    g_current_view = VIEW_ACTIVITIES;
+    hub_activity_state("3", "Music", RF_ACT_SYNC_STARTING);
+    CHECK(g_is_switching_activity && g_switch_hub_started && strcmp(g_switching_target_id, "3") == 0,
+          "Hub start notice on home: progress bar shown");
+    CHECK(strcmp(g_active_activity_id, "-1") == 0, "Hub start notice: the running activity is not changed yet");
+    hub_activity_state("3", "Music", RF_ACT_SYNC_COMPLETE);
+    CHECK(!g_is_switching_activity && g_current_view == VIEW_DEVICES && strcmp(g_active_activity_id, "3") == 0,
+          "Hub end notice: the bar closes on the activity's screen");
+
+    /* 11. A switch started on the remote that the Hub ends on the old activity (it failed) */
+    reset_state("2");
+    g_current_view = VIEW_DEVICES;
+    trigger_activity_switch("1", "Watch TV");
+    hub_activity_state("1", "Watch TV", RF_ACT_SYNC_STARTING);
+    CHECK(g_is_switching_activity && g_switch_hub_started, "own switch: the Hub's start notice keeps the bar");
+    hub_activity_state("2", "Play Games", RF_ACT_SYNC_COMPLETE);
+    CHECK(!g_is_switching_activity && strcmp(g_active_activity_id, "2") == 0 && g_current_view == VIEW_DEVICES,
+          "own switch ended by the Hub on another activity: the bar closes on it");
+
+    /* 12. A Hub switch while Settings is open: no bar, the page stays, the activity is recorded */
+    reset_state("2");
+    g_current_view = VIEW_SETTINGS;
+    g_settings_subview = SETTINGS_VIEW_DISPLAY;
+    hub_activity_state("1", "Watch TV", RF_ACT_SYNC_STARTING);
+    CHECK(!g_is_switching_activity, "Hub start notice in Settings: no progress bar");
+    hub_activity_state("1", "Watch TV", RF_ACT_SYNC_COMPLETE);
+    CHECK(!g_is_switching_activity && g_current_view == VIEW_SETTINGS && strcmp(g_active_activity_id, "1") == 0,
+          "Hub end notice in Settings: the page stays, the activity is recorded");
+
+    /* 13. An end notice without a start (remote asleep at the start) opens no bar afterwards */
+    reset_state("1");
+    g_current_view = VIEW_ACTIVITIES;
+    hub_activity_state("3", "Music", RF_ACT_SYNC_COMPLETE);
+    CHECK(!g_is_switching_activity && g_current_view == VIEW_DEVICES && strcmp(g_active_activity_id, "3") == 0,
+          "end notice without a start: no bar for a switch that is over, the activity's screen opens");
+
+    /* 14. A start notice during a config sync does not record the target as running */
+    reset_state("1");
+    g_is_syncing_config = true;
+    hub_activity_state("2", "Play Games", RF_ACT_SYNC_STARTING);
+    CHECK(strcmp(g_active_activity_id, "1") == 0 && !g_is_switching_activity,
+          "start notice during a config sync: the running activity stays");
+    g_is_syncing_config = false;
 
     if (failures) {
         printf("[-] test_remote_activity_follow: %d check(s) failed\n", failures);

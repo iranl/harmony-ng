@@ -29,6 +29,9 @@ static inline void sync_touch_chunk(void) {
     pthread_mutex_unlock(&g_sync_lock);
 }
 
+/* The Hub sent RF_ACT_SYNC_STARTING once: it announces every switch it shows to this remote */
+static bool s_hub_sends_start = false;
+
 static void sanitize_ascii(char *str, size_t max_len) {
     if (!str) return;
     for (size_t i = 0; i < max_len && str[i]; i++) {
@@ -71,18 +74,40 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
 
             /* While config sync or OTA update is running, do not clobber sync screen with activity view */
             if (g_is_syncing_config || g_is_ota_updating) {
+                if (f->payload[24] == RF_ACT_SYNC_STARTING) break; /* not running yet */
                 strncpy(g_active_activity_id, act_id, sizeof(g_active_activity_id) - 1);
                 strncpy(g_active_activity_name, act_name, sizeof(g_active_activity_name) - 1);
                 break;
             }
 
-            /* If remote is currently displaying the switching progress bar, and Hub confirms switch */
-            if (g_is_switching_activity && strcmp(act_id, g_switching_target_id) == 0) {
+            uint8_t sync_state = f->payload[24];
+
+            /* The Hub started a switch: the switch screen follows it until its end notice */
+            if (sync_state == RF_ACT_SYNC_STARTING) {
+                s_hub_sends_start = true;
+                if (g_is_switching_activity && strcmp(act_id, g_switching_target_id) == 0) {
+                    g_switch_hub_started = true; /* the switch this remote asked for */
+                } else if (g_is_switching_activity || remote_view_follows_hub()) {
+                    printf("[*] Hub started a switch to '%s' (%s)\n", act_name, act_id);
+                    trigger_activity_switch_external(act_id, act_name);
+                    g_switch_hub_started = true;
+                } else {
+                    printf("[*] Hub started a switch while view %d is open: screen kept\n", (int)g_current_view);
+                }
+                break;
+            }
+
+            /* The end of the shown switch: its target, or any activity once the Hub announced it
+               (a switch that failed ends on the old one) */
+            if (g_is_switching_activity && (strcmp(act_id, g_switching_target_id) == 0 ||
+                                            (g_switch_hub_started && sync_state == RF_ACT_SYNC_COMPLETE))) {
                 strncpy(g_active_activity_id, act_id, sizeof(g_active_activity_id) - 1);
                 strncpy(g_active_activity_name, act_name, sizeof(g_active_activity_name) - 1);
                 printf("[*] Hub confirmed switch complete to '%s' (%s), unlocking screen\n", act_name, act_id);
                 g_is_switching_activity = false;
+                g_switch_hub_started = false;
                 g_last_switch_completed_ms = now_ms;
+                snprintf(g_switching_target_id, sizeof(g_switching_target_id), "%s", act_id);
                 strncpy(g_last_switch_target_id, g_switching_target_id, sizeof(g_last_switch_target_id) - 1);
                 remote_show_switch_target();
                 g_selected_device_cmd = 0;
@@ -120,7 +145,12 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             printf("[*] Hub Activity Sync (live change): id=%s name=%s\n", act_id, act_name);
             bool is_recent_same_switch = (strcmp(g_last_switch_target_id, act_id) == 0 && (now_ms - g_last_switch_completed_ms < 20000));
             if (!g_is_switching_activity && !is_recent_same_switch) {
-                if (remote_view_follows_hub()) {
+                if (s_hub_sends_start) {
+                    /* This Hub announces its switches: one that was not shown is over now */
+                    strncpy(g_last_switch_target_id, act_id, sizeof(g_last_switch_target_id) - 1);
+                    g_last_switch_completed_ms = now_ms;
+                    remote_follow_hub_activity(act_id);
+                } else if (remote_view_follows_hub()) {
                     trigger_activity_switch_external(act_id, act_name);
                 } else {
                     /* Settings, pairing or the device browser stay on screen: no progress bar over

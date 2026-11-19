@@ -12,6 +12,10 @@
 /* Message types */
 /* Hub -> Remote */
 #define RF_MSG_ACTIVITY_SYNC       0x0A  /* Current activity ID + name */
+/* RF_MSG_ACTIVITY_SYNC payload[24] */
+#define RF_ACT_SYNC_COMPLETE       0x00  /* the activity runs (a switch ended, or steady state) */
+#define RF_ACT_SYNC_QUERY          0x01  /* reply to RF_MSG_SYNC_REQUEST (steady-state catch-up) */
+#define RF_ACT_SYNC_STARTING       0x02  /* the Hub started a switch to this activity */
 #define RF_MSG_ACTIVITY_LIST_CHUNK 0x0B  /* One activity entry (ACK'd) */
 #define RF_MSG_DEVICE_LIST_CHUNK   0x0C  /* One device entry (ACK'd) */
 #define RF_MSG_BUTTON_LIST_CHUNK   0x0D  /* One button entry (ACK'd) */
@@ -128,6 +132,7 @@
 #define RF_CAP_LONG_NAMES          0x02  /* RF_MSG_NAME_TAIL_CHUNK */
 #define RF_CAP_UNIT_ID             0x04  /* sends RF_MSG_UNIT_ID after every version report */
 #define RF_CAP_DEVICE_CMDS         0x08  /* stores and ACKs RF_MSG_DEVICE_CMD_CHUNK (device browsing) */
+#define RF_CAP_SWITCH_START        0x10  /* RF_ACT_SYNC_STARTING (older remotes take it for the end) */
 
 /* Screen timeout of the remote settings, in seconds: 0 kept the screen on (and the remote awake)
  * until the battery was empty. The remote's own Settings screen offers 10 to 120 s. */

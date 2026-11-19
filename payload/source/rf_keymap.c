@@ -125,6 +125,17 @@ void get_current_activity(char *out, size_t outlen) {
     snprintf(out, outlen, "-1");
 }
 
+int get_activity_target(char *out, size_t outlen) {
+    if (!out || outlen == 0) return 0;
+    out[0] = '\0';
+    FILE *f = fopen("/tmp/activity_target", "r"); /* orchestrator.c: written for a switch */
+    if (!f) return 0;
+    if (!fgets(out, outlen, f)) out[0] = '\0';
+    fclose(f);
+    out[strcspn(out, "\r\n ")] = '\0';
+    return out[0] != '\0';
+}
+
 int is_activity_transitioning(void) {
     FILE *fs = fopen("/tmp/activity_state", "r");
     if (fs) {
