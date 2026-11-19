@@ -966,16 +966,8 @@ int main(int argc, char **argv) {
         }
     }
 
-    flush_activity_usage();  /* init.sh stop sends SIGTERM first, which ends the main loop */
     flightlog_event("EXIT", "clean=1");
-    printf("[+] Cleaning up hardware resources...\n");
-    remote_wdt_close();
-    if (g_touch_fd >= 0) { ioctl(g_touch_fd, EVIOCGRAB, 0); close(g_touch_fd); }
-    if (g_gyro_fd >= 0)  { ioctl(g_gyro_fd, EVIOCGRAB, 0);  close(g_gyro_fd); }
-    if (g_rf_fd >= 0)    close(g_rf_fd);
-    if (g_btn_fd >= 0)   close(g_btn_fd);
-    if (g_fb_mem)        munmap(g_fb_mem, g_fb_size);
-    if (g_fb_fd >= 0)    close(g_fb_fd);
+    remote_hardware_cleanup();  /* init.sh stop sends SIGTERM first, which ends the main loop */
 
     return 0;
 }
