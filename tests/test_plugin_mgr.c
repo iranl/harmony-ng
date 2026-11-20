@@ -112,6 +112,7 @@ static char *file_sha(const char *path, char out[65]) {
 }
 
 int main(void) {
+    setvbuf(stdout, NULL, _IOLBF, 0); /* progress survives an abort in CI logs */
     char err[256] = {0};
     int rc;
     printf("[*] Running Plugin Manager Core Unit Tests...\n");
@@ -220,6 +221,19 @@ int main(void) {
     pack("/tmp/test_mock_plug.tar.gz");
     unlink("/tmp/test_plug_env");
     unlink("/tmp/test_plug_child");
+    /* A long inherited PATH (CI runners have one) reaches the plugin whole: a fixed buffer cut
+     * it before /usr/bin, and the plugin's commands were not found */
+    {
+        const char *p = getenv("PATH");
+        size_t n = 1200 + strlen(p ? p : "");
+        char *longp = malloc(n);
+        assert(longp);
+        memset(longp, 0, n);
+        for (int i = 0; i < 40; i++) strcat(longp, "/nonexistent/long/path/entry:");
+        strcat(longp, p ? p : "/usr/bin:/bin");
+        setenv("PATH", longp, 1);
+        free(longp);
+    }
     rc = plugin_mgr_install_archive("/tmp/test_mock_plug.tar.gz", NULL, err, sizeof(err));
     if (rc != 0) fprintf(stderr, "install: %s\n", err);
     assert(rc == 0);
@@ -227,6 +241,7 @@ int main(void) {
     pid_t child = read_pid("/tmp/test_plug_child");
     assert(child > 1);
     int pid = installed_field("test-roku", "pid");
+    if (pid <= 1) sh("cat /tmp/plugins/test-roku.log >&2");
     assert(pid > 1);
     {
         char env[512] = {0};

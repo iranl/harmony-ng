@@ -324,16 +324,24 @@ int plugin_mgr_start(const char *plugin_id) {
     snprintf(sock_path, sizeof(sock_path), "%s/%s.sock", HARMONY_PLUGINS_RUN_DIR, plugin_id);
     if (access(exe, X_OK) != 0) return -1;
 
-    char e_path[160], e_id[96], e_sock[160], e_data[200];
+    char e_id[96], e_sock[160], e_data[200];
+    /* sized to the inherited PATH: a fixed buffer cut a long one before /usr/bin */
     const char *old_path = getenv("PATH");
-    snprintf(e_path, sizeof(e_path), "PATH=/cache/bin:/data/harmony/bin:%s", old_path ? old_path : "/bin:/sbin:/usr/bin:/usr/sbin");
+    if (!old_path || !old_path[0]) old_path = "/bin:/sbin:/usr/bin:/usr/sbin";
+    size_t path_len = strlen(old_path) + sizeof("PATH=/cache/bin:/data/harmony/bin:");
+    char *e_path = malloc(path_len);
+    if (!e_path) return -1;
+    snprintf(e_path, path_len, "PATH=/cache/bin:/data/harmony/bin:%s", old_path);
     snprintf(e_id, sizeof(e_id), "HARMONY_PLUGIN_ID=%s", plugin_id);
     snprintf(e_sock, sizeof(e_sock), "HARMONY_SOCKET=%s", sock_path);
     snprintf(e_data, sizeof(e_data), "HARMONY_PLUGIN_DATA=%s", data_dir);
     size_t n_env = 0;
     while (environ && environ[n_env]) n_env++;
     char **envp = calloc(n_env + 5, sizeof(char *));
-    if (!envp) return -1;
+    if (!envp) {
+        free(e_path);
+        return -1;
+    }
     size_t k = 0;
     for (size_t i = 0; i < n_env; i++) {
         const char *v = environ[i];
@@ -353,6 +361,7 @@ int plugin_mgr_start(const char *plugin_id) {
     if (slot >= 0 && kid_alive_locked(slot)) {
         pthread_mutex_unlock(&s_kids_lock);
         free(envp);
+        free(e_path);
         return 0; /* already running */
     }
     for (slot = 0; slot < MAX_CHILDREN && s_kids[slot].pid > 0; slot++) {}
@@ -384,6 +393,7 @@ int plugin_mgr_start(const char *plugin_id) {
     }
     pthread_mutex_unlock(&s_kids_lock);
     free(envp);
+    free(e_path);
     return rc;
 }
 
