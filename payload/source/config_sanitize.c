@@ -88,20 +88,22 @@ void sanitize_devices_json(cJSON *root) {
         cJSON *jtype = cJSON_GetObjectItemCaseSensitive(src_d, "type");
         const char *type_str = (jtype && jtype->valuestring) ? jtype->valuestring : "IR";
 
+        /* A plugin device only through its "plugin" field or a "plugin:<id>" type, with a safe
+         * id: the free-text type of an IR device is never compared with plugin names. That
+         * choice wins over the MQTT and Bluetooth guesses below: a plugin whose name says
+         * "Bluetooth" (the new UI puts it in the manufacturer) lost its plugin. */
+        char res_plug_id[64] = {0};
+        int is_plugin = plugin_mgr_device_plugin_id(src_d, res_plug_id, sizeof(res_plug_id));
+
         cJSON *jmqtt_en = cJSON_GetObjectItemCaseSensitive(src_d, "mqttEnabled");
-        int is_mqtt = (strcasecmp(type_str, "MQTT") == 0 ||
+        int is_mqtt = !is_plugin && (strcasecmp(type_str, "MQTT") == 0 ||
                        (jmqtt_en && (cJSON_IsTrue(jmqtt_en) || (cJSON_IsNumber(jmqtt_en) && jmqtt_en->valueint == 1))));
 
         cJSON *jtrans = cJSON_GetObjectItemCaseSensitive(src_d, "transport");
-        int is_bt = (!is_mqtt) && ((jtrans && cJSON_IsNumber(jtrans) && jtrans->valueint == 32) ||
+        int is_bt = !is_plugin && !is_mqtt && ((jtrans && cJSON_IsNumber(jtrans) && jtrans->valueint == 32) ||
                        strcasecmp(type_str, "BT") == 0 || strcasecmp(type_str, "Bluetooth") == 0 ||
                        strcasestr(type_str, "bluetooth") != NULL || strcasestr(mfg_str, "bluetooth") != NULL ||
                        strcasecmp(type_str, "BTHID") == 0);
-
-        /* A plugin device only through its "plugin" field or a "plugin:<id>" type, with a safe
-         * id: the free-text type of an IR device is never compared with plugin names */
-        char res_plug_id[64] = {0};
-        int is_plugin = (!is_mqtt && !is_bt) && plugin_mgr_device_plugin_id(src_d, res_plug_id, sizeof(res_plug_id));
 
         const char *final_type = "IR";
         char plug_type_buf[128] = {0};

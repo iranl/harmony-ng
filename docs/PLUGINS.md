@@ -51,8 +51,10 @@ The Hub uses JFFS2 on SPI NOR flash, which is shared with the CC2544 RF transcei
 - `hub_daemon` checks enabled plugins every 10 seconds via a background watchdog tick, which reaps an exited plugin (`waitpid`) and logs its exit status.
 - If an enabled plugin crashes, it is automatically restarted. A plugin that keeps dying is restarted with a growing gap (20 s, 40 s, … up to 5 minutes); the gap resets once it stays up for a watchdog period. `GET /api/plugins` reports the count as `restarts`.
 - A plugin stopped on request (stop, disable, uninstall) is not restarted by the watchdog; `GET /api/plugins` reports it as `stopped`. Start, restart or enable clears it.
-- When plugins are stopped or restarted, `hub_daemon` follows strict **Rule 1 termination discipline**: `SIGTERM` to the plugin's process group (the plugin and any helper it started), up to 1 second for it to exit, then `SIGKILL`.
-- A plugin left running by a `hub_daemon` that was killed is found by its working directory (its plugin folder) and killed when the next `hub_daemon` starts, before the plugins start again. `init.sh stop` stops `hub_daemon` with `SIGTERM` (which stops its plugins), then kills any plugin process left the same way.
+- When plugins are stopped or restarted, `hub_daemon` follows strict **Rule 1 termination discipline**: `SIGTERM` to the plugin's process group (the plugin and any helper it started), up to 1 second for it to exit, then `SIGKILL`. A shutdown signals all plugins at once, so it takes at most 2 seconds in total.
+- One start, stop or restart per plugin at a time: a second one while the first runs answers HTTP 409.
+- Plugin processes `hub_daemon` does not track (helpers of a plugin that died, a plugin left by a `hub_daemon` that was killed) are found by the `HARMONY_PLUGIN_ID` in their environment and stopped (`SIGTERM`, then `SIGKILL` after 1 s) before the plugin starts again, on stop and uninstall, and when `hub_daemon` starts. `init.sh stop` stops `hub_daemon` with `SIGTERM` (which stops its plugins), then stops any plugin process left the same way.
+- An update interrupted by a power cut (between the swap of the old and the new folder) is put back in place when `hub_daemon` starts.
 
 ---
 
@@ -183,10 +185,13 @@ The Hub refuses an install whose manifest has no safe `id`, no `version`, no val
 
 - in the plugin folder (`/data/harmony/plugins/<id>`), in its own session and process group;
 - with the socket path as `argv[1]` and the environment below;
-- stdin `/dev/null`, stdout and stderr to `/tmp/plugins/<id>.log` (written new at each start);
+- stdin `/dev/null`, stdout and stderr to `/tmp/plugins/<id>.log` (written new at each start, appended to; `/tmp` is RAM, so the watchdog empties a log over 256 KB);
+- default signal handlers and no blocked signals (`hub_daemon` itself ignores `SIGPIPE`);
 - none of `hub_daemon`'s sockets or files.
 
-The entrypoint must **stay in the foreground** for as long as the plugin runs: do not fork into the background, do not write a pid file. When it exits, the watchdog sees it at once and restarts it (with the backoff above). To stop it, `hub_daemon` sends `SIGTERM` to its process group, waits up to 1 second, then sends `SIGKILL`: a helper the plugin started is stopped with it.
+The entrypoint must **stay in the foreground** for as long as the plugin runs: do not fork into the background, do not write a pid file. When it exits, the next watchdog tick (every 10 s) sees it and restarts it (with the backoff above). To stop it, `hub_daemon` sends `SIGTERM` to its process group, waits up to 1 second, then sends `SIGKILL`.
+
+Every process the plugin starts inherits `HARMONY_PLUGIN_ID` (keep it in the environment of your helpers). `hub_daemon` uses it to find plugin processes it does not track: helpers left when the plugin itself died, a copy that daemonized against the rule above, plugins of a `hub_daemon` that was killed. These get `SIGTERM`, then `SIGKILL` after 1 second: before the plugin starts again, on stop and uninstall, and at `hub_daemon` start (`init.sh stop` does the same). A program you start by hand in a plugin folder has no `HARMONY_PLUGIN_ID` and is left alone.
 
 ```c
 int main(int argc, char **argv) {
@@ -356,7 +361,7 @@ To make your plugin visible to all HarmonyNG users out-of-the-box:
 3. Open a Pull Request: CI builds it for the Hub and runs the host tests. Once merged, the release workflow publishes `<plugin_id>-v<version>` and adds the plugin, with its SHA-256, to `repository.json`. Bump `version` in `manifest.json` to release a change.
 
 #### Checksums and URLs
-BusyBox `wget` on the Hub does not verify TLS certificates. Every install that is not marked `dev` needs a SHA-256: the request's `sha256`, or the `sha256` of the marketplace entry for that `download_url`. Without one the install is refused, and an archive whose SHA-256 differs is refused. A `sha256` sent with a `dev` URL install is refused (the raw files cannot be checked). `build_plugins.sh` in `harmony-ng-plugins` writes `repository.json` with the checksum of each archive it builds: upload those exact archives. A pull installs the current marketplace entry of the plugin's id (checked the same way), or a dev plugin again from its dev URL.
+BusyBox `wget` on the Hub does not verify TLS certificates. Every install that is not marked `dev` needs a SHA-256: the request's `sha256`, or the `sha256` of the marketplace entry for that `download_url`. Without one the install is refused, and an archive whose SHA-256 differs is refused. A `sha256` sent with a `dev` URL install is refused (the raw files cannot be checked). `build_plugins.sh` in `harmony-ng-plugins` writes `repository.json` with the checksum of each archive it builds: upload those exact archives. A pull installs the current marketplace entry of the plugin's id (checked the same way), from the repository it was installed from when that is known (two repositories may list the same id), or a dev plugin again from its dev URL.
 
 URLs (repositories, downloads) must be `http://` or `https://` with plain characters only (letters, digits, `-._~:/?#@&+,=%`). File names in a manifest's `files` list must be relative paths of letters, digits, `.`, `_`, `-` and `/`, without `..`. An archive with an absolute path, a `..` entry, or a symbolic or hard link entry is refused.
 
@@ -399,6 +404,7 @@ Users can simply paste your repository URL into the **Repositories** tab in thei
 ### Security
 
 - A plugin runs as root. Installing one runs its code as root, so the install, pull and repository routes need authentication to be on and the admin role.
+- **What the authentication gate does not stop**: while authentication is off, any client on the LAN can turn it on with an account of its own (`POST /api/system-action`, action `auth`), sign in and install a plugin. The gate makes that visible (the owner is locked out of the Hub afterwards), it does not prevent it. Turn authentication on yourself before the Hub is on a network you do not control. Real protection against an untrusted LAN needs signed catalogs and archives (roadmap task 1.3).
 - **What the SHA-256 protects against, and what not**: the checksum catches a damaged or cut download. It does not prove the archive is the published one: `repository.json`, which carries the checksums, comes over the same unverified channel (`wget` without certificate checks, `http://` accepted). Someone who can change the traffic between the Hub and the repository can replace both. Signing `repository.json` in the release workflow and verifying it on the Hub (as firmware updates are verified) is planned (roadmap task 1.3); until then, add only repositories you trust, on a network you trust.
 
 ---

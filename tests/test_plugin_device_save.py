@@ -284,6 +284,26 @@ def main():
         check(st == 400, "Uninstalling roku-ecp rejected while Roku device exists")
         hub.http_post("/ir/delete-device", {"id": roku_dev_id, "deviceId": roku_dev_id})
 
+        # A plugin device whose type or manufacturer says "Bluetooth" keeps its plugin (the
+        # Bluetooth guess was made first and dropped it)
+        st, res = hub.http_post("/ir/new-device", {"name": "BT Amp", "type": "Bluetooth Speaker", "plugin": "roku-ecp",
+                                                   "manufacturer": "Bluetooth Amp Plugin", "config": {"ip_address": "10.0.0.5"}})
+        bt_id = str(res.get("deviceId") or res.get("id"))
+        st, devs = hub.http_get("/api/devices")
+        bt_dev = next((d for d in devs.get("devices", []) if str(d.get("id")) == bt_id), {})
+        check(bt_dev.get("plugin") == "roku-ecp" and "bdaddr" not in bt_dev, "Bluetooth-named plugin device keeps its plugin", str(bt_dev))
+        # ... and goes back to IR with plugin ""
+        st, res = hub.http_post("/api/device-save", {"deviceId": bt_id, "name": "BT Amp", "type": "IR", "plugin": ""})
+        check(st == 200, "Plugin device saved back as IR", str((st, res)))
+        st, devs = hub.http_get("/api/devices")
+        bt_dev = next((d for d in devs.get("devices", []) if str(d.get("id")) == bt_id), {})
+        check("plugin" not in bt_dev and not str(bt_dev.get("type", "")).startswith("plugin:"), "plugin \"\" clears the plugin", str(bt_dev))
+        hub.http_post("/ir/delete-device", {"id": bt_id, "deviceId": bt_id})
+
+        # stop of a plugin that is not installed: 404, no marker for any id a client names
+        st, res = hub.http_post("/api/plugins/action", {"id": "never-installed", "action": "stop"})
+        check(st == 404, "Stop of an unknown plugin answers 404", str((st, res)))
+
         # -------------------------------------------------------------
         # Test 4: Delete device, then uninstall plugin successfully
         # -------------------------------------------------------------

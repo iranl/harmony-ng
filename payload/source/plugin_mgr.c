@@ -82,10 +82,12 @@ static int is_safe_url(const char *url) {
     return 1;
 }
 
-/* A file path named in a manifest: relative, inside the plugin directory, plain characters */
+/* A file path named in a manifest: relative, inside the plugin directory, plain characters.
+ * No part starts with a dot: the copy into place skips dot names, and a "bin/.drv"
+ * entrypoint installed as "ok" without its binary. */
 static int is_safe_rel_path(const char *f) {
     if (!f || !f[0] || f[0] == '/' || strlen(f) > 200) return 0;
-    if (strstr(f, "..") || strstr(f, "//")) return 0;
+    if (f[0] == '.' || strstr(f, "/.") || strstr(f, "//")) return 0;
     for (const unsigned char *p = (const unsigned char *)f; *p; p++) {
         if (isalnum(*p) || *p == '.' || *p == '_' || *p == '-' || *p == '/') continue;
         return 0;
@@ -215,6 +217,128 @@ static struct {
 } s_kids[MAX_CHILDREN];
 static pthread_mutex_t s_kids_lock = PTHREAD_MUTEX_INITIALIZER;
 
+/* Plugins with a start or stop under way: a second one for the same id answers busy. Two
+ * restarts at once removed the socket the newer instance had just bound. */
+static char s_busy[MAX_CHILDREN][64];
+
+static int busy_take(const char *id) {
+    int slot = -1;
+    pthread_mutex_lock(&s_kids_lock);
+    for (int i = 0; i < MAX_CHILDREN; i++) {
+        if (strcmp(s_busy[i], id) == 0) {
+            slot = -2;
+            break;
+        }
+        if (!s_busy[i][0] && slot == -1) slot = i;
+    }
+    if (slot >= 0) snprintf(s_busy[slot], sizeof(s_busy[slot]), "%s", id);
+    pthread_mutex_unlock(&s_kids_lock);
+    return slot >= 0;
+}
+
+static void busy_drop(const char *id) {
+    pthread_mutex_lock(&s_kids_lock);
+    for (int i = 0; i < MAX_CHILDREN; i++) {
+        if (strcmp(s_busy[i], id) == 0) s_busy[i][0] = '\0';
+    }
+    pthread_mutex_unlock(&s_kids_lock);
+}
+
+/* The environment handed to plugins, copied once at init: walking environ at each start
+ * raced with setenv("TZ") of a settings save on another thread. TZ is left out: uClibc
+ * reads /etc/TZ, which the settings save keeps current. */
+static char **s_base_env;
+
+static void snapshot_env(void) {
+    if (s_base_env) return;
+    size_t n = 0;
+    while (environ && environ[n]) n++;
+    char **e = calloc(n + 1, sizeof(char *));
+    if (!e) return;
+    size_t k = 0;
+    for (size_t i = 0; i < n; i++) {
+        const char *v = environ[i];
+        if (strncmp(v, "PATH=", 5) == 0 || strncmp(v, "HARMONY_", 8) == 0 || strncmp(v, "TZ=", 3) == 0) continue;
+        if ((e[k] = strdup(v)) != NULL) k++;
+    }
+    s_base_env = e;
+}
+
+/* 1 when the process has HARMONY_PLUGIN_ID=<id> in its environment (any id for NULL): every
+ * plugin hub_daemon starts has it, and its helpers inherit it. A program started by hand in a
+ * plugin folder does not: the old sweep by working directory killed those, and the shell that
+ * ran init.sh from there. */
+static int proc_has_plugin_id(pid_t pid, const char *id) {
+    char path[64];
+    snprintf(path, sizeof(path), "/proc/%d/environ", (int)pid);
+    int fd = open(path, O_RDONLY);
+    if (fd < 0) return 0;
+    const size_t cap = 32768;
+    char *buf = malloc(cap);
+    size_t len = 0;
+    ssize_t r;
+    while (buf && len < cap - 1 && (r = read(fd, buf + len, cap - 1 - len)) > 0) len += (size_t)r;
+    close(fd);
+    if (!buf) return 0;
+    buf[len] = '\0';
+    int hit = 0;
+    for (size_t off = 0; off < len; off += strlen(buf + off) + 1) {
+        const char *v = buf + off;
+        if (strncmp(v, "HARMONY_PLUGIN_ID=", 18) != 0) continue;
+        hit = !id || strcmp(v + 18, id) == 0;
+        break;
+    }
+    free(buf);
+    return hit;
+}
+
+/* 1 when pgid is the process group of a plugin a slot tracks (its leader's pid) */
+static int tracked_group(pid_t pgid) {
+    int hit = 0;
+    pthread_mutex_lock(&s_kids_lock);
+    for (int i = 0; i < MAX_CHILDREN && pgid > 0; i++) {
+        if (s_kids[i].pid == pgid) hit = 1;
+    }
+    pthread_mutex_unlock(&s_kids_lock);
+    return hit;
+}
+
+/* Plugin processes no slot tracks: helpers left when a plugin's leader died, a copy that
+ * daemonized, the plugins of a hub_daemon that was killed. SIGTERM first (a helper's EXIT
+ * trap restores the Hub's Bluetooth address), SIGKILL to what is left after 1 s.
+ * id NULL: every plugin's. A running instance a slot tracks is never taken. */
+static void kill_plugin_leftovers(const char *id) {
+    pid_t found[64];
+    int n = 0;
+    pid_t self = getpid();
+    DIR *d = opendir("/proc");
+    if (!d) return;
+    struct dirent *de;
+    while ((de = readdir(d)) != NULL && n < 64) {
+        if (de->d_name[0] < '1' || de->d_name[0] > '9') continue;
+        pid_t pid = (pid_t)atoi(de->d_name);
+        if (pid <= 1 || pid == self || !proc_has_plugin_id(pid, id) || tracked_group(getpgid(pid))) continue;
+        found[n++] = pid;
+    }
+    closedir(d);
+    for (int i = 0; i < n; i++) {
+        printf("[*] Stopping plugin process %d that hub_daemon does not track (%s)\n", (int)found[i], id ? id : "any plugin");
+        kill(found[i], SIGTERM);
+    }
+    for (int t = 0; t < 20 && n > 0; t++) {
+        int left = 0;
+        for (int i = 0; i < n; i++) {
+            if (found[i] > 0 && kill(found[i], 0) != 0) found[i] = 0;
+            if (found[i] > 0) left++;
+        }
+        if (!left) return;
+        usleep(50000);
+    }
+    for (int i = 0; i < n; i++) {
+        if (found[i] > 0) kill(found[i], SIGKILL);
+    }
+}
+
 static int kid_find_locked(const char *id) {
     for (int i = 0; i < MAX_CHILDREN; i++) {
         if (s_kids[i].pid > 0 && strcmp(s_kids[i].id, id) == 0) return i;
@@ -266,6 +390,8 @@ static int is_plugin_enabled(const char *plugin_id) {
 int plugin_mgr_set_enabled(const char *plugin_id, int enabled) {
     if (!is_safe_plugin_id(plugin_id)) return -1;
     char dis_path[256];
+    snprintf(dis_path, sizeof(dis_path), "%s/%s", HARMONY_PLUGINS_DIR, plugin_id);
+    if (access(dis_path, F_OK) != 0) return PLUGIN_ERR_NOT_FOUND;
     snprintf(dis_path, sizeof(dis_path), "%s/%s/disabled", HARMONY_PLUGINS_DIR, plugin_id);
     if (enabled) {
         unlink(dis_path);
@@ -294,12 +420,14 @@ static int read_entrypoint(const char *plug_dir, char *out, size_t out_sz) {
     return ok ? 0 : -1;
 }
 
-int plugin_mgr_start(const char *plugin_id) {
-    if (!is_safe_plugin_id(plugin_id)) return -1;
-
+/* Start and stop with the plugin's busy flag held by the caller */
+static int do_start(const char *plugin_id) {
     char plug_dir[256];
     snprintf(plug_dir, sizeof(plug_dir), "%s/%s", HARMONY_PLUGINS_DIR, plugin_id);
-    if (access(plug_dir, F_OK) != 0) return -1;
+    if (access(plug_dir, F_OK) != 0) return PLUGIN_ERR_NOT_FOUND;
+    if (running_pid(plugin_id) > 0) return 0;
+    /* what an earlier instance left: else each restart of a plugin that forks added a copy */
+    kill_plugin_leftovers(plugin_id);
 
     mkdir(HARMONY_PLUGINS_RUN_DIR, 0755);
     char marker[128];
@@ -335,25 +463,29 @@ int plugin_mgr_start(const char *plugin_id) {
     snprintf(e_id, sizeof(e_id), "HARMONY_PLUGIN_ID=%s", plugin_id);
     snprintf(e_sock, sizeof(e_sock), "HARMONY_SOCKET=%s", sock_path);
     snprintf(e_data, sizeof(e_data), "HARMONY_PLUGIN_DATA=%s", data_dir);
+    snapshot_env();
     size_t n_env = 0;
-    while (environ && environ[n_env]) n_env++;
+    while (s_base_env && s_base_env[n_env]) n_env++;
     char **envp = calloc(n_env + 5, sizeof(char *));
     if (!envp) {
         free(e_path);
         return -1;
     }
     size_t k = 0;
-    for (size_t i = 0; i < n_env; i++) {
-        const char *v = environ[i];
-        if (strncmp(v, "PATH=", 5) == 0 || strncmp(v, "HARMONY_", 8) == 0) continue;
-        envp[k++] = (char *)v;
-    }
+    for (size_t i = 0; i < n_env; i++) envp[k++] = s_base_env[i];
     envp[k++] = e_path;
     envp[k++] = e_id;
     envp[k++] = e_sock;
     envp[k++] = e_data;
     envp[k] = NULL;
     char *argv[] = { exe, sock_path, NULL };
+    /* hub_daemon ignores SIGPIPE: a plugin inherited that, and a shell plugin whose pipe
+     * reader had exited looped on EPIPE */
+    struct sigaction sa_dfl;
+    memset(&sa_dfl, 0, sizeof(sa_dfl));
+    sa_dfl.sa_handler = SIG_DFL;
+    sigset_t no_mask;
+    sigemptyset(&no_mask);
 
     int rc = 0;
     pthread_mutex_lock(&s_kids_lock);
@@ -373,9 +505,12 @@ int plugin_mgr_start(const char *plugin_id) {
         if (pid == 0) {
             /* own session and process group: a stop signals the plugin and its helpers */
             setsid();
+            for (int s = 1; s < 32; s++) sigaction(s, &sa_dfl, NULL);
+            sigprocmask(SIG_SETMASK, &no_mask, NULL);
             if (chdir(plug_dir) != 0) _exit(126);
             int nul = open("/dev/null", O_RDONLY);
-            int lg = open(log_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            /* O_APPEND: the watchdog empties a log that grows too large (/tmp is RAM) */
+            int lg = open(log_path, O_WRONLY | O_CREAT | O_TRUNC | O_APPEND, 0644);
             if (nul >= 0) dup2(nul, 0);
             if (lg >= 0) { dup2(lg, 1); dup2(lg, 2); }
             /* hub_daemon's sockets and files stay with hub_daemon */
@@ -397,33 +532,42 @@ int plugin_mgr_start(const char *plugin_id) {
     return rc;
 }
 
-/* SIGTERM to the plugin's process group, up to 1 s for it to exit, then SIGKILL */
-static void stop_pid(pid_t pid) {
+/* SIGTERM to each plugin's process group, up to 1 s for all of them to exit, then SIGKILL.
+ * All at once: one by one, each plugin that ignores SIGTERM cost 1 s of init.sh's 2 s. */
+static void stop_pids(pid_t *pids, int n) {
     int status;
-    kill(-pid, SIGTERM);
-    kill(pid, SIGTERM);
-    for (int i = 0; i < 20; i++) {
-        if (waitpid(pid, &status, WNOHANG) != 0) return;
-        usleep(50000);
+    for (int i = 0; i < n; i++) {
+        kill(-pids[i], SIGTERM);
+        kill(pids[i], SIGTERM);
     }
-    kill(-pid, SIGKILL);
-    kill(pid, SIGKILL);
-    for (int i = 0; i < 20; i++) {
-        if (waitpid(pid, &status, WNOHANG) != 0) return;
-        usleep(50000);
+    for (int round = 0; round < 2; round++) {
+        for (int t = 0; t < 20; t++) {
+            int left = 0;
+            for (int i = 0; i < n; i++) {
+                if (pids[i] > 0 && waitpid(pids[i], &status, WNOHANG) != 0) pids[i] = 0;
+                if (pids[i] > 0) left++;
+            }
+            if (!left) return;
+            usleep(50000);
+        }
+        for (int i = 0; round == 0 && i < n; i++) {
+            if (pids[i] <= 0) continue;
+            kill(-pids[i], SIGKILL);
+            kill(pids[i], SIGKILL);
+        }
     }
 }
 
-int plugin_mgr_stop(const char *plugin_id) {
-    if (!is_safe_plugin_id(plugin_id)) return -1;
-
+static void write_stopped_marker(const char *plugin_id) {
     mkdir(HARMONY_PLUGINS_RUN_DIR, 0755);
     char marker[128];
     stopped_marker_path(plugin_id, marker, sizeof(marker));
     int mfd = open(marker, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (mfd >= 0) close(mfd);
+}
 
-    /* The slot is freed before the wait: no other request waits for this lock meanwhile */
+/* Frees the plugin's slot and returns its pid (0 when none) */
+static pid_t take_kid(const char *plugin_id) {
     pid_t pid = 0;
     pthread_mutex_lock(&s_kids_lock);
     int i = kid_find_locked(plugin_id);
@@ -433,43 +577,50 @@ int plugin_mgr_stop(const char *plugin_id) {
         s_kids[i].id[0] = '\0';
     }
     pthread_mutex_unlock(&s_kids_lock);
-    if (pid > 1) stop_pid(pid);
+    return pid;
+}
+
+static int do_stop(const char *plugin_id) {
+    char plug_dir[256];
+    snprintf(plug_dir, sizeof(plug_dir), "%s/%s", HARMONY_PLUGINS_DIR, plugin_id);
+    pid_t pid = take_kid(plugin_id);
+    /* not installed: nothing to stop, and no marker left in /tmp for any id a client names */
+    if (pid <= 0 && access(plug_dir, F_OK) != 0) return PLUGIN_ERR_NOT_FOUND;
+    write_stopped_marker(plugin_id);
 
     char sock_path[128];
     snprintf(sock_path, sizeof(sock_path), "%s/%s.sock", HARMONY_PLUGINS_RUN_DIR, plugin_id);
     unlink(sock_path);
+    if (pid > 1) stop_pids(&pid, 1);
+    /* with no slot too: helpers of a crashed leader, a copy that daemonized */
+    kill_plugin_leftovers(plugin_id);
+    unlink(sock_path);
     return 0;
 }
 
-/* Plugins left by a hub_daemon that was killed (kill -9, crash): they are no child of this
- * process, so they are found by their working directory and killed before the new start */
-static void kill_orphan_plugins(void) {
-    DIR *d = opendir("/proc");
-    if (!d) return;
-    const char *prefix = HARMONY_PLUGINS_DIR "/";
-    size_t plen = strlen(prefix);
-    pid_t self = getpid();
-    struct dirent *de;
-    while ((de = readdir(d)) != NULL) {
-        if (de->d_name[0] < '1' || de->d_name[0] > '9') continue;
-        pid_t pid = (pid_t)atoi(de->d_name);
-        if (pid <= 1 || pid == self) continue;
-        char link[64], target[512];
-        snprintf(link, sizeof(link), "/proc/%d/cwd", (int)pid);
-        ssize_t n = readlink(link, target, sizeof(target) - 1);
-        if (n <= 0) continue;
-        target[n] = '\0';
-        if (strncmp(target, prefix, plen) == 0) {
-            printf("[*] Killing plugin process %d left by an earlier hub_daemon (%s)\n", (int)pid, target);
-            kill(pid, SIGKILL);
-        }
-    }
-    closedir(d);
+int plugin_mgr_start(const char *plugin_id) {
+    if (!is_safe_plugin_id(plugin_id)) return -1;
+    if (!busy_take(plugin_id)) return PLUGIN_ERR_BUSY;
+    int rc = do_start(plugin_id);
+    busy_drop(plugin_id);
+    return rc;
+}
+
+int plugin_mgr_stop(const char *plugin_id) {
+    if (!is_safe_plugin_id(plugin_id)) return -1;
+    if (!busy_take(plugin_id)) return PLUGIN_ERR_BUSY;
+    int rc = do_stop(plugin_id);
+    busy_drop(plugin_id);
+    return rc;
 }
 
 int plugin_mgr_restart(const char *plugin_id) {
-    plugin_mgr_stop(plugin_id);
-    return plugin_mgr_start(plugin_id);
+    if (!is_safe_plugin_id(plugin_id)) return -1;
+    if (!busy_take(plugin_id)) return PLUGIN_ERR_BUSY;
+    int rc = do_stop(plugin_id);
+    if (rc == 0) rc = do_start(plugin_id);
+    busy_drop(plugin_id);
+    return rc;
 }
 
 static void delete_dir_recursive(const char *dir_path) {
@@ -546,6 +697,32 @@ static uint64_t free_bytes_at(const char *path) {
     return (uint64_t)vfs.f_bavail * vfs.f_frsize;
 }
 
+/* a host test points these at /proc (0 blocks, like ramfs) and a meminfo file of its own */
+#ifndef PLUGIN_TMP_STATFS_PATH
+#define PLUGIN_TMP_STATFS_PATH "/tmp"
+#endif
+#ifndef PLUGIN_MEMINFO_PATH
+#define PLUGIN_MEMINFO_PATH "/proc/meminfo"
+#endif
+
+/* Free RAM for an unpack in /tmp. The Hub's /tmp is ramfs, which reports 0 blocks in total
+ * (and 0 free): statvfs refused every install there. Without a size, MemFree plus half of
+ * Cached from /proc/meminfo. */
+static uint64_t tmp_free_bytes(void) {
+    struct statvfs vfs;
+    if (statvfs(PLUGIN_TMP_STATFS_PATH, &vfs) == 0 && vfs.f_blocks > 0) return (uint64_t)vfs.f_bavail * vfs.f_frsize;
+    FILE *f = fopen(PLUGIN_MEMINFO_PATH, "r");
+    if (!f) return 0;
+    unsigned long long mem_free = 0, cached = 0, v;
+    char line[128];
+    while (fgets(line, sizeof(line), f)) {
+        if (sscanf(line, "MemFree: %llu", &v) == 1) mem_free = v;
+        else if (sscanf(line, "Cached: %llu", &v) == 1) cached = v;
+    }
+    fclose(f);
+    return (mem_free + cached / 2) * 1024ULL;
+}
+
 /* One install, pull or uninstall at a time: two at once ran the copy and the removal on the
  * same directory */
 static pthread_mutex_t s_install_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -557,9 +734,15 @@ int plugin_mgr_uninstall(const char *plugin_id) {
     struct stat st;
     if (stat(plug_dir, &st) != 0 || !S_ISDIR(st.st_mode)) return PLUGIN_ERR_NOT_FOUND;
     if (pthread_mutex_trylock(&s_install_lock) != 0) return PLUGIN_ERR_BUSY;
+    /* no start of this plugin (watchdog, restart) while its folder goes */
+    if (!busy_take(plugin_id)) {
+        pthread_mutex_unlock(&s_install_lock);
+        return PLUGIN_ERR_BUSY;
+    }
 
-    plugin_mgr_stop(plugin_id);
+    do_stop(plugin_id);
     delete_dir_recursive(plug_dir);
+    busy_drop(plugin_id);
 
     /* Its state (pairing keys) and its log go too */
     char path[256];
@@ -575,12 +758,14 @@ int plugin_mgr_uninstall(const char *plugin_id) {
     return 0;
 }
 
-/* Writes where a plugin came from, for a later pull: {"url": ..., "dev": true|false} */
-static void write_source(const char *dir, const char *url, int dev) {
+/* Writes where a plugin came from, for a later pull:
+ * {"url": ..., "dev": true|false, "repository": <repository.json URL of its catalog entry>} */
+static void write_source(const char *dir, const char *url, const char *repo, int dev) {
     if (!url || !url[0]) return;
     cJSON *o = cJSON_CreateObject();
     cJSON_AddStringToObject(o, "url", url);
     cJSON_AddBoolToObject(o, "dev", dev);
+    if (repo && repo[0]) cJSON_AddStringToObject(o, "repository", repo);
     char *txt = cJSON_PrintUnformatted(o);
     cJSON_Delete(o);
     if (!txt) return;
@@ -597,8 +782,8 @@ static void write_source(const char *dir, const char *url, int dev) {
 /* Puts the files of src_dir in place of the installed plugin. The new version is copied
  * next to the old one first: a copy that fails (flash full) leaves the old version as it was.
  * A plugin that was disabled stays disabled: the marker was inside the replaced directory. */
-static int replace_plugin_dir(const char *plug_id, const char *src_dir, const char *source_url, int dev,
-                              char *err_msg, size_t err_msg_sz) {
+static int replace_plugin_dir(const char *plug_id, const char *src_dir, const char *source_url,
+                              const char *source_repo, int dev, char *err_msg, size_t err_msg_sz) {
     char dest_dir[256], new_dir[256], old_dir[256];
     snprintf(dest_dir, sizeof(dest_dir), "%s/%s", HARMONY_PLUGINS_DIR, plug_id);
     snprintf(new_dir, sizeof(new_dir), "%s/.%s.new", HARMONY_PLUGINS_DIR, plug_id);
@@ -621,7 +806,7 @@ static int replace_plugin_dir(const char *plug_id, const char *src_dir, const ch
         if (err_msg) snprintf(err_msg, err_msg_sz, "Failed to write the plugin files (flash full?); the installed version is unchanged");
         return -1;
     }
-    write_source(new_dir, source_url, dev);
+    write_source(new_dir, source_url, source_repo, dev);
 
     struct stat st;
     int had_old = (stat(dest_dir, &st) == 0);
@@ -633,31 +818,74 @@ static int replace_plugin_dir(const char *plug_id, const char *src_dir, const ch
         if (fd >= 0) close(fd);
     }
 
-    plugin_mgr_stop(plug_id);
+    /* no start of this plugin (watchdog, restart) between the two renames */
+    if (!busy_take(plug_id)) {
+        delete_dir_recursive(new_dir);
+        if (err_msg) snprintf(err_msg, err_msg_sz, "The plugin is being started or stopped; try again");
+        return PLUGIN_ERR_BUSY;
+    }
+    do_stop(plug_id);
+    int rc = 0;
     if (had_old && rename(dest_dir, old_dir) != 0) {
         delete_dir_recursive(new_dir);
         if (err_msg) snprintf(err_msg, err_msg_sz, "Failed to replace the installed version");
-        if (!was_disabled) plugin_mgr_start(plug_id);
-        return -1;
-    }
-    if (rename(new_dir, dest_dir) != 0) {
+        rc = -1;
+    } else if (rename(new_dir, dest_dir) != 0) {
         if (had_old) rename(old_dir, dest_dir);
         delete_dir_recursive(new_dir);
         if (err_msg) snprintf(err_msg, err_msg_sz, "Failed to put the new version in place");
-        if (!was_disabled) plugin_mgr_start(plug_id);
-        return -1;
+        rc = -1;
+    } else {
+        delete_dir_recursive(old_dir);
     }
-    delete_dir_recursive(old_dir);
+    if (!was_disabled) do_start(plug_id);
+    busy_drop(plug_id);
+    return rc;
+}
 
-    if (!was_disabled) plugin_mgr_start(plug_id);
-    return 0;
+/* A power cut inside replace_plugin_dir() leaves .<id>.new and .<id>.old, and between the two
+ * renames no <id>. .<id>.new is complete then: it is written in full before the first rename.
+ * Puts a version back in place, then removes what is left. */
+static void recover_replaced_dirs(void) {
+    char names[32][80];
+    int n = 0;
+    DIR *d = opendir(HARMONY_PLUGINS_DIR);
+    if (!d) return;
+    struct dirent *de;
+    while ((de = readdir(d)) != NULL && n < 32) {
+        size_t l = strlen(de->d_name);
+        if (de->d_name[0] != '.' || l < 6 || l >= sizeof(names[0])) continue;
+        if (strcmp(de->d_name + l - 4, ".new") != 0 && strcmp(de->d_name + l - 4, ".old") != 0) continue;
+        snprintf(names[n++], sizeof(names[0]), "%s", de->d_name);
+    }
+    closedir(d);
+    for (int i = 0; i < n; i++) {
+        char id[80];
+        snprintf(id, sizeof(id), "%.*s", (int)strlen(names[i]) - 5, names[i] + 1);
+        if (!is_safe_plugin_id(id)) continue;
+        char dest[256], nw[256], old[256];
+        snprintf(dest, sizeof(dest), "%s/%s", HARMONY_PLUGINS_DIR, id);
+        snprintf(nw, sizeof(nw), "%s/.%s.new", HARMONY_PLUGINS_DIR, id);
+        snprintf(old, sizeof(old), "%s/.%s.old", HARMONY_PLUGINS_DIR, id);
+        struct stat st;
+        if (stat(dest, &st) != 0) {
+            if ((stat(nw, &st) == 0 && rename(nw, dest) == 0) || (stat(old, &st) == 0 && rename(old, dest) == 0)) {
+                printf("[*] Plugin '%s' put back in place after an interrupted install\n", id);
+            }
+        }
+        snprintf(dest, sizeof(dest), "%s/%s", HARMONY_PLUGINS_DIR, names[i]);
+        delete_dir_recursive(dest);
+    }
 }
 
 int plugin_mgr_init(void) {
     mkdir(HARMONY_PLUGINS_RUN_DIR, 0755);
     mkdir(HARMONY_PLUGIN_ROOT, 0755);
     mkdir(HARMONY_PLUGINS_DIR, 0755);
-    kill_orphan_plugins();
+    snapshot_env();
+    /* the plugins of a hub_daemon that was killed (kill -9, crash) are no child of this one */
+    kill_plugin_leftovers(NULL);
+    recover_replaced_dirs();
 
     DIR *d = opendir(HARMONY_PLUGINS_DIR);
     if (!d) return 0;
@@ -676,18 +904,30 @@ int plugin_mgr_init(void) {
 
 void plugin_mgr_shutdown(void) {
     char ids[MAX_CHILDREN][64];
+    pid_t pids[MAX_CHILDREN];
     int n = 0;
     pthread_mutex_lock(&s_kids_lock);
     for (int i = 0; i < MAX_CHILDREN; i++) {
-        if (s_kids[i].pid > 0) memcpy(ids[n++], s_kids[i].id, sizeof(ids[0]));
+        if (s_kids[i].pid <= 0) continue;
+        memcpy(ids[n], s_kids[i].id, sizeof(ids[0]));
+        pids[n++] = s_kids[i].pid;
+        s_kids[i].pid = 0;
+        s_kids[i].id[0] = '\0';
     }
     pthread_mutex_unlock(&s_kids_lock);
-    for (int i = 0; i < n; i++) plugin_mgr_stop(ids[i]);
+    for (int i = 0; i < n; i++) write_stopped_marker(ids[i]);
+    stop_pids(pids, n);
+    for (int i = 0; i < n; i++) {
+        char sock_path[128];
+        snprintf(sock_path, sizeof(sock_path), "%s/%s.sock", HARMONY_PLUGINS_RUN_DIR, ids[i]);
+        unlink(sock_path);
+    }
 }
 
 /* Restarts of a plugin that keeps dying: 20 s, 40 s, ... up to 5 min apart */
 #define WD_SLOTS 16
 #define WD_MAX_DELAY_S 300
+#define PLUGIN_LOG_MAX_BYTES (256 * 1024)
 static struct {
     char id[64];
     int restarts;
@@ -699,6 +939,13 @@ static int wd_slot(const char *id) {
     for (int i = 0; i < WD_SLOTS; i++) {
         if (strcmp(s_wd[i].id, id) == 0) return i;
         if (!s_wd[i].id[0] && free_slot < 0) free_slot = i;
+    }
+    /* full: the slot of a plugin that is no longer installed (slots were never freed, and
+     * after 16 ids a crashing plugin restarted every 10 s without backoff) */
+    for (int i = 0; free_slot < 0 && i < WD_SLOTS; i++) {
+        char dir[256];
+        snprintf(dir, sizeof(dir), "%s/%s", HARMONY_PLUGINS_DIR, s_wd[i].id);
+        if (access(dir, F_OK) != 0) free_slot = i;
     }
     if (free_slot >= 0) {
         snprintf(s_wd[free_slot].id, sizeof(s_wd[free_slot].id), "%s", id);
@@ -724,6 +971,13 @@ void plugin_mgr_watchdog_tick(void) {
     while ((de = readdir(d)) != NULL) {
         if (de->d_name[0] == '.') continue;
         if (!is_safe_plugin_id(de->d_name)) continue;
+        /* /tmp is RAM: a log over the limit starts again (plugins write it with O_APPEND) */
+        char log_path[160];
+        struct stat lst;
+        snprintf(log_path, sizeof(log_path), "%s/%s.log", HARMONY_PLUGINS_RUN_DIR, de->d_name);
+        if (stat(log_path, &lst) == 0 && lst.st_size > PLUGIN_LOG_MAX_BYTES && truncate(log_path, 0) == 0) {
+            printf("[*] Plugin '%s' log over %d KB: emptied\n", de->d_name, PLUGIN_LOG_MAX_BYTES / 1024);
+        }
         if (!is_plugin_enabled(de->d_name) || is_stopped_by_request(de->d_name)) continue;
         int slot = wd_slot(de->d_name);
         if (plugin_mgr_is_running(de->d_name)) {
@@ -873,7 +1127,8 @@ static int check_sha256(const char *path, const char *want, char *err_msg, size_
 #define TMP_RAM_MARGIN (2ULL * 1024 * 1024)
 
 static int install_archive_unlocked(const char *archive_path, const char *sha256_hex,
-                                    const char *source_url, int dev, char *err_msg, size_t err_msg_sz) {
+                                    const char *source_url, const char *source_repo, int dev,
+                                    char *err_msg, size_t err_msg_sz) {
     if (!archive_path || access(archive_path, R_OK) != 0) {
         if (err_msg) snprintf(err_msg, err_msg_sz, "Plugin archive not readable");
         return -1;
@@ -890,7 +1145,7 @@ static int install_archive_unlocked(const char *archive_path, const char *sha256
         if (err_msg) snprintf(err_msg, err_msg_sz, "Archive unreadable, or has a link, absolute or '..' entry");
         return -1;
     }
-    if (unpacked + TMP_RAM_MARGIN > free_bytes_at("/tmp")) {
+    if (unpacked + TMP_RAM_MARGIN > tmp_free_bytes()) {
         if (err_msg) snprintf(err_msg, err_msg_sz, "Not enough free RAM in /tmp to unpack %llu KB",
                               (unsigned long long)(unpacked / 1024));
         return -1;
@@ -954,7 +1209,7 @@ static int install_archive_unlocked(const char *archive_path, const char *sha256
     if (rc == 0) {
         char plug_id[64];
         snprintf(plug_id, sizeof(plug_id), "%s", cJSON_GetObjectItemCaseSensitive(manifest, "id")->valuestring);
-        rc = replace_plugin_dir(plug_id, src_dir, source_url, dev, err_msg, err_msg_sz);
+        rc = replace_plugin_dir(plug_id, src_dir, source_url, source_repo, dev, err_msg, err_msg_sz);
     }
     cJSON_Delete(manifest);
     delete_dir_recursive(tmp_unpack);
@@ -966,27 +1221,35 @@ int plugin_mgr_install_archive(const char *archive_path, const char *sha256_hex,
         if (err_msg) snprintf(err_msg, err_msg_sz, "Another plugin install is running");
         return PLUGIN_ERR_BUSY;
     }
-    int rc = install_archive_unlocked(archive_path, sha256_hex, NULL, sha256_hex && sha256_hex[0] ? 0 : 1,
+    int rc = install_archive_unlocked(archive_path, sha256_hex, NULL, NULL, sha256_hex && sha256_hex[0] ? 0 : 1,
                                       err_msg, err_msg_sz);
     pthread_mutex_unlock(&s_install_lock);
     return rc;
 }
 
-/* The marketplace entry for a download URL or a plugin id: its download URL and SHA-256 */
-static int catalog_lookup(const char *url, const char *id, char url_out[512], char sha_out[65]) {
+/* The marketplace entry for a download URL or a plugin id: its download URL, SHA-256 and
+ * repository. repo: only an entry of that repository matches the id (two repositories may
+ * list the same id: a pull took the first one). */
+static int catalog_lookup(const char *url, const char *id, const char *repo,
+                          char url_out[512], char sha_out[65], char repo_out[512]) {
     sha_out[0] = '\0';
     if (url_out) url_out[0] = '\0';
+    if (repo_out) repo_out[0] = '\0';
     cJSON *cat = plugin_mgr_get_marketplace_catalog(0);
     const cJSON *p = NULL;
     cJSON_ArrayForEach(p, cat) {
         const cJSON *u = cJSON_GetObjectItemCaseSensitive(p, "download_url");
         const cJSON *h = cJSON_GetObjectItemCaseSensitive(p, "sha256");
         const cJSON *i = cJSON_GetObjectItemCaseSensitive(p, "id");
+        const cJSON *r = cJSON_GetObjectItemCaseSensitive(p, "repository");
+        const char *r_url = cJSON_IsString(r) ? r->valuestring : "";
         if (!cJSON_IsString(u) || !cJSON_IsString(h) || strlen(h->valuestring) != 64) continue;
         if ((url && strcmp(u->valuestring, url) == 0) ||
-            (id && cJSON_IsString(i) && strcmp(i->valuestring, id) == 0)) {
+            (id && cJSON_IsString(i) && strcmp(i->valuestring, id) == 0 &&
+             (!repo || !repo[0] || strcmp(r_url, repo) == 0))) {
             snprintf(sha_out, 65, "%s", h->valuestring);
             if (url_out) snprintf(url_out, 512, "%s", u->valuestring);
+            if (repo_out) snprintf(repo_out, 512, "%s", r_url);
             break;
         }
     }
@@ -1002,9 +1265,12 @@ static int install_from_url_unlocked(const char *url, const char *sha256_hex, ch
 
     /* busybox wget does not check certificates: the SHA-256 (from the caller or the
      * marketplace entry) is what tells a damaged archive. It is required. */
-    char want[65] = {0};
+    char want[65] = {0}, cat_sha[65], repo[512];
+    /* its repository is recorded (for a pull) only when that entry has this checksum */
+    int listed = catalog_lookup(url, NULL, NULL, NULL, cat_sha, repo) == 0;
     if (sha256_hex && sha256_hex[0]) snprintf(want, sizeof(want), "%s", sha256_hex);
-    else catalog_lookup(url, NULL, NULL, want);
+    else if (listed) snprintf(want, sizeof(want), "%s", cat_sha);
+    if (!listed || strcasecmp(want, cat_sha) != 0) repo[0] = '\0';
     if (!want[0]) {
         if (err_msg) snprintf(err_msg, err_msg_sz, "No SHA-256 for this archive: pass sha256, or install it from a repository that lists one");
         return -1;
@@ -1021,7 +1287,7 @@ static int install_from_url_unlocked(const char *url, const char *sha256_hex, ch
         return rc == RUN_TOO_BIG ? -1 : PLUGIN_ERR_DOWNLOAD;
     }
 
-    int res = install_archive_unlocked(tmp_tar, want, url, 0, err_msg, err_msg_sz);
+    int res = install_archive_unlocked(tmp_tar, want, url, repo, 0, err_msg, err_msg_sz);
     unlink(tmp_tar);
     return res;
 }
@@ -1165,7 +1431,7 @@ static int install_dev_raw_unlocked(const char *url, char *err_msg, size_t err_m
     }
 
     /* 3. Install into /data/harmony/plugins/<plug_id> */
-    rc = replace_plugin_dir(plug_id, tmp_dev, url, 1, err_msg, err_msg_sz);
+    rc = replace_plugin_dir(plug_id, tmp_dev, url, NULL, 1, err_msg, err_msg_sz);
     delete_dir_recursive(tmp_dev);
     return rc;
 }
@@ -1195,8 +1461,10 @@ int plugin_mgr_pull(const char *plugin_id, char *err_msg, size_t err_msg_sz) {
     free(txt);
     const cJSON *j_url = cJSON_GetObjectItemCaseSensitive(src, "url");
     int dev = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(src, "dev"));
-    char url[512] = {0};
+    const cJSON *j_repo = cJSON_GetObjectItemCaseSensitive(src, "repository");
+    char url[512] = {0}, repo[512] = {0};
     if (cJSON_IsString(j_url)) snprintf(url, sizeof(url), "%s", j_url->valuestring);
+    if (cJSON_IsString(j_repo)) snprintf(repo, sizeof(repo), "%s", j_repo->valuestring);
     cJSON_Delete(src);
 
     if (pthread_mutex_trylock(&s_install_lock) != 0) {
@@ -1207,9 +1475,10 @@ int plugin_mgr_pull(const char *plugin_id, char *err_msg, size_t err_msg_sz) {
     if (dev && url[0]) {
         rc = install_dev_raw_unlocked(url, err_msg, err_msg_sz);
     } else {
+        /* from the repository it was installed from, when that is known */
         char cat_url[512], sha[65];
-        if (catalog_lookup(NULL, plugin_id, cat_url, sha) != 0) {
-            if (err_msg) snprintf(err_msg, err_msg_sz, "No repository lists '%s'", plugin_id);
+        if (catalog_lookup(NULL, plugin_id, repo, cat_url, sha, NULL) != 0) {
+            if (err_msg) snprintf(err_msg, err_msg_sz, repo[0] ? "Its repository no longer lists '%s'" : "No repository lists '%s'", plugin_id);
             rc = -1;
         } else {
             rc = install_from_url_unlocked(cat_url, sha, err_msg, err_msg_sz);
@@ -1398,7 +1667,7 @@ static cJSON *read_catalog_cache(const char *cache_path) {
 }
 
 cJSON *plugin_mgr_get_marketplace_catalog(int force_reload) {
-    const char *cache_path = "/tmp/plugins/marketplace_cache.json";
+    const char *cache_path = HARMONY_PLUGINS_RUN_DIR "/marketplace_cache.json";
     struct stat st;
     if (!force_reload && stat(cache_path, &st) == 0 && (time(NULL) - st.st_mtime) < 600) {
         cJSON *c_root = read_catalog_cache(cache_path);
@@ -1413,7 +1682,7 @@ cJSON *plugin_mgr_get_marketplace_catalog(int force_reload) {
     cJSON_ArrayForEach(repo_url, repos) {
         if (!repo_url->valuestring) continue;
         char tmp_repo[128];
-        tmp_name(tmp_repo, sizeof(tmp_repo), "/tmp/plugins/repo_tmp", ".json");
+        tmp_name(tmp_repo, sizeof(tmp_repo), HARMONY_PLUGINS_RUN_DIR "/repo_tmp", ".json");
 
         if (fetch_url(repo_url->valuestring, tmp_repo, FETCH_SMALL_MAX_BYTES, FETCH_SMALL_MAX_MS) == 0 &&
             access(tmp_repo, R_OK) == 0) {
@@ -1430,7 +1699,9 @@ cJSON *plugin_mgr_get_marketplace_catalog(int force_reload) {
                             /* a null or malformed entry broke the whole list in the UIs */
                             if (!cJSON_IsObject(p) || !cJSON_IsString(cJSON_GetObjectItemCaseSensitive(p, "id"))) continue;
                             cJSON *e = cJSON_Duplicate(p, 1);
-                            if (!cJSON_HasObjectItem(e, "repository")) cJSON_AddStringToObject(e, "repository", repo_url->valuestring);
+                            /* the repository it was read from, never one the entry names */
+                            cJSON_DeleteItemFromObjectCaseSensitive(e, "repository");
+                            cJSON_AddStringToObject(e, "repository", repo_url->valuestring);
                             cJSON_AddItemToArray(catalog, e);
                         }
                     }
@@ -1459,7 +1730,7 @@ cJSON *plugin_mgr_get_marketplace_catalog(int force_reload) {
 
     char *cat_str = cJSON_PrintUnformatted(catalog);
     if (cat_str) {
-        mkdir("/tmp/plugins", 0755);
+        mkdir(HARMONY_PLUGINS_RUN_DIR, 0755);
         int fd = open(cache_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (fd >= 0) {
             write(fd, cat_str, strlen(cat_str));

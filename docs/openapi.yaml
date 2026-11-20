@@ -4397,6 +4397,10 @@ paths:
                 running: true
         '400':
           description: Invalid JSON body, or Action failed or invalid plugin ID
+        '404':
+          description: Plugin not installed
+        '409':
+          description: A start, stop, restart or install of this plugin is already running
 
 components:
   securitySchemes:

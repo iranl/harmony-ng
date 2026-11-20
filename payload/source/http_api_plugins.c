@@ -265,12 +265,12 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
 
         /* Clear stale status file before new attempt */
         char stat_path[128];
-        snprintf(stat_path, sizeof(stat_path), "/tmp/plugins/%s.status", id);
+        snprintf(stat_path, sizeof(stat_path), HARMONY_PLUGINS_RUN_DIR "/%s.status", id);
         unlink(stat_path);
 
         /* Forward pairing command to plugin unix socket */
         char sock_path[128];
-        snprintf(sock_path, sizeof(sock_path), "/tmp/plugins/%s.sock", id);
+        snprintf(sock_path, sizeof(sock_path), HARMONY_PLUGINS_RUN_DIR "/%s.sock", id);
 
         int s = socket(AF_UNIX, SOCK_DGRAM, 0);
         if (s >= 0) {
@@ -373,7 +373,9 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
             send_cjson_resp(client_fd, 200, resp);
             cJSON_Delete(resp);
         } else {
-            send_json_error(client_fd, 400, "Action failed or invalid plugin ID");
+            if (rc == PLUGIN_ERR_NOT_FOUND) send_json_error(client_fd, 404, "Plugin not installed");
+            else if (rc == PLUGIN_ERR_BUSY) send_json_error(client_fd, 409, "The plugin is being started, stopped or replaced; try again");
+            else send_json_error(client_fd, 400, "Action failed or invalid plugin ID");
         }
         close(client_fd);
         return 1;

@@ -648,7 +648,9 @@ infrared or Bluetooth device.
 string) holds the values of the plugin's `config_fields`. The id must be a safe plugin id (letters,
 digits, `-`, `_`), or the save is refused with `400`. A device's `type` text never makes it a
 plugin device, even when it matches a plugin's name. A top-level key is copied into `config` only
-for a plugin device and only when the plugin's `config_fields` declare it.
+for a plugin device and only when the plugin's `config_fields` declare it. The plugin choice comes
+before the MQTT and Bluetooth guesses from `type` and `manufacturer`. A save without `plugin` keeps
+the stored one; `"plugin": ""` makes the device a non-plugin device again.
 - **Request Body**:
   ```json
   {

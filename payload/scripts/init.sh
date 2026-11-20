@@ -56,15 +56,22 @@ case "$1" in
     sleep 2
     # Terminate all daemon processes
     killall -9 hub_rf hub_daemon hub_btstack hub_usbwifi hal luaworks luadraws lua 2>/dev/null || true
-    # Plugin processes still left (hub_daemon was hung or already gone): found by their
-    # working directory, which is their plugin folder
-    for _c in /proc/[0-9]*/cwd; do
-      case "$(ls -l "$_c" 2>/dev/null)" in
-        *"-> /data/harmony/plugins/"*)
-          _p=${_c#/proc/}
-          kill -9 "${_p%/cwd}" 2>/dev/null || true ;;
-      esac
+    # Plugin processes still left (hub_daemon was hung or already gone): found by the
+    # HARMONY_PLUGIN_ID that hub_daemon puts in their environment. A shell or a program started
+    # by hand in a plugin folder has none (a sweep by working directory killed the caller's
+    # shell). SIGTERM first: a helper's EXIT trap restores the Hub's Bluetooth address.
+    _left=""
+    for _e in /proc/[0-9]*/environ; do
+      _p=${_e#/proc/}
+      _p=${_p%/environ}
+      [ "$_p" = "$$" ] && continue
+      tr '\000' '\n' < "$_e" 2>/dev/null | grep -q '^HARMONY_PLUGIN_ID=' && _left="$_left $_p"
     done
+    if [ -n "$_left" ]; then
+      kill -15 $_left 2>/dev/null || true
+      sleep 1
+      kill -9 $_left 2>/dev/null || true
+    fi
     rm -f /tmp/plugins/*.sock 2>/dev/null || true
     # the USB Wi-Fi setup started as "hub_util usbwifi" (no hub_usbwifi link) runs as hub_util
     for _p in $(pidof hub_util 2>/dev/null); do

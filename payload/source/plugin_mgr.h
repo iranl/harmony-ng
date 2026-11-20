@@ -11,7 +11,10 @@
 #define HARMONY_PLUGIN_ROOT         "/data/harmony"
 #endif
 #define HARMONY_PLUGINS_DIR         HARMONY_PLUGIN_ROOT "/plugins"
+/* sockets, logs, markers (RAM); a host test sets its own (-DHARMONY_PLUGINS_RUN_DIR) */
+#ifndef HARMONY_PLUGINS_RUN_DIR
 #define HARMONY_PLUGINS_RUN_DIR     "/tmp/plugins"
+#endif
 /* Per-plugin state kept across updates (passed as HARMONY_PLUGIN_DATA) */
 #define HARMONY_PLUGINS_DATA_DIR    HARMONY_PLUGIN_ROOT "/plugin-data"
 #define HARMONY_REPOSITORIES_FILE   HARMONY_PLUGIN_ROOT "/config/repositories.json"

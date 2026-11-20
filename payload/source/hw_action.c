@@ -1229,7 +1229,7 @@ int hw_plugin_command_send(const char *plugin_id, const char *dev_id, const char
     if (!plugin_mgr_is_safe_id(plugin_id) || !command || !command[0]) return -1;
 
     char sock_path[128];
-    snprintf(sock_path, sizeof(sock_path), "/tmp/plugins/%s.sock", plugin_id);
+    snprintf(sock_path, sizeof(sock_path), HARMONY_PLUGINS_RUN_DIR "/%s.sock", plugin_id);
 
     const char *action_str = "press";
     if (action == HW_BTN_ACTION_RELEASE) action_str = "release";

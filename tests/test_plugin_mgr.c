@@ -7,6 +7,7 @@
 #include <signal.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <pthread.h>
 
 #include "../payload/source/plugin_mgr.h"
 #include "../payload/source/cJSON.h"
@@ -16,6 +17,7 @@
  * Built with -DHARMONY_PLUGIN_ROOT under the build folder (tests/suite.d/27-plugins.sh). */
 
 #define ROOT HARMONY_PLUGIN_ROOT
+#define RUN  HARMONY_PLUGINS_RUN_DIR
 #define SRC  "/tmp/test_pkg_src"
 
 cJSON *config_store_devices_copy(void) {
@@ -111,6 +113,25 @@ static char *file_sha(const char *path, char out[65]) {
     return out;
 }
 
+static const char *const MEMINFO_PLENTY = "MemTotal: 61440 kB\nMemFree: 20000 kB\nCached: 8000 kB\n";
+
+static int s_restart_rc[2];
+static void *restart_thread(void *arg) {
+    *(int *)arg = plugin_mgr_restart("socky");
+    return NULL;
+}
+
+/* 1 when the installed manifest of id holds text */
+static int manifest_has(const char *id, const char *text) {
+    char path[300];
+    snprintf(path, sizeof(path), ROOT "/plugins/%s/manifest.json", id);
+    size_t len = 0;
+    char *m = read_file_text_alloc(path, 32768, &len);
+    int hit = m && strstr(m, text) != NULL;
+    free(m);
+    return hit;
+}
+
 int main(void) {
     setvbuf(stdout, NULL, _IOLBF, 0); /* progress survives an abort in CI logs */
     char err[256] = {0};
@@ -119,7 +140,9 @@ int main(void) {
     sh("rm -rf " ROOT " && mkdir -p " ROOT "/config");
     /* no repository: the catalog is empty and no test goes to the network */
     write_file(ROOT "/config/repositories.json", "[]\n", 0);
-    unlink("/tmp/plugins/marketplace_cache.json");
+    unlink(RUN "/marketplace_cache.json");
+    /* /tmp has no size here (statfs of /proc, as ramfs on the Hub): free RAM is read from this */
+    write_file(PLUGIN_MEMINFO_PATH, MEMINFO_PLENTY, 0);
 
     /* 1. Unreadable and corrupt archives */
     assert(plugin_mgr_install_archive("/tmp/non_existent_archive.tar.gz", NULL, err, sizeof(err)) == -1 && err[0]);
@@ -241,14 +264,14 @@ int main(void) {
     pid_t child = read_pid("/tmp/test_plug_child");
     assert(child > 1);
     int pid = installed_field("test-roku", "pid");
-    if (pid <= 1) sh("cat /tmp/plugins/test-roku.log >&2");
+    if (pid <= 1) sh("cat " RUN "/test-roku.log >&2");
     assert(pid > 1);
     {
         char env[512] = {0};
         FILE *f = fopen("/tmp/test_plug_env", "r");
         assert(f && fgets(env, sizeof(env), f));
         fclose(f);
-        assert(strstr(env, "/tmp/plugins/test-roku.sock|test-roku|/tmp/plugins/test-roku.sock|" ROOT "/plugin-data/test-roku"));
+        assert(strstr(env, RUN "/test-roku.sock|test-roku|" RUN "/test-roku.sock|" ROOT "/plugin-data/test-roku"));
     }
     assert(access(ROOT "/plugins/test-roku/.source.json", F_OK) != 0); /* local archive: no source */
     printf("[+] Install starts the entrypoint (pid %d, argv and environment checked).\n", pid);
@@ -265,13 +288,13 @@ int main(void) {
     assert(pid_gone((pid_t)pid));
     for (int i = 0; i < 50 && !pid_gone(child); i++) usleep(20000);
     assert(pid_gone(child));
-    assert(access("/tmp/plugins/test-roku.stopped", F_OK) == 0);
+    assert(access(RUN "/test-roku.stopped", F_OK) == 0);
     printf("[+] Stop ends the plugin and its process group.\n");
 
     /* 10. A stale pid of another process no longer decides anything: the Hub knows its child */
-    write_file("/tmp/plugins/test-roku.pid", "1\n", 0);
+    write_file(RUN "/test-roku.pid", "1\n", 0);
     assert(!plugin_mgr_is_running("test-roku"));
-    unlink("/tmp/plugins/test-roku.pid");
+    unlink(RUN "/test-roku.pid");
 
     /* 11. Enable / disable; a reinstall keeps a disabled plugin disabled and stopped */
     assert(plugin_mgr_set_enabled("test-roku", 0) == 0);
@@ -339,21 +362,106 @@ int main(void) {
     unlink("/tmp/test_crashy.tar.gz");
     printf("[+] Crash reaped, watchdog backoff, stop-by-request respected.\n");
 
-    /* 15. A plugin left by a killed hub_daemon (not our child) is killed at init */
+    /* 15. A plugin left by a killed hub_daemon (not our child, HARMONY_PLUGIN_ID in its
+     * environment) is stopped at init. A program started by hand in the plugin folder is no
+     * plugin: the sweep by working directory killed it, and the shell that ran init.sh. */
     plugin_mgr_stop("test-roku");
     pid_t orphan = fork();
     if (orphan == 0) {
         if (chdir(ROOT "/plugins/test-roku") != 0) _exit(1);
+        char *const env[] = { "HARMONY_PLUGIN_ID=test-roku", "PATH=/usr/bin:/bin", NULL };
+        execle("/bin/sleep", "sleep", "300", (char *)NULL, env);
+        _exit(1);
+    }
+    pid_t by_hand = fork();
+    if (by_hand == 0) {
+        if (chdir(ROOT "/plugins/test-roku") != 0) _exit(1);
+        unsetenv("HARMONY_PLUGIN_ID");
         execl("/bin/sleep", "sleep", "300", (char *)NULL);
         _exit(1);
     }
     usleep(100000);
     plugin_mgr_init();
     int st;
-    for (int i = 0; i < 50 && waitpid(orphan, &st, WNOHANG) == 0; i++) usleep(20000);
+    for (int i = 0; i < 100 && waitpid(orphan, &st, WNOHANG) == 0; i++) usleep(20000);
     assert(kill(orphan, 0) != 0);
+    assert(waitpid(by_hand, &st, WNOHANG) == 0); /* still running */
+    kill(by_hand, SIGKILL);
+    waitpid(by_hand, &st, 0);
     assert(plugin_mgr_is_running("test-roku")); /* enabled: started again by init */
-    printf("[+] Orphan plugin process killed at init, plugin started fresh.\n");
+    printf("[+] Orphan plugin process stopped at init, a program started by hand kept, plugin started fresh.\n");
+
+    /* 15b. The helper of a leader that died goes before the next start (each restart of a
+     * plugin that forks added a copy); a copy that daemonized goes with the uninstall */
+    make_src("forky", "1", "sleep 301 &\necho $! > /tmp/test_forky_child\nexec sleep 302");
+    pack("/tmp/test_forky.tar.gz");
+    unlink("/tmp/test_forky_child");
+    assert(plugin_mgr_install_archive("/tmp/test_forky.tar.gz", NULL, err, sizeof(err)) == 0);
+    pid_t helper = read_pid("/tmp/test_forky_child");
+    int leader = installed_field("forky", "pid");
+    assert(helper > 1 && leader > 1);
+    kill(leader, SIGKILL);
+    for (int i = 0; i < 100 && plugin_mgr_is_running("forky"); i++) usleep(20000);
+    assert(!plugin_mgr_is_running("forky"));
+    assert(!pid_gone(helper)); /* the leader alone died */
+    assert(plugin_mgr_start("forky") == 0);
+    for (int i = 0; i < 100 && !pid_gone(helper); i++) usleep(20000);
+    assert(pid_gone(helper));
+    assert(plugin_mgr_is_running("forky"));
+    /* 15c. /tmp without a size (ramfs on the Hub, 0 blocks): free RAM from meminfo, which
+     * refuses an unpack that would leave less than 2 MB */
+    write_file(PLUGIN_MEMINFO_PATH, "MemTotal: 61440 kB\nMemFree: 100 kB\nCached: 200 kB\n", 0);
+    rc = plugin_mgr_install_archive("/tmp/test_forky.tar.gz", NULL, err, sizeof(err));
+    assert(rc != 0 && strstr(err, "RAM"));
+    write_file(PLUGIN_MEMINFO_PATH, MEMINFO_PLENTY, 0);
+    make_src("forky", "2", "setsid sleep 303 </dev/null >/dev/null 2>&1 &\necho $! > /tmp/test_forky_child\nexit 0");
+    pack("/tmp/test_forky.tar.gz");
+    unlink("/tmp/test_forky_child");
+    assert(plugin_mgr_install_archive("/tmp/test_forky.tar.gz", NULL, err, sizeof(err)) == 0);
+    pid_t daemonized = read_pid("/tmp/test_forky_child");
+    assert(daemonized > 1);
+    for (int i = 0; i < 100 && plugin_mgr_is_running("forky"); i++) usleep(20000);
+    assert(!pid_gone(daemonized));
+    assert(plugin_mgr_uninstall("forky") == 0);
+    for (int i = 0; i < 100 && !pid_gone(daemonized); i++) usleep(20000);
+    assert(pid_gone(daemonized));
+    unlink("/tmp/test_forky.tar.gz");
+    unlink("/tmp/test_forky_child");
+    printf("[+] Helpers of a dead leader and a daemonized copy are stopped; ramfs /tmp read from meminfo.\n");
+
+    /* 15d. An entrypoint with a dot name (the copy skips those) is refused; v1 stays */
+    make_src("dotty", "1", "exec sleep 304");
+    pack("/tmp/test_dotty.tar.gz");
+    assert(plugin_mgr_install_archive("/tmp/test_dotty.tar.gz", NULL, err, sizeof(err)) == 0);
+    make_src("dotty", "2", "exec sleep 305");
+    sh("mv " SRC "/bin/drv " SRC "/bin/.drv && sed -i 's#bin/drv#bin/.drv#' " SRC "/manifest.json");
+    pack("/tmp/test_dotty.tar.gz");
+    assert(plugin_mgr_install_archive("/tmp/test_dotty.tar.gz", NULL, err, sizeof(err)) != 0);
+    assert(plugin_mgr_is_running("dotty") && manifest_has("dotty", "\"version\": \"1\""));
+    assert(plugin_mgr_uninstall("dotty") == 0);
+    unlink("/tmp/test_dotty.tar.gz");
+
+    /* 15e. Two restarts at once: one waits its turn as busy, the socket the new instance
+     * created stays (the older stop removed it) */
+    make_src("socky", "1", "touch \"$1\"\nexec sleep 306");
+    pack("/tmp/test_socky.tar.gz");
+    assert(plugin_mgr_install_archive("/tmp/test_socky.tar.gz", NULL, err, sizeof(err)) == 0);
+    pthread_t th[2];
+    for (int i = 0; i < 2; i++) pthread_create(&th[i], NULL, restart_thread, &s_restart_rc[i]);
+    for (int i = 0; i < 2; i++) pthread_join(th[i], NULL);
+    assert(s_restart_rc[0] == 0 || s_restart_rc[1] == 0);
+    assert((s_restart_rc[0] == 0 || s_restart_rc[0] == PLUGIN_ERR_BUSY) && (s_restart_rc[1] == 0 || s_restart_rc[1] == PLUGIN_ERR_BUSY));
+    for (int i = 0; i < 100 && access(RUN "/socky.sock", F_OK) != 0; i++) usleep(20000);
+    usleep(200000);
+    assert(access(RUN "/socky.sock", F_OK) == 0 && plugin_mgr_is_running("socky"));
+    assert(plugin_mgr_uninstall("socky") == 0);
+    unlink("/tmp/test_socky.tar.gz");
+
+    /* 15f. stop or disable of an id that is not installed: not found, no marker in /tmp */
+    assert(plugin_mgr_stop("never-installed") == PLUGIN_ERR_NOT_FOUND);
+    assert(plugin_mgr_set_enabled("never-installed", 0) == PLUGIN_ERR_NOT_FOUND);
+    assert(access(RUN "/never-installed.stopped", F_OK) != 0);
+    printf("[+] Dot-named entrypoint refused, overlapping restarts keep the socket, unknown stop is 404.\n");
 
     /* 16. In-use guard */
     write_file(ROOT "/config/devices.json",
@@ -386,7 +494,7 @@ int main(void) {
     assert(plugin_mgr_uninstall("test-roku") == 0);
     assert(access(ROOT "/plugins/test-roku", F_OK) != 0);
     assert(access(ROOT "/plugin-data/test-roku", F_OK) != 0);
-    assert(access("/tmp/plugins/test-roku.log", F_OK) != 0);
+    assert(access(RUN "/test-roku.log", F_OK) != 0);
     assert(installed_field("test-roku", "pid") == -1);
     printf("[+] Uninstall removes plugin, data and log; unknown id refused.\n");
 
@@ -412,6 +520,55 @@ int main(void) {
     assert(plugin_mgr_pull("not-installed", err, sizeof(err)) == -1);
     assert(plugin_mgr_uninstall("test-dev-plug") == 0);
     printf("[+] Dev raw install, pull from its source.\n");
+
+    /* 19b. Two repositories list the same id: a pull takes the entry of the repository the
+     * plugin was installed from, not the first one */
+    sh("rm -rf /tmp/test_repo_srv && mkdir -p /tmp/test_repo_srv");
+    make_src("twin", "1.0.0", "exec sleep 307");
+    pack("/tmp/test_repo_srv/b.tar.gz");
+    make_src("twin", "9.9.9", "exec sleep 308");
+    pack("/tmp/test_repo_srv/a.tar.gz");
+    {
+        char sha[65], json[512];
+        const char *names[] = { "a", "b" }, *vers[] = { "9.9.9", "1.0.0" };
+        for (int i = 0; i < 2; i++) {
+            char path[128];
+            snprintf(path, sizeof(path), "/tmp/test_repo_srv/%s.tar.gz", names[i]);
+            file_sha(path, sha);
+            snprintf(json, sizeof(json), "{\"plugins\": [{\"id\": \"twin\", \"version\": \"%s\","
+                     " \"download_url\": \"http://127.0.0.1:9990/%s.tar.gz\", \"sha256\": \"%s\"}]}\n", vers[i], names[i], sha);
+            snprintf(path, sizeof(path), "/tmp/test_repo_srv/%s.json", names[i]);
+            write_file(path, json, 0);
+        }
+    }
+    write_file(ROOT "/config/repositories.json",
+               "[\"http://127.0.0.1:9990/a.json\", \"http://127.0.0.1:9990/b.json\"]\n", 0);
+    unlink(RUN "/marketplace_cache.json");
+    sh("python3 -m http.server 9990 --directory /tmp/test_repo_srv >/dev/null 2>&1 & echo $! > /tmp/test_http_pid");
+    usleep(500000);
+    int rc_twin = plugin_mgr_install_from_url("http://127.0.0.1:9990/b.tar.gz", NULL, err, sizeof(err));
+    int had_b = manifest_has("twin", "1.0.0");
+    int rc_twin_pull = plugin_mgr_pull("twin", err, sizeof(err));
+    sh("kill -9 $(cat /tmp/test_http_pid 2>/dev/null) 2>/dev/null; rm -f /tmp/test_http_pid; rm -rf /tmp/test_repo_srv");
+    if (rc_twin != 0 || rc_twin_pull != 0) fprintf(stderr, "twin: %d %d %s\n", rc_twin, rc_twin_pull, err);
+    assert(rc_twin == 0 && had_b && rc_twin_pull == 0);
+    assert(manifest_has("twin", "1.0.0") && !manifest_has("twin", "9.9.9"));
+    write_file(ROOT "/config/repositories.json", "[]\n", 0);
+    unlink(RUN "/marketplace_cache.json");
+    assert(plugin_mgr_uninstall("twin") == 0);
+    printf("[+] Pull uses the repository the plugin was installed from.\n");
+
+    /* 19c. A power cut between the two renames of an update leaves .<id>.new (complete) and
+     * no <id>: init puts it in place and removes what is left */
+    sh("mkdir -p " ROOT "/plugins/.phoenix.new/bin " ROOT "/plugins/.phoenix.old");
+    write_file(ROOT "/plugins/.phoenix.new/manifest.json", "{\"id\": \"phoenix\", \"version\": \"2\", \"entrypoint\": \"bin/drv\"}\n", 0);
+    write_file(ROOT "/plugins/.phoenix.new/bin/drv", "#!/bin/sh\nexec sleep 309\n", 1);
+    plugin_mgr_init();
+    assert(access(ROOT "/plugins/phoenix/bin/drv", F_OK) == 0);
+    assert(access(ROOT "/plugins/.phoenix.new", F_OK) != 0 && access(ROOT "/plugins/.phoenix.old", F_OK) != 0);
+    assert(plugin_mgr_is_running("phoenix"));
+    assert(plugin_mgr_uninstall("phoenix") == 0);
+    printf("[+] An update cut between its renames is put back in place at init.\n");
 
     /* 20. URL install with the right SHA-256, then the shutdown stops every child */
     sh("rm -rf /tmp/test_sha_srv && mkdir -p /tmp/test_sha_srv && cp /tmp/test_mock_plug.tar.gz /tmp/test_sha_srv/p.tar.gz");

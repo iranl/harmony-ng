@@ -73,7 +73,9 @@ def build_hub_daemon_test(force=False, extra_cflags=None, out=HUB_BIN):
     """Compile the host daemon with -DTEST_HARNESS=1 (when missing, when a source changed, when
     the compile command changed, or with force)."""
     cmd = ["gcc", "-Wall", "-O2", "-g", "-Werror=implicit-function-declaration", "-DTEST_HARNESS=1",
-           "-I" + os.path.join(REPO_ROOT, "payload", "source")]
+           "-I" + os.path.join(REPO_ROOT, "payload", "source"),
+           # plugin sockets and logs under the build folder, not the host's /tmp/plugins
+           '-DHARMONY_PLUGINS_RUN_DIR="%s"' % os.path.join(BUILD_DIR, "plugin_run")]
     cmd += list(extra_cflags or [])
     cmd += [os.path.join(REPO_ROOT, "payload", "source", s) for s in HUB_DAEMON_SOURCES]
     cmd += ["-lpthread", "-lm", "-o", out]

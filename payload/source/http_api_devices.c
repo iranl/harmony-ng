@@ -1230,10 +1230,19 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                 }
 
                 /* The plugin of the device: the "plugin" field or "plugin:<id>" type of this save,
-                 * else the one stored. Never derived from the free-text type. */
+                 * else the one stored. Never derived from the free-text type. A "plugin" field in
+                 * the save decides alone: "" turns a plugin device back into an IR one. */
                 char resolved_plug[64] = {0};
-                if (!plugin_mgr_device_plugin_id(p, resolved_plug, sizeof(resolved_plug))) {
+                int plug_given = cJSON_IsString(cJSON_GetObjectItemCaseSensitive(p, "plugin"));
+                if (!plugin_mgr_device_plugin_id(p, resolved_plug, sizeof(resolved_plug)) && !plug_given) {
                     plugin_mgr_device_plugin_id(found_dev, resolved_plug, sizeof(resolved_plug));
+                }
+                if (!resolved_plug[0]) {
+                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "plugin");
+                    const cJSON *st = cJSON_GetObjectItemCaseSensitive(found_dev, "type");
+                    if (cJSON_IsString(st) && strncasecmp(st->valuestring, "plugin:", 7) == 0) {
+                        cJSON_ReplaceItemInObjectCaseSensitive(found_dev, "type", cJSON_CreateString("IR"));
+                    }
                 }
                 int is_dev_plugin = resolved_plug[0] != '\0';
 
