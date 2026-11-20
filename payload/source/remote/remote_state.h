@@ -170,7 +170,7 @@ typedef struct {
 typedef struct {
     char button_name[16];
     uint16_t rf_key_code;
-    uint8_t atype; /* 0x02 = start, 0x03 = stop */
+    uint8_t atype; /* 0x02 = start, 0x03 = stop, 0x04 = Help (target_act_id: its activity) */
     char target_act_id[12];
 } activity_trigger_btn_t;
 

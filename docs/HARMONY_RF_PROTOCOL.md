@@ -266,6 +266,7 @@ The remote sets no ACK request flag on `RF_MSG_BATTERY_STATUS`, `RF_MSG_REMOTE_C
     such a remote a device command frame without an ACK fails the config push like any other frame
   - `0x10` `RF_CAP_SWITCH_START`: understands the switch start notice of `RF_MSG_ACTIVITY_SYNC`
     (`payload[24]` `0x02`)
+  - `0x20` `RF_CAP_HELP_KEY`: understands Help keys in `RF_MSG_BUTTON_LIST_CHUNK` (`payload[24]` `0x04`)
 
 The remote sends this report when its link first comes up, every 24 hours, and before each full config request, so a Hub that restarted learns the capabilities before it builds the push. The Hub keeps them in `/data/harmony/remote_slot<N>_version.json` (`caps`). A remote drops frame types it doesn't know without an ACK, so the Hub must not send newer frame types to a remote that doesn't report them.
 
@@ -457,10 +458,11 @@ while the link is up, also one applied from a settings push, and when the Hub as
   - `payload[0]`: Entry index in this push.
   - `payload[1]`: Position of the button in its activity's on-screen list (or of the key in the activity's key map).
   - `payload[2]`: `0x01` on-screen button, `0x00` hard key.
-  - `payload[3..11]`: Activity ID (9 bytes): the activity the on-screen button belongs to (`"-1"` = nothing running), or the activity a hard key starts (`"-1"` for a stop key).
+  - `payload[3..11]`: Activity ID (9 bytes): the activity the on-screen button belongs to (`"-1"` = nothing running), the activity a hard key starts (`"-1"` for a stop key), or the activity a Help key belongs to.
   - `payload[12..23]`: Label (12 bytes); for a hard key, the button name.
-  - `payload[24]`: `0x01` device command, `0x02` activity start, `0x03` activity stop.
-- Only two kinds of entries are sent: the hard keys that start or stop an activity (the remote plays the switch by itself) and the on-screen buttons. Every other hard-key mapping stays on the Hub, which maps the raw key. The start and stop keys come first, at most 15, plus a `PwrOff` stop key when no activity maps one; then the on-screen buttons of every activity, up to 255 entries in all.
+  - `payload[24]`: `0x01` device command, `0x02` activity start, `0x03` activity stop, `0x04` Help.
+- Only these entries are sent: the hard keys that start or stop an activity (the remote plays the switch by itself), the hard keys mapped to Help (`"type": "help"`) for a remote that reports `RF_CAP_HELP_KEY`, and the on-screen buttons. Every other hard-key mapping stays on the Hub, which maps the raw key. The start, stop and Help keys come first, at most 15, plus a `PwrOff` stop key when no activity maps one; then the on-screen buttons of every activity, up to 255 entries in all.
+- A Help key opens the remote's Help screen while its activity runs (`RF_MSG_HELP_REQUEST`); in another activity the key goes to the Hub as a raw key. An older remote never gets Help keys: the Hub maps the raw key and calls `POST /api/activity/help`, which re-sends the running activity's commands without the power questions.
 
 #### `RF_MSG_STEP_LIST_CHUNK` (`0x11`)
 - Hub sends the steps the remote shows while an activity starts or stops, one per frame (ACK'd):

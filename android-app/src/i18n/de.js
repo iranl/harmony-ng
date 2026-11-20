@@ -1119,6 +1119,7 @@ export default {
     "step_type_switched": "Gewechselt",
     "stop": "Stopp",
     "stop_activity_power_off": "Aktivität stoppen (Ausschalten)",
+    "map_action_help": "Aktivitätshilfe (Reparieren)",
     "stop_seq_desc": "Befehle, die beim Verlassen der Aktivität gesendet werden.",
     "stopwatch": "Stoppuhr",
     "studio_sub": "Anlernen • Datenbank • Pronto",

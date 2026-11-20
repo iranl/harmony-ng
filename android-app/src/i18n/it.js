@@ -1119,6 +1119,7 @@ export default {
     "step_type_switched": "Commutato",
     "stop": "Stop",
     "stop_activity_power_off": "Arresta attività (Spegni)",
+    "map_action_help": "Aiuto attività (Ripara)",
     "stop_seq_desc": "Comandi inviati all'uscita dall'attività.",
     "stopwatch": "Cronometro",
     "studio_sub": "Apprendimento • Database • Pronto",

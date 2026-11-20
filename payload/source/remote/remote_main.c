@@ -801,6 +801,9 @@ int main(int argc, char **argv) {
                     if (rf_code != 0) {
                         activity_trigger_btn_t *matched_trig = NULL;
                         for (int t = 0; t < g_act_trigger_count; t++) {
+                            /* A Help key counts in its own activity; elsewhere the Hub maps the key */
+                            if (g_act_triggers[t].atype == 0x04 &&
+                                strcmp(g_act_triggers[t].target_act_id, g_active_activity_id) != 0) continue;
                             if ((g_act_triggers[t].rf_key_code != 0 && g_act_triggers[t].rf_key_code == rf_code) ||
                                 strcasecmp(g_act_triggers[t].button_name, rf_short_button_name(rf_code)) == 0) {
                                 matched_trig = &g_act_triggers[t];
@@ -809,7 +812,10 @@ int main(int argc, char **argv) {
                         }
 
                         if (matched_trig) {
-                            if (ev.value == 1) {
+                            if (ev.value == 1 && matched_trig->atype == 0x04) {
+                                ui_help_start();
+                                g_screen_dirty = true;
+                            } else if (ev.value == 1) {
                                 const char *target_id = matched_trig->target_act_id;
                                 if (matched_trig->atype == 0x03) target_id = "-1";
 

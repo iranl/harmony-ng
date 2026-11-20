@@ -1112,6 +1112,7 @@ export default {
     "start_activity_name": "{name} starten",
     "activity_n": "Activiteit {id}",
     "turn_everything_off": "Alles uitzetten",
+    "map_action_help": "Activiteithulp (Herstellen)",
     "not_supported_action": "Niet ondersteund ({action})",
     "mapping_default_suffix": "{mapping} (standaard)",
     "not_mapped": "Niet toegewezen",

@@ -447,8 +447,10 @@ void *config_push_worker(void *arg) {
             if (entries) {
                 pthread_mutex_lock(&g_map_lock);
                 cJSON *map = get_remote_map_unlocked(target_slot);
+                int help_keys = target_slot >= 1 && target_slot <= 2 &&
+                                (g_remote_versions[target_slot - 1].caps & RF_CAP_HELP_KEY);
                 n = rf_build_button_list(map ? cJSON_GetObjectItemCaseSensitive(map, "activities") : NULL,
-                                         entries, RF_BUTTON_LIST_MAX);
+                                         entries, RF_BUTTON_LIST_MAX, help_keys);
                 pthread_mutex_unlock(&g_map_lock);
             }
             for (int i = 0; i < n; i++) {
