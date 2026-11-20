@@ -89,9 +89,7 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                 const char *mstr = (dmfg && dmfg->valuestring) ? dmfg->valuestring : "";
                                 int dev_is_bt = (strcasestr(tstr, "bluetooth") != NULL || strcasestr(tstr, "bt") != NULL || strcasestr(mstr, "bluetooth") != NULL);
                                 int dev_is_mqtt = (strcasestr(tstr, "mqtt") != NULL || strcasestr(mstr, "mqtt") != NULL);
-                                int dev_is_plugin = (strncasecmp(tstr, "plugin:", 7) == 0 || strcasecmp(tstr, "plugin") == 0 ||
-                                                     plugin_mgr_resolve_device_plugin(tstr, NULL, 0) ||
-                                                     cJSON_GetObjectItemCaseSensitive(dev_item, "plugin") != NULL);
+                                int dev_is_plugin = plugin_mgr_device_plugin_id(dev_item, NULL, 0);
                                 int is_bt_cmd = dev_is_bt || (strncmp(raw_data, "G:HID", 5) == 0) || (strncmp(raw_data, "HID:", 4) == 0) || (strncmp(raw_data, "hid:", 4) == 0) || is_macro;
                                 int is_mqtt_cmd = dev_is_mqtt || (strncmp(raw_data, "G:MQTT", 6) == 0);
                                 int is_ble_cmd = (strncmp(raw_data, BLE_ADV_KEYCODE_PREFIX, BLE_ADV_KEYCODE_PREFIX_LEN) == 0);
@@ -199,11 +197,7 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                     cmds = cJSON_CreateArray();
                                     cJSON_AddItemToObject(dev_item, "commands", cmds);
                                 }
-                                cJSON *dtype = cJSON_GetObjectItemCaseSensitive(dev_item, "type");
-                                const char *tstr = (dtype && dtype->valuestring) ? dtype->valuestring : "";
-                                int dev_is_plugin = (strncasecmp(tstr, "plugin:", 7) == 0 || strcasecmp(tstr, "plugin") == 0 ||
-                                                     plugin_mgr_resolve_device_plugin(tstr, NULL, 0) ||
-                                                     cJSON_GetObjectItemCaseSensitive(dev_item, "plugin") != NULL);
+                                int dev_is_plugin = plugin_mgr_device_plugin_id(dev_item, NULL, 0);
                                 cJSON *cmd_in = NULL;
                                 cJSON_ArrayForEach(cmd_in, j_cmds) {
                                     cJSON *jn = cJSON_GetObjectItemCaseSensitive(cmd_in, "name");

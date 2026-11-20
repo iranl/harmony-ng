@@ -1257,6 +1257,8 @@ paths:
                 btReconnectDelaySec: {type: integer, description: "Seconds before the reconnect starts after the trigger command (2 when missing)"}
                 btTriggerDeviceId: {type: string, description: "Device whose command starts the reconnect"}
                 btTriggerCommandName: {type: string, description: "Command that starts the reconnect (also deviceId:Command)"}
+                plugin: {type: string, description: "Id of the plugin this device belongs to (a safe id: letters, digits, - and _; 400 otherwise). Only this field or a type plugin:<id> makes a device a plugin device; it then has no controlPort."}
+                config: {oneOf: [{type: object}, {type: string}], description: "Plugin device settings (the plugin's config_fields), an object or that object as a JSON string. A top-level key is copied into config only for a plugin device and only when its config_fields declare it."}
             example:
               deviceId: "70321456"
               name: LG OLED TV
@@ -4044,7 +4046,7 @@ paths:
       tags:
         - Plugins
       summary: List installed plugins and plugin storage
-      description: 'Every plugin in /data/harmony/plugins with its manifest, state and size, plus the free space of /data. pid is present only while the daemon runs. stopped is true after a stop request (the watchdog does not restart it). docs/PLUGINS.md.'
+      description: 'Every plugin in /data/harmony/plugins with its manifest, state and size, plus the free space of /data. Admin role only. pid (of the process hub_daemon started) is present only while the plugin runs. stopped is true after a stop request (the watchdog does not restart it). docs/PLUGINS.md.'
       responses:
         '200':
           description: Installed plugins
@@ -4095,13 +4097,17 @@ paths:
                 message: Plugin uninstalled
         '400':
           description: "Missing id, a device still uses the plugin (Cannot delete plugin 'roku-ecp': currently in use by device '12'), or the uninstall failed (Failed to uninstall plugin)"
+        '404':
+          description: Plugin not installed
+        '409':
+          description: A plugin install is running
 
   /api/plugins/uninstall:
     post:
       tags:
         - Plugins
       summary: Uninstall a plugin
-      description: Stops the daemon and removes the plugin's files. Refused while a device in devices.json uses the plugin.
+      description: Stops the plugin and removes its folder, its state in /data/harmony/plugin-data/<id> (pairing keys) and its log. Refused while a device in devices.json uses the plugin.
       requestBody:
         required: true
         content:
@@ -4126,13 +4132,24 @@ paths:
                 message: Plugin uninstalled
         '400':
           description: "Missing id, a device still uses the plugin (Cannot delete plugin 'roku-ecp': currently in use by device '12'), or the uninstall failed (Failed to uninstall plugin)"
+        '404':
+          description: Plugin not installed
+        '409':
+          description: A plugin install is running
 
   /api/plugins/marketplace:
     get:
       tags:
         - Plugins
       summary: List plugins offered by the configured repositories
-      description: The plugins of every repository.json in the repository list, as the repositories give them (id, name, version, author, description, download_url, sha256, device_definition).
+      description: The plugins of every repository.json in the repository list, as the repositories give them (id, name, version, author, description, download_url, sha256, device_definition), plus repository (the list it came from). Entries without an id are left out. Cached 10 minutes; refresh=1 fetches the repositories again.
+      parameters:
+        - name: refresh
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [1]
       responses:
         '200':
           description: Marketplace catalog
@@ -4167,6 +4184,7 @@ paths:
       tags:
         - Plugins
       summary: Add or remove a plugin repository URL
+      description: "Admin role only. Refused with 403 while authentication is off: a plugin runs as root."
       requestBody:
         required: true
         content:
@@ -4199,6 +4217,8 @@ paths:
                   - https://raw.githubusercontent.com/user/repo/main/repository.json
         '400':
           description: Invalid JSON body, or an unknown action or a URL that could not be added or removed (Failed to update repositories)
+        '403':
+          description: Authentication is off
 
   /api/plugins/install:
     post:
@@ -4206,12 +4226,13 @@ paths:
         - Plugins
       summary: Install a plugin from a URL or an uploaded archive
       description: |
-        One of:
-        - `url`: the Hub downloads the .tar.gz and checks it against `sha256` (from the request, or from the marketplace entry of that URL). A URL of a raw GitHub manifest.json (or `dev: true`) installs the files the manifest lists, without an archive (development only).
-        - `archive_base64`: the .tar.gz archive itself, base64 encoded (upload, or the browser download used when the Hub cannot reach the URL).
-        - a body that is not JSON: the raw .tar.gz archive.
+        Admin role only. Refused with 403 while authentication is off: a plugin runs as root.
 
-        The archive is checked before it is unpacked (no absolute paths, no `..`, no links). The body may be up to 2 MB.
+        One of:
+        - `url`: the Hub downloads the .tar.gz (at most 1 MB) and checks it against `sha256` (from the request, or from the marketplace entry of that URL). Without either the install is refused. With `dev: true` the URL is a raw manifest.json (or its folder) and the files the manifest lists are installed without an archive (development only); `sha256` is then refused, as raw files cannot be checked.
+        - `archive_base64`: the .tar.gz archive itself, base64 encoded, at most 1 MB (an upload, or the browser download used when the Hub could not download the URL). It needs `sha256`, or `dev: true` for a local build.
+
+        The upload is base64 inside JSON only. The archive is checked before it is unpacked (no absolute paths, no `..`, no symbolic or hard links), the manifest is validated (safe id, version, an entrypoint in the archive, config_fields an array of objects with a key), and the unpacked size is compared with the free space of /tmp and of /data (256 KB stay free). The new version is copied next to the installed one and replaces it only when every file was written; on any error the installed version stays.
       requestBody:
         required: true
         content:
@@ -4230,10 +4251,6 @@ paths:
                   type: string
             example:
               url: https://github.com/iranl/harmony-ng-plugins/releases/download/roku-ecp-v1.1.0/roku-ecp-plugin.tar.gz
-          application/gzip:
-            schema:
-              type: string
-              format: binary
       responses:
         '200':
           description: Plugin installed
@@ -4243,16 +4260,22 @@ paths:
                 ok: true
                 message: Plugin installed successfully
         '400':
-          description: The download, the checksum, the archive check or the install failed; error says which
+          description: No sha256 known, the checksum, the archive check, the manifest, the space check or the install failed; error says which
+        '403':
+          description: Authentication is off
+        '409':
+          description: Another plugin install is running
         '413':
-          description: Body over 2 MB
+          description: Body over 2 MB, or archive over 1 MB
+        '502':
+          description: The Hub could not download the URL (the web UIs may then download it in the browser and upload it with the catalog sha256)
 
   /api/plugins/pull:
     post:
       tags:
         - Plugins
-      summary: Update an installed plugin from its repository files (development)
-      description: Downloads the files listed in <id>/manifest.json on the main branch of the iranl/harmony-ng-plugins repository again, without a release archive.
+      summary: Update an installed plugin from where it came from
+      description: "A plugin installed with dev: true is installed again from its dev URL. Any other plugin gets the current marketplace entry of its id, checked against that entry's sha256. Admin role only. Refused with 403 while authentication is off: a plugin runs as root."
       requestBody:
         required: true
         content:
@@ -4275,7 +4298,11 @@ paths:
                 ok: true
                 message: Plugin files updated directly from repository
         '400':
-          description: Invalid JSON body, Missing plugin id, or the download failed
+          description: Invalid JSON body, Missing plugin id, no repository lists the plugin, or the download failed
+        '403':
+          description: Authentication is off
+        '409':
+          description: Another plugin install is running
 
   /api/plugins/pair:
     post:
@@ -4309,7 +4336,7 @@ paths:
                   type: string
                 port:
                   type: integer
-                  default: 6467
+                  description: Optional; without it the plugin uses its own port
                 pin:
                   type: string
             example:
@@ -4327,7 +4354,7 @@ paths:
                 stage: paired
                 message: Paired
         '400':
-          description: 'Invalid JSON body, Missing or invalid plugin id, or missing host, or the plugin answer with ok false. Without an answer in 15 s: {"ok": false, "stage": "error", "message": "Device did not respond or pairing timed out"}'
+          description: 'Invalid JSON body, Missing or invalid plugin id, host or port, or the plugin answer with ok false. Without an answer in 15 s: {"ok": false, "stage": "error", "message": "Device did not respond or pairing timed out"}'
 
   /api/plugins/action:
     post:

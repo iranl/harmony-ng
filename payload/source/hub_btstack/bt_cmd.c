@@ -130,6 +130,11 @@ static bd_addr_t s_page_target;
 static bd_addr_t s_page_orig_addr;      /* saved BEFORE spoof */
 static bool      s_page_spoofed = false;
 static bool      s_page_active  = false;
+/* A page with no Connection Complete for the target (lost event, a Create Connection the
+ * controller refused) ends here: without it every later bt_page was dropped as busy and a
+ * spoofed address stayed. Longer than the controller's page timeout (5.12 s by default). */
+#define BT_PAGE_TIMEOUT_MS 10000
+static btstack_timer_source_t s_page_timer;
 
 static void bt_page_restore_addr(void) {
     if (!s_page_spoofed) return;
@@ -140,9 +145,22 @@ static void bt_page_restore_addr(void) {
         s_page_orig_addr[3], 0x00, s_page_orig_addr[5], s_page_orig_addr[4],
         s_page_orig_addr[2], 0x00, s_page_orig_addr[1], s_page_orig_addr[0]
     };
-    hci_send_cmd_packet(pkt, sizeof(pkt));
+    if (hci_send_cmd_packet(pkt, sizeof(pkt)) != 0) log_msg("bt_page: BD_ADDR restore command not sent");
+    else log_msg("bt_page: BD_ADDR restored");
     s_page_spoofed = false;
-    log_msg("bt_page: BD_ADDR restored");
+}
+
+static void bt_page_end(void) {
+    btstack_run_loop_remove_timer(&s_page_timer);
+    bt_page_restore_addr();
+    s_page_active = false;
+}
+
+static void bt_page_timeout(btstack_timer_source_t *ts) {
+    (void)ts;
+    if (!s_page_active) return;
+    log_msg("bt_page: no Connection Complete for the target, page ended");
+    bt_page_end();
 }
 
 void bt_page_on_complete(const bd_addr_t addr, uint8_t status, hci_con_handle_t handle) {
@@ -161,11 +179,10 @@ void bt_page_on_complete(const bd_addr_t addr, uint8_t status, hci_con_handle_t 
         disc[2] = 3;                     /* parameter length */
         disc[3] = handle & 0xFF; disc[4] = (handle >> 8) & 0xFF;
         disc[5] = 0x13;                  /* reason: Remote User Terminated */
-        hci_send_cmd_packet(disc, 6);
+        if (hci_send_cmd_packet(disc, 6) != 0) log_msg("bt_page: Disconnect command not sent");
     }
 
-    bt_page_restore_addr();
-    s_page_active = false;
+    bt_page_end();
 }
 
 static void bt_page(const bd_addr_t target, const char *spoof_str) {
@@ -195,7 +212,11 @@ static void bt_page(const bd_addr_t target, const char *spoof_str) {
                 spoof[3], 0x00, spoof[5], spoof[4],
                 spoof[2], 0x00, spoof[1], spoof[0]
             };
-            hci_send_cmd_packet(pkt, sizeof(pkt));
+            if (hci_send_cmd_packet(pkt, sizeof(pkt)) != 0) {
+                log_msg("bt_page: spoof command not sent, page dropped");
+                s_page_active = false;
+                return;
+            }
             s_page_spoofed = true;
 
             char smsg[128];
@@ -216,7 +237,15 @@ static void bt_page(const bd_addr_t target, const char *spoof_str) {
     cc[12] = 0x00;               /* reserved */
     cc[13] = 0x00; cc[14] = 0x00; /* clock offset: none */
     cc[15] = 0x00;               /* allow role switch: no */
-    hci_send_cmd_packet(cc, 16);
+    if (hci_send_cmd_packet(cc, 16) != 0) {
+        log_msg("bt_page: Create Connection not sent");
+        bt_page_restore_addr();
+        s_page_active = false;
+        return;
+    }
+    btstack_run_loop_set_timer_handler(&s_page_timer, &bt_page_timeout);
+    btstack_run_loop_set_timer(&s_page_timer, BT_PAGE_TIMEOUT_MS);
+    btstack_run_loop_add_timer(&s_page_timer);
 }
 
 

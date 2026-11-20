@@ -303,8 +303,9 @@ export function createSystemApi(client) {
       return client.request('/api/plugins');
     },
 
-    async getPluginMarketplace() {
-      return client.request('/api/plugins/marketplace');
+    // The Hub fetches every repository (20 s each at most); refresh skips its 10 minute cache
+    async getPluginMarketplace(forceReload = false) {
+      return client.request(`/api/plugins/marketplace${forceReload ? '?refresh=1' : ''}`, { timeout: 60000 });
     },
 
     async getPluginRepositories() {
@@ -315,11 +316,17 @@ export function createSystemApi(client) {
       return client.postJson('/api/plugins/repositories', { action, url });
     },
 
-    async installPlugin(urlOrBase64, isDev = false) {
+    // An install downloads for up to 120 s on the Hub. An upload needs the archive's SHA-256,
+    // or isDev for a local build.
+    async installPlugin(urlOrBase64, isDev = false, sha256 = '') {
+      const opts = { timeout: 130000 };
       if (typeof urlOrBase64 === 'string' && urlOrBase64.startsWith('http')) {
-        return client.postJson('/api/plugins/install', { url: urlOrBase64, dev: !!isDev });
+        return client.postJson('/api/plugins/install', { url: urlOrBase64, dev: !!isDev }, opts);
       }
-      return client.postJson('/api/plugins/install', { archive_base64: urlOrBase64 });
+      const body = { archive_base64: urlOrBase64 };
+      if (sha256) body.sha256 = sha256;
+      if (isDev) body.dev = true;
+      return client.postJson('/api/plugins/install', body, opts);
     },
 
     async pluginAction(id, action) {

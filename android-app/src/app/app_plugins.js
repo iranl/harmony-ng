@@ -77,6 +77,7 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
       }
       try {
         await this.client.updatePluginRepositories('add', url);
+        this._marketplaceStale = true;
         showToast(t('plg_repo_added'), 'success');
         if (input) input.value = '';
         await this.refreshRepositories();
@@ -106,7 +107,7 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
     if (pRepos) pRepos.style.display = (tab === 'repos') ? 'block' : 'none';
 
     if (tab === 'installed') this.refreshPluginsList();
-    else if (tab === 'marketplace') this.refreshMarketplace();
+    else if (tab === 'marketplace') this.refreshMarketplace(!!this._marketplaceStale);
     else if (tab === 'repos') this.refreshRepositories();
   }
 
@@ -197,7 +198,7 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
           ${p.device_definition ? `
             <div style="font-size: 12px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; margin: 8px 0;">
               <span class="muted">${t('plg_device_support')}</span> <strong>${escapeHtml(p.device_definition.display_name || p.device_definition.device_type)}</strong>
-              ${p.device_definition.config_fields ? `<span class="muted mini" style="margin-left: 6px;">(${escapeHtml(p.device_definition.config_fields.map(f => f.label || f.key).join(', '))})</span>` : ''}
+              ${Array.isArray(p.device_definition.config_fields) ? `<span class="muted mini" style="margin-left: 6px;">(${escapeHtml(p.device_definition.config_fields.map(f => f?.label || f?.key || '').join(', '))})</span>` : ''}
             </div>
           ` : ''}
 
@@ -230,7 +231,7 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
         btn.textContent = t('plg_pulling');
         showToast(tf('plg_pulling_files', { id }), 'info');
         try {
-          const res = await this.client.postJson('/api/plugins/pull', { id });
+          const res = await this.client.pullPlugin(id);
           if (res && res.error) throw new Error(res.error);
           showToast(tf('plg_pulled', { id }), 'success');
           await this.refreshPluginsList();
@@ -345,23 +346,11 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
 
     try {
       container.innerHTML = '<div class="muted mini" style="padding: 16px; text-align: center;">' + t('plg_market_fetching') + '</div>';
-      const res = await this.client.getPluginMarketplace();
-      this.marketplaceCatalog = Array.isArray(res) ? res : (res?.marketplace || res?.plugins || []);
-
-      if (!this.marketplaceCatalog || this.marketplaceCatalog.length === 0) {
-        try {
-          const directRes = await fetch('https://raw.githubusercontent.com/iranl/harmony-ng-plugins/main/repository.json');
-          if (directRes.ok) {
-            const data = await directRes.json();
-            if (data && Array.isArray(data.plugins)) {
-              this.marketplaceCatalog = data.plugins;
-            }
-          }
-        } catch (_) {
-          /* ignore fallback error */
-        }
-      }
-
+      const res = await this.client.getPluginMarketplace(forceReload);
+      if (forceReload) this._marketplaceStale = false;
+      const list = Array.isArray(res) ? res : (res?.marketplace || res?.plugins || []);
+      // a null or malformed entry of a repository must not break the whole list
+      this.marketplaceCatalog = (Array.isArray(list) ? list : []).filter(item => item && typeof item === 'object' && item.id);
       this.renderMarketplaceCatalog();
     } catch (err) {
       container.innerHTML = `<div class="card error" style="padding: 12px; color: var(--danger);">${tfHtml('plg_market_load_failed', { error: err.message })}</div>`;
@@ -405,8 +394,8 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
               ${isUpToDate
                 ? `<span class="badge" style="color: var(--success); border: 1px solid var(--success); background: transparent;">${t('plg_installed_check')}</span>`
                 : (isUpdateAvailable
-                  ? `<button type="button" class="btn btn-xs btn-primary btn-install-plugin" data-url="${escapeHtml(item.download_url)}" data-id="${escapeHtml(item.id)}">${tfHtml('plg_update_to', { version: item.version })}</button>`
-                  : `<button type="button" class="btn btn-xs btn-primary btn-install-plugin" data-url="${escapeHtml(item.download_url)}" data-id="${escapeHtml(item.id)}">${t('plg_install')}</button>`
+                  ? `<button type="button" class="btn btn-xs btn-primary btn-install-plugin" data-url="${escapeHtml(item.download_url || '')}" data-sha="${escapeHtml(item.sha256 || '')}" data-id="${escapeHtml(item.id)}">${tfHtml('plg_update_to', { version: item.version })}</button>`
+                  : `<button type="button" class="btn btn-xs btn-primary btn-install-plugin" data-url="${escapeHtml(item.download_url || '')}" data-sha="${escapeHtml(item.sha256 || '')}" data-id="${escapeHtml(item.id)}">${t('plg_install')}</button>`
                 )
               }
             </div>
@@ -425,16 +414,17 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
       btn.addEventListener('click', async () => {
         const url = btn.getAttribute('data-url');
         const id = btn.getAttribute('data-id');
+        const sha = btn.getAttribute('data-sha') || '';
         btn.disabled = true;
         btn.textContent = t('plg_installing_btn');
-        await this.installPluginWithFallback(url, id);
+        await this.installPluginWithFallback(url, id, sha);
         btn.disabled = false;
         btn.textContent = t('plg_install');
       });
     });
   }
 
-  async installPluginWithFallback(downloadUrl, pluginId) {
+  async installPluginWithFallback(downloadUrl, pluginId, sha256 = '') {
     try {
       showToast(tf('plg_downloading_installing', { id: pluginId }), 'info');
       // Step 1: Direct Hub install via URL
@@ -444,15 +434,22 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
       await this.refreshPluginsList();
       this.switchPluginTab('installed');
     } catch (err) {
+      // Only when the Hub could not download (502), and only with the published checksum: a
+      // refusal (checksum, authentication, flash space) or a timeout (the Hub may still be
+      // installing) is never retried from the browser
+      if (err.status !== 502 || !sha256) {
+        showToast(tf('plg_installation_failed', { error: err.message }), 'error');
+        return;
+      }
       console.warn('Hub direct download failed, attempting client-side browser proxy fallback:', err);
       try {
         showToast(t('plg_browser_fallback'), 'info');
-        // Step 2: Fetch via browser client and upload as base64 archive
+        // Step 2: Fetch via browser client and upload as base64 archive; the Hub checks the SHA-256
         const response = await fetch(downloadUrl);
         if (!response.ok) throw new Error(`Browser download HTTP ${response.status}`);
         const blob = await response.blob();
         const base64 = await this.blobToBase64(blob);
-        const res = await this.client.installPlugin(base64);
+        const res = await this.client.installPlugin(base64, false, sha256);
         if (res && res.error) throw new Error(res.error);
         showToast(tf('plg_installed_ok_fallback', { id: pluginId }), 'success');
         await this.refreshPluginsList();
@@ -468,10 +465,16 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
       showToast(t('plg_upload_wrong_type'), 'error');
       return;
     }
+    // the Hub refuses an archive over 1 MB (and a request over about 1.5 MB before reading it)
+    if (file.size > 1024 * 1024) {
+      showToast(t('plg_upload_too_large'), 'error');
+      return;
+    }
     showToast(tf('plg_uploading_installing', { name: file.name }), 'info');
     try {
       const base64 = await this.fileToBase64(file);
-      const res = await this.client.installPlugin(base64);
+      // a local archive is a dev install: there is no published checksum for it
+      const res = await this.client.installPlugin(base64, true);
       if (res && res.error) throw new Error(res.error);
       showToast(t('plg_archive_installed'), 'success');
       await this.refreshPluginsList();
@@ -543,6 +546,7 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
         const url = btn.getAttribute('data-url');
         try {
           await this.client.updatePluginRepositories('remove', url);
+          this._marketplaceStale = true;
           showToast(t('plg_repo_removed'), 'success');
           await this.refreshRepositories();
         } catch (err) {
@@ -553,13 +557,20 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
   }
 
   // --- Device Studio Integration ---
+  // The plugin list is fetched once when nothing loaded it yet. Fetching again whenever the list
+  // was empty looped for ever on a Hub with no plugin (about 200 requests per second).
+  fetchInstalledPluginsOnce(then) {
+    if (this._pluginsFetched || (this.installedPlugins && this.installedPlugins.length > 0)) return;
+    if (!this.client || typeof this.client.getPlugins !== 'function') return;
+    this._pluginsFetched = true;
+    this.client.getPlugins().then(res => {
+      this.installedPlugins = Array.isArray(res) ? res : (res?.plugins || []);
+      if (this.installedPlugins.length > 0) then();
+    }).catch(() => {});
+  }
+
   updateDeviceStudioPluginTypes() {
-    if ((!this.installedPlugins || this.installedPlugins.length === 0) && this.client && typeof this.client.getPlugins === 'function') {
-      this.client.getPlugins().then(res => {
-        this.installedPlugins = Array.isArray(res) ? res : (res?.plugins || []);
-        this.updateDeviceStudioPluginTypes();
-      }).catch(() => {});
-    }
+    this.fetchInstalledPluginsOnce(() => this.updateDeviceStudioPluginTypes());
 
     ['newDeviceType', 'editDevType'].forEach(selectId => {
       const select = document.getElementById(selectId);
@@ -602,7 +613,7 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
   }
 
   openAddDeviceForPlugin(pluginId) {
-    this.switchTab('ir-studio');
+    this.switchTab('ir');
     const box = document.getElementById('studioNewDeviceBox');
     if (box) box.style.display = 'block';
     this.updateDeviceStudioPluginTypes();
@@ -644,14 +655,10 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
       return;
     }
 
-    if ((!this.installedPlugins || this.installedPlugins.length === 0) && this.client && typeof this.client.getPlugins === 'function') {
-      this.client.getPlugins().then(res => {
-        this.installedPlugins = Array.isArray(res) ? res : (res?.plugins || []);
-        this.handleDeviceTypeChanged(selectedType);
-      }).catch(() => {});
-    }
+    this.fetchInstalledPluginsOnce(() => this.handleDeviceTypeChanged(selectedType));
 
-    const fields = plug.device_definition?.config_fields;
+    const fields = Array.isArray(plug.device_definition?.config_fields)
+      ? plug.device_definition.config_fields.filter(f => f && f.key) : null;
     if (!fields || fields.length === 0) {
       wrap.style.display = 'none';
       wrap.innerHTML = '';
@@ -724,13 +731,10 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
       return;
     }
 
-    if ((!this.installedPlugins || this.installedPlugins.length === 0) && this.client && typeof this.client.getPlugins === 'function') {
-      this.client.getPlugins().then(res => {
-        this.installedPlugins = Array.isArray(res) ? res : (res?.plugins || []);
-        this.updateDeviceStudioPluginTypes();
-        this.handleEditDeviceTypeChanged(selectedType, prefillConfig);
-      }).catch(() => {});
-    }
+    this.fetchInstalledPluginsOnce(() => {
+      this.updateDeviceStudioPluginTypes();
+      this.handleEditDeviceTypeChanged(selectedType, prefillConfig);
+    });
 
     let cfgObj = prefillConfig;
     if (typeof cfgObj === 'string') {
@@ -741,7 +745,8 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
       cfgObj = cfgObj.config;
     }
 
-    let fields = plug.device_definition?.config_fields;
+    let fields = Array.isArray(plug.device_definition?.config_fields)
+      ? plug.device_definition.config_fields.filter(f => f && f.key) : null;
     if (!fields && cfgObj && typeof cfgObj === 'object') {
       const knownKeys = Object.keys(cfgObj).filter(k => !['id', 'name', 'type', 'config', 'commands', 'icon', 'manufacturer', 'model', 'interDeviceDelay', 'interKeyDelay', 'holdInterKeyDelay', 'powerOnDelay', 'isPowerAlwaysOn'].includes(k));
       if (knownKeys.length > 0) {

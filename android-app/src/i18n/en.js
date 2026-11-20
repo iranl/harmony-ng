@@ -1,4 +1,5 @@
 export default {
+    "plg_upload_too_large": "The plugin archive is larger than 1 MB, the most the Hub accepts",
     "plugins_desc": "Install and configure community drivers",
     "plugins_lead": "Community drivers and device integrations.",
     "failed_to_save": "Failed to save: ",

@@ -112,10 +112,11 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
     return this.postForm('/ir/command', data);
   }
 
+  // config goes as one JSON field: copied flat on top, a config key named like a device field
+  // (name, deviceId) replaced it
   async saveNewDevice(data) {
     const payload = { ...data };
     if (data.config && typeof data.config === 'object') {
-      Object.assign(payload, data.config);
       payload.config = JSON.stringify(data.config);
     }
     if (data.commands && typeof data.commands === 'object') {
@@ -127,7 +128,6 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
   async saveDeviceDetails(data) {
     const payload = { ...data };
     if (data.config && typeof data.config === 'object') {
-      Object.assign(payload, data.config);
       payload.config = JSON.stringify(data.config);
     }
     if (data.commands && typeof data.commands === 'object') {
@@ -507,8 +507,9 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
     return this.request('/api/plugins');
   }
 
-  async getPluginMarketplace() {
-    return this.request('/api/plugins/marketplace');
+  // The Hub fetches every repository (20 s each at most); refresh skips its 10 minute cache
+  async getPluginMarketplace(forceReload = false) {
+    return this.request(`/api/plugins/marketplace${forceReload ? '?refresh=1' : ''}`, { timeout: 60000 });
   }
 
   async getPluginRepositories() {
@@ -519,11 +520,21 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
     return this.postJson('/api/plugins/repositories', { action, url });
   }
 
-  async installPlugin(urlOrBase64, isDev = false) {
+  // An install downloads for up to 120 s on the Hub. An upload needs the archive's SHA-256, or
+  // isDev for a local build.
+  async installPlugin(urlOrBase64, isDev = false, sha256 = '') {
+    const opts = { timeout: 130000 };
     if (typeof urlOrBase64 === 'string' && urlOrBase64.startsWith('http')) {
-      return this.postJson('/api/plugins/install', { url: urlOrBase64, dev: !!isDev });
+      return this.postJson('/api/plugins/install', { url: urlOrBase64, dev: !!isDev }, opts);
     }
-    return this.postJson('/api/plugins/install', { archive_base64: urlOrBase64 });
+    const body = { archive_base64: urlOrBase64 };
+    if (sha256) body.sha256 = sha256;
+    if (isDev) body.dev = true;
+    return this.postJson('/api/plugins/install', body, opts);
+  }
+
+  async pullPlugin(id) {
+    return this.postJson('/api/plugins/pull', { id }, { timeout: 130000 });
   }
 
   async pluginAction(id, action) {
@@ -534,7 +545,8 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
     return this.postJson('/api/plugins/uninstall', { id });
   }
 
-  async pairPlugin(id, action, host, pin = '', port = 6467) {
-    return this.postJson('/api/plugins/pair', { id, action, host, pin, port });
+  // The Hub waits up to 15 s for the plugin's answer. No port: the plugin knows its own.
+  async pairPlugin(id, action, host, pin = '') {
+    return this.postJson('/api/plugins/pair', { id, action, host, pin }, { timeout: 20000 });
   }
 }

@@ -852,7 +852,8 @@
     "plg_verification_code",
     "plg_verify_code",
     "plg_verify_failed",
-    "plg_verifying"
+    "plg_verifying",
+    "plg_upload_too_large"
   ],
   "fr": [
     "hold_repeat",
@@ -1706,7 +1707,8 @@
     "plg_verification_code",
     "plg_verify_code",
     "plg_verify_failed",
-    "plg_verifying"
+    "plg_verifying",
+    "plg_upload_too_large"
   ],
   "nl": [
     "hold_repeat",
@@ -2560,7 +2562,8 @@
     "plg_verification_code",
     "plg_verify_code",
     "plg_verify_failed",
-    "plg_verifying"
+    "plg_verifying",
+    "plg_upload_too_large"
   ],
   "es": [
     "hold_repeat",
@@ -3414,7 +3417,8 @@
     "plg_verification_code",
     "plg_verify_code",
     "plg_verify_failed",
-    "plg_verifying"
+    "plg_verifying",
+    "plg_upload_too_large"
   ],
   "it": [
     "hold_repeat",
@@ -4268,6 +4272,7 @@
     "plg_verification_code",
     "plg_verify_code",
     "plg_verify_failed",
-    "plg_verifying"
+    "plg_verifying",
+    "plg_upload_too_large"
   ]
 }

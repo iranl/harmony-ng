@@ -98,24 +98,10 @@ void sanitize_devices_json(cJSON *root) {
                        strcasestr(type_str, "bluetooth") != NULL || strcasestr(mfg_str, "bluetooth") != NULL ||
                        strcasecmp(type_str, "BTHID") == 0);
 
-        cJSON *j_plug_src = cJSON_GetObjectItemCaseSensitive(src_d, "plugin");
+        /* A plugin device only through its "plugin" field or a "plugin:<id>" type, with a safe
+         * id: the free-text type of an IR device is never compared with plugin names */
         char res_plug_id[64] = {0};
-        const char *src_p_str = (j_plug_src && cJSON_IsString(j_plug_src) && j_plug_src->valuestring) ? j_plug_src->valuestring : "";
-        if (src_p_str[0]) {
-            plugin_mgr_resolve_device_plugin(src_p_str, res_plug_id, sizeof(res_plug_id));
-            if (!res_plug_id[0]) snprintf(res_plug_id, sizeof(res_plug_id), "%s", src_p_str);
-        } else if (type_str && type_str[0]) {
-            plugin_mgr_resolve_device_plugin(type_str, res_plug_id, sizeof(res_plug_id));
-            if (!res_plug_id[0] && strncasecmp(type_str, "plugin:", 7) == 0) {
-                snprintf(res_plug_id, sizeof(res_plug_id), "%s", type_str + 7);
-            }
-        }
-
-        int is_plugin = (!is_mqtt && !is_bt) && (
-                       (res_plug_id[0] != '\0') ||
-                       (src_p_str[0] != '\0') ||
-                       (type_str && strncasecmp(type_str, "plugin:", 7) == 0) ||
-                       (type_str && strcasecmp(type_str, "plugin") == 0));
+        int is_plugin = (!is_mqtt && !is_bt) && plugin_mgr_device_plugin_id(src_d, res_plug_id, sizeof(res_plug_id));
 
         const char *final_type = "IR";
         char plug_type_buf[128] = {0};
@@ -242,10 +228,6 @@ void sanitize_devices_json(cJSON *root) {
         /* Plugin */
         if (res_plug_id[0]) {
             cJSON_AddStringToObject(cdev, "plugin", res_plug_id);
-        } else if (j_plug_src && cJSON_IsString(j_plug_src) && j_plug_src->valuestring && j_plug_src->valuestring[0]) {
-            cJSON_AddStringToObject(cdev, "plugin", j_plug_src->valuestring);
-        } else if (type_str && strncasecmp(type_str, "plugin:", 7) == 0) {
-            cJSON_AddStringToObject(cdev, "plugin", type_str + 7);
         }
 
         cJSON *j_cfg = cJSON_GetObjectItemCaseSensitive(src_d, "config");

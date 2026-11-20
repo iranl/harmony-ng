@@ -19,10 +19,13 @@ Official plugin repository: [**https://github.com/iranl/harmony-ng-plugins**](ht
    - [Manifest Specification (`manifest.json`)](#manifest-specification-manifestjson)
    - [Process Lifecycle & Supervisor](#process-lifecycle--supervisor)
    - [UNIX Domain Datagram IPC Protocol](#unix-domain-datagram-ipc-protocol)
+   - [Pairing Protocol](#pairing-protocol)
+   - [Bluetooth Helpers (`BLEADV:`, `adv`, `bt_page`)](#bluetooth-helpers-bleadv-adv-bt_page)
    - [Action Lifecycle & Debounce Rules](#action-lifecycle--debounce-rules)
    - [Target Architecture & Cross-Compilation](#target-architecture--cross-compilation)
    - [Packaging & Testing](#packaging--testing)
-   - [Publishing to a Repository](#publishing-to-a-repository)
+   - [Publishing to a Repository](#publishing--distribution)
+   - [Security](#security)
 4. [Reference Plugins](#reference-plugins)
 
 ---
@@ -37,17 +40,19 @@ The Harmony Hub (Atheros AR9344 SoC, MIPS 24Kc) operates with limited flash and 
 
 ### 2. Zero Flash Wear During Operation
 The Hub uses JFFS2 on SPI NOR flash, which is shared with the CC2544 RF transceiver. Writes to NOR flash are slow and cause flash wear.
-- All plugin runtime artifacts (UNIX sockets, PID files, logs) live exclusively in **RAM tmpfs** under `/tmp/plugins/`.
+- All plugin runtime artifacts (UNIX sockets, logs, status files) live exclusively in **RAM tmpfs** under `/tmp/plugins/`.
 
 ### 3. Non-Blocking, Isolated IPC
 - Commands are dispatched from `hub_daemon` to plugins via **UNIX domain datagram sockets** (`AF_UNIX`, `SOCK_DGRAM`) at `/tmp/plugins/<plugin_id>.sock`.
-- Sockets use a non-blocking timeout (200 ms). If a plugin is unresponsive or stopped, the core daemon continues immediately without locking the activity orchestrator or remote sync.
+- The send never waits (`MSG_DONTWAIT`). If a plugin is unresponsive or stopped, the core daemon continues immediately without locking the activity orchestrator or remote sync.
 
 ### 4. Process Supervisor & Crash Recovery
-- `hub_daemon` checks enabled plugins every 10 seconds via a background watchdog tick.
+- `hub_daemon` starts each plugin itself (`fork()` and `exec` of the manifest's `entrypoint`) and keeps its pid. No pid file decides what runs or what is killed.
+- `hub_daemon` checks enabled plugins every 10 seconds via a background watchdog tick, which reaps an exited plugin (`waitpid`) and logs its exit status.
 - If an enabled plugin crashes, it is automatically restarted. A plugin that keeps dying is restarted with a growing gap (20 s, 40 s, … up to 5 minutes); the gap resets once it stays up for a watchdog period. `GET /api/plugins` reports the count as `restarts`.
 - A plugin stopped on request (stop, disable, uninstall) is not restarted by the watchdog; `GET /api/plugins` reports it as `stopped`. Start, restart or enable clears it.
-- When plugins are stopped or restarted, `hub_daemon` follows strict **Rule 1 termination discipline**: graceful `SIGTERM` first, sleep 1 second, followed by unconditional `SIGKILL` to ensure kernel locks and file descriptors are freed cleanly.
+- When plugins are stopped or restarted, `hub_daemon` follows strict **Rule 1 termination discipline**: `SIGTERM` to the plugin's process group (the plugin and any helper it started), up to 1 second for it to exit, then `SIGKILL`.
+- A plugin left running by a `hub_daemon` that was killed is found by its working directory (its plugin folder) and killed when the next `hub_daemon` starts, before the plugins start again. `init.sh stop` stops `hub_daemon` with `SIGTERM` (which stops its plugins), then kills any plugin process left the same way.
 
 ---
 
@@ -63,12 +68,14 @@ The Plugins view has three tabs:
 - **Installed**: Shows all installed plugin daemons, their running state, PID, version, and controls:
   - **Enable / Disable Toggle**: Disabling a plugin prevents it from starting on boot.
   - **Start / Stop / Restart**: Instantly control the live process.
-  - **Uninstall**: Stops the daemon and cleans up all associated files.
+  - **Uninstall**: Stops the daemon and removes its folder, its state in `/data/harmony/plugin-data/<id>` (pairing keys) and its log. Refused while a device uses the plugin.
 - **Marketplace**: Browse community plugins from configured repositories.
   - Click **Install** for 1-click installation.
   - If a newer version is released, an **Update** button appears automatically.
-  - **Dual-Path Resilience**: The installer attempts direct download on the Hub. If the Hub cannot reach GitHub (e.g. air-gapped network or SSL certificate mismatch), the WebUI automatically downloads the archive via the browser and uploads it to the Hub as a base64 payload.
-- **Upload Archive**: Click **Upload Archive (.tar.gz)** in the top bar to install a custom plugin `.tar.gz` package directly.
+  - **Dual-Path Resilience**: The installer attempts direct download on the Hub. If the Hub cannot download the archive (HTTP 502: no route to the host), the WebUI downloads it in the browser and uploads it with the catalog's SHA-256, which the Hub checks. This works only where the host allows cross-origin reads (`raw.githubusercontent.com` does, GitHub release assets do not). A refusal (checksum, authentication, flash space) or a timeout is never retried from the browser.
+- **Upload Archive**: Click **Upload Archive (.tar.gz)** in the top bar to install a custom plugin `.tar.gz` package directly. An upload without a SHA-256 is a dev install. The archive may be at most 1 MB.
+- **Authentication**: a plugin runs as root on the Hub. Install, pull and repository changes are refused (HTTP 403) while authentication is off. All plugin routes, `GET /api/plugins` included, need the admin role.
+- **Space**: the Hub checks the unpacked size against the free space of `/data` (256 KB stay free for the configuration) and of `/tmp` (RAM) before it unpacks. The new version is copied next to the installed one and swapped in only when every file was written: a failed install leaves the installed version as it was. One install runs at a time (HTTP 409 for a second one).
 
 ### Adding Community Repositories
 1. Go to the **Repositories** tab in the Plugins view.
@@ -81,6 +88,7 @@ Once a plugin is installed (e.g. `roku-ecp`, `android-tv`, or `ps5-wake`):
 2. Open the **Device Type** dropdown: installed plugins appear under the **Community Plugins** group (e.g. `Roku Player / TV (Plugin)`).
 3. The UI automatically displays the custom configuration fields defined by the plugin (e.g. *IP Address*, *Port*, *Bluetooth MAC*).
 4. Tap **Create Device**. Default commands are automatically generated and linked to the plugin.
+   The device is stored with `"plugin": "<id>"` (and type `plugin:<id>` or its own type text). Only that field, or a type `plugin:<id>`, makes a device a plugin device: a free-text type that happens to match a plugin's `device_type` or `display_name` does not.
 5. The device can now be assigned to any Activity, physical button, or Home Assistant automation.
 
 ---
@@ -93,9 +101,8 @@ A plugin distribution is a compressed archive (`.tar.gz` or `.tgz`) containing:
 ```
 my-plugin/
 ├── manifest.json          # Plugin metadata, device definitions, configuration schema
-├── run.sh                 # Required lifecycle script (start, stop)
-└── bin/                   # Optional compiled binaries, scripts, or assets
-    └── my_daemon
+└── bin/                   # Binaries, scripts, or assets
+    └── my_daemon          # The entrypoint: started and stopped by hub_daemon
 ```
 
 ### Manifest Specification (`manifest.json`)
@@ -109,7 +116,7 @@ The `manifest.json` file defines the plugin identity and how it appears in the W
   "author": "Harmony-NG Community",
   "description": "Control Roku streaming boxes and Roku TVs over local Wi-Fi via External Control Protocol (ECP)",
   "homepage": "https://github.com/iranl/harmony-ng-plugins",
-  "entrypoint": "run.sh",
+  "entrypoint": "bin/roku_ecp",
   "device_definition": {
     "device_type": "roku",
     "display_name": "Roku Player / TV",
@@ -146,14 +153,18 @@ The `manifest.json` file defines the plugin identity and how it appears in the W
 
 | Field | Type | Description |
 | :--- | :--- | :--- |
-| `id` | `string` | Unique identifier (alphanumeric, hyphens, underscores; 1–63 chars). Must match directory name. |
+| `id` | `string` | **Required.** Unique identifier (alphanumeric, hyphens, underscores; 1–63 chars). Must match directory name. |
 | `name` | `string` | Human-readable plugin title. |
-| `version` | `string` | Semantic version string (e.g. `1.0.0`). |
+| `version` | `string` | **Required.** Semantic version string (e.g. `1.0.0`). |
 | `author` | `string` | Author or organization name. |
 | `description` | `string` | Short summary of plugin capabilities. |
 | `homepage` | `string` | URL to source repository or documentation. |
-| `entrypoint` | `string` | Script or binary to execute (defaults to `run.sh`). |
-| `device_definition` | `object` | *(Optional)* Schema for devices created using this plugin. |
+| `entrypoint` | `string` | **Required.** Relative path of the binary or script the Hub runs (it must be in the archive). |
+| `files` | `array` | *(Dev installs)* Relative paths the dev install downloads next to `manifest.json`. |
+| `pairing` | `object` | *(Optional)* Pairing dialog texts (`supported`, `title`, `button_label`, `host_label`, `prompt`, `pin_length`). |
+| `device_definition` | `object` | *(Optional)* Schema for devices created using this plugin. `config_fields`, when present, is an array of objects, each with a string `key`. |
+
+The Hub refuses an install whose manifest has no safe `id`, no `version`, no valid `entrypoint` (or one not in the archive), or a malformed `config_fields`.
 
 #### Config Field Types
 
@@ -168,46 +179,21 @@ The `manifest.json` file defines the plugin identity and how it appears in the W
 
 ### Process Lifecycle & Supervisor
 
-Plugins must provide an executable `run.sh` script handling `start` and `stop` actions:
+`hub_daemon` starts the `entrypoint` itself:
 
-```bash
-#!/bin/sh
-# Example run.sh lifecycle script
+- in the plugin folder (`/data/harmony/plugins/<id>`), in its own session and process group;
+- with the socket path as `argv[1]` and the environment below;
+- stdin `/dev/null`, stdout and stderr to `/tmp/plugins/<id>.log` (written new at each start);
+- none of `hub_daemon`'s sockets or files.
 
-PID_FILE="/tmp/plugins/${HARMONY_PLUGIN_ID}.pid"
-SOCK_FILE="${HARMONY_SOCKET:-/tmp/plugins/${HARMONY_PLUGIN_ID}.sock}"
+The entrypoint must **stay in the foreground** for as long as the plugin runs: do not fork into the background, do not write a pid file. When it exits, the watchdog sees it at once and restarts it (with the backoff above). To stop it, `hub_daemon` sends `SIGTERM` to its process group, waits up to 1 second, then sends `SIGKILL`: a helper the plugin started is stopped with it.
 
-case "$1" in
-  start)
-    # Ensure previous instance is stopped
-    [ -f "$PID_FILE" ] && kill -9 "$(cat "$PID_FILE")" 2>/dev/null
-    rm -f "$SOCK_FILE" "$PID_FILE"
-
-    # Start daemon in background
-    ./bin/my_daemon "$SOCK_FILE" > "/tmp/plugins/${HARMONY_PLUGIN_ID}.log" 2>&1 &
-    echo $! > "$PID_FILE"
-    ;;
-  stop)
-    if [ -f "$PID_FILE" ]; then
-      kill -15 "$(cat "$PID_FILE")" 2>/dev/null
-      sleep 1
-      kill -9 "$(cat "$PID_FILE")" 2>/dev/null
-      rm -f "$PID_FILE" "$SOCK_FILE"
-    fi
-    ;;
-  status)
-    if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
-      echo "Running (PID $(cat "$PID_FILE"))"
-      exit 0
-    fi
-    echo "Stopped"
-    exit 1
-    ;;
-  *)
-    echo "Usage: $0 {start|stop|status}"
-    exit 1
-    ;;
-esac
+```c
+int main(int argc, char **argv) {
+    const char *sock_path = argc > 1 ? argv[1] : getenv("HARMONY_SOCKET");
+    int fd = socket(AF_UNIX, SOCK_DGRAM, 0);
+    /* unlink(sock_path); bind(fd, sock_path); then one poll() loop until SIGTERM */
+}
 ```
 
 #### Plugin Data
@@ -267,6 +253,35 @@ PLUGIN:<plugin_id>:<subcommand>
 ```
 When present, `hub_daemon` routes the command directly to `<plugin_id>` and sets the `command` field in the JSON payload to `<subcommand>` (the whole rest of the keyCode, any length: e.g. `PLUGIN:android-tv:app:https://www.netflix.com/title/80057281`).
 
+#### Device fields
+A plugin device in `devices.json` (and in `POST /api/device-save`) has `"plugin": "<id>"` and a `"config"` object with the values of the plugin's `config_fields`. A top-level key is copied into `config` only when the plugin's `config_fields` declare it; the UIs send `config` as one JSON field. A `plugin` that is not a safe id is refused (HTTP 400).
+
+---
+
+### Pairing Protocol
+
+`POST /api/plugins/pair` (`{"id", "action": "start" | "pin", "host", "pin", "port"}`, `port` optional) starts the plugin if needed, removes `/tmp/plugins/<id>.status`, and sends one datagram:
+
+```json
+{ "plugin_id": "android-tv", "command": "pair", "action": "start_pair", "host": "192.168.1.60" }
+```
+
+`action` is `finish_pair` with `pin` for the second step. The plugin answers by writing `/tmp/plugins/<id>.status` (write a temporary file, then `rename()` it: the Hub polls the file every 100 ms for up to 15 s and must not read half of it):
+
+```json
+{ "ok": true, "action": "start_pair", "stage": "pin_required", "message": "Enter the code shown on the TV", "paired": false, "host": "192.168.1.60" }
+```
+
+The route returns this object, with HTTP 400 when `ok` is false. Keep pairing keys in `HARMONY_PLUGIN_DATA`.
+
+---
+
+### Bluetooth Helpers (`BLEADV:`, `adv`, `bt_page`)
+
+- **`BLEADV:<hex>`** keyCode: a command whose keyCode is `BLEADV:` and up to 31 bytes of legacy advertising data (AD structures, hex) is broadcast by `hub_btstack`; `hub_daemon` checks the payload and sends `adv <hex>` to it. No plugin process is involved.
+- **`adv <hex>`** and **`bt_page <target_mac> [spoof_mac]`**: text datagrams a plugin may send to `/tmp/hub_btstack.sock`. `bt_page` pages the target (optionally from a spoofed BD_ADDR, restored afterwards) and disconnects at once. One page runs at a time; a page with no answer ends after 10 s.
+- **`/tmp/hub_btstack.lock`**: a helper that needs the radio alone (the `ps5-wake` cold wake restarts the CSR8811) creates this file; while it exists the `init.sh` supervisor does not restart `hub_btstack`. Remove it when done. A lock older than 120 s is taken as stale and removed.
+
 ---
 
 ### Action Lifecycle & Debounce Rules
@@ -283,49 +298,50 @@ When present, `hub_daemon` routes the command directly to `<plugin_id>` and sets
 
 ### Target Architecture & Cross-Compilation
 
-The Harmony Hub CPU is an **Atheros AR9344 (MIPS 24Kc, big-endian)** running **Linux 2.6.31** with **uClibc 0.9.30.1**.
+The Harmony Hub CPU is an **Atheros AR9344 (MIPS 24Kc, big-endian)** running **Linux 2.6.31**. Its stock C library is **uClibc 0.9.30**.
 
 #### Cross-Compiler Toolchain
-The MIPS Buildroot toolchain (`mips32--uclibc--stable`, uClibc 0.9.30.1 / GCC 5.4.0) is downloaded/extracted automatically when running `build/compile_all.sh`, or can be downloaded from standard Buildroot toolchain archives.
+The MIPS Buildroot toolchain (`mips32--uclibc--stable`, uClibc-ng 1.0.24 / GCC 5.4.0) is found by `build/compile_all.sh` in `build/toolchains/`; it is not downloaded. Get it from the Buildroot toolchain archives (bootlin `mips32--uclibc--stable`).
 
 ```bash
 # Add MIPS toolchain to PATH
 export PATH="$(pwd)/build/toolchains/mips32--uclibc--stable/bin:$PATH"
 
-# Compile dynamically linked executable against Hub uClibc
+# Compile a dynamically linked executable against the Hub's uClibc
 mips-buildroot-linux-uclibc-gcc -Wall -Os -s -o my_daemon main.c -lm
 ```
 
 #### Binary Guidelines
-1. **Never use static linking with heavy runtimes**: Flash space on `/data` is limited.
-2. **Dynamic linking with uClibc**: Link against standard system libraries (`libc.so.0`, `libpthread.so.0`).
-3. **Prefer POSIX shell scripts** using BusyBox applets (`sed`, `awk`, `wget`, `curl`, `nc`) when network protocols allow (such as HTTP REST APIs).
+1. **Link dynamically** against the Hub's `libc.so.0` (and `libpthread.so.0` only if needed): a static binary is much larger, and `/data` has about 5 MB for everything. The Hub's own binaries in this repository are static because they must run before and without anything else; a plugin does not.
+2. **Symbols missing from the stock uClibc 0.9.30**: the toolchain's headers are uClibc-ng 1.0.24, so some calls link but are not on the Hub. `<ctype.h>` functions (`isdigit`, `tolower`, ...) import `__ctype_b_loc` / `__ctype_tolower_loc`, which the Hub lacks: the plugin starts and dies at the first call. Write these checks by hand; `build_plugins.sh` refuses a binary that imports `__ctype_`. Link statically only when a symbol you need is missing and cannot be avoided.
+3. **No futex on the Hub kernel**: a thread waiting on a condition variable, a semaphore, a contended mutex or `pthread_join` spins at 100 % CPU (#211). Use one thread and a `poll()` loop (socket, timers as poll timeouts); if a second thread is unavoidable, wake it through a pipe it `poll()`s.
+4. **Prefer POSIX shell scripts** using BusyBox applets (`sed`, `awk`, `wget`, `nc`) when network protocols allow (such as HTTP REST APIs). A script entrypoint must also stay in the foreground (`exec` the last command).
 
 ---
 
 ### Packaging & Testing
 
-1. Create a clean staging directory with `manifest.json`, `run.sh`, and your binaries:
+1. Create a clean staging directory with `manifest.json` and your binaries:
    ```bash
-   mkdir /tmp/pkg_staging
-   cp manifest.json run.sh /tmp/pkg_staging/
-   chmod +x /tmp/pkg_staging/run.sh
-   tar -czf my-plugin.tar.gz -C /tmp/pkg_staging manifest.json run.sh
+   mkdir -p /tmp/pkg_staging/bin
+   cp manifest.json /tmp/pkg_staging/
+   cp my_daemon /tmp/pkg_staging/bin/ && chmod +x /tmp/pkg_staging/bin/my_daemon
+   tar -czf my-plugin.tar.gz -C /tmp/pkg_staging manifest.json bin
    ```
 
 2. Test installation locally on the Hub:
    ```bash
-   # Upload and test via API
+   # Upload and test via API (authentication must be on: pass an admin token).
+   # The upload is base64 inside JSON only, at most 1 MB of archive.
    base64 my-plugin.tar.gz | tr -d '\n' > /tmp/pkg.b64
    curl -X POST http://<hub-ip>:8089/api/plugins/install \
+        -H "Authorization: Bearer <admin token>" \
         -H "Content-Type: application/json" \
-        -d "{\"archive_base64\":\"$(cat /tmp/pkg.b64)\"}"
+        -d "{\"archive_base64\":\"$(cat /tmp/pkg.b64)\",\"dev\":true}"
    ```
+   Pass `"sha256": "<64 hex>"` instead of `"dev": true` to have the Hub check the archive.
 
-3. Run the automated test suite:
-   ```bash
-   python tests/test_plugin_manifest.py
-   ```
+3. Run the firmware's plugin tests (`tests/suite.d/27-plugins.sh`: `test_plugin_mgr` and `test_plugin_device_save.py`).
 
 ---
 
@@ -340,9 +356,9 @@ To make your plugin visible to all HarmonyNG users out-of-the-box:
 3. Open a Pull Request: CI builds it for the Hub and runs the host tests. Once merged, the release workflow publishes `<plugin_id>-v<version>` and adds the plugin, with its SHA-256, to `repository.json`. Bump `version` in `manifest.json` to release a change.
 
 #### Checksums and URLs
-BusyBox `wget` on the Hub does not verify TLS certificates. When a marketplace entry lists `sha256`, the Hub refuses an archive whose SHA-256 differs (an install request may also pass `"sha256"` itself). `build_plugins.sh` in `harmony-ng-plugins` writes `repository.json` with the checksum of each archive it builds: upload those exact archives. The repository index itself is not signed.
+BusyBox `wget` on the Hub does not verify TLS certificates. Every install that is not marked `dev` needs a SHA-256: the request's `sha256`, or the `sha256` of the marketplace entry for that `download_url`. Without one the install is refused, and an archive whose SHA-256 differs is refused. A `sha256` sent with a `dev` URL install is refused (the raw files cannot be checked). `build_plugins.sh` in `harmony-ng-plugins` writes `repository.json` with the checksum of each archive it builds: upload those exact archives. A pull installs the current marketplace entry of the plugin's id (checked the same way), or a dev plugin again from its dev URL.
 
-URLs (repositories, downloads) must be `http://` or `https://` with plain characters only (letters, digits, `-._~:/?#@&+,=%`). File names in a manifest's `files` list must be relative paths of letters, digits, `.`, `_`, `-` and `/`, without `..`. An archive with an absolute path, a `..` entry, or a link entry is refused.
+URLs (repositories, downloads) must be `http://` or `https://` with plain characters only (letters, digits, `-._~:/?#@&+,=%`). File names in a manifest's `files` list must be relative paths of letters, digits, `.`, `_`, `-` and `/`, without `..`. An archive with an absolute path, a `..` entry, or a symbolic or hard link entry is refused.
 
 #### Option B: Host Your Own Community Repository
 To distribute your plugin independently, host a `repository.json` index on GitHub or any HTTP server:
@@ -377,6 +393,13 @@ To distribute your plugin independently, host a `repository.json` index on GitHu
 ```
 
 Users can simply paste your repository URL into the **Repositories** tab in their WebUI or Android App to install your plugin.
+
+---
+
+### Security
+
+- A plugin runs as root. Installing one runs its code as root, so the install, pull and repository routes need authentication to be on and the admin role.
+- **What the SHA-256 protects against, and what not**: the checksum catches a damaged or cut download. It does not prove the archive is the published one: `repository.json`, which carries the checksums, comes over the same unverified channel (`wget` without certificate checks, `http://` accepted). Someone who can change the traffic between the Hub and the repository can replace both. Signing `repository.json` in the release workflow and verifying it on the Hub (as firmware updates are verified) is planned (roadmap task 1.3); until then, add only repositories you trust, on a network you trust.
 
 ---
 

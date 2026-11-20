@@ -1,4 +1,5 @@
 export default {
+    "plg_upload_too_large": "L'archive du plugin dépasse 1 Mo, le maximum accepté par le Hub",
     "plugins_desc": "Installer et configurer des pilotes communautaires",
     "plugins_lead": "Pilotes communautaires et intégrations d'appareils.",
     "failed_to_save": "Échec de l'enregistrement : ",

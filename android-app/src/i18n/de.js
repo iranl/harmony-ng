@@ -1,4 +1,5 @@
 export default {
+    "plg_upload_too_large": "Das Plugin-Archiv ist größer als 1 MB, das Maximum, das der Hub annimmt",
     "plugins_desc": "Community-Treiber installieren und konfigurieren",
     "plugins_lead": "Community-Treiber und Geräteintegrationen.",
     "failed_to_save": "Speichern fehlgeschlagen: ",

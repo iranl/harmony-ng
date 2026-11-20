@@ -51,22 +51,21 @@ case "$1" in
     for _p in $(ps | grep 'init\.sh' | grep -v 'grep' | sed 's/^[ ]*//' | cut -d' ' -f1 2>/dev/null); do
       [ -n "$_p" ] && [ "$_p" != "$$" ] && [ "$_p" != "$PPID" ] && kill -9 "$_p" 2>/dev/null || true
     done
-    # Stop all plugin daemons cleanly (Rule 1 discipline)
-    for _rsh in /data/harmony/plugins/*/run.sh; do
-      [ -f "$_rsh" ] && sh "$_rsh" stop 2>/dev/null || true
-    done
-    if [ -d /tmp/plugins ]; then
-      for _pidf in /tmp/plugins/*.pid; do
-        [ -f "$_pidf" ] && kill -15 "$(cat "$_pidf" 2>/dev/null)" 2>/dev/null || true
-      done
-      sleep 1
-      for _pidf in /tmp/plugins/*.pid; do
-        [ -f "$_pidf" ] && kill -9 "$(cat "$_pidf" 2>/dev/null)" 2>/dev/null || true
-      done
-      rm -f /tmp/plugins/*.pid /tmp/plugins/*.sock 2>/dev/null || true
-    fi
+    # Plugins are children of hub_daemon: on SIGTERM it stops each one (SIGTERM, 1 s, SIGKILL)
+    killall -15 hub_daemon 2>/dev/null || true
+    sleep 2
     # Terminate all daemon processes
     killall -9 hub_rf hub_daemon hub_btstack hub_usbwifi hal luaworks luadraws lua 2>/dev/null || true
+    # Plugin processes still left (hub_daemon was hung or already gone): found by their
+    # working directory, which is their plugin folder
+    for _c in /proc/[0-9]*/cwd; do
+      case "$(ls -l "$_c" 2>/dev/null)" in
+        *"-> /data/harmony/plugins/"*)
+          _p=${_c#/proc/}
+          kill -9 "${_p%/cwd}" 2>/dev/null || true ;;
+      esac
+    done
+    rm -f /tmp/plugins/*.sock 2>/dev/null || true
     # the USB Wi-Fi setup started as "hub_util usbwifi" (no hub_usbwifi link) runs as hub_util
     for _p in $(pidof hub_util 2>/dev/null); do
       case "$(tr '\000' ' ' < "/proc/$_p/cmdline" 2>/dev/null)" in
@@ -369,10 +368,21 @@ killall -9 bluetoothd 2>/dev/null || true
       continue
     fi
 
-    # If locked by an exclusive radio task (e.g. ps5-wake spoof sequence), pause supervisor
+    # If locked by an exclusive radio task (e.g. ps5-wake spoof sequence), pause supervisor.
+    # A helper killed with -9 never removes its lock (no EXIT trap): after 120 s the lock
+    # is taken as stale and removed, or Bluetooth stayed off until a reboot.
     if [ -f /tmp/hub_btstack.lock ]; then
-      sleep 2
-      continue
+      _lock_wait=$(( ${_lock_wait:-0} + 2 ))
+      if [ "$_lock_wait" -ge 120 ]; then
+        echo "$(date) /tmp/hub_btstack.lock older than 120 s, removing it" >> "$LOG"
+        rm -f /tmp/hub_btstack.lock
+        _lock_wait=0
+      else
+        sleep 2
+        continue
+      fi
+    else
+      _lock_wait=0
     fi
 
     # Ensure hci0 is UP

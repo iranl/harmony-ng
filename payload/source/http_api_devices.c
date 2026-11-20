@@ -85,6 +85,37 @@ static int device_int_field(const cJSON *j, int *out) {
 }
 
 /* Every timing field present in the body has a usable type */
+/* Keys of a device that are its own fields: a plugin's config_fields key with such a name is
+ * never copied into config from the top level */
+static int device_key_reserved(const char *key) {
+    static const char *const reserved_dev_keys[] = {
+        "id", "deviceId", "name", "type", "manufacturer", "model", "icon", "plugin", "config",
+        "commands", "controlPort", "interDeviceDelay", "interKeyDelay", "holdInterKeyDelay",
+        "defaultInterDeviceDelay", "powerOnDelay", "isPowerAlwaysOn", "mqttEnabled", "mqttTopic", "mqttPulseMs",
+        "bdaddr", "btHost", "btAutoReconnect", "btReconnectDurationSec", "btReconnectDelaySec",
+        "btTriggerDeviceId", "btTriggerCommandName", "powerOnSequence", "powerOffSequence", NULL
+    };
+    for (int k = 0; reserved_dev_keys[k]; k++) {
+        if (strcasecmp(key, reserved_dev_keys[k]) == 0) return 1;
+    }
+    return 0;
+}
+
+/* A "plugin" field or "plugin:<id>" type names a safe plugin id (or is absent) */
+static int device_plugin_field_valid(const cJSON *p) {
+    const cJSON *j_plug = cJSON_GetObjectItemCaseSensitive(p, "plugin");
+    if (j_plug && !cJSON_IsNull(j_plug)) {
+        if (!cJSON_IsString(j_plug)) return 0;
+        const char *v = j_plug->valuestring;
+        if (strncasecmp(v, "plugin:", 7) == 0) v += 7;
+        if (v[0] && !plugin_mgr_is_safe_id(v)) return 0;
+    }
+    const cJSON *j_type = cJSON_GetObjectItemCaseSensitive(p, "type");
+    if (cJSON_IsString(j_type) && strncasecmp(j_type->valuestring, "plugin:", 7) == 0 &&
+        !plugin_mgr_is_safe_id(j_type->valuestring + 7)) return 0;
+    return 1;
+}
+
 static int device_int_fields_valid(const cJSON *p) {
     static const char *const keys[] = {
         "interDeviceDelay", "interKeyDelay", "holdInterKeyDelay", "powerOnDelay",
@@ -932,6 +963,11 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
             cJSON_Delete(p);
             p = NULL;
         }
+        if (p && !device_plugin_field_valid(p)) {
+            /* "plugin" (or a "plugin:<id>" type) goes into a socket path: a safe id only (400) */
+            cJSON_Delete(p);
+            p = NULL;
+        }
         int success = 0;
         int save_failed = 0; /* valid request, devices.json could not be written: 500, not 400 */
         char dev_id_out[32] = {0};
@@ -1025,9 +1061,7 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                     cJSON_AddStringToObject(found_dev, "type", init_type);
                     cJSON_AddStringToObject(found_dev, "manufacturer", (j_mfg && cJSON_IsString(j_mfg)) ? j_mfg->valuestring : "");
                     cJSON_AddStringToObject(found_dev, "model", (j_model && cJSON_IsString(j_model)) ? j_model->valuestring : "");
-                    int init_is_plugin = (strncasecmp(init_type, "plugin:", 7) == 0 || strcasecmp(init_type, "plugin") == 0 ||
-                                          plugin_mgr_resolve_device_plugin(init_type, NULL, 0) ||
-                                          (cJSON_GetObjectItemCaseSensitive(p, "plugin") != NULL));
+                    int init_is_plugin = plugin_mgr_device_plugin_id(p, NULL, 0);
                     if (!init_is_plugin) {
                         cJSON_AddNumberToObject(found_dev, "controlPort", cp_val > 0 ? cp_val : 7);
                     }
@@ -1195,62 +1229,42 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                     }
                 }
 
+                /* The plugin of the device: the "plugin" field or "plugin:<id>" type of this save,
+                 * else the one stored. Never derived from the free-text type. */
                 char resolved_plug[64] = {0};
-                cJSON *j_plug = cJSON_GetObjectItemCaseSensitive(p, "plugin");
-                const char *p_val = (j_plug && cJSON_IsString(j_plug) && j_plug->valuestring) ? j_plug->valuestring : "";
-                const char *t_val = (j_type && cJSON_IsString(j_type) && j_type->valuestring) ? j_type->valuestring : "";
-
-                if (p_val[0] && plugin_mgr_resolve_device_plugin(p_val, resolved_plug, sizeof(resolved_plug))) {
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "plugin");
-                    cJSON_AddStringToObject(found_dev, "plugin", resolved_plug);
-                } else if (t_val[0] && plugin_mgr_resolve_device_plugin(t_val, resolved_plug, sizeof(resolved_plug))) {
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "plugin");
-                    cJSON_AddStringToObject(found_dev, "plugin", resolved_plug);
-                } else if (p_val[0]) {
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "plugin");
-                    cJSON_AddStringToObject(found_dev, "plugin", p_val);
-                    snprintf(resolved_plug, sizeof(resolved_plug), "%s", p_val);
-                } else if (t_val[0] && strncasecmp(t_val, "plugin:", 7) == 0) {
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "plugin");
-                    cJSON_AddStringToObject(found_dev, "plugin", t_val + 7);
-                    snprintf(resolved_plug, sizeof(resolved_plug), "%s", t_val + 7);
+                if (!plugin_mgr_device_plugin_id(p, resolved_plug, sizeof(resolved_plug))) {
+                    plugin_mgr_device_plugin_id(found_dev, resolved_plug, sizeof(resolved_plug));
                 }
+                int is_dev_plugin = resolved_plug[0] != '\0';
 
-                /* Also merge flat parameters or custom fields into found_dev->config if present */
-                const char *reserved_dev_keys[] = {
-                    "id", "deviceId", "name", "type", "manufacturer", "model", "icon", "plugin", "config",
-                    "commands", "controlPort", "interDeviceDelay", "interKeyDelay", "holdInterKeyDelay",
-                    "powerOnDelay", "isPowerAlwaysOn", "mqttEnabled", "mqttTopic", "mqttPulseMs",
-                    "bdaddr", "btHost", "btAutoReconnect", "btReconnectDurationSec", "btReconnectDelaySec",
-                    "btTriggerDeviceId", "btTriggerCommandName", "powerOnSequence", "powerOffSequence", NULL
-                };
-                cJSON *field_item = NULL;
-                cJSON_ArrayForEach(field_item, p) {
-                    if (!field_item->string || !field_item->string[0]) continue;
-                    int is_reserved = 0;
-                    for (int k = 0; reserved_dev_keys[k]; k++) {
-                        if (strcasecmp(field_item->string, reserved_dev_keys[k]) == 0) {
-                            is_reserved = 1;
-                            break;
-                        }
-                    }
-                    if (!is_reserved) {
+                /* Flat keys: only for a plugin device, and only the keys its manifest declares
+                 * in config_fields (the UIs send them inside "config") */
+                cJSON *flat_def = is_dev_plugin ? plugin_mgr_get_device_definition(resolved_plug) : NULL;
+                cJSON *flat_fields = flat_def ? cJSON_GetObjectItemCaseSensitive(flat_def, "config_fields") : NULL;
+                cJSON *fld_decl = NULL;
+                if (cJSON_IsArray(flat_fields)) {
+                    cJSON_ArrayForEach(fld_decl, flat_fields) {
+                        cJSON *k = cJSON_GetObjectItemCaseSensitive(fld_decl, "key");
+                        if (!cJSON_IsString(k) || !k->valuestring[0]) continue;
+                        cJSON *field_item = cJSON_GetObjectItemCaseSensitive(p, k->valuestring);
+                        if (!field_item || device_key_reserved(k->valuestring)) continue;
                         cJSON *cur_cfg = cJSON_GetObjectItemCaseSensitive(found_dev, "config");
                         if (!cur_cfg || !cJSON_IsObject(cur_cfg)) {
                             cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "config");
                             cur_cfg = cJSON_CreateObject();
                             cJSON_AddItemToObject(found_dev, "config", cur_cfg);
                         }
-                        cJSON_DeleteItemFromObjectCaseSensitive(cur_cfg, field_item->string);
+                        cJSON_DeleteItemFromObjectCaseSensitive(cur_cfg, k->valuestring);
                         if (cJSON_IsNumber(field_item)) {
-                            cJSON_AddNumberToObject(cur_cfg, field_item->string, field_item->valuedouble);
+                            cJSON_AddNumberToObject(cur_cfg, k->valuestring, field_item->valuedouble);
                         } else if (cJSON_IsBool(field_item)) {
-                            cJSON_AddBoolToObject(cur_cfg, field_item->string, cJSON_IsTrue(field_item));
+                            cJSON_AddBoolToObject(cur_cfg, k->valuestring, cJSON_IsTrue(field_item));
                         } else if (cJSON_IsString(field_item) && field_item->valuestring) {
-                            cJSON_AddStringToObject(cur_cfg, field_item->string, field_item->valuestring);
+                            cJSON_AddStringToObject(cur_cfg, k->valuestring, field_item->valuestring);
                         }
                     }
                 }
+                cJSON_Delete(flat_def);
 
                 /* If commands are provided in payload (e.g. plugin default_commands or batch list) */
                 cJSON *j_cmds = cJSON_GetObjectItemCaseSensitive(p, "commands");
@@ -1273,25 +1287,6 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                 }
 
                 /* Plugin devices do not use IR controlPort */
-                cJSON *chk_plug = cJSON_GetObjectItemCaseSensitive(found_dev, "plugin");
-                cJSON *chk_type = cJSON_GetObjectItemCaseSensitive(found_dev, "type");
-                const char *cp_str = (chk_plug && cJSON_IsString(chk_plug)) ? chk_plug->valuestring : "";
-                const char *ct_str = (chk_type && cJSON_IsString(chk_type)) ? chk_type->valuestring : "";
-
-                if (!resolved_plug[0]) {
-                    if (cp_str[0] && plugin_mgr_resolve_device_plugin(cp_str, resolved_plug, sizeof(resolved_plug))) {
-                    } else if (ct_str[0] && plugin_mgr_resolve_device_plugin(ct_str, resolved_plug, sizeof(resolved_plug))) {
-                    } else if (cp_str[0]) {
-                        snprintf(resolved_plug, sizeof(resolved_plug), "%s", cp_str);
-                    } else if (ct_str[0] && strncasecmp(ct_str, "plugin:", 7) == 0) {
-                        snprintf(resolved_plug, sizeof(resolved_plug), "%s", ct_str + 7);
-                    }
-                }
-
-                int is_dev_plugin = (resolved_plug[0] != '\0') ||
-                                    (chk_plug && cJSON_IsString(chk_plug) && chk_plug->valuestring[0]) ||
-                                    (chk_type && cJSON_IsString(chk_type) && (strncasecmp(chk_type->valuestring, "plugin:", 7) == 0 ||
-                                                                             strcasecmp(chk_type->valuestring, "plugin") == 0));
                 if (is_dev_plugin) {
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "controlPort");
 

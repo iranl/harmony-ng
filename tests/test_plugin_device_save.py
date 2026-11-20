@@ -5,6 +5,9 @@ Unit tests for Plugin System Fixes:
 2. Storage metrics and file sizes on GET /api/plugins.
 3. Prevent deleting/uninstalling plugins currently setup as a device.
 4. Dev version direct download from raw manifest URL.
+5. Review of PR #243: a device belongs to a plugin only through "plugin" / "plugin:<id>" (an IR
+   device whose type matches a plugin name stays IR), unsafe plugin ids refused, unknown keys not
+   copied into config, the action route reply, installs refused while authentication is off.
 """
 
 import http.server
@@ -20,7 +23,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from hub_harness import HubHarness
 
 PORT = 8945
+PORT_NOAUTH = 8946
 failed = 0
+# Authentication on: plugin installs need it. 127.0.0.1 is trusted as admin, so the requests
+# below need no credentials.
+USERS = {"auth_enabled": True, "users": [{"username": "admin", "password": "secret123", "role": "admin"}]}
 
 
 def check(cond, name, detail=""):
@@ -35,7 +42,17 @@ def check(cond, name, detail=""):
 def main():
     print("[-] Running Plugin Device Save & Architecture Tests...")
 
-    with HubHarness(port=PORT) as hub:
+    # Authentication off (the default): installs, pulls and repository changes are refused
+    with HubHarness(port=PORT_NOAUTH) as hub:
+        for path, body in (("/api/plugins/install", {"url": "http://127.0.0.1:9/p.tar.gz", "sha256": "0" * 64}),
+                           ("/api/plugins/pull", {"id": "x"}),
+                           ("/api/plugins/repositories", {"action": "add", "url": "https://example.com/r.json"})):
+            st, res = hub.http_post(path, body)
+            check(st == 403 and "authentication" in str(res.get("error", "")).lower(), "%s refused while auth is off" % path, str((st, res)))
+        st, _ = hub.http_get("/api/plugins")
+        check(st == 200, "GET /api/plugins still answers while auth is off")
+
+    with HubHarness(port=PORT, extra_config_files={"users.json": USERS, "repositories.json": []}) as hub:
         # Create mock installed plugin 'philips-hue'
         plug_dir = os.path.join(hub.data_dir, "plugins", "philips-hue")
         os.makedirs(plug_dir, exist_ok=True)
@@ -43,7 +60,7 @@ def main():
             "id": "philips-hue",
             "name": "Philips Hue Bridge",
             "version": "1.0.0",
-            "entrypoint": "run.sh",
+            "entrypoint": "bin/drv",
             "device_definition": {
                 "device_type": "hue_light",
                 "display_name": "Hue Bridge",
@@ -59,9 +76,10 @@ def main():
         }
         with open(os.path.join(plug_dir, "manifest.json"), "w") as mf:
             json.dump(manifest_data, mf)
-        with open(os.path.join(plug_dir, "run.sh"), "w") as rf:
+        os.makedirs(os.path.join(plug_dir, "bin"), exist_ok=True)
+        with open(os.path.join(plug_dir, "bin", "drv"), "w") as rf:
             rf.write("#!/bin/sh\nexit 0\n")
-        os.chmod(os.path.join(plug_dir, "run.sh"), 0o755)
+        os.chmod(os.path.join(plug_dir, "bin", "drv"), 0o755)
 
         # -------------------------------------------------------------
         # Test 1: GET /api/plugins returns storage and plugin file size
@@ -146,6 +164,19 @@ def main():
         updated_cfg = updated_dev.get("config", {})
         check(updated_cfg.get("bridge_ip") == "192.168.1.222", f"Config bridge_ip updated: {updated_cfg}")
         check(updated_cfg.get("api_key") == "new_secret_key", f"Config api_key updated: {updated_cfg}")
+        # Flat top-level keys: only those the plugin's config_fields declare reach config
+        st, res = hub.http_post("/ir/device", {"deviceId": dev_id, "plugin": "philips-hue", "bridge_ip": "10.0.0.9",
+                                               "room": "living", "name": "Updated Hue Bridge"})
+        check(st == 200, "Flat plugin field saved")
+        st, dev_res3 = hub.http_get("/api/devices")
+        cfg3 = next((d for d in dev_res3.get("devices", []) if str(d.get("id")) == dev_id), {}).get("config", {})
+        check(cfg3.get("bridge_ip") == "10.0.0.9", "Declared flat key bridge_ip copied into config", str(cfg3))
+        check("room" not in cfg3, "Undeclared flat key room not copied into config", str(cfg3))
+
+        # The action route answers with the id and action it was given (they pointed into freed JSON)
+        st, act = hub.http_post("/api/plugins/action", {"id": "philips-hue", "action": "stop"})
+        check(st == 200 and act.get("id") == "philips-hue" and act.get("action") == "stop", "Action reply carries id and action", str(act))
+
         st, del_res = hub.http_post("/api/plugins/uninstall", {"id": "philips-hue"})
         check(st == 400, "Uninstalling plugin in use by device rejected with HTTP 400")
         check("currently in use" in del_res.get("error", "").lower() or "in use" in del_res.get("message", "").lower(),
@@ -161,7 +192,7 @@ def main():
             "id": "roku-ecp",
             "name": "Roku ECP Controller",
             "version": "1.0.0",
-            "entrypoint": "run.sh",
+            "entrypoint": "bin/drv",
             "device_definition": {
                 "device_type": "roku",
                 "display_name": "Roku Player / TV",
@@ -186,13 +217,47 @@ def main():
         }
         with open(os.path.join(roku_plug_dir, "manifest.json"), "w") as rf:
             json.dump(roku_manifest, rf)
-        with open(os.path.join(roku_plug_dir, "run.sh"), "w") as rf:
+        os.makedirs(os.path.join(roku_plug_dir, "bin"), exist_ok=True)
+        with open(os.path.join(roku_plug_dir, "bin", "drv"), "w") as rf:
             rf.write("#!/bin/sh\nexit 0\n")
-        os.chmod(os.path.join(roku_plug_dir, "run.sh"), 0o755)
+        os.chmod(os.path.join(roku_plug_dir, "bin", "drv"), 0o755)
+
+        # A device whose free-text type matches a plugin's name is not that plugin's device
+        tv_plug_dir = os.path.join(hub.data_dir, "plugins", "thirdparty")
+        os.makedirs(os.path.join(tv_plug_dir, "bin"), exist_ok=True)
+        with open(os.path.join(tv_plug_dir, "manifest.json"), "w") as f:
+            json.dump({"id": "thirdparty", "version": "1", "entrypoint": "bin/drv",
+                       "device_definition": {"device_type": "television", "display_name": "television"}}, f)
+        st, res = hub.http_post("/api/ir-send", {"deviceId": "1", "command": "PowerOn"}, timeout=5)
+        check("plugin" not in json.dumps(res).lower(), "IR device of type Television still sends IR", str(res))
+        st, res = hub.http_post("/api/device-save", {"deviceId": "1", "name": "Living Room TV", "type": "Television",
+                                                     "defaultInterDeviceDelay": 500, "room": "living"})
+        check(st == 200, "Unchanged IR device saved")
+        st, devs = hub.http_get("/api/devices")
+        tv = next((d for d in devs.get("devices", []) if str(d.get("id")) == "1"), {})
+        check("plugin" not in tv and tv.get("controlPort") == 7, "IR device keeps no plugin and its controlPort", str(tv))
+        check("config" not in tv, "Unknown keys of a non-plugin device not copied into config", str(tv.get("config")))
+
+        # A plugin id goes into a socket path: an unsafe one is refused
+        st, res = hub.http_post("/api/device-save", {"deviceId": "1", "plugin": "../../tmp/evil"})
+        check(st == 400, "Unsafe plugin id refused", str((st, res)))
+        st, res = hub.http_post("/api/device-save", {"deviceId": "1", "type": "plugin:../x"})
+        check(st == 400, "Unsafe plugin:<id> type refused", str((st, res)))
+
+        # Plugin routes: unknown uninstall is 404, a URL install without a SHA-256 is refused
+        st, res = hub.http_post("/api/plugins/uninstall", {"id": "not-installed"})
+        check(st == 404, "Uninstall of a plugin that is not installed answers 404", str((st, res)))
+        st, res = hub.http_post("/api/plugins/install", {"url": "http://127.0.0.1:9/p.tar.gz"})
+        check(st == 400 and "SHA-256" in res.get("error", ""), "URL install without sha256 refused", str((st, res)))
+        st, res = hub.http_post("/api/plugins/install", {"url": "http://127.0.0.1:9/m/manifest.json"})
+        check(st == 400 and "SHA-256" in res.get("error", ""), "A manifest URL is no dev install unless dev is set", str((st, res)))
+        st, res = hub.http_post("/api/plugins/install", {"archive_base64": "AAAA"})
+        check(st == 400 and "sha256" in res.get("error", ""), "Upload without sha256 or dev refused", str((st, res)))
 
         roku_payload = {
             "name": "My Roku TV",
             "type": "Roku",
+            "plugin": "roku-ecp",
             "manufacturer": "Roku",
             "model": "Streaming Stick",
             "config": json.dumps({"ip_address": "192.168.1.88", "port": 8060})

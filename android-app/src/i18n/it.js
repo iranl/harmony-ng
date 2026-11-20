@@ -1,4 +1,5 @@
 export default {
+    "plg_upload_too_large": "L'archivio del plugin supera 1 MB, il massimo accettato dall'Hub",
     "plugins_desc": "Installa e configura driver della community",
     "plugins_lead": "Driver della community e integrazioni dei dispositivi.",
     "failed_to_save": "Salvataggio non riuscito: ",

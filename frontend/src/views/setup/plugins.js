@@ -14,6 +14,28 @@ export function createView() {
   let marketplacePlugins = [];
   let repositories = [];
   let storageInfo = null;
+  let loadError = '';
+  let marketplaceStale = false;
+
+  // A failed action says so; without it the click did nothing visible
+  async function runAction(fn, failKey, failText) {
+    try {
+      await fn();
+    } catch (err) {
+      toast.error(t(failKey, failText, { error: err.message }));
+    }
+    renderContent();
+  }
+
+  // Only http(s) links from a catalog: a javascript: homepage ran in the page
+  function safeHttpUrl(u) {
+    try {
+      const url = new URL(String(u));
+      return (url.protocol === 'https:' || url.protocol === 'http:') ? url.href : '';
+    } catch {
+      return '';
+    }
+  }
 
   const tabContainer = h('div', {
     style: {
@@ -49,41 +71,52 @@ export function createView() {
     });
   }
 
-  async function loadData() {
+  async function loadData(forceReload = false) {
+    loadError = '';
     try {
       const plugRes = await api.getPlugins();
-      installedPlugins = plugRes?.plugins || [];
+      installedPlugins = Array.isArray(plugRes?.plugins) ? plugRes.plugins : [];
       storageInfo = plugRes?.storage || null;
     } catch (e) {
       installedPlugins = [];
       storageInfo = null;
+      loadError = e.message;
     }
 
     if (activeTab === 'marketplace') {
       try {
-        const markRes = await api.getPluginMarketplace();
-        marketplacePlugins = markRes?.marketplace || [];
+        const markRes = await api.getPluginMarketplace(forceReload || marketplaceStale);
+        marketplaceStale = false;
+        const list = Array.isArray(markRes?.marketplace) ? markRes.marketplace : [];
+        // a null or malformed entry of a repository must not break the whole list
+        marketplacePlugins = list.filter(p => p && typeof p === 'object' && p.id);
       } catch (e) {
         marketplacePlugins = [];
+        loadError = e.message;
       }
     }
 
     if (activeTab === 'repositories') {
       try {
         const repoRes = await api.getPluginRepositories();
-        repositories = repoRes?.repositories || [];
+        repositories = Array.isArray(repoRes?.repositories) ? repoRes.repositories : [];
       } catch (e) {
         repositories = [];
+        loadError = e.message;
       }
     }
   }
 
-  async function renderContent() {
+  async function renderContent(forceReload = false) {
     contentContainer.innerHTML = '';
     contentContainer.appendChild(h('div', { className: 'text-dim', text: t('loading', 'Loading...') }));
 
-    await loadData();
+    await loadData(forceReload);
     contentContainer.innerHTML = '';
+    if (loadError) {
+      contentContainer.appendChild(h('div', { className: 'card', style: { padding: '12px', color: 'var(--danger)' }, text: t('plg_load_failed', 'Failed to load plugins: {error}', { error: loadError }) }));
+      return;
+    }
 
     if (activeTab === 'installed') {
       renderInstalledView();
@@ -179,26 +212,24 @@ export function createView() {
             h('button', {
               className: `btn btn-sm ${isEnabled ? 'btn-secondary' : 'btn-primary'}`,
               text: isEnabled ? t('plg_disable', 'Disable') : t('plg_enable', 'Enable'),
-              onclick: async () => {
+              onclick: () => runAction(async () => {
                 await api.pluginAction(p.id, isEnabled ? 'disable' : 'enable');
                 toast.info(isEnabled ? t('plg_toast_disabled', 'Plugin {id} disabled', { id: p.id }) : t('plg_toast_enabled', 'Plugin {id} enabled', { id: p.id }));
-                renderContent();
-              }
+              }, 'plg_action_failed', 'Action failed: {error}')
             }),
             isEnabled && h('button', {
               className: 'btn btn-secondary btn-sm',
               text: t('plg_restart', 'Restart'),
-              onclick: async () => {
+              onclick: () => runAction(async () => {
                 await api.pluginAction(p.id, 'restart');
                 toast.success(t('plg_restarted', 'Restarted {name}', { name: p.name || p.id }));
-                renderContent();
-              }
+              }, 'plg_restart_failed', 'Restart failed: {error}')
             }),
             h('button', {
               className: 'btn btn-danger btn-sm',
               text: t('plg_uninstall', 'Uninstall'),
               onclick: async () => {
-                const ok = await confirm({
+                const ok = await confirm.ask({
                   title: t('plg_uninstall_title', 'Uninstall Plugin'),
                   message: t('plg_uninstall_confirm', "Are you sure you want to uninstall '{name}'?", { name: p.name || p.id }),
                   confirmText: t('plg_uninstall', 'Uninstall'),
@@ -239,7 +270,7 @@ export function createView() {
         h('button', {
           className: 'btn btn-secondary btn-sm',
           text: t('plg_refresh_catalog', '🔄 Refresh Catalog'),
-          onclick: () => renderContent(),
+          onclick: () => renderContent(true),
         }),
       ]),
     ]);
@@ -271,9 +302,10 @@ export function createView() {
               p.author && h('span', { className: 'badge badge-secondary', text: p.author }),
             ]),
             h('div', { className: 'text-dim', style: { fontSize: '13px' }, text: p.description || '' }),
-            p.homepage && h('a', {
-              href: p.homepage,
+            safeHttpUrl(p.homepage) && h('a', {
+              href: safeHttpUrl(p.homepage),
               target: '_blank',
+              rel: 'noopener noreferrer',
               style: { fontSize: '11px', color: 'var(--accent)', textDecoration: 'none' },
               text: t('plg_view_docs', 'View Documentation / Source →')
             }),
@@ -333,11 +365,11 @@ export function createView() {
         h('button', {
           className: 'btn btn-danger btn-sm',
           text: t('plg_remove', 'Remove'),
-          onclick: async () => {
+          onclick: () => runAction(async () => {
             await api.updatePluginRepositories('remove', repoUrl);
+            marketplaceStale = true;
             toast.info(t('plg_repo_removed', 'Repository removed'));
-            renderContent();
-          }
+          }, 'plg_repo_remove_failed', 'Failed to remove repository: {error}')
         })
       ]);
       list.appendChild(item);
@@ -363,7 +395,13 @@ export function createView() {
       }
       throw new Error(res?.error || 'Direct download failed');
     } catch (directErr) {
-      // 2. Client-side browser download fallback (air-gapped hubs / TLS cert issues)
+      // 2. Browser download, only when the Hub could not download (502) and with the published
+      // checksum, which the Hub checks: a refusal (checksum, authentication, flash space) or a
+      // timeout (the Hub may still be installing) is never retried from here
+      if (directErr.status !== 502 || !plugin.sha256) {
+        toast.error(t('plg_install_failed_generic', 'Failed to install plugin: {error}', { error: directErr.message }));
+        return;
+      }
       try {
         toast.info(t('plg_proxy_try', 'Direct download failed, attempting browser proxy download...'));
         const resp = await fetch(plugin.download_url);
@@ -373,7 +411,7 @@ export function createView() {
         reader.onloadend = async () => {
           try {
             const base64 = reader.result.split(',')[1];
-            const uploadRes = await api.installPlugin(base64);
+            const uploadRes = await api.installPlugin(base64, false, plugin.sha256);
             if (uploadRes && uploadRes.ok) {
               toast.success(t('plg_install_ok_proxy', 'Successfully installed {name} via browser proxy!', { name: plugin.name }));
               renderContent();
@@ -459,12 +497,18 @@ export function createView() {
               toast.warn(t('plg_select_archive', 'Please select a .tar.gz file'));
               return false;
             }
+            // the Hub refuses an archive over 1 MB (and a request over about 1.5 MB before reading it)
+            if (file.size > 1024 * 1024) {
+              toast.error(t('plg_upload_too_large', 'The plugin archive is larger than 1 MB, the most the Hub accepts'));
+              return false;
+            }
             toast.info(t('plg_uploading', 'Uploading {name}...', { name: file.name }));
             const reader = new FileReader();
             reader.onloadend = async () => {
               try {
                 const b64 = reader.result.split(',')[1];
-                const res = await api.installPlugin(b64);
+                // a local archive is a dev install: there is no published checksum for it
+                const res = await api.installPlugin(b64, true);
                 if (res && res.ok) {
                   toast.success(t('plg_uploaded', 'Plugin uploaded and installed!'));
                   renderContent();
@@ -505,7 +549,13 @@ export function createView() {
           onClick: async () => {
             const url = urlInput.value.trim();
             if (!url) return false;
-            await api.updatePluginRepositories('add', url);
+            try {
+              await api.updatePluginRepositories('add', url);
+            } catch (err) {
+              toast.error(t('plg_repo_add_failed', 'Failed to add repository: {error}', { error: err.message }));
+              return false;
+            }
+            marketplaceStale = true;
             toast.success(t('plg_repo_added', 'Repository added'));
             renderContent();
             return true;

@@ -1,4 +1,5 @@
 export default {
+    "plg_upload_too_large": "Het pluginarchief is groter dan 1 MB, het maximum dat de Hub accepteert",
     "plugins_desc": "Communitystuurprogramma's installeren en configureren",
     "plugins_lead": "Communitystuurprogramma's en apparaatintegraties.",
     "failed_to_save": "Opslaan mislukt: ",

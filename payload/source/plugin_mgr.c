@@ -19,6 +19,10 @@
 #include <sys/statvfs.h>
 #include <time.h>
 #include <ctype.h>
+#include <pthread.h>
+#include <sys/wait.h>
+
+extern char **environ;
 
 static uint64_t compute_dir_size_bytes(const char *dir_path) {
     uint64_t total = 0;
@@ -55,25 +59,14 @@ static void format_bytes(uint64_t bytes, char *out, size_t out_sz) {
 }
 
 static int is_safe_plugin_id(const char *id) {
-    if (!id || !id[0] || strlen(id) > 63) return 0;
-    if (strstr(id, "..") || strchr(id, '/') || strchr(id, '\\')) return 0;
-    for (const char *p = id; *p; p++) {
-        if (!((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') ||
-              (*p >= '0' && *p <= '9') || *p == '-' || *p == '_')) {
-            return 0;
-        }
-    }
-    return 1;
+    return plugin_mgr_is_safe_id(id);
 }
 
-int plugin_mgr_is_safe_id(const char *id) {
-    return is_safe_plugin_id(id);
-}
-
-/* Download limits */
-#define FETCH_ARCHIVE_MAX_BYTES (16L * 1024 * 1024)
+/* Download limits. /tmp is RAM (30 MB in total on the Hub, a few MB free) and /data is 5 MB of
+ * flash shared with the configuration: the largest published plugin archive is 58 KB. */
+#define FETCH_ARCHIVE_MAX_BYTES (1L * 1024 * 1024)
 #define FETCH_ARCHIVE_MAX_MS    120000
-#define FETCH_FILE_MAX_BYTES    (8L * 1024 * 1024)
+#define FETCH_FILE_MAX_BYTES    (512L * 1024)
 #define FETCH_SMALL_MAX_BYTES   (256L * 1024)
 #define FETCH_SMALL_MAX_MS      20000
 
@@ -149,7 +142,8 @@ static int file_sha256_hex(const char *path, char out_hex[65]) {
 
 /* Every entry of the archive is a plain file or directory under the unpack directory: a
  * "../" name, an absolute name or a link entry wrote outside it during the unpack */
-static int archive_entries_safe(const char *archive_path, const char *list_path) {
+static int archive_entries_safe(const char *archive_path, const char *list_path, uint64_t *unpacked) {
+    *unpacked = 0;
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
              "export PATH=/cache/bin:/data/harmony/bin:$PATH; tar -tvzf \"%s\" > \"%s\" 2>/dev/null",
@@ -159,6 +153,10 @@ static int archive_entries_safe(const char *archive_path, const char *list_path)
     char line[1024];
     while (ok && f && fgets(line, sizeof(line), f)) {
         if (line[0] != '-' && line[0] != 'd') ok = 0;
+        /* BusyBox tar lists a hard link as a plain file ("-rw-r--r-- ... name -> target") */
+        if (strstr(line, " -> ")) ok = 0;
+        unsigned long long sz = 0;
+        if (ok && sscanf(line, "%*s %*s %llu", &sz) == 1) *unpacked += sz;
     }
     if (f) fclose(f);
     if (ok) {
@@ -205,22 +203,57 @@ static int is_stopped_by_request(const char *plugin_id) {
     return access(p, F_OK) == 0;
 }
 
-static pid_t read_plugin_pid(const char *plugin_id) {
-    if (!is_safe_plugin_id(plugin_id)) return -1;
-    char pid_path[128];
-    snprintf(pid_path, sizeof(pid_path), "%s/%s.pid", HARMONY_PLUGINS_RUN_DIR, plugin_id);
-    FILE *f = fopen(pid_path, "r");
-    if (!f) return -1;
-    long pid = -1;
-    if (fscanf(f, "%ld", &pid) != 1 || pid <= 1) pid = -1;
-    fclose(f);
-    return (pid_t)pid;
+/* The plugins hub_daemon started: hub_daemon forks and execs each one itself and keeps its
+ * pid. A pid file written by the plugin used to decide what was running and what got killed;
+ * a stale one named another process. Only waitpid() on a pid of this table: other threads
+ * run system(), and a waitpid(-1) would take their child's status. */
+#define MAX_CHILDREN 16
+static struct {
+    char id[64];
+    pid_t pid;
+    time_t started;
+} s_kids[MAX_CHILDREN];
+static pthread_mutex_t s_kids_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static int kid_find_locked(const char *id) {
+    for (int i = 0; i < MAX_CHILDREN; i++) {
+        if (s_kids[i].pid > 0 && strcmp(s_kids[i].id, id) == 0) return i;
+    }
+    return -1;
+}
+
+/* 1 while the child of slot i runs; reaps it and frees the slot once it has exited */
+static int kid_alive_locked(int i) {
+    int status = 0;
+    pid_t r = waitpid(s_kids[i].pid, &status, WNOHANG);
+    if (r == 0) return 1;
+    /* not reapable here (a thread library that gives each thread its own pid): trust the
+     * signal check rather than start a second copy */
+    if (r < 0 && errno == ECHILD && kill(s_kids[i].pid, 0) == 0) return 1;
+    if (r == s_kids[i].pid) {
+        if (WIFEXITED(status)) {
+            printf("[!] Plugin '%s' (pid %d) exited with status %d\n", s_kids[i].id, (int)r, WEXITSTATUS(status));
+        } else if (WIFSIGNALED(status)) {
+            printf("[!] Plugin '%s' (pid %d) killed by signal %d\n", s_kids[i].id, (int)r, WTERMSIG(status));
+        }
+    }
+    s_kids[i].pid = 0;
+    s_kids[i].id[0] = '\0';
+    return 0;
+}
+
+static pid_t running_pid(const char *plugin_id) {
+    pid_t pid = 0;
+    pthread_mutex_lock(&s_kids_lock);
+    int i = kid_find_locked(plugin_id);
+    if (i >= 0 && kid_alive_locked(i)) pid = s_kids[i].pid;
+    pthread_mutex_unlock(&s_kids_lock);
+    return pid;
 }
 
 int plugin_mgr_is_running(const char *plugin_id) {
-    pid_t pid = read_plugin_pid(plugin_id);
-    if (pid <= 1) return 0;
-    return (kill(pid, 0) == 0);
+    if (!is_safe_plugin_id(plugin_id)) return 0;
+    return running_pid(plugin_id) > 0;
 }
 
 static int is_plugin_enabled(const char *plugin_id) {
@@ -244,9 +277,25 @@ int plugin_mgr_set_enabled(const char *plugin_id, int enabled) {
     }
 }
 
+/* The manifest's entrypoint, checked: a relative path inside the plugin directory */
+static int read_entrypoint(const char *plug_dir, char *out, size_t out_sz) {
+    char mpath[300];
+    snprintf(mpath, sizeof(mpath), "%s/manifest.json", plug_dir);
+    size_t flen = 0;
+    char *mtxt = read_file_text_alloc(mpath, 32768, &flen);
+    if (!mtxt) return -1;
+    cJSON *root = cJSON_Parse(mtxt);
+    free(mtxt);
+    if (!root) return -1;
+    const cJSON *j_ep = cJSON_GetObjectItemCaseSensitive(root, "entrypoint");
+    int ok = cJSON_IsString(j_ep) && is_safe_rel_path(j_ep->valuestring);
+    if (ok) snprintf(out, out_sz, "%s", j_ep->valuestring);
+    cJSON_Delete(root);
+    return ok ? 0 : -1;
+}
+
 int plugin_mgr_start(const char *plugin_id) {
     if (!is_safe_plugin_id(plugin_id)) return -1;
-    if (plugin_mgr_is_running(plugin_id)) return 0;
 
     char plug_dir[256];
     snprintf(plug_dir, sizeof(plug_dir), "%s/%s", HARMONY_PLUGINS_DIR, plugin_id);
@@ -260,51 +309,99 @@ int plugin_mgr_start(const char *plugin_id) {
     /* State that survives an update: the plugin directory is replaced on every install */
     char data_dir[160];
     snprintf(data_dir, sizeof(data_dir), "%s/%s", HARMONY_PLUGINS_DATA_DIR, plugin_id);
+    mkdir(HARMONY_PLUGIN_ROOT, 0755);
     mkdir(HARMONY_PLUGINS_DATA_DIR, 0755);
     mkdir(data_dir, 0700);
 
-    char run_sh[256];
-    snprintf(run_sh, sizeof(run_sh), "%s/run.sh", plug_dir);
+    char entry[208];
+    if (read_entrypoint(plug_dir, entry, sizeof(entry)) != 0) return -1;
 
-    char cmd[768];
-    if (access(run_sh, X_OK) == 0 || access(run_sh, F_OK) == 0) {
-        snprintf(cmd, sizeof(cmd),
-                 "export PATH=/cache/bin:/data/harmony/bin:$PATH; "
-                 "export HARMONY_PLUGIN_ID=\"%s\"; "
-                 "export HARMONY_SOCKET=\"%s/%s.sock\"; "
-                 "export HARMONY_PLUGIN_DATA=\"%s\"; "
-                 "cd \"%s\" && (sh ./run.sh start > /tmp/plugins/%s.log 2>&1 &)",
-                 plugin_id, HARMONY_PLUGINS_RUN_DIR, plugin_id, data_dir,
-                 plug_dir, plugin_id);
-        system(cmd);
-    } else {
-        /* Fallback: look for entrypoint in manifest.json */
-        char mpath[256];
-        snprintf(mpath, sizeof(mpath), "%s/manifest.json", plug_dir);
-        size_t flen = 0;
-        char *mtxt = read_file_text_alloc(mpath, 32768, &flen);
-        if (!mtxt) return -1;
-        cJSON *root = cJSON_Parse(mtxt);
-        free(mtxt);
-        if (!root) return -1;
-        cJSON *j_ep = cJSON_GetObjectItemCaseSensitive(root, "entrypoint");
-        const char *ep = (j_ep && cJSON_IsString(j_ep)) ? j_ep->valuestring : NULL;
-        if (ep && is_safe_rel_path(ep)) {
-            snprintf(cmd, sizeof(cmd),
-                     "export PATH=/cache/bin:/data/harmony/bin:$PATH; "
-                     "export HARMONY_PLUGIN_ID=\"%s\"; "
-                     "export HARMONY_SOCKET=\"%s/%s.sock\"; "
-                     "export HARMONY_PLUGIN_DATA=\"%s\"; "
-                     "cd \"%s\" && (\"./%s\" > /tmp/plugins/%s.log 2>&1 & echo $! > /tmp/plugins/%s.pid)",
-                     plugin_id, HARMONY_PLUGINS_RUN_DIR, plugin_id, data_dir,
-                     plug_dir, ep, plugin_id, plugin_id);
-            system(cmd);
-        }
-        cJSON_Delete(root);
+    /* Everything the child needs is built here: between fork() and exec() of a threaded
+     * process only async-signal-safe calls are allowed (no malloc, no printf, no setenv) */
+    char exe[512], log_path[160], sock_path[128];
+    snprintf(exe, sizeof(exe), "%s/%s", plug_dir, entry);
+    snprintf(log_path, sizeof(log_path), "%s/%s.log", HARMONY_PLUGINS_RUN_DIR, plugin_id);
+    snprintf(sock_path, sizeof(sock_path), "%s/%s.sock", HARMONY_PLUGINS_RUN_DIR, plugin_id);
+    if (access(exe, X_OK) != 0) return -1;
+
+    char e_path[160], e_id[96], e_sock[160], e_data[200];
+    const char *old_path = getenv("PATH");
+    snprintf(e_path, sizeof(e_path), "PATH=/cache/bin:/data/harmony/bin:%s", old_path ? old_path : "/bin:/sbin:/usr/bin:/usr/sbin");
+    snprintf(e_id, sizeof(e_id), "HARMONY_PLUGIN_ID=%s", plugin_id);
+    snprintf(e_sock, sizeof(e_sock), "HARMONY_SOCKET=%s", sock_path);
+    snprintf(e_data, sizeof(e_data), "HARMONY_PLUGIN_DATA=%s", data_dir);
+    size_t n_env = 0;
+    while (environ && environ[n_env]) n_env++;
+    char **envp = calloc(n_env + 5, sizeof(char *));
+    if (!envp) return -1;
+    size_t k = 0;
+    for (size_t i = 0; i < n_env; i++) {
+        const char *v = environ[i];
+        if (strncmp(v, "PATH=", 5) == 0 || strncmp(v, "HARMONY_", 8) == 0) continue;
+        envp[k++] = (char *)v;
     }
+    envp[k++] = e_path;
+    envp[k++] = e_id;
+    envp[k++] = e_sock;
+    envp[k++] = e_data;
+    envp[k] = NULL;
+    char *argv[] = { exe, sock_path, NULL };
 
-    usleep(150000);
-    return plugin_mgr_is_running(plugin_id) ? 0 : -1;
+    int rc = 0;
+    pthread_mutex_lock(&s_kids_lock);
+    int slot = kid_find_locked(plugin_id);
+    if (slot >= 0 && kid_alive_locked(slot)) {
+        pthread_mutex_unlock(&s_kids_lock);
+        free(envp);
+        return 0; /* already running */
+    }
+    for (slot = 0; slot < MAX_CHILDREN && s_kids[slot].pid > 0; slot++) {}
+    if (slot >= MAX_CHILDREN) {
+        rc = -1;
+    } else {
+        unlink(sock_path);
+        pid_t pid = fork();
+        if (pid == 0) {
+            /* own session and process group: a stop signals the plugin and its helpers */
+            setsid();
+            if (chdir(plug_dir) != 0) _exit(126);
+            int nul = open("/dev/null", O_RDONLY);
+            int lg = open(log_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            if (nul >= 0) dup2(nul, 0);
+            if (lg >= 0) { dup2(lg, 1); dup2(lg, 2); }
+            /* hub_daemon's sockets and files stay with hub_daemon */
+            for (int fd = 3; fd < 1024; fd++) close(fd);
+            execve(exe, argv, envp);
+            _exit(127);
+        }
+        if (pid < 0) {
+            rc = -1;
+        } else {
+            snprintf(s_kids[slot].id, sizeof(s_kids[slot].id), "%s", plugin_id);
+            s_kids[slot].pid = pid;
+            s_kids[slot].started = time(NULL);
+        }
+    }
+    pthread_mutex_unlock(&s_kids_lock);
+    free(envp);
+    return rc;
+}
+
+/* SIGTERM to the plugin's process group, up to 1 s for it to exit, then SIGKILL */
+static void stop_pid(pid_t pid) {
+    int status;
+    kill(-pid, SIGTERM);
+    kill(pid, SIGTERM);
+    for (int i = 0; i < 20; i++) {
+        if (waitpid(pid, &status, WNOHANG) != 0) return;
+        usleep(50000);
+    }
+    kill(-pid, SIGKILL);
+    kill(pid, SIGKILL);
+    for (int i = 0; i < 20; i++) {
+        if (waitpid(pid, &status, WNOHANG) != 0) return;
+        usleep(50000);
+    }
 }
 
 int plugin_mgr_stop(const char *plugin_id) {
@@ -316,40 +413,52 @@ int plugin_mgr_stop(const char *plugin_id) {
     int mfd = open(marker, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (mfd >= 0) close(mfd);
 
-    char plug_dir[256];
-    snprintf(plug_dir, sizeof(plug_dir), "%s/%s", HARMONY_PLUGINS_DIR, plugin_id);
-    char run_sh[256];
-    snprintf(run_sh, sizeof(run_sh), "%s/run.sh", plug_dir);
-
-    if (access(run_sh, F_OK) == 0) {
-        char cmd[512];
-        snprintf(cmd, sizeof(cmd),
-                 "export PATH=/cache/bin:/data/harmony/bin:$PATH; "
-                 "cd \"%s\" && sh ./run.sh stop > /dev/null 2>&1",
-                 plug_dir);
-        system(cmd);
+    /* The slot is freed before the wait: no other request waits for this lock meanwhile */
+    pid_t pid = 0;
+    pthread_mutex_lock(&s_kids_lock);
+    int i = kid_find_locked(plugin_id);
+    if (i >= 0) {
+        pid = s_kids[i].pid;
+        s_kids[i].pid = 0;
+        s_kids[i].id[0] = '\0';
     }
+    pthread_mutex_unlock(&s_kids_lock);
+    if (pid > 1) stop_pid(pid);
 
-    pid_t pid = read_plugin_pid(plugin_id);
-    if (pid > 1 && kill(pid, 0) == 0) {
-        kill(pid, SIGTERM);
-        usleep(250000);
-        if (kill(pid, 0) == 0) {
-            kill(pid, SIGKILL);
-        }
-    }
-
-    char pid_path[128], sock_path[128];
-    snprintf(pid_path, sizeof(pid_path), "%s/%s.pid", HARMONY_PLUGINS_RUN_DIR, plugin_id);
+    char sock_path[128];
     snprintf(sock_path, sizeof(sock_path), "%s/%s.sock", HARMONY_PLUGINS_RUN_DIR, plugin_id);
-    unlink(pid_path);
     unlink(sock_path);
     return 0;
 }
 
+/* Plugins left by a hub_daemon that was killed (kill -9, crash): they are no child of this
+ * process, so they are found by their working directory and killed before the new start */
+static void kill_orphan_plugins(void) {
+    DIR *d = opendir("/proc");
+    if (!d) return;
+    const char *prefix = HARMONY_PLUGINS_DIR "/";
+    size_t plen = strlen(prefix);
+    pid_t self = getpid();
+    struct dirent *de;
+    while ((de = readdir(d)) != NULL) {
+        if (de->d_name[0] < '1' || de->d_name[0] > '9') continue;
+        pid_t pid = (pid_t)atoi(de->d_name);
+        if (pid <= 1 || pid == self) continue;
+        char link[64], target[512];
+        snprintf(link, sizeof(link), "/proc/%d/cwd", (int)pid);
+        ssize_t n = readlink(link, target, sizeof(target) - 1);
+        if (n <= 0) continue;
+        target[n] = '\0';
+        if (strncmp(target, prefix, plen) == 0) {
+            printf("[*] Killing plugin process %d left by an earlier hub_daemon (%s)\n", (int)pid, target);
+            kill(pid, SIGKILL);
+        }
+    }
+    closedir(d);
+}
+
 int plugin_mgr_restart(const char *plugin_id) {
     plugin_mgr_stop(plugin_id);
-    usleep(200000);
     return plugin_mgr_start(plugin_id);
 }
 
@@ -363,7 +472,7 @@ static void delete_dir_recursive(const char *dir_path) {
     }
     struct dirent *de;
     while ((de = readdir(d)) != NULL) {
-        if (de->d_name[0] == '.') continue;
+        if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0) continue;
         char subpath[512];
         snprintf(subpath, sizeof(subpath), "%s/%s", dir_path, de->d_name);
         struct stat st;
@@ -379,89 +488,166 @@ static void delete_dir_recursive(const char *dir_path) {
     rmdir(dir_path);
 }
 
-static void copy_dir_recursive(const char *src_dir, const char *dst_dir) {
-    if (!src_dir || !dst_dir) return;
-    mkdir(dst_dir, 0755);
+/* Copies a plugin's files; -1 at the first file that cannot be written in full (flash full).
+ * Every file is made executable, as the old "chmod -R 755" did: the entrypoint must be. */
+static int copy_dir_recursive(const char *src_dir, const char *dst_dir) {
+    if (!src_dir || !dst_dir) return -1;
+    if (mkdir(dst_dir, 0755) != 0 && errno != EEXIST) return -1;
     DIR *d = opendir(src_dir);
-    if (!d) return;
+    if (!d) return -1;
+    int rc = 0;
     struct dirent *de;
-    while ((de = readdir(d)) != NULL) {
+    while (rc == 0 && (de = readdir(d)) != NULL) {
         if (de->d_name[0] == '.') continue;
         char s_path[512], d_path[512];
         snprintf(s_path, sizeof(s_path), "%s/%s", src_dir, de->d_name);
         snprintf(d_path, sizeof(d_path), "%s/%s", dst_dir, de->d_name);
         struct stat st;
-        if (lstat(s_path, &st) == 0) {
-            if (S_ISDIR(st.st_mode)) {
-                copy_dir_recursive(s_path, d_path);
-            } else if (S_ISREG(st.st_mode)) {
-                FILE *sf = fopen(s_path, "rb");
-                if (sf) {
-                    FILE *df = fopen(d_path, "wb");
-                    if (df) {
-                        char buf[4096];
-                        size_t n;
-                        while ((n = fread(buf, 1, sizeof(buf), sf)) > 0) {
-                            fwrite(buf, 1, n, df);
-                        }
-                        fclose(df);
-                    }
-                    fclose(sf);
-                    mode_t m = (st.st_mode & 0777);
-                    if (strstr(d_path, ".sh") != NULL) m |= 0755;
-                    chmod(d_path, m);
-                }
+        if (lstat(s_path, &st) != 0) { rc = -1; break; }
+        if (S_ISDIR(st.st_mode)) {
+            rc = copy_dir_recursive(s_path, d_path);
+        } else if (S_ISREG(st.st_mode)) {
+            FILE *sf = fopen(s_path, "rb");
+            FILE *df = sf ? fopen(d_path, "wb") : NULL;
+            if (!sf || !df) rc = -1;
+            char buf[4096];
+            size_t n;
+            while (rc == 0 && (n = fread(buf, 1, sizeof(buf), sf)) > 0) {
+                if (fwrite(buf, 1, n, df) != n) rc = -1;
             }
+            if (rc == 0 && ferror(sf)) rc = -1;
+            if (df && fclose(df) != 0) rc = -1;
+            if (sf) fclose(sf);
+            if (rc == 0 && chmod(d_path, 0755) != 0) rc = -1;
         }
     }
     closedir(d);
+    return rc;
 }
+
+/* Space kept free on /data for the configuration: an install that leaves less is refused */
+#ifndef PLUGIN_FLASH_RESERVE
+#define PLUGIN_FLASH_RESERVE (256ULL * 1024)
+#endif
+
+static uint64_t free_bytes_at(const char *path) {
+    struct statvfs vfs;
+    if (statvfs(path, &vfs) != 0) return 0;
+    return (uint64_t)vfs.f_bavail * vfs.f_frsize;
+}
+
+/* One install, pull or uninstall at a time: two at once ran the copy and the removal on the
+ * same directory */
+static pthread_mutex_t s_install_lock = PTHREAD_MUTEX_INITIALIZER;
 
 int plugin_mgr_uninstall(const char *plugin_id) {
     if (!is_safe_plugin_id(plugin_id)) return -1;
-    plugin_mgr_stop(plugin_id);
-
     char plug_dir[256];
     snprintf(plug_dir, sizeof(plug_dir), "%s/%s", HARMONY_PLUGINS_DIR, plugin_id);
+    struct stat st;
+    if (stat(plug_dir, &st) != 0 || !S_ISDIR(st.st_mode)) return PLUGIN_ERR_NOT_FOUND;
+    if (pthread_mutex_trylock(&s_install_lock) != 0) return PLUGIN_ERR_BUSY;
+
+    plugin_mgr_stop(plugin_id);
     delete_dir_recursive(plug_dir);
-    char cmd[512];
-    snprintf(cmd, sizeof(cmd), "rm -rf \"%s\"", plug_dir);
-    system(cmd);
-    char marker[128];
-    stopped_marker_path(plugin_id, marker, sizeof(marker));
-    unlink(marker);
+
+    /* Its state (pairing keys) and its log go too */
+    char path[256];
+    snprintf(path, sizeof(path), "%s/%s", HARMONY_PLUGINS_DATA_DIR, plugin_id);
+    delete_dir_recursive(path);
+    snprintf(path, sizeof(path), "%s/%s.log", HARMONY_PLUGINS_RUN_DIR, plugin_id);
+    unlink(path);
+    snprintf(path, sizeof(path), "%s/%s.status", HARMONY_PLUGINS_RUN_DIR, plugin_id);
+    unlink(path);
+    stopped_marker_path(plugin_id, path, sizeof(path));
+    unlink(path);
+    pthread_mutex_unlock(&s_install_lock);
     return 0;
 }
 
-/* Puts the files of src_dir in place of the installed plugin. A plugin that was disabled
- * stays disabled: the marker was inside the directory that is replaced. */
-static void replace_plugin_dir(const char *plug_id, const char *src_dir) {
-    int was_disabled = !is_plugin_enabled(plug_id);
-    plugin_mgr_stop(plug_id);
+/* Writes where a plugin came from, for a later pull: {"url": ..., "dev": true|false} */
+static void write_source(const char *dir, const char *url, int dev) {
+    if (!url || !url[0]) return;
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddStringToObject(o, "url", url);
+    cJSON_AddBoolToObject(o, "dev", dev);
+    char *txt = cJSON_PrintUnformatted(o);
+    cJSON_Delete(o);
+    if (!txt) return;
+    char path[300];
+    snprintf(path, sizeof(path), "%s/.source.json", dir);
+    FILE *f = fopen(path, "w");
+    if (f) {
+        fputs(txt, f);
+        fclose(f);
+    }
+    free(txt);
+}
 
-    char dest_dir[256], cmd[512];
+/* Puts the files of src_dir in place of the installed plugin. The new version is copied
+ * next to the old one first: a copy that fails (flash full) leaves the old version as it was.
+ * A plugin that was disabled stays disabled: the marker was inside the replaced directory. */
+static int replace_plugin_dir(const char *plug_id, const char *src_dir, const char *source_url, int dev,
+                              char *err_msg, size_t err_msg_sz) {
+    char dest_dir[256], new_dir[256], old_dir[256];
     snprintf(dest_dir, sizeof(dest_dir), "%s/%s", HARMONY_PLUGINS_DIR, plug_id);
-    snprintf(cmd, sizeof(cmd), "rm -rf \"%s\"", dest_dir);
-    system(cmd);
-    snprintf(cmd, sizeof(cmd), "mkdir -p \"%s\"", dest_dir);
-    system(cmd);
-    copy_dir_recursive(src_dir, dest_dir);
-    snprintf(cmd, sizeof(cmd), "chmod -R 755 \"%s\"", dest_dir);
-    system(cmd);
+    snprintf(new_dir, sizeof(new_dir), "%s/.%s.new", HARMONY_PLUGINS_DIR, plug_id);
+    snprintf(old_dir, sizeof(old_dir), "%s/.%s.old", HARMONY_PLUGINS_DIR, plug_id);
+    mkdir(HARMONY_PLUGIN_ROOT, 0755);
+    mkdir(HARMONY_PLUGINS_DIR, 0755);
+    delete_dir_recursive(new_dir);
+    delete_dir_recursive(old_dir);
 
+    uint64_t need = compute_dir_size_bytes(src_dir);
+    uint64_t avail = free_bytes_at(HARMONY_PLUGINS_DIR);
+    if (need + PLUGIN_FLASH_RESERVE > avail) {
+        if (err_msg) snprintf(err_msg, err_msg_sz, "Not enough flash space: the plugin needs %llu KB, %llu KB free (%llu KB kept for the configuration)",
+                              (unsigned long long)(need / 1024), (unsigned long long)(avail / 1024),
+                              (unsigned long long)(PLUGIN_FLASH_RESERVE / 1024));
+        return -1;
+    }
+    if (copy_dir_recursive(src_dir, new_dir) != 0) {
+        delete_dir_recursive(new_dir);
+        if (err_msg) snprintf(err_msg, err_msg_sz, "Failed to write the plugin files (flash full?); the installed version is unchanged");
+        return -1;
+    }
+    write_source(new_dir, source_url, dev);
+
+    struct stat st;
+    int had_old = (stat(dest_dir, &st) == 0);
+    int was_disabled = had_old && !is_plugin_enabled(plug_id);
     if (was_disabled) {
         char dis_path[300];
-        snprintf(dis_path, sizeof(dis_path), "%s/disabled", dest_dir);
+        snprintf(dis_path, sizeof(dis_path), "%s/disabled", new_dir);
         int fd = open(dis_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (fd >= 0) close(fd);
-    } else {
-        plugin_mgr_start(plug_id);
     }
+
+    plugin_mgr_stop(plug_id);
+    if (had_old && rename(dest_dir, old_dir) != 0) {
+        delete_dir_recursive(new_dir);
+        if (err_msg) snprintf(err_msg, err_msg_sz, "Failed to replace the installed version");
+        if (!was_disabled) plugin_mgr_start(plug_id);
+        return -1;
+    }
+    if (rename(new_dir, dest_dir) != 0) {
+        if (had_old) rename(old_dir, dest_dir);
+        delete_dir_recursive(new_dir);
+        if (err_msg) snprintf(err_msg, err_msg_sz, "Failed to put the new version in place");
+        if (!was_disabled) plugin_mgr_start(plug_id);
+        return -1;
+    }
+    delete_dir_recursive(old_dir);
+
+    if (!was_disabled) plugin_mgr_start(plug_id);
+    return 0;
 }
 
 int plugin_mgr_init(void) {
     mkdir(HARMONY_PLUGINS_RUN_DIR, 0755);
+    mkdir(HARMONY_PLUGIN_ROOT, 0755);
     mkdir(HARMONY_PLUGINS_DIR, 0755);
+    kill_orphan_plugins();
 
     DIR *d = opendir(HARMONY_PLUGINS_DIR);
     if (!d) return 0;
@@ -479,20 +665,17 @@ int plugin_mgr_init(void) {
 }
 
 void plugin_mgr_shutdown(void) {
-    DIR *d = opendir(HARMONY_PLUGINS_DIR);
-    if (!d) return;
-
-    struct dirent *de;
-    while ((de = readdir(d)) != NULL) {
-        if (de->d_name[0] == '.') continue;
-        if (!is_safe_plugin_id(de->d_name)) continue;
-        plugin_mgr_stop(de->d_name);
+    char ids[MAX_CHILDREN][64];
+    int n = 0;
+    pthread_mutex_lock(&s_kids_lock);
+    for (int i = 0; i < MAX_CHILDREN; i++) {
+        if (s_kids[i].pid > 0) memcpy(ids[n++], s_kids[i].id, sizeof(ids[0]));
     }
-    closedir(d);
+    pthread_mutex_unlock(&s_kids_lock);
+    for (int i = 0; i < n; i++) plugin_mgr_stop(ids[i]);
 }
 
-/* Restarts of a plugin that keeps dying: 20 s, 40 s, ... up to 5 min apart. Each start is a
- * fork and a 150 ms wait in the main loop, and a crash loop used to pay it every 10 s. */
+/* Restarts of a plugin that keeps dying: 20 s, 40 s, ... up to 5 min apart */
 #define WD_SLOTS 16
 #define WD_MAX_DELAY_S 300
 static struct {
@@ -590,8 +773,8 @@ cJSON *plugin_mgr_get_installed_json(void) {
         int enabled = is_plugin_enabled(de->d_name);
         cJSON_AddBoolToObject(p_obj, "enabled", enabled);
 
-        pid_t pid = read_plugin_pid(de->d_name);
-        int running = (pid > 1 && kill(pid, 0) == 0);
+        pid_t pid = running_pid(de->d_name);
+        int running = (pid > 0);
         cJSON_AddBoolToObject(p_obj, "running", running);
         cJSON_AddBoolToObject(p_obj, "stopped", is_stopped_by_request(de->d_name));
         cJSON_AddNumberToObject(p_obj, "restarts", wd_restarts(de->d_name));
@@ -617,19 +800,96 @@ cJSON *plugin_mgr_get_installed_json(void) {
     return arr;
 }
 
-int plugin_mgr_install_archive(const char *archive_path, char *err_msg, size_t err_msg_sz) {
+/* What the Hub needs from a manifest before it installs it */
+static int validate_manifest(const cJSON *m, const char *src_dir, char *err_msg, size_t err_msg_sz) {
+    const cJSON *j_id = cJSON_GetObjectItemCaseSensitive(m, "id");
+    if (!cJSON_IsObject(m) || !cJSON_IsString(j_id) || !is_safe_plugin_id(j_id->valuestring)) {
+        if (err_msg) snprintf(err_msg, err_msg_sz, "Manifest missing valid alphanumeric plugin id");
+        return -1;
+    }
+    const cJSON *j_ver = cJSON_GetObjectItemCaseSensitive(m, "version");
+    if (!cJSON_IsString(j_ver) || !j_ver->valuestring[0]) {
+        if (err_msg) snprintf(err_msg, err_msg_sz, "Manifest missing version");
+        return -1;
+    }
+    const cJSON *j_ep = cJSON_GetObjectItemCaseSensitive(m, "entrypoint");
+    if (!cJSON_IsString(j_ep) || !is_safe_rel_path(j_ep->valuestring)) {
+        if (err_msg) snprintf(err_msg, err_msg_sz, "Manifest missing a valid entrypoint (relative path)");
+        return -1;
+    }
+    if (src_dir) {
+        char ep_path[512];
+        snprintf(ep_path, sizeof(ep_path), "%s/%s", src_dir, j_ep->valuestring);
+        struct stat st;
+        if (stat(ep_path, &st) != 0 || !S_ISREG(st.st_mode)) {
+            if (err_msg) snprintf(err_msg, err_msg_sz, "Entrypoint '%.60s' is not in the plugin", j_ep->valuestring);
+            return -1;
+        }
+    }
+    const cJSON *dd = cJSON_GetObjectItemCaseSensitive(m, "device_definition");
+    if (dd && !cJSON_IsObject(dd)) {
+        if (err_msg) snprintf(err_msg, err_msg_sz, "Manifest device_definition must be an object");
+        return -1;
+    }
+    const cJSON *cf = dd ? cJSON_GetObjectItemCaseSensitive(dd, "config_fields") : NULL;
+    if (cf) {
+        const cJSON *f = NULL;
+        if (!cJSON_IsArray(cf)) {
+            if (err_msg) snprintf(err_msg, err_msg_sz, "Manifest config_fields must be an array");
+            return -1;
+        }
+        cJSON_ArrayForEach(f, cf) {
+            const cJSON *k = cJSON_GetObjectItemCaseSensitive(f, "key");
+            if (!cJSON_IsObject(f) || !cJSON_IsString(k) || !k->valuestring[0]) {
+                if (err_msg) snprintf(err_msg, err_msg_sz, "Every config_fields entry needs a string key");
+                return -1;
+            }
+        }
+    }
+    return 0;
+}
+
+static int check_sha256(const char *path, const char *want, char *err_msg, size_t err_msg_sz) {
+    char got[65];
+    if (strlen(want) != 64 || file_sha256_hex(path, got) != 0 || strcasecmp(got, want) != 0) {
+        if (err_msg) snprintf(err_msg, err_msg_sz, "Archive SHA-256 does not match the published checksum");
+        return -1;
+    }
+    return 0;
+}
+
+/* /tmp is RAM: an unpack that leaves less than this free has taken hub_rf and hub_daemon
+ * down with it (OOM killer) */
+#define TMP_RAM_MARGIN (2ULL * 1024 * 1024)
+
+static int install_archive_unlocked(const char *archive_path, const char *sha256_hex,
+                                    const char *source_url, int dev, char *err_msg, size_t err_msg_sz) {
     if (!archive_path || access(archive_path, R_OK) != 0) {
         if (err_msg) snprintf(err_msg, err_msg_sz, "Plugin archive not readable");
         return -1;
     }
+    if (sha256_hex && sha256_hex[0] && check_sha256(archive_path, sha256_hex, err_msg, err_msg_sz) != 0) return -1;
 
     char tmp_unpack[128];
     tmp_name(tmp_unpack, sizeof(tmp_unpack), "/tmp/p_unpack", "");
 
     char list_path[160];
     snprintf(list_path, sizeof(list_path), "%s.list", tmp_unpack);
-    if (!archive_entries_safe(archive_path, list_path)) {
+    uint64_t unpacked = 0;
+    if (!archive_entries_safe(archive_path, list_path, &unpacked)) {
         if (err_msg) snprintf(err_msg, err_msg_sz, "Archive unreadable, or has a link, absolute or '..' entry");
+        return -1;
+    }
+    if (unpacked + TMP_RAM_MARGIN > free_bytes_at("/tmp")) {
+        if (err_msg) snprintf(err_msg, err_msg_sz, "Not enough free RAM in /tmp to unpack %llu KB",
+                              (unsigned long long)(unpacked / 1024));
+        return -1;
+    }
+    mkdir(HARMONY_PLUGIN_ROOT, 0755);
+    mkdir(HARMONY_PLUGINS_DIR, 0755); /* statvfs needs the folder */
+    if (unpacked + PLUGIN_FLASH_RESERVE > free_bytes_at(HARMONY_PLUGINS_DIR)) {
+        if (err_msg) snprintf(err_msg, err_msg_sz, "Not enough flash space for %llu KB of plugin files",
+                              (unsigned long long)(unpacked / 1024));
         return -1;
     }
     mkdir(tmp_unpack, 0755);
@@ -639,10 +899,8 @@ int plugin_mgr_install_archive(const char *archive_path, char *err_msg, size_t e
              "export PATH=/cache/bin:/data/harmony/bin:$PATH; "
              "tar -xzf \"%s\" -C \"%s\" 2>/dev/null",
              archive_path, tmp_unpack);
-    int rc = system(cmd);
-    if (rc != 0) {
-        snprintf(cmd, sizeof(cmd), "rm -rf \"%s\"", tmp_unpack);
-        system(cmd);
+    if (system(cmd) != 0) {
+        delete_dir_recursive(tmp_unpack);
         if (err_msg) snprintf(err_msg, err_msg_sz, "Failed to unpack tar.gz archive");
         return -1;
     }
@@ -669,104 +927,106 @@ int plugin_mgr_install_archive(const char *archive_path, char *err_msg, size_t e
 
     size_t flen = 0;
     char *mtxt = read_file_text_alloc(mpath, 32768, &flen);
-    if (!mtxt) {
-        snprintf(cmd, sizeof(cmd), "rm -rf \"%s\"", tmp_unpack);
-        system(cmd);
+    cJSON *manifest = mtxt ? cJSON_Parse(mtxt) : NULL;
+    free(mtxt);
+    if (!manifest) {
+        delete_dir_recursive(tmp_unpack);
         if (err_msg) snprintf(err_msg, err_msg_sz, "Archive missing valid manifest.json");
         return -1;
     }
 
-    cJSON *manifest = cJSON_Parse(mtxt);
-    free(mtxt);
-    if (!manifest) {
-        snprintf(cmd, sizeof(cmd), "rm -rf \"%s\"", tmp_unpack);
-        system(cmd);
-        if (err_msg) snprintf(err_msg, err_msg_sz, "Invalid manifest.json JSON syntax");
-        return -1;
-    }
-
-    cJSON *j_id = cJSON_GetObjectItemCaseSensitive(manifest, "id");
-    if (!j_id || !cJSON_IsString(j_id) || !is_safe_plugin_id(j_id->valuestring)) {
-        cJSON_Delete(manifest);
-        snprintf(cmd, sizeof(cmd), "rm -rf \"%s\"", tmp_unpack);
-        system(cmd);
-        if (err_msg) snprintf(err_msg, err_msg_sz, "Manifest missing valid alphanumeric plugin id");
-        return -1;
-    }
-
-    char plug_id[64] = {0};
-    snprintf(plug_id, sizeof(plug_id), "%s", j_id->valuestring);
-
-    /* Move unpacked files */
     char src_dir[256];
-    char *last_slash = strrchr(mpath, '/');
-    if (last_slash) *last_slash = '\0';
     snprintf(src_dir, sizeof(src_dir), "%s", mpath);
-    replace_plugin_dir(plug_id, src_dir);
+    char *last_slash = strrchr(src_dir, '/');
+    if (last_slash) *last_slash = '\0';
 
-    /* Clean up temp dir */
-    snprintf(cmd, sizeof(cmd), "rm -rf \"%s\"", tmp_unpack);
-    system(cmd);
+    int rc = validate_manifest(manifest, src_dir, err_msg, err_msg_sz);
+    if (rc == 0) {
+        char plug_id[64];
+        snprintf(plug_id, sizeof(plug_id), "%s", cJSON_GetObjectItemCaseSensitive(manifest, "id")->valuestring);
+        rc = replace_plugin_dir(plug_id, src_dir, source_url, dev, err_msg, err_msg_sz);
+    }
     cJSON_Delete(manifest);
-
-    return 0;
+    delete_dir_recursive(tmp_unpack);
+    return rc;
 }
 
-/* SHA-256 the marketplace lists for this download URL, if any */
-static int catalog_sha256_for(const char *url, char out[65]) {
-    out[0] = '\0';
-    cJSON *cat = plugin_mgr_get_marketplace_catalog();
+int plugin_mgr_install_archive(const char *archive_path, const char *sha256_hex, char *err_msg, size_t err_msg_sz) {
+    if (pthread_mutex_trylock(&s_install_lock) != 0) {
+        if (err_msg) snprintf(err_msg, err_msg_sz, "Another plugin install is running");
+        return PLUGIN_ERR_BUSY;
+    }
+    int rc = install_archive_unlocked(archive_path, sha256_hex, NULL, sha256_hex && sha256_hex[0] ? 0 : 1,
+                                      err_msg, err_msg_sz);
+    pthread_mutex_unlock(&s_install_lock);
+    return rc;
+}
+
+/* The marketplace entry for a download URL or a plugin id: its download URL and SHA-256 */
+static int catalog_lookup(const char *url, const char *id, char url_out[512], char sha_out[65]) {
+    sha_out[0] = '\0';
+    if (url_out) url_out[0] = '\0';
+    cJSON *cat = plugin_mgr_get_marketplace_catalog(0);
     const cJSON *p = NULL;
     cJSON_ArrayForEach(p, cat) {
         const cJSON *u = cJSON_GetObjectItemCaseSensitive(p, "download_url");
         const cJSON *h = cJSON_GetObjectItemCaseSensitive(p, "sha256");
-        if (cJSON_IsString(u) && strcmp(u->valuestring, url) == 0 && cJSON_IsString(h) && strlen(h->valuestring) == 64) {
-            snprintf(out, 65, "%s", h->valuestring);
+        const cJSON *i = cJSON_GetObjectItemCaseSensitive(p, "id");
+        if (!cJSON_IsString(u) || !cJSON_IsString(h) || strlen(h->valuestring) != 64) continue;
+        if ((url && strcmp(u->valuestring, url) == 0) ||
+            (id && cJSON_IsString(i) && strcmp(i->valuestring, id) == 0)) {
+            snprintf(sha_out, 65, "%s", h->valuestring);
+            if (url_out) snprintf(url_out, 512, "%s", u->valuestring);
             break;
         }
     }
     cJSON_Delete(cat);
-    return out[0] ? 0 : -1;
+    return sha_out[0] ? 0 : -1;
 }
 
-int plugin_mgr_install_from_url(const char *url, const char *sha256_hex, char *err_msg, size_t err_msg_sz) {
+static int install_from_url_unlocked(const char *url, const char *sha256_hex, char *err_msg, size_t err_msg_sz) {
     if (!is_safe_url(url)) {
         if (err_msg) snprintf(err_msg, err_msg_sz, "Invalid URL (http/https, plain characters only)");
         return -1;
     }
 
     /* busybox wget does not check certificates: the SHA-256 (from the caller or the
-     * marketplace entry) is what tells a damaged or swapped archive */
+     * marketplace entry) is what tells a damaged archive. It is required. */
     char want[65] = {0};
     if (sha256_hex && sha256_hex[0]) snprintf(want, sizeof(want), "%s", sha256_hex);
-    else catalog_sha256_for(url, want);
+    else catalog_lookup(url, NULL, NULL, want);
+    if (!want[0]) {
+        if (err_msg) snprintf(err_msg, err_msg_sz, "No SHA-256 for this archive: pass sha256, or install it from a repository that lists one");
+        return -1;
+    }
 
     char tmp_tar[128];
     tmp_name(tmp_tar, sizeof(tmp_tar), "/tmp/plug_dl", ".tar.gz");
 
     int rc = fetch_url(url, tmp_tar, FETCH_ARCHIVE_MAX_BYTES, FETCH_ARCHIVE_MAX_MS);
     if (rc != 0) {
-        if (err_msg) snprintf(err_msg, err_msg_sz, rc == RUN_TOO_BIG ? "Archive larger than 16 MB" :
+        if (err_msg) snprintf(err_msg, err_msg_sz, rc == RUN_TOO_BIG ? "Archive larger than 1 MB" :
                                                    rc == RUN_TOO_SLOW ? "Archive download took too long" :
                                                    "Failed to download archive from URL");
-        return -1;
+        return rc == RUN_TOO_BIG ? -1 : PLUGIN_ERR_DOWNLOAD;
     }
 
-    if (want[0]) {
-        char got[65];
-        if (file_sha256_hex(tmp_tar, got) != 0 || strcasecmp(got, want) != 0) {
-            unlink(tmp_tar);
-            if (err_msg) snprintf(err_msg, err_msg_sz, "Archive SHA-256 does not match the published checksum");
-            return -1;
-        }
-    }
-
-    int res = plugin_mgr_install_archive(tmp_tar, err_msg, err_msg_sz);
+    int res = install_archive_unlocked(tmp_tar, want, url, 0, err_msg, err_msg_sz);
     unlink(tmp_tar);
     return res;
 }
 
-int plugin_mgr_install_dev_raw(const char *url, char *err_msg, size_t err_msg_sz) {
+int plugin_mgr_install_from_url(const char *url, const char *sha256_hex, char *err_msg, size_t err_msg_sz) {
+    if (pthread_mutex_trylock(&s_install_lock) != 0) {
+        if (err_msg) snprintf(err_msg, err_msg_sz, "Another plugin install is running");
+        return PLUGIN_ERR_BUSY;
+    }
+    int rc = install_from_url_unlocked(url, sha256_hex, err_msg, err_msg_sz);
+    pthread_mutex_unlock(&s_install_lock);
+    return rc;
+}
+
+static int install_dev_raw_unlocked(const char *url, char *err_msg, size_t err_msg_sz) {
     if (!is_safe_url(url)) {
         if (err_msg) snprintf(err_msg, err_msg_sz, "Invalid URL (http/https, plain characters only)");
         return -1;
@@ -802,207 +1062,151 @@ int plugin_mgr_install_dev_raw(const char *url, char *err_msg, size_t err_msg_sz
     mkdir(tmp_dev, 0755);
 
     /* 1. Download manifest.json */
-    char cmd[1024];
     char mpath[256];
     snprintf(mpath, sizeof(mpath), "%s/manifest.json", tmp_dev);
     int rc = fetch_url(manifest_url, mpath, FETCH_SMALL_MAX_BYTES, FETCH_SMALL_MAX_MS);
     if (rc != 0 || access(mpath, R_OK) != 0) {
-        snprintf(cmd, sizeof(cmd), "rm -rf \"%s\"", tmp_dev);
-        system(cmd);
+        delete_dir_recursive(tmp_dev);
         if (err_msg) snprintf(err_msg, err_msg_sz, "Failed to download manifest.json from URL");
         return -1;
     }
 
     size_t flen = 0;
     char *mtxt = read_file_text_alloc(mpath, 32768, &flen);
-    if (!mtxt || flen < 2) {
-        snprintf(cmd, sizeof(cmd), "rm -rf \"%s\"", tmp_dev);
-        system(cmd);
-        if (mtxt) free(mtxt);
-        if (err_msg) snprintf(err_msg, err_msg_sz, "Downloaded manifest.json is empty");
-        return -1;
-    }
-
-    cJSON *manifest = cJSON_Parse(mtxt);
+    cJSON *manifest = mtxt ? cJSON_Parse(mtxt) : NULL;
     free(mtxt);
-    if (!manifest) {
-        snprintf(cmd, sizeof(cmd), "rm -rf \"%s\"", tmp_dev);
-        system(cmd);
-        if (err_msg) snprintf(err_msg, err_msg_sz, "Invalid manifest.json syntax");
-        return -1;
-    }
-
-    cJSON *j_id = cJSON_GetObjectItemCaseSensitive(manifest, "id");
-    if (!j_id || !cJSON_IsString(j_id) || !is_safe_plugin_id(j_id->valuestring)) {
+    if (!manifest || validate_manifest(manifest, NULL, err_msg, err_msg_sz) != 0) {
+        if (!manifest && err_msg) snprintf(err_msg, err_msg_sz, "Invalid manifest.json syntax");
         cJSON_Delete(manifest);
-        snprintf(cmd, sizeof(cmd), "rm -rf \"%s\"", tmp_dev);
-        system(cmd);
-        if (err_msg) snprintf(err_msg, err_msg_sz, "Manifest missing valid alphanumeric plugin id");
+        delete_dir_recursive(tmp_dev);
         return -1;
     }
 
     char plug_id[64] = {0};
-    snprintf(plug_id, sizeof(plug_id), "%s", j_id->valuestring);
+    snprintf(plug_id, sizeof(plug_id), "%s", cJSON_GetObjectItemCaseSensitive(manifest, "id")->valuestring);
+    const char *entry = cJSON_GetObjectItemCaseSensitive(manifest, "entrypoint")->valuestring;
 
-    /* 2. Download files declared in manifest */
+    /* 2. Download the files the manifest lists, or the entrypoint alone */
     cJSON *j_files = cJSON_GetObjectItemCaseSensitive(manifest, "files");
     if (!j_files || !cJSON_IsArray(j_files)) {
         j_files = cJSON_GetObjectItemCaseSensitive(manifest, "dev_files");
+    }
+    cJSON *only_entry = NULL;
+    if (!j_files || !cJSON_IsArray(j_files) || cJSON_GetArraySize(j_files) == 0) {
+        only_entry = cJSON_CreateArray();
+        cJSON_AddItemToArray(only_entry, cJSON_CreateString(entry));
+        j_files = only_entry;
     }
 
     /* A file that is unsafe to name or fails to download stops the install: installed
      * without it, the plugin was left broken */
     const char *bad_file = NULL;
-    if (j_files && cJSON_IsArray(j_files) && cJSON_GetArraySize(j_files) > 0) {
-        cJSON *f_item = NULL;
-        cJSON_ArrayForEach(f_item, j_files) {
-            if (!f_item || !cJSON_IsString(f_item) || !f_item->valuestring[0]) continue;
-            const char *fname = f_item->valuestring;
-            if (strcmp(fname, "manifest.json") == 0) continue;
-            if (!is_safe_rel_path(fname)) {
-                bad_file = fname;
-                break;
-            }
-
-            char local_path[384];
-            snprintf(local_path, sizeof(local_path), "%s/%s", tmp_dev, fname);
-            char *last_slash = strrchr(local_path, '/');
-            if (last_slash) {
-                *last_slash = '\0';
-                snprintf(cmd, sizeof(cmd), "mkdir -p \"%s\"", local_path);
-                system(cmd);
-                *last_slash = '/';
-            }
-
-            char file_url[768];
-            snprintf(file_url, sizeof(file_url), "%s/%s", base_url, fname);
-            if (fetch_url(file_url, local_path, FETCH_FILE_MAX_BYTES, FETCH_ARCHIVE_MAX_MS) != 0) {
-                bad_file = fname;
-                break;
-            }
-            if (strstr(fname, ".sh") != NULL) {
-                chmod(local_path, 0755);
-            }
-        }
-    } else {
-        cJSON *j_entry = cJSON_GetObjectItemCaseSensitive(manifest, "entrypoint");
-        const char *entry = (j_entry && cJSON_IsString(j_entry)) ? j_entry->valuestring : NULL;
-        if (!entry) {
-            cJSON *j_drv = cJSON_GetObjectItemCaseSensitive(manifest, "driver");
-            entry = (j_drv && cJSON_IsString(j_drv)) ? j_drv->valuestring : NULL;
+    uint64_t total = 0;
+    cJSON *f_item = NULL;
+    cJSON_ArrayForEach(f_item, j_files) {
+        if (!f_item || !cJSON_IsString(f_item) || !f_item->valuestring[0]) continue;
+        const char *fname = f_item->valuestring;
+        if (strcmp(fname, "manifest.json") == 0) continue;
+        if (!is_safe_rel_path(fname)) {
+            bad_file = fname;
+            break;
         }
 
-        const char *defaults[4] = { "run.sh", NULL, NULL, NULL };
-        int d_count = 1;
-        if (entry && strcmp(entry, "run.sh") != 0 && strcmp(entry, "manifest.json") != 0 && is_safe_rel_path(entry)) {
-            defaults[d_count++] = entry;
+        char local_path[384];
+        snprintf(local_path, sizeof(local_path), "%s/%s", tmp_dev, fname);
+        /* the parent directories, without a shell */
+        for (char *c = local_path + strlen(tmp_dev) + 1; *c; c++) {
+            if (*c == '/') {
+                *c = '\0';
+                mkdir(local_path, 0755);
+                *c = '/';
+            }
         }
 
-        for (int i = 0; i < d_count; i++) {
-            const char *fname = defaults[i];
-            char local_path[384];
-            snprintf(local_path, sizeof(local_path), "%s/%s", tmp_dev, fname);
-            char file_url[768];
-            snprintf(file_url, sizeof(file_url), "%s/%s", base_url, fname);
-            if (fetch_url(file_url, local_path, FETCH_FILE_MAX_BYTES, FETCH_ARCHIVE_MAX_MS) != 0) {
-                bad_file = fname;
-                break;
-            }
-            if (strstr(fname, ".sh") != NULL || (entry && strcmp(fname, entry) == 0)) {
-                chmod(local_path, 0755);
-            }
+        char file_url[768];
+        snprintf(file_url, sizeof(file_url), "%s/%s", base_url, fname);
+        if (fetch_url(file_url, local_path, FETCH_FILE_MAX_BYTES, FETCH_ARCHIVE_MAX_MS) != 0) {
+            bad_file = fname;
+            break;
+        }
+        struct stat st;
+        if (stat(local_path, &st) == 0) total += (uint64_t)st.st_size;
+        /* the downloads sit in /tmp (RAM) until the copy */
+        if (total > FETCH_ARCHIVE_MAX_BYTES) {
+            bad_file = fname;
+            break;
         }
     }
 
     if (bad_file) {
-        if (err_msg) snprintf(err_msg, err_msg_sz, "Manifest file '%.60s' is unsafe or failed to download", bad_file);
+        if (err_msg) snprintf(err_msg, err_msg_sz, "Manifest file '%.60s' is unsafe, too large or failed to download", bad_file);
+        cJSON_Delete(only_entry);
         cJSON_Delete(manifest);
-        snprintf(cmd, sizeof(cmd), "rm -rf \"%s\"", tmp_dev);
-        system(cmd);
+        delete_dir_recursive(tmp_dev);
         return -1;
     }
+    cJSON_Delete(only_entry);
+    /* the entrypoint must be among the downloaded files */
+    rc = validate_manifest(manifest, tmp_dev, err_msg, err_msg_sz);
     cJSON_Delete(manifest);
+    if (rc != 0) {
+        delete_dir_recursive(tmp_dev);
+        return -1;
+    }
 
-    /* 3. Stop running plugin, install into /data/harmony/plugins/<plug_id> */
-    replace_plugin_dir(plug_id, tmp_dev);
-
-    snprintf(cmd, sizeof(cmd), "rm -rf \"%s\"", tmp_dev);
-    system(cmd);
-
-    return 0;
+    /* 3. Install into /data/harmony/plugins/<plug_id> */
+    rc = replace_plugin_dir(plug_id, tmp_dev, url, 1, err_msg, err_msg_sz);
+    delete_dir_recursive(tmp_dev);
+    return rc;
 }
 
+int plugin_mgr_install_dev_raw(const char *url, char *err_msg, size_t err_msg_sz) {
+    if (pthread_mutex_trylock(&s_install_lock) != 0) {
+        if (err_msg) snprintf(err_msg, err_msg_sz, "Another plugin install is running");
+        return PLUGIN_ERR_BUSY;
+    }
+    int rc = install_dev_raw_unlocked(url, err_msg, err_msg_sz);
+    pthread_mutex_unlock(&s_install_lock);
+    return rc;
+}
+
+/* Updates an installed plugin from where it came from (.source.json): the same dev URL again,
+ * or the current marketplace entry of its id, checked against that entry's SHA-256 */
 int plugin_mgr_pull(const char *plugin_id, char *err_msg, size_t err_msg_sz) {
     if (!plugin_id || !is_safe_plugin_id(plugin_id)) {
         if (err_msg) snprintf(err_msg, err_msg_sz, "Invalid plugin ID");
         return -1;
     }
+    char src_path[300];
+    snprintf(src_path, sizeof(src_path), "%s/%s/.source.json", HARMONY_PLUGINS_DIR, plugin_id);
+    size_t flen = 0;
+    char *txt = read_file_text_alloc(src_path, 4096, &flen);
+    cJSON *src = txt ? cJSON_Parse(txt) : NULL;
+    free(txt);
+    const cJSON *j_url = cJSON_GetObjectItemCaseSensitive(src, "url");
+    int dev = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(src, "dev"));
+    char url[512] = {0};
+    if (cJSON_IsString(j_url)) snprintf(url, sizeof(url), "%s", j_url->valuestring);
+    cJSON_Delete(src);
 
-    /* Build raw github manifest URL for this plugin */
-    char raw_url[512];
-    snprintf(raw_url, sizeof(raw_url), "https://raw.githubusercontent.com/iranl/harmony-ng-plugins/main/%s/manifest.json", plugin_id);
-    return plugin_mgr_install_dev_raw(raw_url, err_msg, err_msg_sz);
-}
-
-int plugin_mgr_resolve_device_plugin(const char *type_or_plugin, char *out_id, size_t out_sz) {
-    if (!type_or_plugin || !type_or_plugin[0]) return 0;
-
-    const char *cand = type_or_plugin;
-    if (strncasecmp(cand, "plugin:", 7) == 0) {
-        cand += 7;
+    if (pthread_mutex_trylock(&s_install_lock) != 0) {
+        if (err_msg) snprintf(err_msg, err_msg_sz, "Another plugin install is running");
+        return PLUGIN_ERR_BUSY;
     }
-
-    /* 1. Direct match on plugin directory name if safe id */
-    if (is_safe_plugin_id(cand)) {
-        char mpath[256];
-        snprintf(mpath, sizeof(mpath), "%s/%s/manifest.json", HARMONY_PLUGINS_DIR, cand);
-        if (access(mpath, F_OK) == 0) {
-            if (out_id && out_sz > 0) snprintf(out_id, out_sz, "%s", cand);
-            return 1;
+    int rc;
+    if (dev && url[0]) {
+        rc = install_dev_raw_unlocked(url, err_msg, err_msg_sz);
+    } else {
+        char cat_url[512], sha[65];
+        if (catalog_lookup(NULL, plugin_id, cat_url, sha) != 0) {
+            if (err_msg) snprintf(err_msg, err_msg_sz, "No repository lists '%s'", plugin_id);
+            rc = -1;
+        } else {
+            rc = install_from_url_unlocked(cat_url, sha, err_msg, err_msg_sz);
         }
     }
-
-    /* 2. Search installed plugins manifests for device_definition matching device_type or display_name */
-    DIR *d = opendir(HARMONY_PLUGINS_DIR);
-    if (!d) return 0;
-
-    struct dirent *de;
-    int found = 0;
-    while ((de = readdir(d)) != NULL) {
-        if (de->d_name[0] == '.') continue;
-        if (!is_safe_plugin_id(de->d_name)) continue;
-
-        char mpath[256];
-        snprintf(mpath, sizeof(mpath), "%s/%s/manifest.json", HARMONY_PLUGINS_DIR, de->d_name);
-        size_t flen = 0;
-        char *mtxt = read_file_text_alloc(mpath, 32768, &flen);
-        if (!mtxt) continue;
-
-        cJSON *manifest = cJSON_Parse(mtxt);
-        free(mtxt);
-        if (!manifest) continue;
-
-        cJSON *dev_def = cJSON_GetObjectItemCaseSensitive(manifest, "device_definition");
-        if (dev_def && cJSON_IsObject(dev_def)) {
-            cJSON *j_dtype = cJSON_GetObjectItemCaseSensitive(dev_def, "device_type");
-            cJSON *j_disp = cJSON_GetObjectItemCaseSensitive(dev_def, "display_name");
-            const char *dt = (j_dtype && cJSON_IsString(j_dtype)) ? j_dtype->valuestring : NULL;
-            const char *dn = (j_disp && cJSON_IsString(j_disp)) ? j_disp->valuestring : NULL;
-
-            if ((dt && strcasecmp(dt, type_or_plugin) == 0) ||
-                (dt && strcasecmp(dt, cand) == 0) ||
-                (dn && strcasecmp(dn, type_or_plugin) == 0) ||
-                (dn && strcasecmp(dn, cand) == 0)) {
-                if (out_id && out_sz > 0) snprintf(out_id, out_sz, "%s", de->d_name);
-                found = 1;
-                cJSON_Delete(manifest);
-                break;
-            }
-        }
-        cJSON_Delete(manifest);
-    }
-    closedir(d);
-    return found;
+    pthread_mutex_unlock(&s_install_lock);
+    return rc;
 }
 
 cJSON *plugin_mgr_get_device_definition(const char *plugin_id) {
@@ -1036,17 +1240,9 @@ int plugin_mgr_is_in_use_by_device(const char *plugin_id, char *device_name_out,
     if (devs && cJSON_IsArray(devs)) {
         cJSON *dev = NULL;
         cJSON_ArrayForEach(dev, devs) {
-            cJSON *j_plug = cJSON_GetObjectItemCaseSensitive(dev, "plugin");
-            cJSON *j_type = cJSON_GetObjectItemCaseSensitive(dev, "type");
-            const char *t_str = (j_type && cJSON_IsString(j_type)) ? j_type->valuestring : "";
-            const char *p_str = (j_plug && cJSON_IsString(j_plug)) ? j_plug->valuestring : "";
 
-            int match = 0;
             char res_id[64] = {0};
-            if (p_str[0] && strcasecmp(p_str, plugin_id) == 0) match = 1;
-            else if (strncasecmp(t_str, "plugin:", 7) == 0 && strcasecmp(t_str + 7, plugin_id) == 0) match = 1;
-            else if (strcasecmp(t_str, "plugin") == 0 && p_str[0] && strcasecmp(p_str, plugin_id) == 0) match = 1;
-            else if (t_str[0] && plugin_mgr_resolve_device_plugin(t_str, res_id, sizeof(res_id)) && strcasecmp(res_id, plugin_id) == 0) match = 1;
+            int match = plugin_mgr_device_plugin_id(dev, res_id, sizeof(res_id)) && strcmp(res_id, plugin_id) == 0;
 
             if (!match) {
                 cJSON *cmds = cJSON_GetObjectItemCaseSensitive(dev, "commands");
@@ -1191,16 +1387,17 @@ static cJSON *read_catalog_cache(const char *cache_path) {
     return c_root;
 }
 
-cJSON *plugin_mgr_get_marketplace_catalog(void) {
+cJSON *plugin_mgr_get_marketplace_catalog(int force_reload) {
     const char *cache_path = "/tmp/plugins/marketplace_cache.json";
     struct stat st;
-    if (stat(cache_path, &st) == 0 && (time(NULL) - st.st_mtime) < 600) {
+    if (!force_reload && stat(cache_path, &st) == 0 && (time(NULL) - st.st_mtime) < 600) {
         cJSON *c_root = read_catalog_cache(cache_path);
         if (c_root) return c_root;
     }
 
     cJSON *repos = plugin_mgr_get_repositories();
     cJSON *catalog = cJSON_CreateArray();
+    int n_repos = cJSON_GetArraySize(repos);
 
     cJSON *repo_url = NULL;
     cJSON_ArrayForEach(repo_url, repos) {
@@ -1220,7 +1417,11 @@ cJSON *plugin_mgr_get_marketplace_catalog(void) {
                     if (plugs && cJSON_IsArray(plugs)) {
                         cJSON *p = NULL;
                         cJSON_ArrayForEach(p, plugs) {
-                            cJSON_AddItemToArray(catalog, cJSON_Duplicate(p, 1));
+                            /* a null or malformed entry broke the whole list in the UIs */
+                            if (!cJSON_IsObject(p) || !cJSON_IsString(cJSON_GetObjectItemCaseSensitive(p, "id"))) continue;
+                            cJSON *e = cJSON_Duplicate(p, 1);
+                            if (!cJSON_HasObjectItem(e, "repository")) cJSON_AddStringToObject(e, "repository", repo_url->valuestring);
+                            cJSON_AddItemToArray(catalog, e);
                         }
                     }
                     cJSON_Delete(rjson);
@@ -1231,8 +1432,13 @@ cJSON *plugin_mgr_get_marketplace_catalog(void) {
     }
     cJSON_Delete(repos);
 
-    /* Every repository failed (offline): the last catalog, even old, beats an empty one */
+    /* Every repository failed (offline): the last catalog, even old, beats an empty one. With
+     * no repository at all the catalog is empty. */
     if (cJSON_GetArraySize(catalog) == 0) {
+        if (n_repos == 0) {
+            unlink(cache_path);
+            return catalog;
+        }
         cJSON *stale = read_catalog_cache(cache_path);
         if (stale) {
             cJSON_Delete(catalog);

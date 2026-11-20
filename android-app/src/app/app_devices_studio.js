@@ -251,7 +251,11 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     const pluginId = dev.plugin || pluginDef?.id || (dev.type?.startsWith('plugin:') ? dev.type.substring(7) : '');
     if (detailsEl) {
       if (isPlugin) {
-        const cfgSummary = dev.config ? Object.entries(dev.config).map(([k, v]) => `${k}: ${v}`).join(', ') : '';
+        // a password field of the plugin is never shown
+        const secretKeys = new Set((Array.isArray(pluginDef?.device_definition?.config_fields) ? pluginDef.device_definition.config_fields : [])
+          .filter(f => f && f.type === 'password').map(f => f.key));
+        const cfgSummary = dev.config && typeof dev.config === 'object'
+          ? Object.entries(dev.config).map(([k, v]) => `${k}: ${secretKeys.has(k) ? '••••' : v}`).join(', ') : '';
         detailsEl.textContent = tf('studio_plugin_details_line', { plugin: pluginId, config: cfgSummary ? ' • (' + cfgSummary + ')' : '', name: dev.name || dev.id });
       } else {
         detailsEl.textContent = tf('studio_device_details_line', { type: dev.type || t('device_type_appliance'), brand: dev.manufacturer || t('unknown'), model: dev.model || t('unknown') });

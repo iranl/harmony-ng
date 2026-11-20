@@ -611,7 +611,13 @@
     "plg_upload_title",
     "plg_uploaded",
     "plg_uploading",
-    "plg_view_docs"
+    "plg_view_docs",
+    "plg_upload_too_large",
+    "plg_load_failed",
+    "plg_action_failed",
+    "plg_restart_failed",
+    "plg_repo_remove_failed",
+    "plg_repo_add_failed"
   ],
   "fr": [
     "confirm_btn",
@@ -1224,7 +1230,13 @@
     "plg_upload_title",
     "plg_uploaded",
     "plg_uploading",
-    "plg_view_docs"
+    "plg_view_docs",
+    "plg_upload_too_large",
+    "plg_load_failed",
+    "plg_action_failed",
+    "plg_restart_failed",
+    "plg_repo_remove_failed",
+    "plg_repo_add_failed"
   ],
   "nl": [
     "confirm_btn",
@@ -1837,7 +1849,13 @@
     "plg_upload_title",
     "plg_uploaded",
     "plg_uploading",
-    "plg_view_docs"
+    "plg_view_docs",
+    "plg_upload_too_large",
+    "plg_load_failed",
+    "plg_action_failed",
+    "plg_restart_failed",
+    "plg_repo_remove_failed",
+    "plg_repo_add_failed"
   ],
   "es": [
     "confirm_btn",
@@ -2450,7 +2468,13 @@
     "plg_upload_title",
     "plg_uploaded",
     "plg_uploading",
-    "plg_view_docs"
+    "plg_view_docs",
+    "plg_upload_too_large",
+    "plg_load_failed",
+    "plg_action_failed",
+    "plg_restart_failed",
+    "plg_repo_remove_failed",
+    "plg_repo_add_failed"
   ],
   "it": [
     "confirm_btn",
@@ -3063,6 +3087,12 @@
     "plg_upload_title",
     "plg_uploaded",
     "plg_uploading",
-    "plg_view_docs"
+    "plg_view_docs",
+    "plg_upload_too_large",
+    "plg_load_failed",
+    "plg_action_failed",
+    "plg_restart_failed",
+    "plg_repo_remove_failed",
+    "plg_repo_add_failed"
   ]
 }

@@ -22,8 +22,6 @@
 #include "../payload/source/orchestrator.h"
 #include "../payload/source/hub_events.h"
 
-/* No plugins installed: a device type never names a plugin */
-int plugin_mgr_resolve_device_plugin(const char *t, char *out, size_t sz) { (void)t; (void)out; (void)sz; return 0; }
 
 #define PIPE_PATH "/tmp/bthid_input"
 #define HOST_ADDR "00:11:22:33:44:55"

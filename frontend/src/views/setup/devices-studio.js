@@ -157,7 +157,8 @@ export function createView() {
       api.getPlugins().then(res => {
         const plugins = res?.plugins || [];
         const plug = plugins.find(p => p.id === pluginId);
-        let fields = plug?.device_definition?.config_fields;
+        let fields = Array.isArray(plug?.device_definition?.config_fields)
+          ? plug.device_definition.config_fields.filter(f => f && f.key) : null;
         if (!fields && cfgObj && typeof cfgObj === 'object') {
           fields = Object.keys(cfgObj).map(k => ({
             key: k,
@@ -170,7 +171,7 @@ export function createView() {
           fields.forEach(f => {
             const curVal = cfgObj[f.key] !== undefined ? cfgObj[f.key] : (f.default !== undefined ? f.default : '');
             const inp = h('input', {
-              type: f.type === 'number' ? 'number' : 'text',
+              type: f.type === 'number' ? 'number' : (f.type === 'password' ? 'password' : 'text'),
               className: 'form-input',
               value: String(curVal),
               placeholder: f.placeholder || '',
@@ -480,10 +481,10 @@ export function createView() {
         if (plug?.device_definition) {
           mfgInput.value = plug.device_definition.display_name || plug.name;
           modelInput.value = 'Plugin';
-          if (plug.device_definition.config_fields) {
-            plug.device_definition.config_fields.forEach(f => {
+          if (Array.isArray(plug.device_definition.config_fields)) {
+            plug.device_definition.config_fields.filter(f => f && f.key).forEach(f => {
               const inp = h('input', {
-                type: f.type === 'number' ? 'number' : 'text',
+                type: f.type === 'number' ? 'number' : (f.type === 'password' ? 'password' : 'text'),
                 className: 'form-input',
                 placeholder: f.placeholder || (f.default !== undefined ? String(f.default) : '')
               });
@@ -544,8 +545,8 @@ export function createView() {
                 const plugId = selectedType.replace('plugin:', '');
                 const plug = plugins.find(p => p.id === plugId);
                 const configVals = {};
-                if (plug?.device_definition?.config_fields) {
-                  plug.device_definition.config_fields.forEach(f => {
+                if (Array.isArray(plug?.device_definition?.config_fields)) {
+                  plug.device_definition.config_fields.filter(f => f && f.key).forEach(f => {
                     const inp = dynamicFieldInputs[f.key];
                     if (inp) {
                       configVals[f.key] = f.type === 'number' ? Number(inp.value) : inp.value.trim();

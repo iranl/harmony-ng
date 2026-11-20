@@ -6,7 +6,6 @@
 #include <assert.h>
 
 /* No plugins installed: the sanitizer only asks which device types belong to a plugin */
-int plugin_mgr_resolve_device_plugin(const char *t, char *out, size_t sz) { (void)t; (void)out; (void)sz; return 0; }
 
 int main(void) {
     printf("[*] Testing sanitize_activity_steps (canonical single 'delay' key, no duplicates)...\n");

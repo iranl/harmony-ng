@@ -436,10 +436,13 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
       const stat = document.getElementById('plugCustomStatus');
       if (stat) stat.textContent = t('plg_saving_cmd');
       try {
+        // PLUGIN:<plugin id>:<code>: without the id the Hub sent the command name instead
+        const devObj = (this.inventory?.devices || []).find(d => String(d.id) === String(devId));
+        const plugId = devObj?.plugin || (devObj?.type?.startsWith('plugin:') ? devObj.type.substring(7) : '');
         await this.client.saveLearnedCommand({
           deviceId: devId,
           name,
-          raw: code.startsWith('PLUGIN:') ? code : `PLUGIN:${code}`,
+          raw: code.startsWith('PLUGIN:') ? code : `PLUGIN:${plugId}:${code}`,
           mode: 'plugin'
         });
         if (stat) stat.innerHTML = '<span style="color:var(--success)">' + t('plg_cmd_saved') + '</span>';

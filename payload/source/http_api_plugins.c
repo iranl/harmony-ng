@@ -2,6 +2,7 @@
 #include "http_api_plugins.h"
 #include "plugin_mgr.h"
 #include "http_util.h"
+#include "http_auth.h"
 #include "cJSON.h"
 
 #include <stdio.h>
@@ -15,9 +16,25 @@
 #include <errno.h>
 #include <pthread.h>
 
+/* The largest archive an upload may carry (base64 in JSON, 4/3 of this on the wire) */
+#define PLUGIN_UPLOAD_MAX_BYTES (1L * 1024 * 1024)
+
+/* A plugin runs as root: installing one is running code as root. While authentication is off
+ * every LAN client is an admin, so these routes are refused until it is on. */
+static int refuse_without_auth(int client_fd) {
+    if (http_auth_is_enabled()) return 0;
+    send_json_error(client_fd, 403, "Enable authentication before installing plugins or changing repositories: a plugin runs as root on the Hub");
+    close(client_fd);
+    return 1;
+}
+
+/* 409: another install runs; 502: the Hub could not download (the browser may try); else 400 */
+static int install_status(int rc) {
+    return rc == PLUGIN_ERR_BUSY ? 409 : (rc == PLUGIN_ERR_DOWNLOAD ? 502 : 400);
+}
+
 int http_api_plugins_handle(int client_fd, const char *method, const char *path,
                             const char *query, const char *body, const char *req) {
-    (void)query;
     (void)req;
 
     if (strncmp(path, "/api/plugins", 12) != 0) return 0;
@@ -40,7 +57,8 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
     if (strcmp(path, "/api/plugins/marketplace") == 0 && strcmp(method, "GET") == 0) {
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", 1);
-        cJSON *cat = plugin_mgr_get_marketplace_catalog();
+        int force = (query && (strstr(query, "refresh=1") || strstr(query, "forceReload=1"))) ? 1 : 0;
+        cJSON *cat = plugin_mgr_get_marketplace_catalog(force);
         cJSON_AddItemToObject(resp, "marketplace", cat ? cat : cJSON_CreateArray());
         send_cjson_resp(client_fd, 200, resp);
         cJSON_Delete(resp);
@@ -62,6 +80,7 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
 
     /* 4. POST /api/plugins/repositories - Add or remove repository URL */
     if (strcmp(path, "/api/plugins/repositories") == 0 && strcmp(method, "POST") == 0) {
+        if (refuse_without_auth(client_fd)) return 1;
         cJSON *json = body ? cJSON_Parse(body) : NULL;
         if (!json) {
             send_json_error(client_fd, 400, "Invalid JSON body");
@@ -94,10 +113,13 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
         return 1;
     }
 
-    /* 5. POST /api/plugins/install - Install from URL or archive */
+    /* 5. POST /api/plugins/install - Install from URL or base64 archive. Every install that is
+     * not marked dev needs a SHA-256 (given, or from the marketplace entry of the URL). */
     if (strcmp(path, "/api/plugins/install") == 0 && strcmp(method, "POST") == 0) {
-        char err[128] = "Unknown error";
+        if (refuse_without_auth(client_fd)) return 1;
+        char err[192] = "Unknown error";
         int rc = -1;
+        int status = 400;
 
         cJSON *json = body ? cJSON_Parse(body) : NULL;
         if (json) {
@@ -105,55 +127,55 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
             cJSON *j_b64 = cJSON_GetObjectItemCaseSensitive(json, "archive_base64");
             cJSON *j_dev = cJSON_GetObjectItemCaseSensitive(json, "dev");
             cJSON *j_sha = cJSON_GetObjectItemCaseSensitive(json, "sha256");
-            const char *sha = (cJSON_IsString(j_sha)) ? j_sha->valuestring : NULL;
+            const char *sha = (cJSON_IsString(j_sha) && j_sha->valuestring[0]) ? j_sha->valuestring : NULL;
             int is_dev = (j_dev && (cJSON_IsTrue(j_dev) || (cJSON_IsNumber(j_dev) && j_dev->valueint == 1)));
+            int has_url = (j_url && cJSON_IsString(j_url) && j_url->valuestring[0]);
 
-            if (j_url && cJSON_IsString(j_url) && j_url->valuestring[0]) {
-                const char *u = j_url->valuestring;
-                if (!is_dev && (strstr(u, "manifest.json") != NULL || strstr(u, "raw.githubusercontent.com") != NULL)) {
-                    if (!strstr(u, ".tar.gz") && !strstr(u, ".tgz")) {
-                        is_dev = 1;
-                    }
-                }
-                if (is_dev) {
-                    rc = plugin_mgr_install_dev_raw(u, err, sizeof(err));
-                } else {
-                    rc = plugin_mgr_install_from_url(u, sha, err, sizeof(err));
-                }
+            if (sha && strlen(sha) != 64) {
+                snprintf(err, sizeof(err), "sha256 must be 64 hex characters");
+            } else if (is_dev && sha && has_url) {
+                /* the dev path downloads loose files: nothing it could check the value against */
+                snprintf(err, sizeof(err), "sha256 cannot be checked on a dev install (raw files); leave it out or install the release archive");
+            } else if (has_url) {
+                if (is_dev) rc = plugin_mgr_install_dev_raw(j_url->valuestring, err, sizeof(err));
+                else rc = plugin_mgr_install_from_url(j_url->valuestring, sha, err, sizeof(err));
+                status = install_status(rc);
             } else if (j_b64 && cJSON_IsString(j_b64)) {
-                size_t out_len = 0;
-                unsigned char *data = b64_decode(j_b64->valuestring, &out_len);
-                if (data && out_len > 0) {
-                    char tmp_tar[128];
-                    snprintf(tmp_tar, sizeof(tmp_tar), "/tmp/upload_%ld_%lx.tar.gz", (long)time(NULL), (unsigned long)pthread_self());
-                    int fd = open(tmp_tar, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-                    if (fd >= 0) {
-                        write(fd, data, out_len);
-                        close(fd);
-                        rc = plugin_mgr_install_archive(tmp_tar, err, sizeof(err));
-                        unlink(tmp_tar);
+                if (!sha && !is_dev) {
+                    snprintf(err, sizeof(err), "An uploaded archive needs sha256, or dev: true for a local build");
+                } else if (strlen(j_b64->valuestring) > (size_t)(PLUGIN_UPLOAD_MAX_BYTES / 3 * 4 + 4)) {
+                    snprintf(err, sizeof(err), "Archive larger than 1 MB");
+                    status = 413;
+                } else {
+                    size_t out_len = 0;
+                    unsigned char *data = b64_decode(j_b64->valuestring, &out_len);
+                    if (data && out_len > 0) {
+                        char tmp_tar[128];
+                        snprintf(tmp_tar, sizeof(tmp_tar), "/tmp/upload_%ld_%lx.tar.gz", (long)time(NULL), (unsigned long)pthread_self());
+                        int fd = open(tmp_tar, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                        if (fd >= 0) {
+                            ssize_t w = write(fd, data, out_len);
+                            close(fd);
+                            if (w == (ssize_t)out_len) {
+                                rc = plugin_mgr_install_archive(tmp_tar, sha, err, sizeof(err));
+                                status = install_status(rc);
+                            } else {
+                                snprintf(err, sizeof(err), "Failed to store the uploaded archive (no RAM left in /tmp?)");
+                            }
+                            unlink(tmp_tar);
+                        }
+                    } else {
+                        snprintf(err, sizeof(err), "Failed to decode base64 archive");
                     }
                     free(data);
-                } else {
-                    snprintf(err, sizeof(err), "Failed to decode base64 archive");
                 }
+            } else {
+                snprintf(err, sizeof(err), "Give url or archive_base64");
             }
             cJSON_Delete(json);
-        } else if (body && body[0]) {
-            /* Direct binary stream upload */
-            const char *hdr_cl = strcasestr(req, "Content-Length:");
-            size_t clen = hdr_cl ? (size_t)atoi(hdr_cl + 15) : strlen(body);
-            if (clen > 0) {
-                char tmp_tar[128];
-                snprintf(tmp_tar, sizeof(tmp_tar), "/tmp/upload_%ld_%lx.tar.gz", (long)time(NULL), (unsigned long)pthread_self());
-                int fd = open(tmp_tar, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-                if (fd >= 0) {
-                    write(fd, body, clen);
-                    close(fd);
-                    rc = plugin_mgr_install_archive(tmp_tar, err, sizeof(err));
-                    unlink(tmp_tar);
-                }
-            }
+        } else {
+            /* uploads are base64 in JSON only: the body reader stops at the first NUL byte */
+            snprintf(err, sizeof(err), "Invalid JSON body (upload the archive as archive_base64)");
         }
 
         if (rc == 0) {
@@ -163,7 +185,7 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
             send_cjson_resp(client_fd, 200, resp);
             cJSON_Delete(resp);
         } else {
-            send_json_error(client_fd, 400, err);
+            send_json_error(client_fd, status, err);
         }
         close(client_fd);
         return 1;
@@ -171,7 +193,8 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
 
     /* 5b. POST /api/plugins/pull - Pull latest committed files directly from repo */
     if (strcmp(path, "/api/plugins/pull") == 0 && strcmp(method, "POST") == 0) {
-        char err[128] = "Unknown error";
+        if (refuse_without_auth(client_fd)) return 1;
+        char err[192] = "Unknown error";
         int rc = -1;
         cJSON *json = body ? cJSON_Parse(body) : NULL;
         if (json) {
@@ -194,7 +217,7 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
             send_cjson_resp(client_fd, 200, resp);
             cJSON_Delete(resp);
         } else {
-            send_json_error(client_fd, 400, err);
+            send_json_error(client_fd, install_status(rc), err);
         }
         close(client_fd);
         return 1;
@@ -221,11 +244,12 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
         if (j_act && cJSON_IsString(j_act)) strncpy(act, j_act->valuestring, sizeof(act) - 1);
         if (j_host && cJSON_IsString(j_host)) strncpy(host, j_host->valuestring, sizeof(host) - 1);
         if (j_pin && cJSON_IsString(j_pin)) strncpy(pin, j_pin->valuestring, sizeof(pin) - 1);
-        int port = (j_port && cJSON_IsNumber(j_port)) ? j_port->valueint : 6467;
+        /* optional: without it the plugin uses its own port (the Hub knows no plugin's default) */
+        int port = (j_port && cJSON_IsNumber(j_port)) ? j_port->valueint : 0;
         cJSON_Delete(json);
 
-        if (!plugin_mgr_is_safe_id(id) || !host[0]) {
-            send_json_error(client_fd, 400, "Missing or invalid plugin id, or missing host");
+        if (!plugin_mgr_is_safe_id(id) || !host[0] || port < 0 || port > 65535) {
+            send_json_error(client_fd, 400, "Missing or invalid plugin id, host or port");
             close(client_fd);
             return 1;
         }
@@ -260,7 +284,7 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
             cJSON_AddStringToObject(cmd_obj, "command", "pair");
             cJSON_AddStringToObject(cmd_obj, "action", fwd_action);
             cJSON_AddStringToObject(cmd_obj, "host", host);
-            cJSON_AddNumberToObject(cmd_obj, "port", port);
+            if (port > 0) cJSON_AddNumberToObject(cmd_obj, "port", port);
             if (pin[0]) cJSON_AddStringToObject(cmd_obj, "pin", pin);
 
             char *cmd_str = cJSON_PrintUnformatted(cmd_obj);
@@ -327,8 +351,11 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
         }
         cJSON *j_id = cJSON_GetObjectItemCaseSensitive(json, "id");
         cJSON *j_act = cJSON_GetObjectItemCaseSensitive(json, "action");
-        const char *id = (j_id && cJSON_IsString(j_id)) ? j_id->valuestring : "";
-        const char *act = (j_act && cJSON_IsString(j_act)) ? j_act->valuestring : "";
+        /* copies: both are used for the reply, after the JSON is deleted */
+        char id[64] = "", act[16] = "";
+        if (j_id && cJSON_IsString(j_id)) snprintf(id, sizeof(id), "%s", j_id->valuestring);
+        if (j_act && cJSON_IsString(j_act)) snprintf(act, sizeof(act), "%s", j_act->valuestring);
+        cJSON_Delete(json);
 
         int rc = -1;
         if (strcmp(act, "start") == 0) rc = plugin_mgr_start(id);
@@ -336,8 +363,6 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
         else if (strcmp(act, "restart") == 0) rc = plugin_mgr_restart(id);
         else if (strcmp(act, "enable") == 0) rc = plugin_mgr_set_enabled(id, 1);
         else if (strcmp(act, "disable") == 0) rc = plugin_mgr_set_enabled(id, 0);
-
-        cJSON_Delete(json);
 
         if (rc == 0) {
             cJSON *resp = cJSON_CreateObject();
@@ -383,13 +408,18 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
             }
         }
 
-        if (target_id[0] && plugin_mgr_uninstall(target_id) == 0) {
+        int rc = target_id[0] ? plugin_mgr_uninstall(target_id) : -1;
+        if (rc == 0) {
             cJSON *resp = cJSON_CreateObject();
             cJSON_AddBoolToObject(resp, "ok", 1);
             cJSON_AddStringToObject(resp, "id", target_id);
             cJSON_AddStringToObject(resp, "message", "Plugin uninstalled");
             send_cjson_resp(client_fd, 200, resp);
             cJSON_Delete(resp);
+        } else if (rc == PLUGIN_ERR_NOT_FOUND) {
+            send_json_error(client_fd, 404, "Plugin not installed");
+        } else if (rc == PLUGIN_ERR_BUSY) {
+            send_json_error(client_fd, 409, "A plugin install is running");
         } else {
             send_json_error(client_fd, 400, "Failed to uninstall plugin");
         }

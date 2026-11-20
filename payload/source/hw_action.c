@@ -635,24 +635,10 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
     cJSON *j_mtop = cJSON_GetObjectItemCaseSensitive(target_dev, "mqttTopic");
     if (j_mtop && cJSON_IsString(j_mtop) && j_mtop->valuestring && j_mtop->valuestring[0]) is_mqtt = 1;
 
-    int is_plugin = 0;
+    /* Only the device's "plugin" field or "plugin:<id>" type: no manifest is read in the key
+     * path, and an IR device whose type happens to match a plugin name stays IR */
     char plugin_id[64] = {0};
-    cJSON *j_plug = cJSON_GetObjectItemCaseSensitive(target_dev, "plugin");
-    if (j_plug && cJSON_IsString(j_plug) && j_plug->valuestring && j_plug->valuestring[0]) {
-        is_plugin = 1;
-        strncpy(plugin_id, j_plug->valuestring, sizeof(plugin_id) - 1);
-    } else if (j_dtype && cJSON_IsString(j_dtype) && strncasecmp(j_dtype->valuestring, "plugin:", 7) == 0) {
-        is_plugin = 1;
-        strncpy(plugin_id, j_dtype->valuestring + 7, sizeof(plugin_id) - 1);
-    } else if (j_dtype && cJSON_IsString(j_dtype) && plugin_mgr_resolve_device_plugin(j_dtype->valuestring, plugin_id, sizeof(plugin_id))) {
-        is_plugin = 1;
-    } else if (j_dtype && cJSON_IsString(j_dtype) && strcasecmp(j_dtype->valuestring, "plugin") == 0) {
-        is_plugin = 1;
-        cJSON *j_pid = cJSON_GetObjectItemCaseSensitive(target_dev, "pluginId");
-        if (j_pid && cJSON_IsString(j_pid) && j_pid->valuestring) {
-            strncpy(plugin_id, j_pid->valuestring, sizeof(plugin_id) - 1);
-        }
-    }
+    int is_plugin = plugin_mgr_device_plugin_id(target_dev, plugin_id, sizeof(plugin_id));
 
     /* Find Command */
     cJSON *cmds = cJSON_GetObjectItemCaseSensitive(target_dev, "commands");
@@ -1239,7 +1225,8 @@ int hw_bt_release_all(void) {
 
 int hw_plugin_command_send(const char *plugin_id, const char *dev_id, const char *dev_name,
                           const char *command, int action, int value, const cJSON *config) {
-    if (!plugin_id || !plugin_id[0] || !command || !command[0]) return -1;
+    /* the id goes into the socket path */
+    if (!plugin_mgr_is_safe_id(plugin_id) || !command || !command[0]) return -1;
 
     char sock_path[128];
     snprintf(sock_path, sizeof(sock_path), "/tmp/plugins/%s.sock", plugin_id);

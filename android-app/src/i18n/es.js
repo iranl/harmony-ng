@@ -1,4 +1,5 @@
 export default {
+    "plg_upload_too_large": "El archivo del plugin supera 1 MB, el máximo que acepta el Hub",
     "plugins_desc": "Instalar y configurar controladores de la comunidad",
     "plugins_lead": "Controladores de la comunidad e integraciones de dispositivos.",
     "failed_to_save": "Error al guardar: ",

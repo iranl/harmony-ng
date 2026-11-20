@@ -19,8 +19,6 @@ static cJSON *s_mock_device_root = NULL;
  * powered off): an activity is running here */
 orch_state_t orch_get_state(void) { return ORCH_STATE_RUNNING; }
 const char *orch_get_current_activity(void) { return "1"; }
-/* No plugins installed: a device type never names a plugin */
-int plugin_mgr_resolve_device_plugin(const char *t, char *out, size_t sz) { (void)t; (void)out; (void)sz; return 0; }
 /* the MQTT-type device path puts a button event on the daemon's bus */
 void hub_events_emit(hub_event_type_t type, cJSON *payload) { (void)type; cJSON_Delete(payload); }
 
