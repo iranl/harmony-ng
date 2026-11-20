@@ -1,4 +1,5 @@
 import { HarmonyClient } from '../api.js';
+import { DEFAULT_OTA_URL, otaSource, setOtaSource, githubReleasesApi } from '../update_source.js';
 import { getSavedHubs, saveHub, deleteHub, getActiveHub, setActiveHubId } from '../storage.js';
 import { createAppToken, revokeAppToken, hubBaseUrl, loginFields, withLoginCheck, finishReplace } from '../app_token.js';
 import { RemoteEngine } from '../remote-engine.js';
@@ -66,8 +67,11 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
       ]);
 
       let remoteVer = '';
+      const src = otaSource();
+      const releasesApi = githubReleasesApi(src);
       try {
-        const ghRes = await fetch('https://api.github.com/repos/iranl/harmony-ng/releases/latest', {
+        if (!releasesApi) throw new Error('no releases API');
+        const ghRes = await fetch(releasesApi, {
           headers: { 'Accept': 'application/vnd.github.v3+json' }
         });
         if (ghRes.ok) {
@@ -80,9 +84,9 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
 
       if (!remoteVer) {
         try {
-          let rawRes = await fetch(`https://raw.githubusercontent.com/iranl/harmony-ng/ota/v2/VERSION?_=${Date.now()}`);
+          let rawRes = await fetch(`${src}/v2/VERSION?_=${Date.now()}`);
           if (!rawRes.ok) {
-            rawRes = await fetch(`https://raw.githubusercontent.com/iranl/harmony-ng/ota/VERSION_V2?_=${Date.now()}`);
+            rawRes = await fetch(`${src}/VERSION_V2?_=${Date.now()}`);
           }
           if (rawRes.ok) {
             const v = (await rawRes.text()).trim();
@@ -127,6 +131,20 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
     }
   }
 
+  /* The update source field is the Hub's update_repo setting: the default URL is stored as
+     empty, so the Hub follows the official source if it moves. */
+  async saveUpdateRepo(value) {
+    const clean = (value || '').trim().replace(/\/+$/, '').replace(/\/bin\/mips$/, '').replace(/\/+$/, '');
+    const stored = clean === DEFAULT_OTA_URL ? '' : clean;
+    try {
+      await this.client.saveSettings({ update_repo: stored });
+      setOtaSource(stored);
+    } catch (err) {
+      showToast(tf('error_msg', { error: err.message }), 'error');
+      throw err;
+    }
+  }
+
   async checkSoftwareUpdate() {
     const log = document.getElementById('updateLog');
     const repoInput = document.getElementById('updateRepo')?.value.trim() || '';
@@ -134,19 +152,23 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
     try {
       if (log) log.textContent = t('checking_update_repo');
       let remoteVer = '';
+      await this.saveUpdateRepo(repoInput);
+      const src = otaSource();
+      const releasesApi = githubReleasesApi(src);
       try {
+        if (!releasesApi) throw new Error('no releases API');
         const ghHeaders = { 'Accept': 'application/vnd.github.v3+json' };
         if (tokenInput) ghHeaders['Authorization'] = `token ${tokenInput}`;
-        const ghRes = await fetch('https://api.github.com/repos/iranl/harmony-ng/releases/latest', { headers: ghHeaders });
+        const ghRes = await fetch(releasesApi, { headers: ghHeaders });
         if (ghRes.ok) {
           const ghData = await ghRes.json();
           remoteVer = (ghData.tag_name || '').replace(/^v/, '');
         }
       } catch (_) {
         try {
-          let rawRes = await fetch(`https://raw.githubusercontent.com/iranl/harmony-ng/ota/v2/VERSION?_=${Date.now()}`);
+          let rawRes = await fetch(`${src}/v2/VERSION?_=${Date.now()}`);
           if (!rawRes.ok) {
-            rawRes = await fetch(`https://raw.githubusercontent.com/iranl/harmony-ng/ota/VERSION_V2?_=${Date.now()}`);
+            rawRes = await fetch(`${src}/VERSION_V2?_=${Date.now()}`);
           }
           if (rawRes.ok) {
             const rawVer = await rawRes.text();
@@ -176,6 +198,7 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
     const log = document.getElementById('updateLog');
     if (!await showConfirm(t('update_confirm', 'Download and apply update? Hub services will restart.'), { title: t('software_update'), okText: t('update_btn') })) return;
     try {
+      await this.saveUpdateRepo(repo);
       this.showUpdatingOverlay(t('hub_downloading_update'));
       if (log) log.textContent = t('update_applying', 'Applying software update...\nHub is downloading package and will reboot automatically.');
 

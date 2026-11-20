@@ -126,6 +126,7 @@ class HubDeployer:
         dry_run: bool = False,
         no_backup: bool = False,
         stage_remote_ota: bool = False,
+        eth_modules: bool = False,
     ):
         self.hub_host = hub_host
         self.hub_user = hub_user
@@ -136,6 +137,7 @@ class HubDeployer:
         self.dry_run = dry_run
         self.no_backup = no_backup
         self.stage_remote_ota = stage_remote_ota
+        self.eth_modules = eth_modules
 
         self.deploy_failures: list[str] = []
         self.remote_hashes: dict[str, str] = {}
@@ -639,8 +641,10 @@ class HubDeployer:
                         if cfg.name == "cacert.pem" and not self.dry_run:
                             self.run_ssh("ln -sf /data/harmony/config/cacert.pem /data/harmony/cacert.pem 2>/dev/null || true")
 
-            # Deploy USB Ethernet kernel modules
-            if self.modules_dir.is_dir():
+            # USB Ethernet kernel modules: only with --eth-modules. By default the Hub downloads
+            # the one driver its adapter needs (web UI, update.sh fetch-module); modules already
+            # on the Hub stay.
+            if self.eth_modules and self.modules_dir.is_dir():
                 print("[*] Syncing USB Ethernet kernel modules to /cache/modules/...")
                 if not self.dry_run:
                     self.run_ssh("mkdir -p /cache/modules 2>/dev/null; [ -L /data/harmony/modules ] || ln -sf /cache/modules /data/harmony/modules")
@@ -726,7 +730,12 @@ class HubDeployer:
             if not self.icons_tar.is_file():
                 print("[!] No icon archive: Hub icons left as-is.")
 
-        if self.icons_tar.is_file():
+        # icons moved to a USB stick (usb_storage.sh offload) stay there: no second copy on flash
+        offloaded = (self.icons_tar.is_file() and not self.dry_run and
+                     self.run_ssh("[ -f /data/harmony/config/usb_offload ] && echo yes").stdout.strip() == "yes")
+        if offloaded:
+            print("[*] Icons are on the USB stick (usb_offload): icon archive not copied to flash.")
+        elif self.icons_tar.is_file():
             self.deploy_file_if_changed(self.icons_tar, "/cache/icons.tar.gz", "644")
             if not self.dry_run:
                 self.run_ssh(
@@ -793,6 +802,7 @@ def main() -> None:
     parser.add_argument("--reboot", action="store_true", help="Reboot Hub safely after deployment (default: hot restart)")
     parser.add_argument("--dry-run", "-n", action="store_true", help="Read Hub state and report changes without modifying Hub")
     parser.add_argument("--no-backup", action="store_true", help="Skip pre-deployment backup")
+    parser.add_argument("--eth-modules", action="store_true", help="Also copy every USB Ethernet kernel module to /cache/modules (default: the Hub downloads the one its adapter needs)")
     parser.add_argument("--stage-remote-ota", action="store_true", help="Stage local remote_ui.ota.gz into Hub /tmp/remote_ui.ota.gz (RAM tmpfs) for offline testing")
     ssh_hostkeys.add_reset_option(parser, "the Hub")
 
@@ -823,6 +833,7 @@ def main() -> None:
         dry_run=args.dry_run,
         no_backup=args.no_backup,
         stage_remote_ota=args.stage_remote_ota,
+        eth_modules=args.eth_modules,
     )
     success = deployer.deploy()
     sys.exit(0 if success else 1)

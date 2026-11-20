@@ -1,4 +1,5 @@
 #include "http_api_system.h"
+#include "ota_source.h"
 #include "hub_info.h"
 #include "hub_mdns.h"
 #include "http_util.h"
@@ -724,6 +725,8 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
         cJSON_AddStringToObject(resp, "led_mode", s.led_mode[0] ? s.led_mode : HUB_LED_DEFAULT_MODE);
         cJSON_AddBoolToObject(resp, "mdns_enabled", s.mdns_enabled ? 1 : 0);
         cJSON_AddBoolToObject(resp, "legacy_enabled", s.legacy_enabled ? 1 : 0);
+        cJSON_AddStringToObject(resp, "update_repo", s.update_repo);
+        cJSON_AddStringToObject(resp, "update_repo_default", HARMONY_OTA_DEFAULT_URL);
         send_cjson_resp(client_fd, 200, resp);
         cJSON_Delete(resp);
         close(client_fd);
@@ -779,6 +782,17 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                 if (cJSON_IsBool(item)) s.legacy_enabled = cJSON_IsTrue(item) ? 1 : 0;
                 else if (cJSON_IsNumber(item)) s.legacy_enabled = item->valueint ? 1 : 0;
             }
+            item = cJSON_GetObjectItemCaseSensitive(p, "update_repo");
+            if (item && cJSON_IsString(item) && item->valuestring) {
+                /* empty: back to the default source */
+                if (item->valuestring[0] && !ota_source_url_ok(item->valuestring)) {
+                    cJSON_Delete(p);
+                    send_json_error(client_fd, 400, "Update source must be an http(s):// URL without spaces or quotes");
+                    close(client_fd);
+                    return 1;
+                }
+                snprintf(s.update_repo, sizeof(s.update_repo), "%s", item->valuestring);
+            }
             int save_rc = config_store_save_settings(&s);
             cJSON_Delete(p);
             if (save_rc != 0) {
@@ -797,6 +811,8 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
         cJSON_AddStringToObject(resp, "led_mode", s.led_mode[0] ? s.led_mode : HUB_LED_DEFAULT_MODE);
         cJSON_AddBoolToObject(resp, "mdns_enabled", s.mdns_enabled ? 1 : 0);
         cJSON_AddBoolToObject(resp, "legacy_enabled", s.legacy_enabled ? 1 : 0);
+        cJSON_AddStringToObject(resp, "update_repo", s.update_repo);
+        cJSON_AddStringToObject(resp, "update_repo_default", HARMONY_OTA_DEFAULT_URL);
         send_cjson_resp(client_fd, 200, resp);
         cJSON_Delete(resp);
         close(client_fd);

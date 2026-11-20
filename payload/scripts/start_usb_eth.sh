@@ -1,18 +1,6 @@
 #!/bin/sh
 # USB Ethernet Host mode activator
-MODULES_DIR="/data/harmony/modules"
 BIN_DIR="/data/harmony/bin"
-
-load_mod() {
-  mod="$1"
-  if [ -f "$MODULES_DIR/$mod" ]; then
-    insmod "$MODULES_DIR/$mod" 2>/dev/null || true
-  elif [ -f "$MODULES_DIR/usb_net/$mod" ]; then
-    insmod "$MODULES_DIR/usb_net/$mod" 2>/dev/null || true
-  elif [ -f "/cache/modules/$mod" ]; then
-    insmod "/cache/modules/$mod" 2>/dev/null || true
-  fi
-}
 
 # Preload usbcore
 insmod /lib/modules/2.6.31-g89d565c/kernel/drivers/usb/core/usbcore.ko 2>/dev/null || true
@@ -66,66 +54,12 @@ if [ ! -d /sys/devices/platform/ar7240-ehci.0/driver ] && \
   fi
 fi
 
-# Detect plugged USB device and load ONLY its specific driver (never load cdc_ether with r8152)
+# Detect the plugged USB adapter and load ONLY its driver (never cdc_ether with r8152). The
+# modules are installed on demand: a missing one is reported in /tmp/eth_driver_state.
 for i in 1 2 3 4 5; do
   [ -d /sys/bus/usb/devices/1-1 ] && break
   sleep 1
 done
-
-if [ -f /sys/bus/usb/devices/1-1/idVendor ]; then
-  vid=$(cat /sys/bus/usb/devices/1-1/idVendor 2>/dev/null)
-  pid=$(cat /sys/bus/usb/devices/1-1/idProduct 2>/dev/null)
-  echo "[USB_ETH] Detected USB device $vid:$pid"
-  case "$vid:$pid" in
-    0bda:8152|0bda:8153|2357:0601)
-      echo "[USB_ETH] Loading Realtek native driver (r8152.ko)..."
-      load_mod r8152.ko
-      ;;
-    0b95:*|077b:2226|0846:1040)
-      echo "[USB_ETH] Loading ASIX driver..."
-      load_mod usbnet.ko
-      load_mod asix.ko
-      ;;
-    0424:*)
-      echo "[USB_ETH] Loading SMSC driver..."
-      load_mod usbnet.ko
-      load_mod smsc95xx.ko
-      ;;
-    0a46:*)
-      echo "[USB_ETH] Loading DM9601 driver..."
-      load_mod usbnet.ko
-      load_mod dm9601.ko
-      ;;
-    0bda:8150)
-      echo "[USB_ETH] Loading RTL8150 driver..."
-      load_mod rtl8150.ko
-      ;;
-    *)
-      echo "[USB_ETH] Loading generic CDC Ethernet driver..."
-      load_mod usbnet.ko
-      load_mod cdc_ether.ko
-      ;;
-  esac
-else
-  echo "[USB_ETH] No USB device detected yet on port 1-1"
-fi
-
-# Wait briefly for network interface creation and apply MIPS checksum/TSO fix
-for i in 1 2 3; do
-  for ifpath in /sys/class/net/eth* /sys/class/net/usb*; do
-    [ -d "$ifpath" ] || continue
-    ifname="${ifpath##*/}"
-    case "$ifname" in
-      eth0|eth1|wifi0|ath0|lo) ;;
-      *)
-        FIX_BIN=""
-        for b in "$BIN_DIR/eth_fix" /cache/bin/eth_fix /usr/sbin/eth_fix; do
-          if [ -x "$b" ]; then FIX_BIN="$b"; break; fi
-        done
-        [ -n "$FIX_BIN" ] && "$FIX_BIN" "$ifname" >/dev/null 2>&1 || true
-        break 2
-        ;;
-    esac
-  done
-  sleep 1
-done
+sh /data/harmony/usb_eth_driver.sh scan
+# A USB stick (non-essential files only, see usb_storage.sh)
+[ -f /data/harmony/usb_storage.sh ] && sh /data/harmony/usb_storage.sh scan || true

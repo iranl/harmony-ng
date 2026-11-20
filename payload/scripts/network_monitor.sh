@@ -11,6 +11,9 @@ run_monitor() {
   ping_check_cycle=0
   gw_seen=0
 
+  # USB devices seen in host mode, on one line (echo joins them; BusyBox tr misreads escapes)
+  usb_seen=$(echo $(ls /sys/bus/usb/devices 2>/dev/null))
+
   # Cache initial working gateway on startup
   get_current_gw >/dev/null 2>&1
 
@@ -20,6 +23,17 @@ run_monitor() {
   while true; do
     sleep 3
     load_config
+
+    # A USB device plugged in or out while in host mode: look for its driver again (a USB
+    # Ethernet adapter plugged in after boot, or one whose driver was just installed)
+    if [ "$(cat /tmp/harmony_usb_port_mode 2>/dev/null)" = "host" ]; then
+      usb_now=$(echo $(ls /sys/bus/usb/devices 2>/dev/null))
+      if [ "$usb_now" != "$usb_seen" ]; then
+        usb_seen="$usb_now"
+        [ -f /data/harmony/usb_eth_driver.sh ] && sh /data/harmony/usb_eth_driver.sh scan >> "$LOG" 2>&1
+        [ -f /data/harmony/usb_storage.sh ] && sh /data/harmony/usb_storage.sh scan >> "$LOG" 2>&1
+      fi
+    fi
 
     cur_eth=""
     [ "$ETH_ENABLED" = "1" ] && cur_eth=$(find_eth_interface)

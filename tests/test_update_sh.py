@@ -68,6 +68,51 @@ class UpdateScript(unittest.TestCase):
         self.run_update("check", "https://example.invalid/ota")
         self.assertNotIn("[--header]", self.wget_log.read_text().splitlines())
 
+    def set_update_repo(self, value: str):
+        conf = self.root / "data" / "harmony" / "config"
+        conf.mkdir(parents=True, exist_ok=True)
+        (conf / "settings.json").write_text('{\n\t"hub_name":\t"Hub",\n\t"update_repo":\t"%s"\n}\n' % value)
+
+    def urls(self) -> list[str]:
+        return [a[1:-1] for a in self.wget_log.read_text().splitlines() if a.startswith("[http")]
+
+    def test_setting_is_the_source_without_argument(self):
+        self.set_update_repo("https://example.invalid/fork")
+        self.run_update("check")
+        self.assertTrue(self.urls())
+        self.assertTrue(all(u.startswith("https://example.invalid/fork/") for u in self.urls()), self.urls())
+
+    def test_argument_beats_setting(self):
+        self.set_update_repo("https://example.invalid/fork")
+        self.run_update("check", "https://example.invalid/arg")
+        self.assertTrue(all(u.startswith("https://example.invalid/arg/") for u in self.urls()), self.urls())
+
+    def test_unsafe_setting_ignored(self):
+        self.set_update_repo("https://example.invalid/x;reboot")
+        self.run_update("check")
+        self.assertTrue(self.urls()[0].startswith("https://raw.githubusercontent.com/iranl/harmony-ng/ota/"))
+
+    def test_releases_fallback_follows_github_source(self):
+        self.set_update_repo("https://raw.githubusercontent.com/someone/fork/ota")
+        self.run_update("check")
+        self.assertIn("https://api.github.com/repos/someone/fork/releases/latest", self.urls())
+        self.assertFalse(any("iranl" in u for u in self.urls()), self.urls())
+
+    def test_no_releases_fallback_for_other_mirror(self):
+        self.run_update("check", "https://mirror.example.invalid/ota")
+        self.assertFalse(any("api.github.com" in u for u in self.urls()), self.urls())
+
+    def test_fetch_module_uses_signed_manifest_of_source(self):
+        res = self.run_update("fetch-module", "asix", "https://example.invalid/ota")
+        self.assertEqual(self.urls()[0].split("?")[0], "https://example.invalid/ota/manifest.json", self.urls())
+        self.assertNotEqual(res.returncode, 0)
+        self.assertFalse((self.root / "cache" / "modules" / "asix.ko").exists())
+
+    def test_fetch_module_bad_name(self):
+        res = self.run_update("fetch-module", "../asix")
+        self.assertIn("Bad module name", res.stdout)
+        self.assertFalse(self.wget_log.exists())
+
     def test_second_apply_refused_while_one_runs(self):
         self.holder = subprocess.Popen(["sh", "-c", "sleep 30; :", "update.sh"])
         time.sleep(0.2)

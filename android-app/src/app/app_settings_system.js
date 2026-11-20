@@ -1,4 +1,5 @@
 import { HarmonyClient } from '../api.js';
+import { otaSource, setOtaSource } from '../update_source.js';
 import { getSavedHubs, saveHub, deleteHub, getActiveHub, setActiveHubId } from '../storage.js';
 import { RemoteEngine } from '../remote-engine.js';
 import {
@@ -444,6 +445,8 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
       }
     }
 
+    this.renderEthDriver(st.eth_driver);
+
     // Wi-Fi Status
     const wifiEl = document.getElementById('netWifiStatus');
     if (wifiEl) {
@@ -460,6 +463,49 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
     if (ifcPre) {
       ifcPre.textContent = st.ifconfig ? st.ifconfig.trim() : t('no_ifconfig_output');
     }
+  }
+
+  /* USB Ethernet driver on demand: the Hub found an adapter whose driver is not installed
+     (eth_driver from /api/network-status); offer the download and follow it. */
+  renderEthDriver(drv) {
+    const el = document.getElementById('netEthDriver');
+    if (!el) return;
+    if (!drv || (!drv.unsupported && !(drv.missing && drv.missing.length) && !drv.installing && !drv.install_failed)) {
+      el.style.display = 'none';
+      el.innerHTML = '';
+      return;
+    }
+    const id = drv.vid && drv.pid ? `${drv.vid}:${drv.pid}` : '';
+    el.style.display = '';
+    if (drv.installing) {
+      el.innerHTML = `<span style="color:var(--text-muted);">${escapeHtml(tf('eth_driver_downloading', { driver: drv.driver || '' }))}</span>`;
+      clearTimeout(this._ethDriverPoll);
+      this._ethDriverPoll = setTimeout(() => this.refreshNetworkStatus(), 3000);
+      return;
+    }
+    if (drv.unsupported) {
+      el.innerHTML = `<span style="color:var(--warning);">${escapeHtml(tf('eth_driver_unsupported', { id }))}</span>`;
+      return;
+    }
+    const msg = drv.install_failed
+      ? tf('eth_driver_failed', { driver: drv.driver || '' })
+      : tf('eth_driver_missing', { id, driver: drv.driver || '' });
+    el.innerHTML = `<span style="color:var(--warning);">${escapeHtml(msg)}</span> `;
+    if (!drv.driver) return;
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-sm';
+    btn.textContent = t('eth_driver_download_btn');
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        await this.client.installEthernetDriver(drv.driver);
+        this.renderEthDriver({ ...drv, installing: true });
+      } catch (err) {
+        btn.disabled = false;
+        showToast(tf('error_msg', { error: err.message }), 'error');
+      }
+    });
+    el.appendChild(btn);
   }
 
   async refreshNetworkStatus() {
@@ -823,6 +869,9 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
             tzEl.value = st.timezone;
           }
         }
+        setOtaSource(st.update_repo);
+        const repoInp = document.getElementById('updateRepo');
+        if (repoInp) repoInp.value = otaSource();
         const mdnsCb = document.getElementById('hubMdnsEnabled');
         if (mdnsCb && st.mdns_enabled !== undefined) mdnsCb.checked = Boolean(st.mdns_enabled);
         const legacyCb = document.getElementById('hubLegacyEnabled');
@@ -847,9 +896,67 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
       this.refreshSystemInfo(),
       this.refreshLogs(),
       this.loadUserAccounts(),
-      this.loadPersonalAccessTokens()
+      this.loadPersonalAccessTokens(),
+      this.refreshUsbStorage()
     ]);
     this.updateIconCacheUI();
+  }
+
+  /* USB stick for the icons (GET /api/usb-storage); actions run on the Hub in the background */
+  async refreshUsbStorage() {
+    const status = document.getElementById('usbStorageStatus');
+    const actions = document.getElementById('usbStorageActions');
+    if (!status || !actions) return;
+    let st;
+    try {
+      st = await this.client.getUsbStorage();
+    } catch (err) {
+      status.textContent = tf('error_msg', { error: err.message });
+      return;
+    }
+    actions.innerHTML = '';
+    clearTimeout(this._usbStoragePoll);
+    if (st.busy) {
+      status.textContent = t('usb_storage_busy');
+      this._usbStoragePoll = setTimeout(() => this.refreshUsbStorage(), 2000);
+      return;
+    }
+    const mb = (kb) => Math.round((kb || 0) / 1024);
+    let text;
+    const buttons = [];
+    if (!st.present) {
+      text = st.offload ? t('usb_storage_gone_offload') : t('usb_storage_none');
+      if (st.offload) buttons.push(['restore', 'usb_storage_restore_btn']);
+    } else if (st.missing && st.missing.length) {
+      text = t('usb_storage_missing');
+      buttons.push(['install', 'usb_storage_install_btn']);
+    } else if (!st.mounted) {
+      text = st.device ? t('usb_storage_not_mounted') : t('usb_storage_ejected');
+      buttons.push(['scan', 'usb_storage_mount_btn']);
+    } else {
+      text = tf('usb_storage_mounted', { device: st.device, fs: st.fs, free: mb(st.free_kb), total: mb(st.total_kb) });
+      if (st.offload) text += ' ' + t('usb_storage_offload_on');
+      buttons.push(st.offload ? ['restore', 'usb_storage_restore_btn'] : ['offload', 'usb_storage_offload_btn']);
+      buttons.push(['eject', 'usb_storage_eject_btn']);
+    }
+    if (st.failed && st.message) text += ' ' + tf('usb_storage_failed', { message: st.message });
+    status.textContent = text;
+    for (const [action, label] of buttons) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn-sm btn-secondary';
+      btn.textContent = t(label);
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        try {
+          await this.client.usbStorageAction(action);
+        } catch (err) {
+          showToast(tf('error_msg', { error: err.message }), 'error');
+        }
+        this.refreshUsbStorage();
+      });
+      actions.appendChild(btn);
+    }
   }
 
   updateIconCacheUI() {

@@ -53,7 +53,15 @@ Because the Hub requires power through its Micro-USB connector, you need an **OT
 ```
 
 ### Supported USB Ethernet Chipsets
-HarmonyNG bundles kernel drivers for these USB Ethernet chipsets in `/cache/modules/`. The IDs listed are the ones the shipped modules bind; an adapter with another ID of the same family (for example the ASIX AX88179 `0B95:1790`, AX88772B `0B95:772B`, SMSC LAN9505 `0424:9505` or Davicom DM9620 `0A46:9620`) is not supported by these module builds.
+HarmonyNG has kernel drivers for these USB Ethernet chipsets. They are **not installed by default**: the Hub downloads only the driver its adapter needs.
+
+1. With the Hub's USB port in host mode, `usb_eth_driver.sh scan` looks at every USB device (also behind a USB hub, skipping hubs, USB sticks and keyboards). It picks the driver from `usb_eth_modules.txt`, and loads it when it is in `/cache/modules/`. It runs at boot and again whenever a USB device is plugged in or out.
+2. When the driver (or a module it needs, such as `usbnet`) is missing, the Network page shows "USB Ethernet adapter `<vid>:<pid>` found: its driver `<name>` is not installed" with a **Download driver** button. The same data is in the `eth_driver` object of `GET /api/network-status`.
+3. The button calls `POST /api/ethernet-driver-install`, which runs `update.sh fetch-module`. That downloads `modules/<name>.ko` from the update source (the `update_repo` setting), checks it against the signed release manifest, and installs it to `/cache/modules/`. The adapter then comes up without a reboot.
+
+`python build/deploy_hub.py <HUB_IP> --eth-modules` copies every module at once, for a Hub without internet access. Modules already on a Hub stay there.
+
+The IDs listed are the ones these module builds bind. An adapter with another ID of the same family is not supported by them, for example AX88772B `0B95:772B`, SMSC LAN9505 `0424:9505` or Davicom DM9620 `0A46:9620`. The page reports the ASIX AX88179 `0B95:1790` as not supported.
 
 | Chipset Family | USB Vendor:Product IDs | Driver Modules | Notes |
 | :--- | :--- | :--- | :--- |
