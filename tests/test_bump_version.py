@@ -67,6 +67,26 @@ class BumpVersion(unittest.TestCase):
         self.assertRegex(text, r'"":\s*\{\s*"name":\s*"[^"]*",\s*"version":\s*"9\.9\.9"')
         self.assertEqual(re.findall(r'"node_modules/[^"]+":\s*\{\s*"version":\s*"[^"]+"', text), deps_before)
 
+    def test_crlf_checkout_stays_clean(self):
+        # A Windows checkout (core.autocrlf) has CRLF line ends; the build syncs from WSL
+        crlf = ["VERSION", "docs/openapi.yaml", "android-app/src/app/app_icons_ui.js",
+                "android-app/android/app/build.gradle"]
+        for f in crlf:
+            p = self.root / f
+            p.write_bytes(p.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+        before = {f: (self.root / f).read_bytes() for f in FILES}
+        mtimes = {f: (self.root / f).stat().st_mtime_ns for f in FILES}
+        res = self.run_tool("--sync")
+        self.assertEqual(res.returncode, 0, res.stdout)
+        for f in FILES:
+            self.assertEqual((self.root / f).read_bytes(), before[f], f"--sync changed {f}")
+            self.assertEqual((self.root / f).stat().st_mtime_ns, mtimes[f], f"--sync rewrote {f}")
+        self.assertEqual(self.run_tool("--version", "9.9.9").returncode, 0)
+        for f in crlf:
+            data = (self.root / f).read_bytes()
+            self.assertIn(b"9.9.9", data, f)
+            self.assertNotIn(b"\n", data.replace(b"\r\n", b""), f"{f} got a lone LF")
+
     def test_release_raises_version_code_once(self):
         before = self.version_code()
         version_file = (self.root / "VERSION").read_text()
