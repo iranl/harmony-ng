@@ -644,39 +644,33 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
     }
   }
 
-  async checkOnlineVersions() {
-    try {
-      let ver = '';
+  /* The Hub version update.sh would install, without "v", or '' when unknown: the ota branch
+   * VERSION first (its signed manifest is what gets installed), GitHub releases only when the
+   * branch cannot be read. */
+  async fetchOnlineHubVersion(token = '') {
+    const base = 'https://raw.githubusercontent.com/iranl/harmony-ng/ota';
+    for (const file of ['v2/VERSION', 'VERSION_V2']) {
       try {
-        const ghRes = await fetch('https://api.github.com/repos/iranl/harmony-ng/releases/latest', {
-          headers: { 'Accept': 'application/vnd.github.v3+json' },
-          cache: 'no-cache'
-        });
-        if (ghRes.ok) {
-          const ghData = await ghRes.json();
-          if (ghData.tag_name) ver = ghData.tag_name.replace(/^v/, '').trim();
-        }
+        const res = await fetch(`${base}/${file}?_=${Date.now()}`, { cache: 'no-cache' });
+        const ver = res.ok ? (await res.text()).trim().replace(/^v/, '') : '';
+        if (/^\d+(\.\d+)*$/.test(ver)) return ver;
       } catch (_) { }
+    }
+    try {
+      const headers = { 'Accept': 'application/vnd.github.v3+json' };
+      if (token) headers['Authorization'] = `token ${token}`;
+      const res = await fetch('https://api.github.com/repos/iranl/harmony-ng/releases/latest', { headers, cache: 'no-cache' });
+      if (res.ok) return String((await res.json()).tag_name || '').trim().replace(/^v/, '');
+    } catch (_) { }
+    return '';
+  }
 
-      if (!ver) {
-        let res = await fetch(`https://raw.githubusercontent.com/iranl/harmony-ng/ota/v2/VERSION?_=${Date.now()}`, { cache: 'no-cache' }).catch(() => null);
-        if (!res || !res.ok) {
-          res = await fetch(`https://raw.githubusercontent.com/iranl/harmony-ng/ota/VERSION_V2?_=${Date.now()}`, { cache: 'no-cache' }).catch(() => null);
-        }
-        if (!res || !res.ok) {
-          res = await fetch(`https://raw.githubusercontent.com/iranl/harmony-ng/main/VERSION?_=${Date.now()}`, { cache: 'no-cache' }).catch(() => null);
-        }
-        if (res && res.ok) {
-          const text = await res.text();
-          ver = text.replace(/^v/, '').trim();
-        }
-      }
-
-      if (ver) {
-        this.onlineVersion = ver;
-        this.latestRemoteVersion = ver;
-      }
-    } catch { }
+  async checkOnlineVersions() {
+    const ver = await this.fetchOnlineHubVersion();
+    if (ver) {
+      this.onlineVersion = ver;
+      this.latestRemoteVersion = ver;
+    }
   }
 
   showUpdatingOverlay(statusText = t('applying_update_reboot')) {
@@ -697,9 +691,14 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
     try {
       // 0. Hub software update in progress
       const updateStat = await this.client.getUpdateStatus().catch(() => null);
+      // An update started before this page loaded (or in another tab): follow it to its end.
+      // No answer is no information (the Hub may be restarting): the overlay stays.
       if (updateStat?.updating) {
-        this.showUpdatingOverlay(t('hub_update_running_bg'));
-      } else if (this.isUpdating && !this.pollTimerActive) {
+        if (!this.pollTimerActive) {
+          this.showUpdatingOverlay(t('hub_update_running_bg'));
+          this.watchHubUpdate(updateStat.current_version || updateStat.version || '');
+        }
+      } else if (updateStat && this.isUpdating && !this.pollTimerActive) {
         this.hideUpdatingOverlay();
       }
 

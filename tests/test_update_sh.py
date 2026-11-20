@@ -77,7 +77,16 @@ class UpdateScript(unittest.TestCase):
         self.assertIn("Another software update is running", res.stdout)
         self.assertNotIn("Starting software update", res.stdout)
         self.assertFalse((self.root / "tmp" / "hub_updating.flag").exists())
+        self.assertFalse((self.root / "tmp" / "hub_update.state").exists(),
+                         "a refused run leaves the state of the running one alone")
         self.assertTrue(self.lock.exists(), "the running update keeps its lock")
+
+    def test_failed_apply_records_failed_state(self):
+        # wget always fails: no signed manifest, nothing installed
+        res = self.run_update("apply")
+        self.assertIn("Update refused", res.stdout)
+        self.assertEqual((self.root / "tmp" / "hub_update.state").read_text(), "state=failed\n")
+        self.assertFalse((self.root / "tmp" / "hub_updating.flag").exists())
 
     def start_of(self, pid: int) -> str:
         return pathlib.Path(f"/proc/{pid}/stat").read_text().split(") ")[1].split()[19]

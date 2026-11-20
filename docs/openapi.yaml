@@ -3848,6 +3848,26 @@ paths:
                 arch: "mips (AR9344)"
                 update_available: false
                 updating: false
+                update_state: idle
+              schema:
+                type: object
+                properties:
+                  updating:
+                    type: boolean
+                    description: true while update_state is running or restarting
+                  update_state:
+                    type: string
+                    enum: [idle, running, restarting, failed]
+                    description: State of the last update-apply since the Hub started (see docs/API.md 2.1)
+                  update_step:
+                    type: string
+                    description: Last output line of update.sh (running only, untranslated)
+                  update_target:
+                    type: string
+                    description: Version installed, while the services restart (restarting only)
+                  update_error:
+                    type: string
+                    description: Last error line of update.sh (failed only, untranslated)
 
   /api/update-check:
     get:

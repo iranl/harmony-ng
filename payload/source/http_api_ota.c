@@ -50,6 +50,61 @@ static const char *updating_flag_path(void) {
     return "/tmp/hub_updating.flag";
 }
 
+/* A flag older than 30 minutes is left from a run that never ended, and one dated in the future
+ * (the clock was set back after it was written) would count until then: neither is a running
+ * update. */
+static int updating_flag_active(void) {
+    struct stat fst;
+    time_t now = time(NULL);
+    return stat(updating_flag_path(), &fst) == 0 && now >= fst.st_mtime && now - fst.st_mtime < 1800;
+}
+
+/* /tmp/hub_update.state (update.sh): state=running|restarting|failed, version=<new> when
+ * restarting. /tmp/update_apply.log: the output of the apply. Test overrides as for the flag. */
+static const char *update_state_path(void) {
+#ifdef TEST_HARNESS
+    const char *p = getenv("HARMONY_TEST_UPDATE_STATE");
+    if (p && p[0]) return p;
+#endif
+    return "/tmp/hub_update.state";
+}
+
+static const char *update_log_path(void) {
+#ifdef TEST_HARNESS
+    const char *p = getenv("HARMONY_TEST_UPDATE_LOG");
+    if (p && p[0]) return p;
+#endif
+    return "/tmp/update_apply.log";
+}
+
+static void read_update_state(char *state, size_t state_sz, char *ver, size_t ver_sz) {
+    char line[128];
+    state[0] = ver[0] = '\0';
+    FILE *f = fopen(update_state_path(), "r");
+    if (!f) return;
+    while (fgets(line, sizeof(line), f)) {
+        line[strcspn(line, "\r\n")] = '\0';
+        if (strncmp(line, "state=", 6) == 0) snprintf(state, state_sz, "%s", line + 6);
+        else if (strncmp(line, "version=", 8) == 0) snprintf(ver, ver_sz, "%s", line + 8);
+    }
+    fclose(f);
+}
+
+/* Last non-empty line of the apply log, and the last error line ("[-] ...") */
+static void read_update_log(char *last, size_t last_sz, char *err, size_t err_sz) {
+    char line[256];
+    last[0] = err[0] = '\0';
+    FILE *f = fopen(update_log_path(), "r");
+    if (!f) return;
+    while (fgets(line, sizeof(line), f)) {
+        line[strcspn(line, "\r\n")] = '\0';
+        if (!line[0]) continue;
+        snprintf(last, last_sz, "%s", line);
+        if (strncmp(line, "[-]", 3) == 0) snprintf(err, err_sz, "%s", line);
+    }
+    fclose(f);
+}
+
 /* GET /api/update-status object */
 cJSON *ota_update_status(void) {
     char fw_str[128] = "4.15.600";
@@ -100,7 +155,26 @@ cJSON *ota_update_status(void) {
     cJSON_AddStringToObject(st, "bt_version", "BTstack v1.5 (UART)");
     cJSON_AddStringToObject(st, "arch", "mips (AR9344)");
     cJSON_AddBoolToObject(st, "update_available", has_update);
-    cJSON_AddBoolToObject(st, "updating", access("/tmp/hub_updating.flag", F_OK) == 0);
+
+    /* restarting: installed, the services restart (update.sh removes the flag at its exit, before
+     * the old daemon stops); over once this daemon runs the version installed (the state file is
+     * in /tmp and stays). running: the flag is set. failed: the last apply ended with an error. */
+    char state[16], target[64], last[256], err[256];
+    read_update_state(state, sizeof(state), target, sizeof(target));
+    const char *ust = "idle";
+    if (strcmp(state, "restarting") == 0) {
+        if (!target[0] || harmony_version_compare(target, HARMONY_VERSION) > 0) ust = "restarting";
+    }
+    else if (updating_flag_active()) ust = "running";
+    else if (strcmp(state, "failed") == 0) ust = "failed";
+    cJSON_AddBoolToObject(st, "updating", strcmp(ust, "idle") != 0 && strcmp(ust, "failed") != 0);
+    cJSON_AddStringToObject(st, "update_state", ust);
+    if (target[0] && strcmp(ust, "restarting") == 0) cJSON_AddStringToObject(st, "update_target", target);
+    if (strcmp(ust, "running") == 0 || strcmp(ust, "failed") == 0) {
+        read_update_log(last, sizeof(last), err, sizeof(err));
+        if (strcmp(ust, "running") == 0 && last[0]) cJSON_AddStringToObject(st, "update_step", last);
+        if (strcmp(ust, "failed") == 0) cJSON_AddStringToObject(st, "update_error", err[0] ? err : last);
+    }
     return st;
 }
 
@@ -214,9 +288,7 @@ cJSON *ota_update_apply(const cJSON *params) {
      * started a second update.sh in the same work directory. A flag older than 30 minutes is
      * left from a run that never ended and does not block, nor does one dated in the future
      * (the clock was set back after it was written): it would have blocked until then. */
-    struct stat fst;
-    time_t now = time(NULL);
-    if (stat(updating_flag_path(), &fst) == 0 && now >= fst.st_mtime && now - fst.st_mtime < 1800) {
+    if (updating_flag_active()) {
         cJSON *busy = cJSON_CreateObject();
         cJSON_AddBoolToObject(busy, "ok", 0);
         cJSON_AddStringToObject(busy, "status", "busy");
@@ -230,10 +302,21 @@ cJSON *ota_update_apply(const cJSON *params) {
         FILE *uf = fopen(updating_flag_path(), "w");
         if (uf) fclose(uf);
     }
+#ifdef TEST_HARNESS
+    if (getenv("HARMONY_TEST_UPDATE_STATE"))
+#endif
+    {
+        /* replaces the state of an earlier run; an update.sh older than this one writes none */
+        FILE *sf = fopen(update_state_path(), "w");
+        if (sf) { fputs("state=running\n", sf); fclose(sf); }
+    }
 
-    char cmd[512] = {0};
+    /* The fallback (no update.sh) installs nothing and only restarts the services: it removes the
+     * flag first ("init.sh stop" kills this shell, whose command line names init.sh), and the
+     * services get /dev/null, not the apply log, as their output */
+    char cmd[640] = {0};
     snprintf(cmd, sizeof(cmd),
-        "/bin/sh -c 'sleep 1; if [ -x /data/harmony/update.sh ]; then /data/harmony/update.sh apply \"%s\" \"%s\"; else /data/harmony/scripts/init.sh restart 2>/dev/null; fi' >/tmp/update_apply.log 2>&1 &",
+        "/bin/sh -c 'sleep 1; if [ -x /data/harmony/update.sh ]; then /data/harmony/update.sh apply \"%s\" \"%s\"; else rm -f /tmp/hub_updating.flag /tmp/hub_update.state; /data/harmony/scripts/init.sh restart >/dev/null 2>&1 </dev/null; fi' >/tmp/update_apply.log 2>&1 &",
         repo, token);
 #ifndef TEST_HARNESS
     system(cmd);
@@ -248,7 +331,7 @@ cJSON *ota_update_apply(const cJSON *params) {
     return st;
 }
 
-/* update.sh reboots the Hub at the end of an update (and the fallback restarts the services): one
+/* update.sh restarts the Hub services at the end of an update (and so does the fallback): one
  * that came while an activity switch ran cut it in the middle and left the devices half switched.
  * A request is refused while a switch runs, one is queued, or the steps after the switch point are
  * still being sent; update.sh itself also waits for the switch before its reboot. */
