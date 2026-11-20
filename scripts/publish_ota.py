@@ -187,6 +187,23 @@ def package_ota(output_dir: Path, version: str):
     else:
         print("[-] Warning: No built WebUI bundle found with index.html")
 
+    # 4b. Kernel modules (USB Ethernet, USB storage): separate files, never in the Hub bundle.
+    #     A Hub downloads only the one its adapter needs (update.sh fetch-module), checked against
+    #     this signed manifest.
+    modules_src = REPO_ROOT / "payload" / "modules"
+    if modules_src.is_dir():
+        modules_dst = output_dir / "modules"
+        modules_dst.mkdir(parents=True, exist_ok=True)
+        for ko in sorted(modules_src.glob("*.ko")):
+            dst = modules_dst / ko.name
+            shutil.copy2(ko, dst)
+            md5, sha = get_file_hashes(dst)
+            manifest_files[f"modules/{ko.name}"] = {
+                "size": dst.stat().st_size,
+                "md5": md5,
+                "sha256": sha
+            }
+
     # 5. Unified Hub OTA bundle (hub_ota.tar.gz)
     hub_tar = output_dir / "hub_ota.tar.gz"
     print(f"[*] Creating unified Hub OTA package {hub_tar.name}...")

@@ -1,4 +1,5 @@
 import { HarmonyClient } from '../api.js';
+import { otaSource, setOtaSource, githubReleasesApi } from '../update_source.js';
 import { getSavedHubs, saveHub, deleteHub, getActiveHub, setActiveHubId } from '../storage.js';
 import { RemoteEngine } from '../remote-engine.js';
 import {
@@ -647,24 +648,30 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
   async checkOnlineVersions() {
     try {
       let ver = '';
-      try {
-        const ghRes = await fetch('https://api.github.com/repos/iranl/harmony-ng/releases/latest', {
-          headers: { 'Accept': 'application/vnd.github.v3+json' },
-          cache: 'no-cache'
-        });
-        if (ghRes.ok) {
-          const ghData = await ghRes.json();
-          if (ghData.tag_name) ver = ghData.tag_name.replace(/^v/, '').trim();
-        }
-      } catch (_) { }
+      const st = await this.client.getSettings().catch(() => null);
+      if (st) setOtaSource(st.update_repo);
+      const src = otaSource();
+      const releasesApi = githubReleasesApi(src);
+      if (releasesApi) {
+        try {
+          const ghRes = await fetch(releasesApi, {
+            headers: { 'Accept': 'application/vnd.github.v3+json' },
+            cache: 'no-cache'
+          });
+          if (ghRes.ok) {
+            const ghData = await ghRes.json();
+            if (ghData.tag_name) ver = ghData.tag_name.replace(/^v/, '').trim();
+          }
+        } catch (_) { }
+      }
 
       if (!ver) {
-        let res = await fetch(`https://raw.githubusercontent.com/iranl/harmony-ng/ota/v2/VERSION?_=${Date.now()}`, { cache: 'no-cache' }).catch(() => null);
+        let res = await fetch(`${src}/v2/VERSION?_=${Date.now()}`, { cache: 'no-cache' }).catch(() => null);
         if (!res || !res.ok) {
-          res = await fetch(`https://raw.githubusercontent.com/iranl/harmony-ng/ota/VERSION_V2?_=${Date.now()}`, { cache: 'no-cache' }).catch(() => null);
+          res = await fetch(`${src}/VERSION_V2?_=${Date.now()}`, { cache: 'no-cache' }).catch(() => null);
         }
         if (!res || !res.ok) {
-          res = await fetch(`https://raw.githubusercontent.com/iranl/harmony-ng/main/VERSION?_=${Date.now()}`, { cache: 'no-cache' }).catch(() => null);
+          res = await fetch(`${src}/VERSION?_=${Date.now()}`, { cache: 'no-cache' }).catch(() => null);
         }
         if (res && res.ok) {
           const text = await res.text();

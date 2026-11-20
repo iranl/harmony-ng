@@ -1,6 +1,7 @@
 #include "http_api_ota.h"
 #include "http_util.h"
 #include "config_store.h"
+#include "ota_source.h"
 #include "harmony_version.h"
 #include "orchestrator.h"
 #include "cJSON.h"
@@ -144,8 +145,13 @@ cJSON *ota_update_check(const cJSON *params) {
         if (access("/data/harmony/update.sh", X_OK) == 0) {
             snprintf(cmd, sizeof(cmd), "/data/harmony/update.sh check '%s' '%s' >/tmp/update_check.log 2>&1", repo, token);
         } else {
+            /* no update.sh: the request's source, else the update_repo setting, else the default */
+            struct hub_settings hs;
+            config_store_get_settings(&hs);
+            const char *src = repo[0] && ota_source_url_ok(repo) ? repo :
+                              hs.update_repo[0] ? hs.update_repo : HARMONY_OTA_DEFAULT_URL;
             snprintf(cmd, sizeof(cmd),
-                "/cache/bin/busybox wget --no-check-certificate -q -T 6 -O /data/harmony/latest_version 'https://raw.githubusercontent.com/iranl/harmony-ng/ota/v2/VERSION' 2>/dev/null");
+                "/cache/bin/busybox wget --no-check-certificate -q -T 6 -O /data/harmony/latest_version '%s/v2/VERSION' 2>/dev/null", src);
         }
 #ifndef TEST_HARNESS
         system(cmd);

@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "config_store.h"
+#include "ota_source.h"
 #include "atomic_file.h"
 #include "bt_migrate.h"
 #include "config_sanitize.h"
@@ -642,6 +643,7 @@ int config_store_get_settings(struct hub_settings *settings) {
     strncpy(settings->led_mode, HUB_LED_DEFAULT_MODE, sizeof(settings->led_mode) - 1);
     settings->mdns_enabled = 1;
     settings->legacy_enabled = 0;
+    settings->update_repo[0] = '\0';
 
     const char *settings_path = HARMONY_SETTINGS_FILE;
     char *raw = read_file_text(settings_path, 64 * 1024);
@@ -686,6 +688,10 @@ int config_store_get_settings(struct hub_settings *settings) {
         if (cJSON_IsBool(item)) settings->legacy_enabled = cJSON_IsTrue(item) ? 1 : 0;
         else if (cJSON_IsNumber(item)) settings->legacy_enabled = item->valueint ? 1 : 0;
     }
+    item = cJSON_GetObjectItemCaseSensitive(root, "update_repo");
+    if (item && cJSON_IsString(item) && ota_source_url_ok(item->valuestring)) {
+        snprintf(settings->update_repo, sizeof(settings->update_repo), "%s", item->valuestring);
+    }
 
     cJSON_Delete(root);
     return 0;
@@ -704,6 +710,7 @@ int config_store_save_settings(const struct hub_settings *settings) {
     cJSON_AddStringToObject(root, "led_mode", settings->led_mode[0] ? settings->led_mode : HUB_LED_DEFAULT_MODE);
     cJSON_AddBoolToObject(root, "mdns_enabled", settings->mdns_enabled ? 1 : 0);
     cJSON_AddBoolToObject(root, "legacy_enabled", settings->legacy_enabled ? 1 : 0);
+    cJSON_AddStringToObject(root, "update_repo", settings->update_repo);
 
     char *out = cJSON_Print(root);
     cJSON_Delete(root);

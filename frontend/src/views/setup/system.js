@@ -4,6 +4,7 @@ import { api } from '../../api/index.js';
 import { t } from '../../i18n/index.js';
 import { toast } from '../../components/toast.js';
 import { confirm } from '../../components/confirm.js';
+import { DEFAULT_OTA_URL, setOtaSource } from '../../utils/update_source.js';
 
 export function createView() {
   const container = h('div', { className: 'setup-subview-system', style: { display: 'flex', flexDirection: 'column', gap: '16px' } });
@@ -53,6 +54,105 @@ export function createView() {
     h('div', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '10px' }, text: t('front_led_desc', "Colour of the Hub's front light while it runs normally. It flashes green while pairing a remote, alternates red and green while updating RF firmware, and flashes red slowly when either fails.") }),
     ledSelect,
   ]);
+
+  // Update Source Card: the Hub's update_repo setting (empty = official source)
+  const repoInput = h('input', { className: 'form-control', type: 'url', placeholder: DEFAULT_OTA_URL });
+  const repoCard = h('div', { className: 'card' }, [
+    h('div', { className: 'card-header' }, [
+      h('h3', { className: 'card-title', text: t('update_source', 'Update Source') }),
+    ]),
+    h('div', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '10px' }, text: t('update_source_desc', 'Where the Hub downloads updates, remote firmware and Ethernet drivers. Leave empty for the official source.') }),
+    h('div', { style: { display: 'flex', gap: '8px' } }, [
+      repoInput,
+      h('button', {
+        className: 'btn btn-secondary',
+        text: t('save', 'Save'),
+        onclick: async () => {
+          const clean = repoInput.value.trim().replace(/\/+$/, '');
+          const stored = clean === DEFAULT_OTA_URL ? '' : clean;
+          try {
+            await api.saveSettings({ update_repo: stored });
+            setOtaSource(stored);
+            repoInput.value = stored;
+            toast.success(t('update_source_saved', 'Update source saved'));
+          } catch (err) {
+            toast.error(err.message);
+          }
+        },
+      }),
+    ]),
+  ]);
+
+  // USB Storage Card: a USB stick for the icons (non-essential files only)
+  const usbStatus = h('div', { className: 'text-dim', style: { marginBottom: '8px' } });
+  const usbActions = h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } });
+  const usbCard = h('div', { className: 'card' }, [
+    h('div', { className: 'card-header' }, [
+      h('h3', { className: 'card-title', text: t('usb_storage_title', 'USB Storage') }),
+    ]),
+    h('div', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '10px' }, text: t('usb_storage_desc', "A USB stick (through a USB hub cable on the Hub's port) can hold the icon archive and the custom icons to free flash. The Hub keeps working when the stick is pulled out; only the icons are missing until it is back.") }),
+    usbStatus,
+    usbActions,
+  ]);
+  let usbPoll = null;
+  async function loadUsbStorage() {
+    clearTimeout(usbPoll);
+    let st;
+    try {
+      st = await api.getUsbStorage();
+    } catch (e) {
+      usbStatus.textContent = t('error_msg', 'Error: {error}', { error: e.message });
+      return;
+    }
+    usbActions.innerHTML = '';
+    if (st.busy) {
+      usbStatus.textContent = t('usb_storage_busy', 'Working...');
+      usbPoll = setTimeout(loadUsbStorage, 2000);
+      return;
+    }
+    const mb = (kb) => Math.round((kb || 0) / 1024);
+    let text;
+    const buttons = [];
+    if (!st.present) {
+      text = st.offload
+        ? t('usb_storage_gone_offload', 'The USB stick with the icons is not connected: icons are missing until it is back.')
+        : t('usb_storage_none', 'No USB stick connected.');
+      if (st.offload) buttons.push(['restore', t('usb_storage_restore_btn', 'Keep icons on flash')]);
+    } else if (st.missing && st.missing.length) {
+      text = t('usb_storage_missing', 'USB stick found: the USB storage drivers are not installed.');
+      buttons.push(['install', t('usb_storage_install_btn', 'Download drivers')]);
+    } else if (!st.mounted) {
+      text = st.device
+        ? t('usb_storage_not_mounted', 'USB stick found but it could not be mounted (FAT or ext2 needed).')
+        : t('usb_storage_ejected', 'USB stick ejected: it can be removed.');
+      buttons.push(['scan', t('usb_storage_mount_btn', 'Mount')]);
+    } else {
+      text = t('usb_storage_mounted', '{device} ({fs}): {free} MB free of {total} MB.', { device: st.device, fs: st.fs, free: mb(st.free_kb), total: mb(st.total_kb) });
+      if (st.offload) text += ' ' + t('usb_storage_offload_on', 'The icons are kept on the USB stick.');
+      buttons.push(st.offload
+        ? ['restore', t('usb_storage_restore_btn', 'Keep icons on flash')]
+        : ['offload', t('usb_storage_offload_btn', 'Move icons to USB stick')]);
+      buttons.push(['eject', t('usb_storage_eject_btn', 'Eject')]);
+    }
+    if (st.failed && st.message) text += ' ' + t('usb_storage_failed', 'Last action failed: {message}', { message: st.message });
+    usbStatus.textContent = text;
+    for (const [action, label] of buttons) {
+      const btn = h('button', {
+        className: 'btn btn-secondary btn-sm',
+        text: label,
+        onclick: async () => {
+          btn.disabled = true;
+          try {
+            await api.usbStorageAction(action);
+          } catch (err) {
+            toast.error(err.message);
+          }
+          loadUsbStorage();
+        },
+      });
+      usbActions.appendChild(btn);
+    }
+  }
 
   // Maintenance & Reboot Card
   const actionsCard = h('div', { className: 'card' }, [
@@ -226,6 +326,8 @@ export function createView() {
       const raw = String(st?.led_mode || 'green').toLowerCase();
       const mode = LEGACY_LED_MODES[raw] || raw;
       ledSelect.value = LED_MODES.includes(mode) ? mode : 'green';
+      setOtaSource(st?.update_repo);
+      repoInput.value = st?.update_repo || '';
     } catch (e) {
       ledSelect.value = 'green';
     }
@@ -247,12 +349,15 @@ export function createView() {
   container.appendChild(statsCard);
   container.appendChild(servicesCard);
   container.appendChild(ledCard);
+  container.appendChild(repoCard);
+  container.appendChild(usbCard);
   container.appendChild(actionsCard);
   container.appendChild(logsCard);
 
   loadSystemInfo();
   loadServices();
   loadLedMode();
+  loadUsbStorage();
   loadLogs('daemon');
 
   return container;

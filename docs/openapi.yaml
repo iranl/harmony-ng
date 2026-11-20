@@ -1031,6 +1031,8 @@ paths:
                 led_mode: green
                 mdns_enabled: true
                 legacy_enabled: false
+                update_repo: ""
+                update_repo_default: https://raw.githubusercontent.com/iranl/harmony-ng/ota
     post:
       tags:
         - System & Status
@@ -1054,6 +1056,7 @@ paths:
                   description: "Front light colour while the Hub runs normally: green, amber (also orange), red or off. The older values always_on (green) and always_off (off) are still accepted. Stored as sent without a check; a value the Hub does not know shows green."
                 mdns_enabled: {type: boolean, default: true, description: "mDNS responder for _harmony-ng._tcp; takes effect at once"}
                 legacy_enabled: {type: boolean, default: false, description: "Logitech protocol shim on port 8088 (never authenticated) and its SSDP responder; takes effect at once, off closes every 8088 client"}
+                update_repo: {type: string, default: "", description: "Update source for update-check, update-apply, the remote OTA and Ethernet driver downloads: an http(s):// URL with only letters, digits and - _ . / : @ ~. Empty means the official source (update_repo_default in the reply). A request's own repo parameter still wins."}
             example:
               hub_name: Living Room Hub
               dry_run: false
@@ -1076,8 +1079,10 @@ paths:
                 led_mode: green
                 mdns_enabled: true
                 legacy_enabled: false
+                update_repo: ""
+                update_repo_default: https://raw.githubusercontent.com/iranl/harmony-ng/ota
         '400':
-          description: "Unknown timezone: use a name from the list or a POSIX TZ string (nothing is saved)"
+          description: "Unknown timezone (use a name from the list or a POSIX TZ string), or an update_repo that is not a usable URL (nothing is saved)"
         '500':
           description: The settings could not be saved
 
@@ -3780,6 +3785,83 @@ paths:
           description: 'Missing or empty SSID, an SSID or password that cannot be used, or the connection test failed ("Wi-Fi test connection failed: <reason>. Settings not changed.")'
         '500':
           description: The settings could not be saved
+
+  /api/usb-storage:
+    get:
+      tags:
+        - System & Status
+      summary: USB stick for the icons
+      description: |
+        A USB stick (Hub USB port in host mode) for files the Hub can run without: the icon
+        archive and the custom icons. present/mounted come from the last scan (boot and every USB
+        plug in or out); missing lists USB storage modules that are not installed; offload is true
+        while the icons are kept on the stick (without it they answer 404 until it is back).
+      responses:
+        '200':
+          description: USB storage state
+          content:
+            application/json:
+              example: {ok: true, present: true, mounted: true, device: sda1, fs: vfat, missing: [], total_kb: 7800000, free_kb: 7700000, offload: true, busy: false, message: ""}
+    post:
+      tags:
+        - System & Status
+      summary: Run a USB storage action
+      description: |
+        scan, install (download scsi_mod, sd_mod and usb-storage from the update source, signed
+        manifest), eject, offload (copy the icons to the stick, check, then remove them from
+        flash), restore (copy them back). Runs in the background; GET shows busy until it ends.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action: {type: string, enum: [scan, install, eject, offload, restore]}
+            example: {action: offload}
+      responses:
+        '202':
+          description: Action started
+          content:
+            application/json:
+              example: {ok: true, status: running, action: offload}
+        '400':
+          description: Unknown action
+        '409':
+          description: An action is already running
+
+  /api/ethernet-driver-install:
+    post:
+      tags:
+        - Network & MQTT
+      summary: Download the USB Ethernet driver the plugged adapter needs
+      description: |
+        USB Ethernet drivers are installed on demand. When GET /api/network-status reports an
+        eth_driver with missing modules, this downloads the driver and the modules it needs from
+        the update source (update_repo setting), checks them against the signed release manifest,
+        installs them to /cache/modules and loads them. Runs in the background; eth_driver.installing
+        is true until it ends, and install_failed is set when it failed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [module]
+              properties:
+                module: {type: string, pattern: "^[a-z0-9_]{1,31}$", description: "The driver eth_driver names; any other is refused"}
+            example: {module: asix}
+      responses:
+        '202':
+          description: Download started
+          content:
+            application/json:
+              example: {ok: true, status: installing, module: asix}
+        '400':
+          description: No adapter needs that module
+        '409':
+          description: A driver download is already running
 
   /api/ethernet-save:
     post:

@@ -1,0 +1,16 @@
+# USB Ethernet adapter -> kernel modules, read by usb_eth_driver.sh (first match wins).
+# <vid>:<pid> pattern (shell case pattern, lower case), then the modules in load order; the last
+# one is the adapter's driver. "-" means no driver of these builds supports the adapter.
+# The modules are not installed by default: usb_eth_driver.sh reports a missing one and the
+# web UI downloads it from the update source (update.sh fetch-module).
+0bda:8152 r8152
+0bda:8153 r8152
+2357:0601 r8152
+0bda:8150 rtl8150
+0b95:1790 -
+0b95:* usbnet asix
+077b:2226 usbnet asix
+0846:1040 usbnet asix
+0424:* usbnet smsc95xx
+0a46:* usbnet dm9601
+*:* usbnet cdc_ether
