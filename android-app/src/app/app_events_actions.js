@@ -369,7 +369,7 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
     document.getElementById('rfConfigModalClose')?.addEventListener('click', () => this.closeRfConfigModal());
     document.getElementById('rfConfigCancelBtn')?.addEventListener('click', () => this.closeRfConfigModal());
     document.getElementById('rfConfigSaveBtn')?.addEventListener('click', () => this.saveRfConfig());
-    // The banner's "Update Hub" button installs the update (same confirm, overlay and reboot
+    // The banner's "Update Hub" button installs the update (same confirm, overlay and restart
     // wait as Install Update on the System page), instead of only opening that page.
     document.getElementById('btnHubUpdateBanner')?.addEventListener('click', () => this.installSoftwareUpdate());
     document.getElementById('btnPushConfigToRemote')?.addEventListener('click', () => this.pushConfigToRemote());
