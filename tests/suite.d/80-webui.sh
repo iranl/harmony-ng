@@ -23,3 +23,5 @@ webui_node_test test_webui_i18n.mjs
 webui_node_test test_webui_usb_wifi_toggle.mjs
 # Legacy UI follows a Hub update to its real end: failure, restart, version
 webui_node_test test_webui_hub_update_state.mjs
+# The update banner button starts the Hub update
+webui_node_test test_webui_update_banner.mjs
