@@ -38,8 +38,17 @@ class BumpVersion(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    # Path.write_text translates line ends only on native Windows, so on Linux (CI) a
+    # text-mode write would keep CRLF and pass; the tool runs with write_text disabled instead.
+    GUARD = ("import pathlib, runpy, sys\n"
+             "def no_text_write(*a, **k): raise AssertionError('text-mode write')\n"
+             "pathlib.Path.write_text = no_text_write\n"
+             "sys.argv = sys.argv[1:]\n"
+             "runpy.run_path(sys.argv[0], run_name='__main__')\n")
+
     def run_tool(self, *args) -> subprocess.CompletedProcess[str]:
-        return subprocess.run([sys.executable, str(self.root / "scripts" / "bump_version.py"), *args],
+        return subprocess.run([sys.executable, "-c", self.GUARD,
+                               str(self.root / "scripts" / "bump_version.py"), *args],
                               capture_output=True, text=True, timeout=60)
 
     def version_code(self) -> int:
