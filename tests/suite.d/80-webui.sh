@@ -21,3 +21,5 @@ python3 "$SCRIPT_DIR/test_webui_packaging.py"
 webui_node_test test_webui_i18n.mjs
 # The Wi-Fi setup over USB switch keeps the Ethernet settings in both UIs
 webui_node_test test_webui_usb_wifi_toggle.mjs
+# The update banner button starts the Hub update
+webui_node_test test_webui_update_banner.mjs
