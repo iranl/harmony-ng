@@ -1398,6 +1398,8 @@ export default {
     "hub_update_failed_msg": "Error en la actualización de software: {error}",
     "hub_update_version_unchanged": "El Hub se reinició, pero sigue ejecutando v{version}: la actualización no se instaló.",
     "hub_update_no_restart": "La actualización terminó sin reinicio: no se instaló nada. Comprueba la fuente de actualización e inténtalo de nuevo.",
+    "hub_update_login_again": "El Hub reinició sus servicios: inicia sesión de nuevo para ver el resultado de la actualización.",
+    "hub_update_ended_ver": "El Hub se reinició y ejecuta v{version}. Comprueba que es la versión que instalaste.",
     "no_saved_hubs_yet": "Aún no hay Hubs guardados. Haga clic en \"+ Añadir Hub\".",
     "scanning_ellipsis": "Buscando...",
     "scanning_subnet_port": "Buscando en {subnet}.1 - {subnet}.254 en el puerto 8089...",

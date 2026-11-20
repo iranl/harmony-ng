@@ -1398,6 +1398,8 @@ export default {
     "hub_update_failed_msg": "Échec de la mise à jour logicielle : {error}",
     "hub_update_version_unchanged": "Le Hub a redémarré, mais il exécute toujours v{version} : la mise à jour n'a pas été installée.",
     "hub_update_no_restart": "La mise à jour s'est terminée sans redémarrage : rien n'a été installé. Vérifiez la source de mise à jour et réessayez.",
+    "hub_update_login_again": "Le Hub a redémarré ses services : reconnectez-vous pour voir le résultat de la mise à jour.",
+    "hub_update_ended_ver": "Le Hub a redémarré et exécute v{version}. Vérifiez qu'il s'agit de la version installée.",
     "no_saved_hubs_yet": "Aucun Hub enregistré. Cliquez sur « + Ajouter un Hub ».",
     "scanning_ellipsis": "Recherche...",
     "scanning_subnet_port": "Recherche sur {subnet}.1 - {subnet}.254, port 8089...",

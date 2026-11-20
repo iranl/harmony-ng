@@ -3861,13 +3861,13 @@ paths:
                     description: State of the last update-apply since the Hub started (see docs/API.md 2.1)
                   update_step:
                     type: string
-                    description: Last output line of update.sh (running only, untranslated)
+                    description: Last output line of update.sh (running only, when it has one; untranslated)
                   update_target:
                     type: string
                     description: Version installed, while the services restart (restarting only)
                   update_error:
                     type: string
-                    description: Last error line of update.sh (failed only, untranslated)
+                    description: First error line of update.sh, the cause (failed only, untranslated)
 
   /api/update-check:
     get:
@@ -3931,7 +3931,9 @@ paths:
       description: >-
         Refused with 409 and status activity_switch (fields busy, sending, queued) while an
         activity switch runs, a request is queued behind it, or its last steps are still being
-        sent: the update ends with a reboot, which must not cut a switch in the middle.
+        sent: the update ends with a services restart, which must not cut a switch in the
+        middle. Refused with 409 and status busy while an update runs or the services restart
+        after one (update_state running or restarting).
       responses:
         '200':
           description: Update started in background

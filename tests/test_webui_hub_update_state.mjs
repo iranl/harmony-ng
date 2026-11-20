@@ -4,6 +4,8 @@
 // - a restart with the old version, and an old Hub (no update_state) whose update ended without a
 //   restart, are reported as not installed
 // - a page loaded while an update runs follows it (checkBanners)
+// - a 401 after the restart waits for a new login; a failed request during the install, a page
+//   suspended past a limit and an unknown version before do not end it wrongly
 // Runs in Node with a stand-in DOM, a stubbed Hub and a hand-driven clock: no browser, no Hub.
 import assert from 'node:assert/strict';
 import { installFakeDom, makeChecker, allowJsonImports } from './webui_fake_dom.mjs';
@@ -29,13 +31,20 @@ for (const id of ['hubUpdatingOverlay', 'hubUpdatingStatusText', 'updateLog']) {
 const overlay = document.getElementById('hubUpdatingOverlay');
 const log = document.getElementById('updateLog');
 
-let reply = null; // what GET /api/update-status answers; null: the Hub does not answer
+let reply = null; // what GET /api/update-status answers; null: the Hub does not answer; 401: login gone
+let asked = 0;
 function makeApp() {
   const app = Object.create(HarmonyAppHubsNetwork.prototype);
   app.refreshed = 0;
   app.refreshData = async () => { app.refreshed++; };
   app.client = {
-    getUpdateStatus: async () => { if (!reply) throw new Error('offline'); return reply; },
+    token: 'old-session',
+    getUpdateStatus: async () => {
+      asked++;
+      if (reply === 401) throw Object.assign(new Error('auth'), { status: 401 });
+      if (!reply) throw new Error('offline');
+      return reply;
+    },
     getRfStatus: async () => ({}),
     getSettings: async () => ({}),
   };
@@ -146,6 +155,61 @@ await check.check('a page loaded during an update follows it; no answer keeps th
   assert.equal(overlay.style.display, 'flex', 'the Hub restarting is no reason to close the overlay');
   await poll({ current_version: '2.6.0', updating: false, update_state: 'idle' });
   assert.equal(log.textContent, tf('hub_update_complete_ver', { version: '2.6.0' }));
+});
+
+await check.check('login lost with the restart: one 401, then wait for the new login', async () => {
+  const app = makeApp();
+  app.watchHubUpdate('2.5.2');
+  await poll({ current_version: '2.5.2', updating: true, update_state: 'running' });
+  await poll(401);
+  assert.equal(log.textContent, t('hub_update_login_again'));
+  assert.equal(overlay.style.display, 'none', 'the login dialog stays usable');
+  const n = asked;
+  for (let i = 0; i < 200; i++) await poll(401); // 10 minutes without a login
+  assert.equal(asked, n, 'no request (and no new 401) until the login');
+  assert.equal(app.pollTimerActive, true);
+  app.client.token = 'new-session';
+  await poll({ current_version: '2.6.0', updating: false, update_state: 'idle' });
+  assert.equal(log.textContent, tf('hub_update_complete_ver', { version: '2.6.0' }));
+});
+
+await check.check('a failed request during the install does not start the restart limit', async () => {
+  const app = makeApp();
+  app.watchHubUpdate('2.5.2');
+  await poll({ current_version: '2.5.2', updating: true, update_state: 'running' });
+  await poll(null);
+  for (let i = 0; i < 120; i++) await poll({ current_version: '2.5.2', updating: true, update_state: 'running' });
+  assert.equal(app.pollTimerActive, true, 'still running after 6 minutes');
+  await poll({ current_version: '2.6.0', updating: false, update_state: 'idle' });
+  assert.equal(log.textContent, tf('hub_update_complete_ver', { version: '2.6.0' }));
+});
+
+await check.check('a page suspended past the limit asks the Hub once before it gives up', async () => {
+  const app = makeApp();
+  app.watchHubUpdate('2.5.2');
+  await poll({ current_version: '2.5.2', updating: true, update_state: 'restarting', update_target: '2.6.0' });
+  await poll({ current_version: '2.6.0', updating: false, update_state: 'idle' }, 360);
+  assert.equal(log.textContent, tf('hub_update_complete_ver', { version: '2.6.0' }));
+});
+
+await check.check('the version before unknown: the first answer is the base', async () => {
+  const app = makeApp();
+  app.watchHubUpdate('');
+  await poll({ current_version: '2.5.2', updating: true, update_state: 'running' });
+  await poll(null);
+  await poll({ current_version: '2.5.2', updating: false, update_state: 'idle' });
+  assert.equal(log.textContent, tf('hub_update_version_unchanged', { version: '2.5.2' }));
+  app.watchHubUpdate('');
+  await poll(null);
+  await poll({ current_version: '2.5.2', updating: false }); // old Hub, nothing known
+  assert.equal(log.textContent, tf('hub_update_ended_ver', { version: '2.5.2' }), 'no success with the old version');
+});
+
+await check.check('a failure without an error line still says it failed', async () => {
+  const app = makeApp();
+  app.watchHubUpdate('2.5.2');
+  await poll({ current_version: '2.5.2', updating: false, update_state: 'failed' });
+  assert.equal(log.textContent, tf('hub_update_failed_msg', { error: t('unknown_lc') }));
 });
 
 check.finish();

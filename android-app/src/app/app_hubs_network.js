@@ -154,14 +154,19 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
    * and install), restarting or unreachable (the services restart; a Hub before update_state
    * reboots instead), failed (update_error), then idle with the version the Hub runs. A Hub older
    * than update_state reports only "updating", which ends before the restart and also on a
-   * failure: there only a restart or a newer version counts as done. */
+   * failure: there only a restart or a newer version counts as done. With login on, the session
+   * ends with the restart (it is in RAM): a 401 means the Hub is back, and the watch waits for a
+   * new login without asking again (each 401 reopened the login dialog). */
   watchHubUpdate(fromVer = '') {
     if (this.pollTimerActive) return;
     this.pollTimerActive = true;
     const log = document.getElementById('updateLog');
-    const started = Date.now();
-    let dropAt = 0;    // first answer "restarting" or first failed request
-    let idleSince = 0; // reachable, not updating, no restart seen
+    let started = Date.now();
+    let base = fromVer; // the version before the update; unknown: the first answer while it runs
+    let target = '';    // update_target of "restarting": the version installed
+    let dropAt = 0;     // restart seen ("restarting", no answer, 401); a later "running" clears it
+    let idleSince = 0;  // reachable, not updating, no restart seen
+    let loginToken = null; // the token a 401 refused: no request until a login replaces it
     let timer = null;
     const finish = (msg, kind) => {
       clearTimeout(timer);
@@ -171,38 +176,69 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
       showToast(msg, kind, 6000);
     };
     const tick = async () => {
-      const now = Date.now();
-      // install: the Hub's own limit for a running update (30 min); restart: 5 min
-      if (now - started > 30 * 60000 || (dropAt && now - dropAt > 5 * 60000)) {
-        finish(t('update_wait_timed_out'), 'warning');
-        return;
+      if (loginToken !== null) {
+        if ((this.client.token || '') === loginToken) return;
+        // logged in again: the limits count from now
+        loginToken = null;
+        started = dropAt = Date.now();
+        this.showUpdatingOverlay(t('hub_update_reconnecting'));
       }
-      const st = await this.client.getUpdateStatus().catch(() => null);
+      let st = null;
+      let unauthorized = false;
+      try {
+        st = await this.client.getUpdateStatus();
+      } catch (err) {
+        unauthorized = err?.status === 401;
+      }
       if (!this.pollTimerActive) return;
-      const state = !st ? 'unreachable' : (st.update_state || (st.updating ? 'running' : 'idle'));
-      if (state === 'running') {
-        idleSince = 0;
-        this.showUpdatingOverlay(t('hub_downloading_update'));
-        if (log && st.update_step) log.textContent = st.update_step;
+      // the limits after the answer: a page suspended past them still asks once
+      const now = Date.now();
+      if (unauthorized) {
+        if (!dropAt) dropAt = now;
+        loginToken = this.client.token || '';
+        this.hideUpdatingOverlay(); // the login dialog must be usable
+        if (log) log.textContent = t('hub_update_login_again');
         return;
       }
-      if (state === 'restarting' || state === 'unreachable') {
+      const state = !st ? 'unreachable' : (st.update_state || (st.updating ? 'running' : 'idle'));
+      const cur = st?.current_version || st?.version || '';
+      if (state === 'running' || state === 'restarting') {
+        idleSince = 0;
+        if (!base) base = cur; // the old daemon still answers: its version is the one before
+      }
+      if (state === 'running') dropAt = 0; // a request that failed during the install was a blip
+      else if (state === 'restarting' || state === 'unreachable') {
+        if (st?.update_target) target = st.update_target;
         if (!dropAt) dropAt = now;
-        this.showUpdatingOverlay(t(state === 'restarting' ? 'hub_update_restarting' : 'hub_update_reconnecting'));
+      }
+      if (state === 'running' || state === 'restarting' || state === 'unreachable') {
+        // install: the Hub's own limit for a running update (30 min); restart: 5 min
+        if (now - started > 30 * 60000 || (dropAt && now - dropAt > 5 * 60000)) {
+          finish(t('update_wait_timed_out'), 'warning');
+          return;
+        }
+        if (state === 'running') {
+          const step = (st.update_step || '').replace(/^\[.\]\s*/, '');
+          this.showUpdatingOverlay(step || t('hub_downloading_update'));
+          if (log && st.update_step) log.textContent = st.update_step;
+        } else {
+          this.showUpdatingOverlay(t(state === 'restarting' ? 'hub_update_restarting' : 'hub_update_reconnecting'));
+        }
         return;
       }
       if (state === 'failed') {
-        finish(tf('hub_update_failed_msg', { error: st.update_error || '' }), 'error');
+        finish(tf('hub_update_failed_msg', { error: st.update_error || t('unknown_lc') }), 'error');
         return;
       }
-      const cur = st.current_version || st.version || '';
-      if (cur && (fromVer ? this.isVersionOlder(fromVer, cur) : dropAt)) {
+      if (cur && ((base && this.isVersionOlder(base, cur)) || (target && !this.isVersionOlder(cur, target)))) {
         finish(tf('hub_update_complete_ver', { version: cur }), 'success');
         await this.refreshData();
         return;
       }
       if (dropAt) {
-        finish(tf('hub_update_version_unchanged', { version: cur }), 'warning');
+        // without the version before, "still the old one" cannot be told
+        if (base || target) finish(tf('hub_update_version_unchanged', { version: cur }), 'warning');
+        else finish(tf('hub_update_ended_ver', { version: cur }), 'warning');
         return;
       }
       if (!idleSince) idleSince = now;

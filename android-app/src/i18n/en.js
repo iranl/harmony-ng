@@ -1398,6 +1398,8 @@ export default {
     "hub_update_failed_msg": "Software update failed: {error}",
     "hub_update_version_unchanged": "The Hub restarted, but it still runs v{version}: the update was not installed.",
     "hub_update_no_restart": "The update ended without a restart: nothing was installed. Check the update source and try again.",
+    "hub_update_login_again": "The Hub restarted its services: log in again to see the result of the update.",
+    "hub_update_ended_ver": "The Hub restarted and runs v{version}. Check that this is the version you installed.",
     "no_saved_hubs_yet": "No saved hubs yet. Click \"+ Add Hub\".",
     "scanning_ellipsis": "Scanning...",
     "scanning_subnet_port": "Scanning {subnet}.1 - {subnet}.254 on port 8089...",

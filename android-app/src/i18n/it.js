@@ -1398,6 +1398,8 @@ export default {
     "hub_update_failed_msg": "Aggiornamento software non riuscito: {error}",
     "hub_update_version_unchanged": "L'Hub si è riavviato, ma esegue ancora v{version}: l'aggiornamento non è stato installato.",
     "hub_update_no_restart": "L'aggiornamento è terminato senza riavvio: non è stato installato nulla. Controlla la fonte dell'aggiornamento e riprova.",
+    "hub_update_login_again": "L'Hub ha riavviato i suoi servizi: accedi di nuovo per vedere il risultato dell'aggiornamento.",
+    "hub_update_ended_ver": "L'Hub si è riavviato ed esegue v{version}. Verifica che sia la versione installata.",
     "no_saved_hubs_yet": "Nessun Hub salvato. Fai clic su \"+ Aggiungi Hub\".",
     "scanning_ellipsis": "Ricerca...",
     "scanning_subnet_port": "Ricerca su {subnet}.1 - {subnet}.254 sulla porta 8089...",

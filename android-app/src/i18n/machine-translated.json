@@ -707,6 +707,8 @@
     "hub_update_failed_msg",
     "hub_update_version_unchanged",
     "hub_update_no_restart",
+    "hub_update_login_again",
+    "hub_update_ended_ver",
     "hub_updating_desc"
   ],
   "fr": [
@@ -1416,6 +1418,8 @@
     "hub_update_failed_msg",
     "hub_update_version_unchanged",
     "hub_update_no_restart",
+    "hub_update_login_again",
+    "hub_update_ended_ver",
     "hub_updating_desc"
   ],
   "nl": [
@@ -2125,6 +2129,8 @@
     "hub_update_failed_msg",
     "hub_update_version_unchanged",
     "hub_update_no_restart",
+    "hub_update_login_again",
+    "hub_update_ended_ver",
     "hub_updating_desc"
   ],
   "es": [
@@ -2834,6 +2840,8 @@
     "hub_update_failed_msg",
     "hub_update_version_unchanged",
     "hub_update_no_restart",
+    "hub_update_login_again",
+    "hub_update_ended_ver",
     "hub_updating_desc"
   ],
   "it": [
@@ -3543,6 +3551,8 @@
     "hub_update_failed_msg",
     "hub_update_version_unchanged",
     "hub_update_no_restart",
+    "hub_update_login_again",
+    "hub_update_ended_ver",
     "hub_updating_desc"
   ]
 }

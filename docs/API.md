@@ -517,19 +517,24 @@ Returns running version, commit hash, build date, architecture, and whether an u
   }
   ```
   `update_state` is the state of the last `POST /api/update-apply` since the Hub started:
-  - `running`: `update.sh apply` downloads and installs (`/tmp/hub_updating.flag` exists and is
-    less than 30 minutes old). `update_step` is the last line of its output, untranslated.
+  - `running`: `update.sh apply` downloads and installs (`/tmp/hub_updating.flag` exists and the
+    run started less than 30 minutes ago, counted on the uptime clock, which SNTP does not step).
+    `update_step` is the last line of its output, untranslated, when it has one.
   - `restarting`: the update is installed and the Hub services restart (`init.sh restart`, no
     reboot); until then the old daemon answers. `update_target` is the version installed. The
-    state ends when the daemon that answers runs that version.
+    state ends when the new daemon starts: from then on `current_version` tells whether the new
+    version runs.
   - `failed`: the update ended with an error and nothing or not all was installed. `update_error`
-    is its last error line (`[-] ...`), untranslated.
+    is its first error line (`[-] ...`, the cause), untranslated; when the run printed none (it
+    was killed), `update.sh` adds `[-] The software update ended with exit code N.`
   - `idle`: no update since the Hub started, or the update ended (compare `current_version` with
     the version before). An `update.sh` from a release before `update_state` writes no state (it
     runs the first update to this release, and reboots the Hub at its end): there the update
     reports `running` while it runs and `idle` after it, whether it failed or not.
 
-  `updating` is `true` for `running` and `restarting`.
+  `updating` is `true` for `running` and `restarting`, here and in `GET /api/status`. While it is
+  `true`, a second `POST /api/update-apply` gets `409` with `"status": "busy"` and a reboot through
+  `POST /api/system-action` gets `409`.
   `fw_version` and `firmware` are the Logitech base firmware read from `/etc/version`.
 
 ### 2.2 Check for Updates
@@ -566,7 +571,7 @@ Executes `/data/harmony/update.sh` in the background and restarts services.
   route that changes the Hub this one is for admins once authentication is on (11.5). With
   authentication off (the default after install) any client on the LAN may call it.
 - **Signed releases only**: the update source (the official `ota` branch, or `repo`) must publish `manifest.json` and `manifest.json.sig`, the Ed25519 signature of the manifest by a release key built into the Hub firmware (`payload/source/ota_keys.h`). `update.sh` checks the signature with `hub_util ota-verify`, takes the version from the signed manifest, and installs a file only when its SHA-256 matches the manifest. Without a valid signature nothing is changed, whatever server `repo` names. TLS is not relied on: the Hub's `wget` does not verify certificates.
-- **Services restart, no reboot**: once every file is installed, `update.sh` restarts the Hub services with `init.sh restart`, as `build/deploy_hub.py` does by default. An update has no kernel modules; a new `rcS.local` takes effect at the next boot. Without an executable `init.sh` it reboots the Hub (`safe_reboot.sh`) instead.
+- **Services restart, no reboot**: once every file is installed, `update.sh` restarts the Hub services with `init.sh restart`, as `build/deploy_hub.py` does by default. An update has no kernel modules. Waiting for the next boot: a new `rcS.local`, the running SSH server (it keeps its old binary) and the USB port mode chosen at boot. `update.sh` removes what a reboot used to clear and the new daemon would reuse: the icons extracted from the old `icons.tar.gz` (`/tmp/www/assets/icons`) and a remote image kept for a resume (`/tmp/remote_ui.ota.gz`, `/tmp/remote_manifest.json*`). Without an executable `init.sh` it reboots the Hub (`safe_reboot.sh`) instead.
 - **Not during an activity switch**: the update ends with a services restart, which must not cut an activity switch in the middle. While a switch runs, a request is queued behind it, or the steps after the switch point are still being sent, the request is refused with **`409 Conflict`** and starts nothing:
   ```json
   {"ok": false, "status": "activity_switch", "error": "An activity switch is running: start the update again when it has finished",

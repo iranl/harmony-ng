@@ -1398,6 +1398,8 @@ export default {
     "hub_update_failed_msg": "Software-Aktualisierung fehlgeschlagen: {error}",
     "hub_update_version_unchanged": "Der Hub wurde neu gestartet, läuft aber noch mit v{version}: Die Aktualisierung wurde nicht installiert.",
     "hub_update_no_restart": "Die Aktualisierung endete ohne Neustart: Es wurde nichts installiert. Prüfen Sie die Update-Quelle und versuchen Sie es erneut.",
+    "hub_update_login_again": "Der Hub hat seine Dienste neu gestartet: Melden Sie sich erneut an, um das Ergebnis der Aktualisierung zu sehen.",
+    "hub_update_ended_ver": "Der Hub wurde neu gestartet und läuft mit v{version}. Prüfen Sie, ob dies die installierte Version ist.",
     "no_saved_hubs_yet": "Noch keine gespeicherten Hubs. Klicken Sie auf „+ Hub hinzufügen“.",
     "scanning_ellipsis": "Wird gesucht...",
     "scanning_subnet_port": "Suche in {subnet}.1 - {subnet}.254 auf Port 8089...",

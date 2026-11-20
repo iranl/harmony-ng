@@ -48,10 +48,13 @@ REPO="${REPO%/}"
 TIMESTAMP=$(date +%s 2>/dev/null || echo 1)
 
 # State of the last apply for GET /api/update-status: running, restarting (with the new version)
-# or failed. In RAM: a reboot clears it, a services restart keeps it.
+# or failed, and since= the seconds since boot (hub_daemon ends a "running" older than 30 minutes
+# on that clock, which SNTP never steps). In RAM: a reboot clears it; the new hub_daemon ends
+# "restarting" when it starts.
 UPDATE_STATE=/tmp/hub_update.state
 set_update_state() {
-  { echo "state=$1"; [ -z "$2" ] || echo "version=$2"; } > "$UPDATE_STATE" 2>/dev/null || true
+  _since=$(now_secs)
+  { echo "state=$1"; [ -z "$2" ] || echo "version=$2"; [ -z "$_since" ] || echo "since=$_since"; } > "$UPDATE_STATE" 2>/dev/null || true
 }
 
 download_retry() {
@@ -598,6 +601,10 @@ do_apply() {
   echo "$NEW_VER" > /data/harmony/remote_ui.version 2>/dev/null || true
   rm -f /data/harmony/update_available.flag /data/harmony/remote_ui.ota.gz /cache/remote_ui.ota.gz \
         /data/harmony/elite_ui.ota.gz /data/harmony/elite_ui.version /cache/elite_ui.ota.gz 2>/dev/null || true
+  # What a reboot cleared and a services restart keeps: the icons extracted from the old
+  # icons.tar.gz (the new hub_daemon extracts them again when the folder is missing) and a remote
+  # image of the old version that hub_rf kept for a resume (sent unverified once its manifest is gone)
+  rm -rf /tmp/www/assets/icons /tmp/remote_ui.ota.gz /tmp/remote_manifest.json /tmp/remote_manifest.json.sig 2>/dev/null || true
 
   # 7. Clean up temporary directory
   rm -rf "$TMPDIR" 2>/dev/null
@@ -728,7 +735,13 @@ apply_locked() {
   proc_start $$ > "$APPLY_LOCK/start"
   ( do_apply )
   _rc=$?
-  [ $_rc -eq 0 ] || set_update_state failed
+  # A kill -9 of the subshell skips its EXIT trap: the flag must not stay behind (a running update
+  # for 30 minutes). The last "[-]" line says it ended (a TERM prints none of its own).
+  if [ $_rc -ne 0 ]; then
+    rm -f /tmp/hub_updating.flag 2>/dev/null
+    echo "[-] The software update ended with exit code $_rc."
+    set_update_state failed
+  fi
   rm -rf "$APPLY_LOCK" 2>/dev/null
   return $_rc
 }

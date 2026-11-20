@@ -149,13 +149,13 @@ class UpdateApply(unittest.TestCase):
             self.new_files[f"bin/{b}"] = f"new {b}\n" * 6000
         for s in SCRIPTS:
             self.new_files[f"scripts/{s}"] = f"#!/bin/sh\n# new {s}\n"
-        self.new_files["scripts/init.sh"] = self.restart_script() + "# new init.sh\n"
+        self.new_files["scripts/init.sh"] = self.restart_script("new ")
 
     def tearDown(self):
         self.tmp.cleanup()
 
-    def restart_script(self) -> str:
-        return f"#!/bin/sh\necho \"$0 $*\" > {self.root}/tmp/restarted\n"
+    def restart_script(self, tag: str = "") -> str:
+        return f"#!/bin/sh\necho \"{tag}$0 $*\" > {self.root}/tmp/restarted\n"
 
     def restarted(self) -> str:
         """What ended the update (it runs in the background), or '' when nothing did"""
@@ -230,9 +230,9 @@ class UpdateApply(unittest.TestCase):
         self.assertEqual((self.root / "cache/www/index.html.gz").read_text(), "new index\n")
         self.assertEqual(self.version(), NEW_VER)
         # services restarted with the new init.sh, no reboot
-        self.assertEqual(self.restarted(), f"{self.data}/init.sh restart")
+        self.assertEqual(self.restarted(), f"new {self.data}/init.sh restart")
         self.assertIn("Restarting Hub services", r.stdout)
-        self.assertEqual((self.root / "tmp" / "hub_update.state").read_text(), f"state=restarting\nversion={NEW_VER}\n")
+        self.assertRegex((self.root / "tmp" / "hub_update.state").read_text(), f"^state=restarting\nversion={re.escape(NEW_VER)}\nsince=[0-9]+\n$")
         self.assertTrue((self.data / "bin" / "mknod").is_symlink())
         self.assertTrue((self.data / "bin" / "dropbear").is_symlink())
         self.assertTrue((self.data / "bin" / "dropbearkey").is_symlink())

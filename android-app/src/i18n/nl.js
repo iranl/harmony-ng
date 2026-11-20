@@ -1398,6 +1398,8 @@ export default {
     "hub_update_failed_msg": "Software-update mislukt: {error}",
     "hub_update_version_unchanged": "De hub is opnieuw opgestart, maar draait nog steeds v{version}: de update is niet geïnstalleerd.",
     "hub_update_no_restart": "De update is beëindigd zonder herstart: er is niets geïnstalleerd. Controleer de updatebron en probeer het opnieuw.",
+    "hub_update_login_again": "De Hub heeft zijn services herstart: log opnieuw in om het resultaat van de update te zien.",
+    "hub_update_ended_ver": "De Hub is herstart en draait v{version}. Controleer of dit de geïnstalleerde versie is.",
     "no_saved_hubs_yet": "Nog geen opgeslagen hubs. Klik op \"+ Hub toevoegen\".",
     "scanning_ellipsis": "Scannen...",
     "scanning_subnet_port": "{subnet}.1 - {subnet}.254 scannen op poort 8089...",
