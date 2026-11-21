@@ -218,9 +218,7 @@ void handle_rf_frame(const rf_frame_t *f) {
             uint8_t slot = f->dev_slot ? f->dev_slot : (g_remote_slot ? g_remote_slot : 0x01);
             printf("[*] SYNC_REQUEST: type=%d seq=%d slot=%d\n", req_type, f->seq, slot);
 
-            char cur[32] = "-1";
-            get_current_activity(cur, sizeof(cur));
-            rf_send_hub_activity_sync_slot(cur, f->seq, slot, 0x01);
+            rf_send_hub_activity_query_reply(f->seq, slot);
 
             if (req_type == 0x02) {
                 rf_sync_cache_invalidate();

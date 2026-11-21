@@ -324,6 +324,19 @@ void rf_send_screen_button_press(const char *act_id, uint8_t btn_idx, const char
     printf("[*] RF TX SCREEN_BTN: act=%s idx=%d label=%s\n", act_id, btn_idx, label);
 }
 
+/* The Hub waits only for devices it powers on: a device the leaving activity uses is on already */
+static bool device_on_in_activity(const char *act_id, uint8_t dev_idx) {
+    if (!act_id || strcmp(act_id, "-1") == 0) return false;
+    for (int a = 0; a < g_rf_activity_count; a++) {
+        if (strcmp(g_rf_activities[a].id, act_id) != 0) continue;
+        for (int k = 0; k < g_rf_activities[a].dev_count; k++) {
+            if (g_rf_activities[a].devs[k] == dev_idx) return true;
+        }
+        return false;
+    }
+    return false;
+}
+
 int build_combined_activity_sequence(const char *from_id, const char *to_id,
                                     rf_act_step_t *out_steps, int max_steps,
                                     uint32_t *out_total_ms) {
@@ -366,9 +379,26 @@ int build_combined_activity_sequence(const char *from_id, const char *to_id,
     if (to_id && to_id[0]) {
         int found_start = 0;
         int found_switched = 0;
+        bool warm_done = false;
         for (int i = 0; i < g_rf_step_count && count < max_steps; i++) {
             if (strcmp(g_rf_steps[i].act_id, to_id) == 0 && !(g_rf_steps[i].step_idx & 0x80)) {
                 found_start = 1;
+                if (g_rf_steps[i].warm_dev) {
+                    /* One Warmup step: the longest of the devices that are off before the switch */
+                    if (warm_done) continue;
+                    warm_done = true;
+                    int best = -1;
+                    for (int w = i; w < g_rf_step_count; w++) {
+                        if (!g_rf_steps[w].warm_dev || strcmp(g_rf_steps[w].act_id, to_id) != 0) continue;
+                        if (device_on_in_activity(from_id, (uint8_t)(g_rf_steps[w].warm_dev - 1))) continue;
+                        if (best < 0 || g_rf_steps[w].delay_ms > g_rf_steps[best].delay_ms) best = w;
+                    }
+                    if (best < 0) continue;
+                    out_steps[count] = g_rf_steps[best];
+                    total += out_steps[count].delay_ms;
+                    count++;
+                    continue;
+                }
                 if (strcasecmp(g_rf_steps[i].name, "Switched") == 0 ||
                     strcasecmp(g_rf_steps[i].name, "Activity switched") == 0) {
                     out_steps[count] = g_rf_steps[i];
@@ -394,7 +424,7 @@ int build_combined_activity_sequence(const char *from_id, const char *to_id,
         }
     }
 
-    if (total == 0) total = 2000;
+    if (total < 1500) total = 2000;
     if (out_total_ms) *out_total_ms = total;
     return count;
 }

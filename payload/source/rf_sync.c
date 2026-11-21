@@ -274,6 +274,19 @@ void rf_send_hub_activity_sync_state(const char *act_id, uint8_t seq, uint8_t st
     }
 }
 
+void rf_send_hub_activity_query_reply(uint8_t seq, uint8_t slot) {
+    char act[32] = "";
+    if (slot >= 1 && slot <= MAX_PAIRED_REMOTES && (g_remote_versions[slot - 1].caps & RF_CAP_SWITCH_START) &&
+        is_activity_transitioning() && get_activity_target(act, sizeof(act))) {
+        /* The remote keeps its switch screen; a plain reply after this tells it the switch is over */
+        rf_send_hub_activity_sync_slot(act, seq, slot, RF_ACT_SYNC_QUERY_SWITCHING);
+        return;
+    }
+    snprintf(act, sizeof(act), "-1");
+    get_current_activity(act, sizeof(act));
+    rf_send_hub_activity_sync_slot(act, seq, slot, RF_ACT_SYNC_QUERY);
+}
+
 void rf_send_hub_activity_sync(const char *act_id) {
     if (g_rf_fd < 0 || !g_has_paired_device) return;
 

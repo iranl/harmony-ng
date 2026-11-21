@@ -204,7 +204,8 @@ int main(void) {
     CHECK(!g_is_switching_activity && g_current_view == VIEW_SETTINGS && strcmp(g_active_activity_id, "1") == 0,
           "Hub end notice in Settings: the page stays, the activity is recorded");
 
-    /* 13. An end notice without a start (remote asleep at the start) opens no bar afterwards */
+    /* 13. An end notice without a start (remote asleep at the start) opens no bar afterwards
+       (case 10 taught the remote that this Hub announces its switches) */
     reset_state("1");
     g_current_view = VIEW_ACTIVITIES;
     hub_activity_state("3", "Music", RF_ACT_SYNC_COMPLETE);
@@ -218,6 +219,26 @@ int main(void) {
     CHECK(strcmp(g_active_activity_id, "1") == 0 && !g_is_switching_activity,
           "start notice during a config sync: the running activity stays");
     g_is_syncing_config = false;
+
+    /* 15. The end notice is lost: a sync query answered mid-switch keeps the bar, a plain answer
+       closes it (the Hub is idle again), also when the switch failed and the old activity runs */
+    reset_state("1");
+    g_current_view = VIEW_ACTIVITIES;
+    hub_activity_state("3", "Music", RF_ACT_SYNC_STARTING);
+    hub_activity_state("3", "Music", RF_ACT_SYNC_QUERY_SWITCHING);
+    CHECK(g_is_switching_activity && g_switch_hub_started, "query answered mid-switch: the bar stays");
+    hub_activity_state("1", "Watch TV", RF_ACT_SYNC_QUERY);
+    CHECK(!g_is_switching_activity && strcmp(g_active_activity_id, "1") == 0,
+          "lost end notice: the next plain query answer closes the bar on the running activity");
+
+    /* 16. A remote that woke mid-switch sees it from its sync query answer */
+    reset_state("1");
+    g_current_view = VIEW_ACTIVITIES;
+    hub_activity_state("2", "Play Games", RF_ACT_SYNC_QUERY_SWITCHING);
+    CHECK(g_is_switching_activity && g_switch_hub_started && strcmp(g_switching_target_id, "2") == 0,
+          "query answered mid-switch on home: progress bar shown");
+    hub_activity_state("2", "Play Games", RF_ACT_SYNC_COMPLETE);
+    CHECK(!g_is_switching_activity && strcmp(g_active_activity_id, "2") == 0, "end notice closes it");
 
     if (failures) {
         printf("[-] test_remote_activity_follow: %d check(s) failed\n", failures);

@@ -1,7 +1,8 @@
 /* The Hub's switch start notice (RF_MSG_ACTIVITY_SYNC with payload[24] RF_ACT_SYNC_STARTING)
  * goes only to remotes that report RF_CAP_SWITCH_START: an older remote takes it for the end of
- * the switch and closes its progress bar. The end notice goes to every remote. Real hub_rf
- * sources, /dev/rfspi a socket pair. */
+ * the switch and closes its progress bar. The end notice goes to every remote. A sync query
+ * answered mid-switch names the target with RF_ACT_SYNC_QUERY_SWITCHING for such a remote, so a
+ * lost end notice does not hold its switch screen. Real hub_rf sources, /dev/rfspi a socket pair. */
 #undef main
 #include <stdio.h>
 #include <stdlib.h>
@@ -55,6 +56,24 @@ int main(void) {
     drain(counts, states);
     CHECK(counts[1] == 1 && counts[2] == 1 && states[1] == RF_ACT_SYNC_COMPLETE && states[2] == RF_ACT_SYNC_COMPLETE,
           "end notice sent to both remotes");
+
+    FILE *fs = fopen("/tmp/activity_state", "w");
+    FILE *ft = fopen("/tmp/activity_target", "w");
+    if (!fs || !ft) { perror("/tmp/activity_*"); return 1; }
+    fputs("starting\n", fs);
+    fclose(fs);
+    fputs("3\n", ft);
+    fclose(ft);
+    rf_send_hub_activity_query_reply(3, 1);
+    rf_send_hub_activity_query_reply(4, 2);
+    drain(counts, states);
+    CHECK(counts[1] == 1 && states[1] == RF_ACT_SYNC_QUERY_SWITCHING, "query mid-switch: the new remote hears the switch runs");
+    CHECK(counts[2] == 1 && states[2] == RF_ACT_SYNC_QUERY, "query mid-switch: the older remote gets the plain answer");
+    unlink("/tmp/activity_state");
+    unlink("/tmp/activity_target");
+    rf_send_hub_activity_query_reply(5, 1);
+    drain(counts, states);
+    CHECK(counts[1] == 1 && states[1] == RF_ACT_SYNC_QUERY, "query after the switch: plain answer");
 
     close(sv[0]);
     close(sv[1]);

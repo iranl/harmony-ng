@@ -463,7 +463,7 @@ static void run_remote_button(uint8_t slot, const char *button_name, const char 
     } else if (is_press && (strcmp(act_type_buf, "activity_stop") == 0 || strcmp(act_type_buf, "poweroff") == 0)) {
         printf("[*] RF Dispatch: Stop activity (PowerOff)\n");
         http_post_local(DAEMON_PORT, "/api/poweroff", "{}");
-    } else if (is_press && strcmp(act_type_buf, "help") == 0) {
+    } else if (is_press && strcmp(action_state, "hold") != 0 && strcmp(act_type_buf, "help") == 0) {
         /* A remote without the Help screen: re-send the running activity's commands */
         printf("[*] RF Dispatch: Help for the running activity\n");
         http_post_local(DAEMON_PORT, "/api/activity/help", "{}");

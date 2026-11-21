@@ -405,8 +405,14 @@ void render_switching_view(void) {
     double cur_sec = (double)elapsed / 1000.0;
     double tot_sec = (double)total_ms / 1000.0;
     /* The times are the remote's estimate; the Hub's end notice closes the screen */
-    if (cur_sec >= tot_sec) snprintf(time_str, sizeof(time_str), "Timing: ~%.1fs (completing...)", tot_sec);
-    else snprintf(time_str, sizeof(time_str), "Timing: ~%.1fs / ~%.1fs", cur_sec, tot_sec);
+    if (cur_sec >= tot_sec) {
+        snprintf(time_str, sizeof(time_str), "Timing: ~%.1fs (completing...)", tot_sec);
+        /* the line is 232 px: a long time drops the word */
+        if (fb_text_width_aa(time_str, &g_font_main) > FB_WIDTH - 16)
+            snprintf(time_str, sizeof(time_str), "Timing: ~%.1fs ...", tot_sec);
+    } else {
+        snprintf(time_str, sizeof(time_str), "Timing: ~%.1fs / ~%.1fs", cur_sec, tot_sec);
+    }
     fb_draw_text_aa(8, card_y + 126, time_str, RGB_TEXT_MUTED, &g_font_main);
 
     int bar_x = 8;

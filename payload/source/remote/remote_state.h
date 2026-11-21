@@ -165,6 +165,7 @@ typedef struct {
     uint8_t total_steps;
     uint16_t delay_ms;
     char name[32];
+    uint8_t warm_dev; /* a Warmup step: 1 + index into g_rf_devices of the device it waits for */
 } rf_act_step_t;
 
 typedef struct {
