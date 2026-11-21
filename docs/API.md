@@ -1074,6 +1074,9 @@ Transmits an IR command either by device ID and one command name, or raw Pronto 
     "command": "PowerToggle"
   }
   ```
+- **Value (plugin commands)**: `"value": 42` (an integer, or a string holding one) reaches the
+  plugin as the datagram's `value`. A command with `"range": [min, max]` refuses a value outside
+  it with `400` and `"error": "value out of range"`. Other command types ignore it.
 - **Lists, repeats, delays and holds are not taken by this route.** `num_repeats`, `delay_secs`
   and `hold_secs` are ignored here. They work with the `send_command` action of the WebSocket
   (10.3) and MQTT (8.1), which takes this form:
@@ -1900,7 +1903,7 @@ These are aliases of the command channel for existing automations and for the di
 | --- | --- | --- |
 | `<base>/activity/set` | an activity name, an activity id, `PowerOff` or `-1` | `start_activity` / `stop_activity` |
 | `<base>/send_command` | `{"device": "<name>"` or `"deviceId": "<id>", "command": "<cmd>"` or `"commands": [...]`, optional `repeats`, `delay` (s) or `delay_ms`, `hold` (s) or `hold_ms`, `action`}` | the commands in order, `repeats` times, `delay` apart (0.25 s default for more than one) |
-| `<base>/command/<device>/<command>` | any | one command to the device (id or name) |
+| `<base>/command/<device>/<command>` | any | one command to the device (id or name); a payload that is a plain integer is the command's `value` (plugin commands) |
 | `<base>/sync` | any | republishes every retained topic and the discovery entities |
 | `<base>/remote/<n>/sleep`, `<base>/remote/sleep` (slot 1) | any | `rf_sleep` |
 | `harmony/ir/pronto` | a Pronto hex code | sends it on every IR port once |

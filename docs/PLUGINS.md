@@ -163,10 +163,10 @@ The `manifest.json` file defines the plugin identity and how it appears in the W
 | `homepage` | `string` | URL to source repository or documentation. |
 | `entrypoint` | `string` | **Required.** Relative path of the binary or script the Hub runs (it must be in the archive). |
 | `files` | `array` | *(Dev installs)* Relative paths the dev install downloads next to `manifest.json`. |
-| `pairing` | `object` | *(Optional)* Pairing dialog texts (`supported`, `title`, `button_label`, `host_label`, `prompt`, `pin_length`). |
-| `device_definition` | `object` | *(Optional)* Schema for devices created using this plugin. `config_fields`, when present, is an array of objects, each with a string `key`. |
+| `pairing` | `object` | *(Optional)* Pairing: `supported`, `type` (`pin_display`, the default, or `listen`), `requires_host` (default true; false for `listen`), `timeout_s` (default 15, at most 60) and the dialog texts (`title`, `button_label`, `description`, `instructions`, `host_label`, `prompt`, `pin_length`). See [Pairing Protocol](#pairing-protocol). |
+| `device_definition` | `object` | *(Optional)* Schema for devices created using this plugin. `config_fields`, when present, is an array of objects, each with a string `key`. A `default_commands` entry may have `"range": [min, max]`: the integer values the command takes (see `value` below). |
 
-The Hub refuses an install whose manifest has no safe `id`, no `version`, no valid `entrypoint` (or one not in the archive), or a malformed `config_fields`.
+The Hub refuses an install whose manifest has no safe `id`, no `version`, no valid `entrypoint` (or one not in the archive), a malformed `config_fields`, or a `default_commands` range that is not two integers with min <= max.
 
 #### Config Field Types
 
@@ -244,7 +244,7 @@ When a user triggers an action (via WebUI, touchscreen remote, Companion remote,
 | `device_name` | `string` | User-defined display name of the device. |
 | `command` | `string` | Command name to execute (e.g. `Home`, `PowerOff`, `VolumeUp`). |
 | `action` | `string` | Action lifecycle verb: `"tap"`, `"press"`, `"repeat"`, or `"release"`. |
-| `value` | `number` | Optional numeric argument (e.g. slider position 0–100). |
+| `value` | `number` | Numeric argument of the command, 0 when none was given. Set by `POST /api/ir-send` (`"value"`) and by an MQTT `command/<device>/<command>` payload that is a plain integer. A command with `"range": [min, max]` only receives values in that range: the Hub refuses others. |
 | `ts` | `number` | When `hub_daemon` queued the datagram: `CLOCK_MONOTONIC` in milliseconds (same clock in the plugin). A plugin may drop a `repeat` that waited too long. |
 | `config` | `object` | Configuration dictionary defined by the user in Device Studio. A device without a `config` object sends its own fields here, except `commands`. |
 
@@ -279,12 +279,31 @@ A plugin device in `devices.json` (and in `POST /api/device-save`) has `"plugin"
 
 The route returns this object, with HTTP 400 when `ok` is false. Keep pairing keys in `HARMONY_PLUGIN_DATA`.
 
+The datagram also carries `timeout_s`, the manifest's `pairing.timeout_s` (default 15, at most 60): how long the Hub waits.
+
+#### Pairing without a host (`"type": "listen"`)
+A plugin that finds its device itself (it hears the device's own radio packets, for example with `adv_listen` below) declares `"pairing": {"supported": true, "type": "listen", "requires_host": false, "timeout_s": 30}`. Then:
+
+- `POST /api/plugins/pair {"id", "action": "start"}` needs no `host`. The datagram has no `host` either. The route waits at most 1 s for a first status and answers `{"ok": true, "stage": "listening", "timeout_s": 30}` when there is none.
+- `{"id", "action": "status"}` returns the current status file and sends nothing (`stage: waiting` while there is none). The UIs poll it every second.
+- The plugin ends with `stage: done` (or `ok: false` and `stage: error`). A `config` object in the status holds what it learned: the UIs fill the device's config fields with it, and the user saves the device. Only keys the manifest's `config_fields` declare, with string, number or bool values, are returned.
+
+```json
+{ "ok": true, "action": "start_pair", "stage": "done", "message": "Switch 2 found", "config": { "switch_mac": "98:E2:55:99:1F:97", "controller_mac": "11:22:33:44:55:66" } }
+```
+
 ---
 
 ### Bluetooth Helpers (`BLEADV:`, `adv`, `bt_page`)
 
 - **`BLEADV:<hex>`** keyCode: a command whose keyCode is `BLEADV:` and up to 31 bytes of legacy advertising data (AD structures, hex) is broadcast by `hub_btstack`; `hub_daemon` checks the payload and sends `adv <hex>` to it. No plugin process is involved.
-- **`adv <hex>`** and **`bt_page <target_mac> [spoof_mac]`**: text datagrams a plugin may send to `/tmp/hub_btstack.sock`. `bt_page` pages the target (optionally from a spoofed BD_ADDR, restored afterwards) and disconnects at once. One page runs at a time; a page with no answer ends after 10 s.
+- **`adv <hex> [ms] [addr=AA:BB:CC:DD:EE:FF]`**: a text datagram a plugin may send to `/tmp/hub_btstack.sock`. Non-connectable, 100 ms interval (the shortest Bluetooth 4.0 allows), for `ms` (200 to 10000, default 1200). Broadcasts run one after another (8 queued at most). With `addr=` the packet goes out from that address, set as the LE random address while it is on air, then the Hub's public address is back; meanwhile the BLE remote does not connect (it does once the broadcast ends).
+- **`adv_listen <plugin_id> <seconds> [hex_filter]`**: a passive LE scan for `seconds` (1 to 60; `0` stops early). Each advertising report whose data contains `hex_filter` (at most 16 bytes, anywhere in the data; none: every report) is sent to `/tmp/plugins/<plugin_id>.sock`:
+  ```json
+  { "plugin_id": "switch2-wake", "command": "adv_report", "action": "tap", "value": 0, "addr": "AA:BB:CC:DD:EE:FF", "addr_type": 0, "event_type": 3, "rssi": -60, "data": "0201061BFF5305..." }
+  ```
+  Repeats are not filtered: the plugin drops what it saw already. One plugin listens at a time; a listen is refused while a remote scan or pairing runs. Meanwhile the BLE remote reconnect waits; it gets the scan back when the listen ends.
+- **`bt_page <target_mac> [spoof_mac]`**: a text datagram a plugin may send to `/tmp/hub_btstack.sock`. `bt_page` pages the target (optionally from a spoofed BD_ADDR, restored afterwards) and disconnects at once. One page runs at a time; a page with no answer ends after 10 s.
 - **`/tmp/hub_btstack.lock`**: a helper that needs the radio alone (the `ps5-wake` cold wake restarts the CSR8811) creates this file; while it exists the `init.sh` supervisor does not restart `hub_btstack`. Remove it when done. A lock older than 120 s is taken as stale and removed.
 
 ---

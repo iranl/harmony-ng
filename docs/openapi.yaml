@@ -1889,6 +1889,9 @@ paths:
                 pronto: {type: string, description: "Pronto hex, or a Harmony code (also accepted as code or raw)"}
                 port: {type: integer, default: 7}
                 repeats: {type: integer, default: 1}
+                value:
+                  type: integer
+                  description: Numeric argument of a plugin command (a slider, a level), sent as the datagram's value. A command with a range refuses a value outside it with 400.
             examples:
               byDevice:
                 value:
@@ -4310,9 +4313,14 @@ paths:
         - Plugins
       summary: Pair a plugin with its device
       description: |
-        Starts the plugin daemon if needed, sends the pairing step to it and waits up to 15 s for its answer.
-        `action` `start` (default) asks the device to show a code; `pin` (or `finish_pair`) sends the code the user read from the device.
-        The answer is the status object the plugin writes; a missing answer gives `stage: error`.
+        Starts the plugin daemon if needed, sends the pairing step to it and waits for its answer (the manifest's
+        `pairing.timeout_s`, default 15 s, at most 60).
+        `action` `start` (default) asks the device to show a code; `pin` (or `finish_pair`) sends the code the user read from the device;
+        `status` returns the plugin's current status and sends nothing.
+        A plugin whose manifest has `pairing.type: listen` hears its device itself: no `host` is needed, `start` answers
+        within 1 s (`stage: listening`, with `timeout_s`) and the client polls `status` until `stage` is `done` or `error`.
+        The answer is the status object the plugin writes; a missing answer gives `stage: error`. Its `config` object
+        (values the plugin learned) keeps only keys the manifest's `config_fields` declare, with string, number or bool values.
       requestBody:
         required: true
         content:
@@ -4321,7 +4329,6 @@ paths:
               type: object
               required:
                 - id
-                - host
               properties:
                 id:
                   type: string
@@ -4331,9 +4338,11 @@ paths:
                     - start
                     - pin
                     - finish_pair
+                    - status
                   default: start
                 host:
                   type: string
+                  description: Required unless the manifest's pairing has requires_host false (a listen pairing)
                 port:
                   type: integer
                   description: Optional; without it the plugin uses its own port
