@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Harmony Hub Control API
-  version: 2.5.2
+  version: 2.5.3
   description: |
     REST and WebSocket API for the open-source **Harmony Hub** firmware and **Harmony remote** RF daemon.
     
@@ -3846,6 +3846,26 @@ paths:
                 arch: "mips (AR9344)"
                 update_available: false
                 updating: false
+                update_state: idle
+              schema:
+                type: object
+                properties:
+                  updating:
+                    type: boolean
+                    description: true while update_state is running or restarting
+                  update_state:
+                    type: string
+                    enum: [idle, running, restarting, failed]
+                    description: State of the last update-apply since the Hub started (see docs/API.md 2.1)
+                  update_step:
+                    type: string
+                    description: Last output line of update.sh (running only, when it has one; untranslated)
+                  update_target:
+                    type: string
+                    description: Version installed, while the services restart (restarting only)
+                  update_error:
+                    type: string
+                    description: First error line of update.sh, the cause (failed only, untranslated)
 
   /api/update-check:
     get:
@@ -3909,7 +3929,9 @@ paths:
       description: >-
         Refused with 409 and status activity_switch (fields busy, sending, queued) while an
         activity switch runs, a request is queued behind it, or its last steps are still being
-        sent: the update ends with a reboot, which must not cut a switch in the middle.
+        sent: the update ends with a services restart, which must not cut a switch in the
+        middle. Refused with 409 and status busy while an update runs or the services restart
+        after one (update_state running or restarting).
       responses:
         '200':
           description: Update started in background
