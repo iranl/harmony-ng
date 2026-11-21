@@ -534,7 +534,13 @@
     "usb_wifi_setup_lbl",
     "usb_wifi_setup_desc",
     "usb_wifi_setup_turned_on",
-    "usb_wifi_setup_turned_off"
+    "usb_wifi_setup_turned_off",
+    "empty_stock_resources",
+    "clean_stock_resources_title",
+    "clean_stock_resources_confirm",
+    "freed_stock_resources_toast",
+    "stock_resources_not_imported",
+    "stock_resources_not_saved"
   ],
   "fr": [
     "confirm_btn",
@@ -1070,7 +1076,13 @@
     "usb_wifi_setup_lbl",
     "usb_wifi_setup_desc",
     "usb_wifi_setup_turned_on",
-    "usb_wifi_setup_turned_off"
+    "usb_wifi_setup_turned_off",
+    "empty_stock_resources",
+    "clean_stock_resources_title",
+    "clean_stock_resources_confirm",
+    "freed_stock_resources_toast",
+    "stock_resources_not_imported",
+    "stock_resources_not_saved"
   ],
   "nl": [
     "confirm_btn",
@@ -1606,7 +1618,13 @@
     "usb_wifi_setup_lbl",
     "usb_wifi_setup_desc",
     "usb_wifi_setup_turned_on",
-    "usb_wifi_setup_turned_off"
+    "usb_wifi_setup_turned_off",
+    "empty_stock_resources",
+    "clean_stock_resources_title",
+    "clean_stock_resources_confirm",
+    "freed_stock_resources_toast",
+    "stock_resources_not_imported",
+    "stock_resources_not_saved"
   ],
   "es": [
     "confirm_btn",
@@ -2142,7 +2160,13 @@
     "usb_wifi_setup_lbl",
     "usb_wifi_setup_desc",
     "usb_wifi_setup_turned_on",
-    "usb_wifi_setup_turned_off"
+    "usb_wifi_setup_turned_off",
+    "empty_stock_resources",
+    "clean_stock_resources_title",
+    "clean_stock_resources_confirm",
+    "freed_stock_resources_toast",
+    "stock_resources_not_imported",
+    "stock_resources_not_saved"
   ],
   "it": [
     "confirm_btn",
@@ -2678,6 +2702,12 @@
     "usb_wifi_setup_lbl",
     "usb_wifi_setup_desc",
     "usb_wifi_setup_turned_on",
-    "usb_wifi_setup_turned_off"
+    "usb_wifi_setup_turned_off",
+    "empty_stock_resources",
+    "clean_stock_resources_title",
+    "clean_stock_resources_confirm",
+    "freed_stock_resources_toast",
+    "stock_resources_not_imported",
+    "stock_resources_not_saved"
   ]
 }

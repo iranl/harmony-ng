@@ -1249,4 +1249,10 @@ export default {
     "harmony_detail_http_error": "Impossibile caricare i dettagli del dispositivo: HTTP {status}",
     "harmony_codeset_http_error": "Impossibile caricare il set di codici: HTTP {status}",
     "harmony_no_codeset": "Nessun set di codici indicato",
+    "empty_stock_resources": "Svuota risorse originali",
+    "clean_stock_resources_title": "Svuota risorse originali",
+    "clean_stock_resources_confirm": "Svuotare /data/resources? Vengono eliminati i file originali Logitech ({kb} kB non compressi; poiché la memoria flash è compressa, si libera meno spazio). Per tornare al firmware originale servirà poi la copia salvata (stock_resources_<hub>.tar).",
+    "freed_stock_resources_toast": "~{kb} kB di memoria flash liberati!",
+    "stock_resources_not_imported": "Conservate fino all'importazione della configurazione originale.",
+    "stock_resources_not_saved": "Conservati finché un backup non li ha salvati (eseguire deploy_hub.py o tools/backup_hub.py).",
 };

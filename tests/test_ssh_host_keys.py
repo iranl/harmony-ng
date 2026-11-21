@@ -36,7 +36,8 @@ import ssh_hostkeys  # noqa: E402
 
 # Every host tool that runs ssh or scp
 TOOLS = ["build/deploy_hub.py", "remote/deploy_remote.py", "remote/setup_remote.py", "tools/backup_hub.py",
-         "tools/factory_reset.py", "tools/restore_stock.py", "tools/root_hub_usb.py"]
+         "tools/clean_stock_resources.py", "tools/factory_reset.py", "tools/restore_stock.py",
+         "tools/root_hub_usb.py"]
 # tools/sync_remote_to_hub.py is removed by another change (#220, legacy leftovers): not covered here
 NOT_COVERED = {"tools/sync_remote_to_hub.py"}
 

@@ -92,6 +92,14 @@ class RestoreStock(unittest.TestCase):
         for d in ("cache/bin", "data/harmony", "tmp", "usr/sbin", "etc"):
             (self.root / d).mkdir(parents=True)
         (self.root / "cache" / "www_leftover").write_text("old\n")
+        # The stock files on the Hub (the backups made here hold none)
+        (self.root / "data" / "resources").mkdir()
+        (self.root / "data" / "resources" / "DeviceList.json").write_text("{}\n")
+        self.backups = base / "backups"
+        self.backups.mkdir()
+        dir_patch = patch.object(restore_stock, "BACKUP_DIR", self.backups)
+        dir_patch.start()
+        self.addCleanup(dir_patch.stop)
         self.backup = base / "stock_hub_backup_latest.tar"
         make_backup(self.backup)
         self.hub = FakeHub(self.root)
@@ -155,6 +163,34 @@ class RestoreStock(unittest.TestCase):
         self.assertIn("invalid option", str(ctx.exception))
         self.assertFalse(self.rebooted())
         self.assertFalse(any("dropbear" in c for c in self.hub.commands))
+
+    def emptied_hub(self) -> None:
+        for f in (self.root / "data" / "resources").iterdir():
+            f.unlink()
+
+    def test_emptied_hub_without_saved_stock_files_is_refused(self):
+        """The stock files were removed and the archive has none: stop before anything changes."""
+        self.install_busybox("cache/bin/busybox")
+        self.emptied_hub()
+        with self.assertRaises(RuntimeError) as ctx:
+            self.restore()
+        self.assertIn("stock_resources_hub.invalid.tar", str(ctx.exception))
+        self.assertTrue((self.root / "cache" / "www_leftover").exists())
+        self.assertFalse(any(c.startswith("killall") for c in self.hub.commands))
+
+    def test_emptied_hub_gets_the_saved_stock_files_back(self):
+        self.install_busybox("cache/bin/busybox")
+        self.emptied_hub()
+        saved = self.backups / "stock_resources_hub.invalid.tar"
+        data = b'{"devices": []}\n'
+        with tarfile.open(saved, "w") as tar:
+            info = tarfile.TarInfo("data/resources/DeviceList.json")
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
+        self.restore()
+        self.assertEqual((self.root / "data" / "resources" / "DeviceList.json").read_bytes(), data)
+        self.assertTrue((self.root / "data" / "stock_data_file").is_file())
+        self.assertTrue(self.rebooted())
 
     def test_refuses_a_device_that_is_not_a_hub(self):
         """The remote answers at 192.168.2.1 with the same key: nothing may be stopped or emptied there."""

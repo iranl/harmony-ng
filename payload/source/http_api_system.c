@@ -23,6 +23,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <dirent.h>
+#include <errno.h>
 #include <time.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
@@ -53,6 +54,66 @@ static void get_cache_space_kb(uint64_t *total_kb, uint64_t *free_kb) {
         *total_kb = ((uint64_t)sv.f_blocks * sv.f_frsize) / 1024;
         *free_kb = ((uint64_t)sv.f_bavail * sv.f_frsize) / 1024;
     }
+}
+
+static uint64_t get_directory_size_bytes(const char *path) {
+    DIR *d = opendir(path);
+    if (!d) return 0;
+    uint64_t total = 0;
+    struct dirent *de;
+    char subpath[512];
+    while ((de = readdir(d)) != NULL) {
+        if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0) continue;
+        int n = snprintf(subpath, sizeof(subpath), "%s/%s", path, de->d_name);
+        if (n < 0 || (size_t)n >= sizeof(subpath)) continue;
+        struct stat st;
+        if (lstat(subpath, &st) == 0) {
+            if (S_ISDIR(st.st_mode)) {
+                total += get_directory_size_bytes(subpath);
+            } else {
+                total += (uint64_t)st.st_size;
+            }
+        }
+    }
+    closedir(d);
+    return total;
+}
+
+#define STOCK_RES_DIR "/data/resources"
+/* Written by tools/backup_hub.py once a local archive holds the stock files (its name inside):
+ * the only way back after the delete, so the route refuses without it */
+#define STOCK_RES_SAVED "/data/harmony/stock_resources_saved"
+
+/* Apparent size (st_size). /data is JFFS2 (compressed), so the flash space they take is smaller. */
+static uint64_t get_stock_resources_kb(void) {
+    struct stat st;
+    if (lstat(STOCK_RES_DIR, &st) != 0 || !S_ISDIR(st.st_mode)) return 0;
+    uint64_t bytes = get_directory_size_bytes(STOCK_RES_DIR);
+    return (bytes > 0) ? ((bytes + 1023) / 1024) : 0;
+}
+
+/* Returns the number of entries that could not be removed (-1: path not opened) */
+static int empty_directory_contents(const char *path) {
+    DIR *d = opendir(path);
+    if (!d) return -1;
+    int failed = 0;
+    struct dirent *de;
+    char subpath[512];
+    while ((de = readdir(d)) != NULL) {
+        if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0) continue;
+        int n = snprintf(subpath, sizeof(subpath), "%s/%s", path, de->d_name);
+        if (n < 0 || (size_t)n >= sizeof(subpath)) { failed++; continue; }
+        struct stat st;
+        if (lstat(subpath, &st) != 0) { failed++; continue; }
+        if (S_ISDIR(st.st_mode)) {
+            int sub = empty_directory_contents(subpath);
+            if (sub != 0 || rmdir(subpath) != 0) failed += (sub > 0) ? sub : 1;
+        } else if (unlink(subpath) != 0) {
+            failed++;
+        }
+    }
+    closedir(d);
+    return failed;
 }
 
 /* /etc is on flash: rewrite only when the content changes (every start applies the settings) */
@@ -371,6 +432,13 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
         cJSON_AddNumberToObject(st, "cache_used_kb", (double)(cache_total_kb > cache_free_kb ? cache_total_kb - cache_free_kb : 0));
         cJSON_AddNumberToObject(st, "cache_percent_free", cache_total_kb ? (double)(cache_free_kb * 100 / cache_total_kb) : 0);
 
+        uint64_t stock_res_kb = get_stock_resources_kb();
+        int stock_saved = access(STOCK_RES_SAVED, F_OK) == 0;
+        cJSON_AddNumberToObject(st, "stock_resources_kb", (double)stock_res_kb);
+        cJSON_AddBoolToObject(st, "stock_resources_saved", stock_saved);
+        cJSON_AddBoolToObject(st, "can_empty_stock_resources",
+                              stock_res_kb > 0 && stock_saved && access("/data/harmony/config/devices.json", F_OK) == 0);
+
         send_cjson_resp(client_fd, 200, st);
         cJSON_Delete(st);
         close(client_fd);
@@ -552,6 +620,66 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                     close(client_fd);
                     return 1;
                 }
+            } else if (p_act && cJSON_IsString(p_act) && strcmp(p_act->valuestring, "clean_stock_resources") == 0) {
+                /* The delete cannot be undone: same kind of confirmation as factory_reset */
+                cJSON *p_conf = cJSON_GetObjectItemCaseSensitive(params, "confirm");
+                int confirmed = p_conf && cJSON_IsString(p_conf) && strcmp(p_conf->valuestring, "EMPTY") == 0;
+                cJSON_Delete(params);
+                if (!confirmed) {
+                    send_json_error(client_fd, 400, "Confirmation required: send \"confirm\": \"EMPTY\"");
+                    close(client_fd);
+                    return 1;
+                }
+                /* Only after the stock import: the files are its source */
+                if (access("/data/harmony/config/devices.json", F_OK) != 0) {
+                    send_json_error(client_fd, 409, "The stock configuration is not imported yet: /data/resources kept");
+                    close(client_fd);
+                    return 1;
+                }
+                if (access(STOCK_RES_SAVED, F_OK) != 0) {
+                    send_json_error(client_fd, 409, "No saved copy of the stock files yet: run tools/backup_hub.py "
+                                                    "(build/deploy_hub.py runs it) first; /data/resources kept");
+                    close(client_fd);
+                    return 1;
+                }
+                struct stat rst;
+                int present = lstat(STOCK_RES_DIR, &rst) == 0;
+                if (!present) {
+                    if (errno != ENOENT) {
+                        send_json_error(client_fd, 500, "/data/resources cannot be read");
+                        close(client_fd);
+                        return 1;
+                    }
+                } else if (!S_ISDIR(rst.st_mode)) {
+                    /* A link would empty its target; the host tools remove only the link */
+                    send_json_error(client_fd, 409, "/data/resources is not a directory: nothing removed");
+                    close(client_fd);
+                    return 1;
+                }
+                uint64_t total_kb = 0, free_before_kb = 0, free_after_kb = 0;
+                get_disk_space_kb(&total_kb, &free_before_kb);
+                /* -1: the directory could not be opened, also an error */
+                int failed = present ? empty_directory_contents(STOCK_RES_DIR) : 0;
+                sync();
+                uint64_t after_kb = get_stock_resources_kb();
+                if (failed != 0 || after_kb > 0) {
+                    send_json_error(client_fd, 500, "Some files in /data/resources could not be removed");
+                    close(client_fd);
+                    return 1;
+                }
+                /* What the flash really got back (compressed), not the files' apparent size */
+                get_disk_space_kb(&total_kb, &free_after_kb);
+                uint64_t freed_kb = free_after_kb > free_before_kb ? free_after_kb - free_before_kb : 0;
+
+                cJSON *resp = cJSON_CreateObject();
+                cJSON_AddBoolToObject(resp, "ok", 1);
+                cJSON_AddNumberToObject(resp, "freed_kb", (double)freed_kb);
+                cJSON_AddNumberToObject(resp, "stock_resources_kb", (double)after_kb);
+                cJSON_AddStringToObject(resp, "message", "Stock resources emptied successfully");
+                send_cjson_resp(client_fd, 200, resp);
+                cJSON_Delete(resp);
+                close(client_fd);
+                return 1;
             } else if (p_act && cJSON_IsString(p_act) && strcmp(p_act->valuestring, "mqtt_publish") == 0) {
                 cJSON *j_top = cJSON_GetObjectItemCaseSensitive(params, "topic");
                 cJSON *j_pay = cJSON_GetObjectItemCaseSensitive(params, "payload");

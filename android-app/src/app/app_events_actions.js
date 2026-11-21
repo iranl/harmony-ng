@@ -540,6 +540,7 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
     }
     document.getElementById('btnRediscover')?.addEventListener('click', () => this.rediscoverMqtt());
     document.getElementById('btnRebootHub')?.addEventListener('click', () => this.rebootHub());
+    document.getElementById('btnCleanStockResources')?.addEventListener('click', () => this.cleanStockResources());
     this.setupFactoryResetModal();
     this.initAuthUI();
     document.getElementById('btnToggleRfSvc')?.addEventListener('click', () => this.toggleRfService());

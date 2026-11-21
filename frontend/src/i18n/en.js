@@ -1249,4 +1249,10 @@ export default {
     "harmony_detail_http_error": "Failed to load device details: HTTP {status}",
     "harmony_codeset_http_error": "Failed to load codeset: HTTP {status}",
     "harmony_no_codeset": "No codeset specified",
+    "empty_stock_resources": "Empty Stock Resources",
+    "clean_stock_resources_title": "Empty Stock Resources",
+    "clean_stock_resources_confirm": "Empty /data/resources? This deletes the stock Logitech files ({kb} kB uncompressed; less flash space is freed, as the flash is compressed). A revert to the stock firmware then needs the saved copy (stock_resources_<hub>.tar).",
+    "freed_stock_resources_toast": "Freed ~{kb} kB of flash storage!",
+    "stock_resources_not_imported": "Kept until the stock configuration is imported.",
+    "stock_resources_not_saved": "Kept until a backup has saved them (run deploy_hub.py or tools/backup_hub.py).",
 };
