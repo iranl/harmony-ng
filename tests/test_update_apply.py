@@ -224,6 +224,11 @@ class UpdateApply(unittest.TestCase):
 
     def test_bundle_installs_everything(self):
         self.serve_bundle()
+        # what a reboot cleared: old extracted icons and a kept remote image of the old version
+        stale = ["tmp/www/assets/icons/tv.png", "tmp/remote_ui.ota.gz", "tmp/remote_manifest.json",
+                 "tmp/remote_manifest.json.sig"]
+        for rel in stale + ["tmp/www/index.html"]:
+            self.write(self.root / rel, "old\n")
         r = self.run_apply()
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assert_new_installed()
@@ -231,6 +236,10 @@ class UpdateApply(unittest.TestCase):
         self.assertEqual(self.version(), NEW_VER)
         # services restarted with the new init.sh, no reboot
         self.assertEqual(self.restarted(), f"new {self.data}/init.sh restart")
+        for rel in stale:
+            self.assertFalse((self.root / rel).exists(), rel)
+        self.assertFalse((self.root / "tmp/www/assets/icons").exists())
+        self.assertTrue((self.root / "tmp/www/index.html").exists(), "the rest of /tmp/www stays")
         self.assertIn("Restarting Hub services", r.stdout)
         self.assertRegex((self.root / "tmp" / "hub_update.state").read_text(), f"^state=restarting\nversion={re.escape(NEW_VER)}\nsince=[0-9]+\n$")
         self.assertTrue((self.data / "bin" / "mknod").is_symlink())

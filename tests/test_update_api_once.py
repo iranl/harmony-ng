@@ -71,6 +71,8 @@ def main():
             check(st == 409 and r.get("status") == "busy", "a second apply while one runs: 409", (st, r))
             st, r = hub.http_get("/api/status")
             check(r.get("updating") is True, "/api/status says updating too", r)
+            st, r = hub.http_post("/api/system-action", {"action": "reboot"})
+            check(st == 409, "no reboot while an update runs", (st, r))
             # SNTP set the clock after the flag was written: the flag looks an hour old
             age(flag, -3600)
             st, r = hub.http_get("/api/update-status")
@@ -121,6 +123,14 @@ def main():
                   and r.get("update_target") == "99.0.0", "restarting with the target version", r)
             st, r = hub.http_post("/api/update-apply", {})
             check(st == 409 and r.get("status") == "busy", "no apply while the services restart", (st, r))
+            st, r = hub.http_post("/api/system-action", {"action": "reboot"})
+            check(st == 409, "no reboot while the services restart", (st, r))
+            # no daemon started for 10 minutes of uptime: the restart is over
+            write(uptime, "3501.00 0.0\n")
+            st, r = hub.http_get("/api/update-status")
+            check(r.get("update_state") == "idle" and r.get("updating") is False,
+                  "restarting older than 10 minutes: idle", r)
+            write(uptime, "2950.00 0.0\n")
             st, r = hub.http_get("/api/status")
             check(r.get("updating") is True, "/api/status: updating while restarting", r)
             # a daemon that runs the version installed is done

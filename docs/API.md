@@ -75,7 +75,7 @@ Returns high-level hub status, firmware, identity, active activity, flash space,
     and `commit`: this firmware, as in `/api/system-info`.
   - `total_kb`, `free_kb`: size and free space of the `/data` flash partition, in KB (not memory);
     `cache_total_kb`, `cache_free_kb`: the same for `/cache`.
-  - `updating`: `true` while a firmware update runs (`/tmp/hub_updating.flag` exists).
+  - `updating`: `true` while a firmware update runs or the services restart after it, as in `GET /api/update-status` (2.1).
   - `auth_enabled`: whether authentication is on. `role` (`"admin"` or `"user"`) and `user` are the
     caller's own: the account name, `pat:<token name>` for a personal access token, `"admin"` when
     authentication is off or the request comes from the Hub itself.
@@ -370,7 +370,7 @@ Triggers on-demand Bluetooth host reconnection supervision. `target` (also accep
 ### 1.10 System Actions
 Answers of the actions below:
 - `reboot`: `{"ok": true, "message": "Rebooting hub now"}`; `409` while a firmware update runs
-  (`/tmp/hub_updating.flag` exists).
+  or the services restart after it (`updating` of `GET /api/update-status`, 2.1).
 - `factory_reset`: `{"ok": true, "message": "Factory reset initiated. Reverting to stock firmware and rebooting."}`;
   `400` without `"confirm": "RESET"`.
 - `mqtt_publish`: only `topic` and `payload` are read. `retain` is ignored: the message goes out
@@ -522,11 +522,13 @@ Returns running version, commit hash, build date, architecture, and whether an u
     `update_step` is the last line of its output, untranslated, when it has one.
   - `restarting`: the update is installed and the Hub services restart (`init.sh restart`, no
     reboot); until then the old daemon answers. `update_target` is the version installed. The
-    state ends when the new daemon starts: from then on `current_version` tells whether the new
+    state ends when the new daemon starts, or after 10 minutes of uptime when none starts: from
+    then on `current_version` tells whether the new
     version runs.
   - `failed`: the update ended with an error and nothing or not all was installed. `update_error`
-    is its first error line (`[-] ...`, the cause), untranslated; when the run printed none (it
-    was killed), `update.sh` adds `[-] The software update ended with exit code N.`
+    is its first error line (`[-] ...`, the cause), untranslated. Every failed run ends with
+    `[-] The software update ended with exit code N.`, which is the only one when the run was
+    killed.
   - `idle`: no update since the Hub started, or the update ended (compare `current_version` with
     the version before). An `update.sh` from a release before `update_state` writes no state (it
     runs the first update to this release, and reboots the Hub at its end): there the update
@@ -586,7 +588,7 @@ Executes `/data/harmony/update.sh` in the background and restarts services.
     "message": "Software update triggered. Hub services downloading and applying in background."
   }
   ```
-- **Response `409 Conflict`**: `{"ok": false, "status": "busy", "error": "A software update is already running"}` while an update started earlier is still running (its flag is less than 30 minutes old). `update.sh apply` also runs only once at a time.
+- **Response `409 Conflict`**: `{"ok": false, "status": "busy", "error": "A software update is already running"}` while an update started earlier is still running or the services restart after it (`update_state` `running` or `restarting`, 2.1). `update.sh apply` also runs only once at a time.
 
 ---
 

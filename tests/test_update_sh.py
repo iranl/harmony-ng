@@ -119,6 +119,7 @@ class UpdateScript(unittest.TestCase):
         out = out_path.read_text()
         self.assertNotEqual(proc.returncode, 0)
         self.assertFalse(flag.exists(), "the flag of the killed run is gone")
+        self.assertFalse((self.root / "tmp" / "ota_update").exists(), "its work directory in RAM is gone")
         self.assertEqual((self.root / "tmp" / "hub_update.state").read_text(), "state=failed\nsince=1234\n")
         self.assertIn("[-] The software update ended with exit code 137.", out)
 

@@ -105,9 +105,22 @@ await check.check('a restart with the old version: not installed', async () => {
   const app = makeApp();
   app.watchHubUpdate('2.5.2');
   await poll(null);
+  await poll(null);
   await poll({ current_version: '2.5.2', updating: false, update_state: 'idle' });
   assert.equal(log.textContent, tf('hub_update_version_unchanged', { version: '2.5.2' }));
   assert.equal(app.refreshed, 0);
+});
+
+await check.check('old Hub: one failed request, then idle on the old version, is no restart', async () => {
+  const app = makeApp();
+  log.textContent = '';
+  app.watchHubUpdate('2.5.2');
+  await poll({ current_version: '2.5.2', updating: true });
+  await poll(null);
+  await poll({ current_version: '2.5.2', updating: false });
+  assert.equal(log.textContent, '', 'not "restarted, still the old version"');
+  for (let i = 0; i < 21; i++) await poll({ current_version: '2.5.2', updating: false });
+  assert.equal(log.textContent, t('hub_update_no_restart'));
 });
 
 await check.check('old Hub (no update_state): the end of "updating" without a restart is no success', async () => {
@@ -140,6 +153,8 @@ await check.check('a restart that never ends times out after 5 minutes', async (
   await poll(null, 299);
   assert.equal(app.pollTimerActive, true);
   await poll(null, 5);
+  assert.equal(app.pollTimerActive, true, 'one more try past the limit');
+  await poll(null);
   assert.equal(log.textContent, t('update_wait_timed_out'));
   assert.equal(overlay.style.display, 'none');
 });
@@ -192,14 +207,26 @@ await check.check('a page suspended past the limit asks the Hub once before it g
   assert.equal(log.textContent, tf('hub_update_complete_ver', { version: '2.6.0' }));
 });
 
+await check.check('after a suspend, a failed first request gets one more try', async () => {
+  const app = makeApp();
+  app.watchHubUpdate('2.5.2');
+  await poll({ current_version: '2.5.2', updating: true, update_state: 'restarting', update_target: '2.6.0' });
+  await poll(null, 360);
+  assert.equal(app.pollTimerActive, true, 'network not up yet: not given up');
+  await poll({ current_version: '2.6.0', updating: false, update_state: 'idle' });
+  assert.equal(log.textContent, tf('hub_update_complete_ver', { version: '2.6.0' }));
+});
+
 await check.check('the version before unknown: the first answer is the base', async () => {
   const app = makeApp();
   app.watchHubUpdate('');
   await poll({ current_version: '2.5.2', updating: true, update_state: 'running' });
   await poll(null);
+  await poll(null);
   await poll({ current_version: '2.5.2', updating: false, update_state: 'idle' });
   assert.equal(log.textContent, tf('hub_update_version_unchanged', { version: '2.5.2' }));
   app.watchHubUpdate('');
+  await poll(null);
   await poll(null);
   await poll({ current_version: '2.5.2', updating: false }); // old Hub, nothing known
   assert.equal(log.textContent, tf('hub_update_ended_ver', { version: '2.5.2' }), 'no success with the old version');

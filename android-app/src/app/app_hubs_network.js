@@ -164,7 +164,10 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
     let started = Date.now();
     let base = fromVer; // the version before the update; unknown: the first answer while it runs
     let target = '';    // update_target of "restarting": the version installed
-    let dropAt = 0;     // restart seen ("restarting", no answer, 401); a later "running" clears it
+    let dropAt = 0;     // first sign of a restart (one failed request will do); "running" clears it
+    let restartSeen = false; // "restarting", a 401, or two failed requests in a row (one is a blip)
+    let failStreak = 0;
+    let lastTry = false; // past a limit with no answer: one more request before giving up
     let idleSince = 0;  // reachable, not updating, no restart seen
     let loginToken = null; // the token a 401 refused: no request until a login replaces it
     let timer = null;
@@ -181,6 +184,7 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
         // logged in again: the limits count from now
         loginToken = null;
         started = dropAt = Date.now();
+        lastTry = false;
         this.showUpdatingOverlay(t('hub_update_reconnecting'));
       }
       let st = null;
@@ -195,9 +199,11 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
       const now = Date.now();
       if (unauthorized) {
         if (!dropAt) dropAt = now;
+        restartSeen = true;
         loginToken = this.client.token || '';
         this.hideUpdatingOverlay(); // the login dialog must be usable
         if (log) log.textContent = t('hub_update_login_again');
+        showToast(t('hub_update_login_again'), 'warning', 8000); // the log is on the System page only
         return;
       }
       const state = !st ? 'unreachable' : (st.update_state || (st.updating ? 'running' : 'idle'));
@@ -206,17 +212,26 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
         idleSince = 0;
         if (!base) base = cur; // the old daemon still answers: its version is the one before
       }
-      if (state === 'running') dropAt = 0; // a request that failed during the install was a blip
-      else if (state === 'restarting' || state === 'unreachable') {
+      failStreak = state === 'unreachable' ? failStreak + 1 : 0;
+      if (state === 'running') {
+        // a request that failed during the install was a blip
+        dropAt = 0;
+        restartSeen = false;
+      } else if (state === 'restarting' || state === 'unreachable') {
         if (st?.update_target) target = st.update_target;
         if (!dropAt) dropAt = now;
+        if (state === 'restarting' || failStreak >= 2) restartSeen = true;
       }
       if (state === 'running' || state === 'restarting' || state === 'unreachable') {
         // install: the Hub's own limit for a running update (30 min); restart: 5 min
         if (now - started > 30 * 60000 || (dropAt && now - dropAt > 5 * 60000)) {
-          finish(t('update_wait_timed_out'), 'warning');
-          return;
-        }
+          // the first request after a long suspend can fail (network not up yet): try once more
+          if (state !== 'unreachable' || lastTry) {
+            finish(t('update_wait_timed_out'), 'warning');
+            return;
+          }
+          lastTry = true;
+        } else lastTry = false;
         if (state === 'running') {
           const step = (st.update_step || '').replace(/^\[.\]\s*/, '');
           this.showUpdatingOverlay(step || t('hub_downloading_update'));
@@ -235,7 +250,7 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
         await this.refreshData();
         return;
       }
-      if (dropAt) {
+      if (restartSeen) {
         // without the version before, "still the old one" cannot be told
         if (base || target) finish(tf('hub_update_version_unchanged', { version: cur }), 'warning');
         else finish(tf('hub_update_ended_ver', { version: cur }), 'warning');

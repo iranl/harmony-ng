@@ -115,12 +115,17 @@ static int update_run_active(const char *state, long since) {
 
 /* idle, running, restarting (installed, the services restart: update.sh removes the flag at its
  * exit, before the old daemon stops) or failed (the last apply ended with an error; wins over a
- * flag a killed update.sh left behind). target: the version installed, set only when restarting. */
+ * flag a killed update.sh left behind). target: the version installed, set only when restarting.
+ * A restart takes seconds and the new daemon ends the state at its start: "restarting" older
+ * than 10 minutes of uptime is over (it would block updates and reboots until a reboot). */
 static const char *update_state_now(char *target, size_t target_sz) {
     char state[16];
     long since;
     read_update_state(state, sizeof(state), target, target_sz, &since);
-    if (strcmp(state, "restarting") == 0 && (!target[0] || harmony_version_compare(target, HARMONY_VERSION) > 0))
+    long up = since >= 0 ? uptime_secs() : -1;
+    int restart_over = up >= since && up - since > 600;
+    if (strcmp(state, "restarting") == 0 && !restart_over &&
+        (!target[0] || harmony_version_compare(target, HARMONY_VERSION) > 0))
         return "restarting";
     target[0] = '\0';
     if (strcmp(state, "failed") == 0) return "failed";

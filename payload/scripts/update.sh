@@ -736,9 +736,12 @@ apply_locked() {
   ( do_apply )
   _rc=$?
   # A kill -9 of the subshell skips its EXIT trap: the flag must not stay behind (a running update
-  # for 30 minutes). The last "[-]" line says it ended (a TERM prints none of its own).
+  # for 30 minutes), nor the package in RAM (an OOM kill is the likely cause). A "<file>.new" being
+  # copied stays on flash until the next apply removes it. The last "[-]" line says it ended (a
+  # TERM prints none of its own).
   if [ $_rc -ne 0 ]; then
     rm -f /tmp/hub_updating.flag 2>/dev/null
+    rm -rf /tmp/ota_update 2>/dev/null
     echo "[-] The software update ended with exit code $_rc."
     set_update_state failed
   fi

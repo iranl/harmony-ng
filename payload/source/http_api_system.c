@@ -525,8 +525,12 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                 send_cjson_resp(client_fd, 200, resp);
                 cJSON_Delete(resp);
                 close(client_fd);
+#ifndef TEST_HARNESS
                 sync();
                 system("/data/harmony/bin/safe_reboot.sh 2>/dev/null || (killall -9 hub_rf hub_btstack 2>/dev/null; /data/harmony/bin/hub_sync 2>/dev/null; sleep 2; reboot -f) 2>/dev/null &");
+#else
+                printf("[*] reboot (test build, not run)\n"); /* never reboot the test host */
+#endif
                 return 1;
             } else if (p_act && cJSON_IsString(p_act) && strcmp(p_act->valuestring, "factory_reset") == 0) {
                 cJSON *p_conf = cJSON_GetObjectItemCaseSensitive(params, "confirm");
