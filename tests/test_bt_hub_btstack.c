@@ -178,6 +178,12 @@ static void test_wake_key(void) {
     CHECK(!g_pending_wake_btn[0] && count_calls("hid_device_connect") == 0 && !g_host_reconnect_active,
           "a key for a target that cannot be used is dropped: not kept, no reconnect");
     execute_btstack_cmd("stop_reconnect");
+
+    /* "adv_listen" starts with neither "scan" nor "adv ": it must reach its own handler */
+    g_user_scan_active = false;
+    int before = s_listen_cmds;
+    execute_btstack_cmd("adv_listen switch2-wake 30 53050100037E05\n");
+    CHECK(s_listen_cmds == before + 1 && !g_user_scan_active, "adv_listen goes to the listen handler, not the remote scan");
 }
 
 static void test_releases(void) {

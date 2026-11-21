@@ -1,6 +1,8 @@
 #include "bt_le_pair_window.h"
 #include "bt_pairing.h"
 #include "bt_remote.h"
+#include "bt_listen.h"
+#include "bt_adv.h"
 #include "bt_status_json.h"
 #include "../atomic_file.h"
 
@@ -922,7 +924,8 @@ void try_connect_host_addr(const bd_addr_t addr) {
     g_host_connecting_start = time(NULL);
 
     // Suspend LE scanning during Classic ACL paging to dedicate CSR8811 radio to Host connection
-    if (app_state == APP_SCANNING && !g_user_scan_active) {
+    // (not a plugin's adv_listen: it is short and asked for)
+    if (app_state == APP_SCANNING && !g_user_scan_active && !g_adv_listen_active) {
         gap_stop_scan();
     }
 
@@ -1196,8 +1199,9 @@ void hog_start_scan(void) {
         update_status("standby");
         gap_set_scan_parameters(0, 96, 24); // passive scanning (25% duty cycle): no SCAN_REQ delay, avoids Classic BT paging collision
     } else {
-        /* No remote pinned: nothing to look for (a user scan from the web UI runs its own) */
-        gap_stop_scan();
+        /* No remote pinned: nothing to look for (a user scan from the web UI runs its own; a
+         * plugin's adv_listen keeps the scan until it ends) */
+        if (!g_adv_listen_active) gap_stop_scan();
         app_state = APP_IDLE;
         update_status("standby");
         return;
@@ -1243,6 +1247,12 @@ void forget_ble_remote(void) {
 }
 
 void hog_connect(void) {
+    /* A plugin's adv_listen has the scan: the remote connects once it ends (a connection
+     * attempt stops the scan) */
+    if (g_adv_listen_active) return;
+    /* nor while a broadcast borrows another address (the connection would use it): the remote
+     * advertises again and connects after it */
+    if (bt_adv_borrowed_addr()) return;
     log_msg("Connecting to target BLE remote...");
     app_state = APP_CONNECTING;
     update_status("connecting");
