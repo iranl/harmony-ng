@@ -896,8 +896,7 @@
     "net_pin_forgotten",
     "net_no_pin",
     "net_cmd_name_required",
-    "net_cmd_saved"
-    "plg_upload_too_large"
+    "net_cmd_saved",
     "hub_update_restarting",
     "hub_update_reconnecting",
     "hub_update_complete_ver",
@@ -1804,8 +1803,7 @@
     "net_pin_forgotten",
     "net_no_pin",
     "net_cmd_name_required",
-    "net_cmd_saved"
-    "plg_upload_too_large"
+    "net_cmd_saved",
     "hub_update_restarting",
     "hub_update_reconnecting",
     "hub_update_complete_ver",
@@ -2712,8 +2710,7 @@
     "net_pin_forgotten",
     "net_no_pin",
     "net_cmd_name_required",
-    "net_cmd_saved"
-    "plg_upload_too_large"
+    "net_cmd_saved",
     "hub_update_restarting",
     "hub_update_reconnecting",
     "hub_update_complete_ver",
@@ -3620,8 +3617,7 @@
     "net_pin_forgotten",
     "net_no_pin",
     "net_cmd_name_required",
-    "net_cmd_saved"
-    "plg_upload_too_large"
+    "net_cmd_saved",
     "hub_update_restarting",
     "hub_update_reconnecting",
     "hub_update_complete_ver",
@@ -4528,8 +4524,7 @@
     "net_pin_forgotten",
     "net_no_pin",
     "net_cmd_name_required",
-    "net_cmd_saved"
-    "plg_upload_too_large"
+    "net_cmd_saved",
     "hub_update_restarting",
     "hub_update_reconnecting",
     "hub_update_complete_ver",
