@@ -1,6 +1,9 @@
 #!/bin/sh
 PATH=/data/harmony/bin:/cache/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 trap '' HUP
+# run from a plugin (or a shell that exported these): hub_daemon and the other services must
+# not look like plugin processes to the stop sweeps
+unset HARMONY_PLUGIN_ID HARMONY_SOCKET HARMONY_PLUGIN_DATA
 LOG=/tmp/harmony-init.log
 
 sync_fs() {
@@ -56,21 +59,41 @@ case "$1" in
     sleep 2
     # Terminate all daemon processes
     killall -9 hub_rf hub_daemon hub_btstack hub_usbwifi hal luaworks luadraws lua 2>/dev/null || true
-    # Plugin processes still left (hub_daemon was hung or already gone): found by the
-    # HARMONY_PLUGIN_ID that hub_daemon puts in their environment. A shell or a program started
-    # by hand in a plugin folder has none (a sweep by working directory killed the caller's
-    # shell). SIGTERM first: a helper's EXIT trap restores the Hub's Bluetooth address.
-    _left=""
-    for _e in /proc/[0-9]*/environ; do
-      _p=${_e#/proc/}
-      _p=${_p%/environ}
-      [ "$_p" = "$$" ] && continue
-      tr '\000' '\n' < "$_e" 2>/dev/null | grep -q '^HARMONY_PLUGIN_ID=' && _left="$_left $_p"
+    # Plugin processes still left (hub_daemon was hung or already gone, or a helper still runs
+    # the EXIT trap of hub_daemon's SIGTERM): found by the HARMONY_SOCKET that hub_daemon puts
+    # in their environment. A shell or a program started by hand in a plugin folder has none
+    # (a sweep by working directory killed the caller's shell). This script and the shells
+    # that started it are never taken. Up to 5 s to finish on their own (the ps5-wake helper
+    # restores the Hub's Bluetooth address and removes its lock), then SIGTERM, 1 s, SIGKILL
+    # to the ones that still have the plugin environment (a pid freed and reused is not).
+    _keep=" $$ "
+    _a=$PPID
+    _i=0
+    while [ -n "$_a" ] && [ "$_a" -gt 1 ] 2>/dev/null && [ $_i -lt 32 ]; do
+      _keep="$_keep$_a "
+      _a=$(awk '/^PPid:/ { print $2 }' "/proc/$_a/status" 2>/dev/null)
+      _i=$((_i + 1))
+    done
+    plugin_pids() {
+      for _e in /proc/[0-9]*/environ; do
+        _p=${_e#/proc/}
+        _p=${_p%/environ}
+        case "$_keep" in *" $_p "*) continue ;; esac
+        tr '\000' '\n' < "$_e" 2>/dev/null | grep -q '^HARMONY_SOCKET=/tmp/plugins/' && echo "$_p"
+      done
+    }
+    _left=$(plugin_pids)
+    _i=0
+    while [ -n "$_left" ] && [ $_i -lt 5 ]; do
+      sleep 1
+      _i=$((_i + 1))
+      _left=$(plugin_pids)
     done
     if [ -n "$_left" ]; then
       kill -15 $_left 2>/dev/null || true
       sleep 1
-      kill -9 $_left 2>/dev/null || true
+      _left=$(plugin_pids)
+      [ -n "$_left" ] && kill -9 $_left 2>/dev/null || true
     fi
     rm -f /tmp/plugins/*.sock 2>/dev/null || true
     # the USB Wi-Fi setup started as "hub_util usbwifi" (no hub_usbwifi link) runs as hub_util

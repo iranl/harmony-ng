@@ -382,6 +382,11 @@ int main(int argc, char **argv) {
         hub_mqtt_tick();
         hub_cmd_poll();     /* replies of slow command-channel actions (update_check) */
 
+        static time_t s_last_plug_tick = 0;
+        if (time(NULL) != s_last_plug_tick) {
+            s_last_plug_tick = time(NULL);
+            plugin_mgr_tick();
+        }
         static time_t s_last_plug_wd = 0;
         if (time(NULL) - s_last_plug_wd >= 10) {
             s_last_plug_wd = time(NULL);

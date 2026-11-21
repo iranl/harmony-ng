@@ -40,6 +40,10 @@ void plugin_mgr_shutdown(void);
 /* Periodic watchdog: reaps exited plugins (waitpid on their pid) and restarts enabled ones */
 void plugin_mgr_watchdog_tick(void);
 
+/* Every second: SIGKILL to leftover plugin processes whose SIGTERM grace has passed, and the
+   log size cap. Never waits. */
+void plugin_mgr_tick(void);
+
 /* Returns cJSON array of all installed plugins, their status, manifest, and device_definition */
 cJSON *plugin_mgr_get_installed_json(void);
 

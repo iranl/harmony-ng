@@ -218,12 +218,14 @@ static struct {
 static pthread_mutex_t s_kids_lock = PTHREAD_MUTEX_INITIALIZER;
 
 /* Plugins with a start or stop under way: a second one for the same id answers busy. Two
- * restarts at once removed the socket the newer instance had just bound. */
+ * restarts at once removed the socket the newer instance had just bound. Its own lock:
+ * do_start() holds s_kids_lock across fork(). */
 static char s_busy[MAX_CHILDREN][64];
+static pthread_mutex_t s_busy_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static int busy_take(const char *id) {
     int slot = -1;
-    pthread_mutex_lock(&s_kids_lock);
+    pthread_mutex_lock(&s_busy_lock);
     for (int i = 0; i < MAX_CHILDREN; i++) {
         if (strcmp(s_busy[i], id) == 0) {
             slot = -2;
@@ -232,22 +234,23 @@ static int busy_take(const char *id) {
         if (!s_busy[i][0] && slot == -1) slot = i;
     }
     if (slot >= 0) snprintf(s_busy[slot], sizeof(s_busy[slot]), "%s", id);
-    pthread_mutex_unlock(&s_kids_lock);
+    pthread_mutex_unlock(&s_busy_lock);
     return slot >= 0;
 }
 
 static void busy_drop(const char *id) {
-    pthread_mutex_lock(&s_kids_lock);
+    pthread_mutex_lock(&s_busy_lock);
     for (int i = 0; i < MAX_CHILDREN; i++) {
         if (strcmp(s_busy[i], id) == 0) s_busy[i][0] = '\0';
     }
-    pthread_mutex_unlock(&s_kids_lock);
+    pthread_mutex_unlock(&s_busy_lock);
 }
 
-/* The environment handed to plugins, copied once at init: walking environ at each start
- * raced with setenv("TZ") of a settings save on another thread. TZ is left out: uClibc
- * reads /etc/TZ, which the settings save keeps current. */
+/* The environment handed to plugins, copied once at init: walking environ (or getenv) at
+ * each start raced with setenv("TZ") of a settings save on another thread. TZ is left out:
+ * uClibc reads /etc/TZ, which the settings save keeps current. */
 static char **s_base_env;
+static char *s_env_path; /* "PATH=/cache/bin:/data/harmony/bin:<inherited PATH>" */
 
 static void snapshot_env(void) {
     if (s_base_env) return;
@@ -256,19 +259,27 @@ static void snapshot_env(void) {
     char **e = calloc(n + 1, sizeof(char *));
     if (!e) return;
     size_t k = 0;
+    const char *old_path = NULL;
     for (size_t i = 0; i < n; i++) {
         const char *v = environ[i];
+        if (strncmp(v, "PATH=", 5) == 0) old_path = v + 5;
         if (strncmp(v, "PATH=", 5) == 0 || strncmp(v, "HARMONY_", 8) == 0 || strncmp(v, "TZ=", 3) == 0) continue;
         if ((e[k] = strdup(v)) != NULL) k++;
     }
+    /* sized to the inherited PATH: a fixed buffer cut a long one before /usr/bin */
+    if (!old_path || !old_path[0]) old_path = "/bin:/sbin:/usr/bin:/usr/sbin";
+    size_t path_len = strlen(old_path) + sizeof("PATH=/cache/bin:/data/harmony/bin:");
+    if ((s_env_path = malloc(path_len)) != NULL) snprintf(s_env_path, path_len, "PATH=/cache/bin:/data/harmony/bin:%s", old_path);
     s_base_env = e;
 }
 
-/* 1 when the process has HARMONY_PLUGIN_ID=<id> in its environment (any id for NULL): every
- * plugin hub_daemon starts has it, and its helpers inherit it. A program started by hand in a
- * plugin folder does not: the old sweep by working directory killed those, and the shell that
- * ran init.sh from there. */
-static int proc_has_plugin_id(pid_t pid, const char *id) {
+/* The id of a plugin this hub_daemon started, from the process's environment: every plugin
+ * it starts has HARMONY_PLUGIN_ID=<id> and HARMONY_SOCKET=<run folder>/<id>.sock, and its
+ * helpers inherit both. A program started by hand in a plugin folder has neither (the old
+ * sweep by working directory killed those, and the shell that ran init.sh from there); a
+ * shell that only exported HARMONY_PLUGIN_ID, or the plugins of another run folder (a second
+ * test daemon), do not have this socket. */
+static int proc_plugin_id(pid_t pid, char *id_out, size_t id_sz) {
     char path[64];
     snprintf(path, sizeof(path), "/proc/%d/environ", (int)pid);
     int fd = open(path, O_RDONLY);
@@ -281,15 +292,34 @@ static int proc_has_plugin_id(pid_t pid, const char *id) {
     close(fd);
     if (!buf) return 0;
     buf[len] = '\0';
-    int hit = 0;
+    const char *idv = NULL, *sockv = NULL;
     for (size_t off = 0; off < len; off += strlen(buf + off) + 1) {
         const char *v = buf + off;
-        if (strncmp(v, "HARMONY_PLUGIN_ID=", 18) != 0) continue;
-        hit = !id || strcmp(v + 18, id) == 0;
-        break;
+        if (strncmp(v, "HARMONY_PLUGIN_ID=", 18) == 0) idv = v + 18;
+        else if (strncmp(v, "HARMONY_SOCKET=", 15) == 0) sockv = v + 15;
+    }
+    int hit = 0;
+    if (idv && sockv && is_safe_plugin_id(idv)) {
+        char want[200];
+        snprintf(want, sizeof(want), "%s/%s.sock", HARMONY_PLUGINS_RUN_DIR, idv);
+        hit = strcmp(sockv, want) == 0;
+        if (hit) snprintf(id_out, id_sz, "%s", idv);
     }
     free(buf);
     return hit;
+}
+
+static pid_t read_ppid(pid_t pid) {
+    char path[64], st[256];
+    snprintf(path, sizeof(path), "/proc/%d/stat", (int)pid);
+    FILE *f = fopen(path, "r");
+    if (!f) return 0;
+    int ok = fgets(st, sizeof(st), f) != NULL;
+    fclose(f);
+    const char *p = ok ? strrchr(st, ')') : NULL;
+    int ppid = 0;
+    if (!p || sscanf(p + 1, " %*c %d", &ppid) != 1) return 0;
+    return (pid_t)ppid;
 }
 
 /* 1 when pgid is the process group of a plugin a slot tracks (its leader's pid) */
@@ -303,40 +333,94 @@ static int tracked_group(pid_t pgid) {
     return hit;
 }
 
+/* Time a plugin process has after its SIGTERM before the SIGKILL: the EXIT trap of the
+ * ps5-wake helper restores the Hub's Bluetooth address and removes its lock, about 5 s */
+#ifndef PLUGIN_TERM_GRACE_S
+#define PLUGIN_TERM_GRACE_S 8
+#endif
+
+/* Plugin processes no slot tracks that were sent SIGTERM, and when the SIGKILL is due */
+#define MAX_LEFTOVERS 32
+static struct {
+    pid_t pid;
+    time_t kill_at;
+} s_left[MAX_LEFTOVERS];
+static pthread_mutex_t s_left_lock = PTHREAD_MUTEX_INITIALIZER;
+
 /* Plugin processes no slot tracks: helpers left when a plugin's leader died, a copy that
- * daemonized, the plugins of a hub_daemon that was killed. SIGTERM first (a helper's EXIT
- * trap restores the Hub's Bluetooth address), SIGKILL to what is left after 1 s.
- * id NULL: every plugin's. A running instance a slot tracks is never taken. */
-static void kill_plugin_leftovers(const char *id) {
-    pid_t found[64];
+ * daemonized, the plugins of a hub_daemon that was killed. Each gets one SIGTERM, and the
+ * SIGKILL PLUGIN_TERM_GRACE_S later from plugin_mgr_tick(): nothing waits here, and this
+ * runs on the main loop (a watchdog restart). A process of the group `signalled` (a stop just
+ * sent it SIGTERM) gets no second one: that cut its EXIT trap short. hub_daemon and its
+ * ancestors are never taken (a shell with the plugin environment that started it), nor a
+ * running instance a slot tracks. id NULL: every plugin's. */
+static void sweep_leftovers(const char *id, pid_t signalled) {
+    pid_t mine[16];
+    int n_mine = 0;
+    for (pid_t p = getpid(); p > 1 && n_mine < 16; p = read_ppid(p)) mine[n_mine++] = p;
+    pid_t found[64], group[64];
     int n = 0;
-    pid_t self = getpid();
     DIR *d = opendir("/proc");
     if (!d) return;
     struct dirent *de;
     while ((de = readdir(d)) != NULL && n < 64) {
         if (de->d_name[0] < '1' || de->d_name[0] > '9') continue;
         pid_t pid = (pid_t)atoi(de->d_name);
-        if (pid <= 1 || pid == self || !proc_has_plugin_id(pid, id) || tracked_group(getpgid(pid))) continue;
+        int skip = pid <= 1;
+        for (int i = 0; i < n_mine && !skip; i++) skip = pid == mine[i];
+        char pid_id[64];
+        if (skip || !proc_plugin_id(pid, pid_id, sizeof(pid_id)) || (id && strcmp(pid_id, id) != 0)) continue;
+        pid_t g = getpgid(pid);
+        if (tracked_group(g)) continue;
+        group[n] = g;
         found[n++] = pid;
     }
     closedir(d);
+    time_t now = time(NULL);
+    pthread_mutex_lock(&s_left_lock);
     for (int i = 0; i < n; i++) {
-        printf("[*] Stopping plugin process %d that hub_daemon does not track (%s)\n", (int)found[i], id ? id : "any plugin");
-        kill(found[i], SIGTERM);
-    }
-    for (int t = 0; t < 20 && n > 0; t++) {
-        int left = 0;
-        for (int i = 0; i < n; i++) {
-            if (found[i] > 0 && kill(found[i], 0) != 0) found[i] = 0;
-            if (found[i] > 0) left++;
+        int j, free_j = -1;
+        for (j = 0; j < MAX_LEFTOVERS && s_left[j].pid != found[i]; j++) {
+            if (s_left[j].pid <= 0 && free_j < 0) free_j = j;
         }
-        if (!left) return;
-        usleep(50000);
+        if (j < MAX_LEFTOVERS) continue; /* signalled already, SIGKILL when due */
+        if (signalled <= 0 || group[i] != signalled) {
+            printf("[*] Stopping plugin process %d that hub_daemon does not track (%s)\n", (int)found[i], id ? id : "any plugin");
+            kill(found[i], SIGTERM);
+        }
+        if (free_j >= 0) {
+            s_left[free_j].pid = found[i];
+            s_left[free_j].kill_at = now + PLUGIN_TERM_GRACE_S;
+        } else {
+            kill(found[i], SIGKILL); /* table full */
+        }
     }
-    for (int i = 0; i < n; i++) {
-        if (found[i] > 0) kill(found[i], SIGKILL);
+    pthread_mutex_unlock(&s_left_lock);
+}
+
+/* SIGKILL to the leftovers whose grace has passed (all of them with force), when they still
+ * have the plugin environment: a pid that ended and was reused is not taken. Returns how many
+ * are still waiting. */
+static int reap_leftovers(int force) {
+    int waiting = 0;
+    time_t now = time(NULL);
+    pthread_mutex_lock(&s_left_lock);
+    for (int j = 0; j < MAX_LEFTOVERS; j++) {
+        pid_t pid = s_left[j].pid;
+        if (pid <= 0) continue;
+        char pid_id[64];
+        if (kill(pid, 0) != 0 || !proc_plugin_id(pid, pid_id, sizeof(pid_id))) {
+            s_left[j].pid = 0;
+        } else if (force || now >= s_left[j].kill_at) {
+            printf("[*] Plugin process %d (%s) still there after SIGTERM: SIGKILL\n", (int)pid, pid_id);
+            kill(pid, SIGKILL);
+            s_left[j].pid = 0;
+        } else {
+            waiting++;
+        }
     }
+    pthread_mutex_unlock(&s_left_lock);
+    return waiting;
 }
 
 static int kid_find_locked(const char *id) {
@@ -387,20 +471,29 @@ static int is_plugin_enabled(const char *plugin_id) {
     return (access(dis_path, F_OK) != 0);
 }
 
+static int do_start(const char *plugin_id);
+static int do_stop(const char *plugin_id);
+
 int plugin_mgr_set_enabled(const char *plugin_id, int enabled) {
     if (!is_safe_plugin_id(plugin_id)) return -1;
     char dis_path[256];
     snprintf(dis_path, sizeof(dis_path), "%s/%s", HARMONY_PLUGINS_DIR, plugin_id);
     if (access(dis_path, F_OK) != 0) return PLUGIN_ERR_NOT_FOUND;
     snprintf(dis_path, sizeof(dis_path), "%s/%s/disabled", HARMONY_PLUGINS_DIR, plugin_id);
+    /* busy first: a disable during a restart wrote the marker, answered busy and left the
+     * plugin running, then not started after the next boot */
+    if (!busy_take(plugin_id)) return PLUGIN_ERR_BUSY;
+    int rc;
     if (enabled) {
         unlink(dis_path);
-        return plugin_mgr_start(plugin_id);
+        rc = do_start(plugin_id);
     } else {
         int fd = open(dis_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (fd >= 0) close(fd);
-        return plugin_mgr_stop(plugin_id);
+        rc = do_stop(plugin_id);
     }
+    busy_drop(plugin_id);
+    return rc;
 }
 
 /* The manifest's entrypoint, checked: a relative path inside the plugin directory */
@@ -427,7 +520,7 @@ static int do_start(const char *plugin_id) {
     if (access(plug_dir, F_OK) != 0) return PLUGIN_ERR_NOT_FOUND;
     if (running_pid(plugin_id) > 0) return 0;
     /* what an earlier instance left: else each restart of a plugin that forks added a copy */
-    kill_plugin_leftovers(plugin_id);
+    sweep_leftovers(plugin_id, 0);
 
     mkdir(HARMONY_PLUGINS_RUN_DIR, 0755);
     char marker[128];
@@ -453,27 +546,18 @@ static int do_start(const char *plugin_id) {
     if (access(exe, X_OK) != 0) return -1;
 
     char e_id[96], e_sock[160], e_data[200];
-    /* sized to the inherited PATH: a fixed buffer cut a long one before /usr/bin */
-    const char *old_path = getenv("PATH");
-    if (!old_path || !old_path[0]) old_path = "/bin:/sbin:/usr/bin:/usr/sbin";
-    size_t path_len = strlen(old_path) + sizeof("PATH=/cache/bin:/data/harmony/bin:");
-    char *e_path = malloc(path_len);
-    if (!e_path) return -1;
-    snprintf(e_path, path_len, "PATH=/cache/bin:/data/harmony/bin:%s", old_path);
     snprintf(e_id, sizeof(e_id), "HARMONY_PLUGIN_ID=%s", plugin_id);
     snprintf(e_sock, sizeof(e_sock), "HARMONY_SOCKET=%s", sock_path);
     snprintf(e_data, sizeof(e_data), "HARMONY_PLUGIN_DATA=%s", data_dir);
     snapshot_env();
+    if (!s_env_path) return -1;
     size_t n_env = 0;
     while (s_base_env && s_base_env[n_env]) n_env++;
     char **envp = calloc(n_env + 5, sizeof(char *));
-    if (!envp) {
-        free(e_path);
-        return -1;
-    }
+    if (!envp) return -1;
     size_t k = 0;
     for (size_t i = 0; i < n_env; i++) envp[k++] = s_base_env[i];
-    envp[k++] = e_path;
+    envp[k++] = s_env_path;
     envp[k++] = e_id;
     envp[k++] = e_sock;
     envp[k++] = e_data;
@@ -493,7 +577,6 @@ static int do_start(const char *plugin_id) {
     if (slot >= 0 && kid_alive_locked(slot)) {
         pthread_mutex_unlock(&s_kids_lock);
         free(envp);
-        free(e_path);
         return 0; /* already running */
     }
     for (slot = 0; slot < MAX_CHILDREN && s_kids[slot].pid > 0; slot++) {}
@@ -528,7 +611,6 @@ static int do_start(const char *plugin_id) {
     }
     pthread_mutex_unlock(&s_kids_lock);
     free(envp);
-    free(e_path);
     return rc;
 }
 
@@ -591,9 +673,11 @@ static int do_stop(const char *plugin_id) {
     char sock_path[128];
     snprintf(sock_path, sizeof(sock_path), "%s/%s.sock", HARMONY_PLUGINS_RUN_DIR, plugin_id);
     unlink(sock_path);
+    pid_t group = pid; /* the plugin's process group (setsid) */
     if (pid > 1) stop_pids(&pid, 1);
-    /* with no slot too: helpers of a crashed leader, a copy that daemonized */
-    kill_plugin_leftovers(plugin_id);
+    /* with no slot too: helpers of a crashed leader, a copy that daemonized. The helpers of
+     * this group got their SIGTERM above and finish their EXIT trap. */
+    sweep_leftovers(plugin_id, group);
     unlink(sock_path);
     return 0;
 }
@@ -659,7 +743,11 @@ static int copy_dir_recursive(const char *src_dir, const char *dst_dir) {
     int rc = 0;
     struct dirent *de;
     while (rc == 0 && (de = readdir(d)) != NULL) {
-        if (de->d_name[0] == '.') continue;
+        if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0) continue;
+        if (de->d_name[0] == '.') {
+            printf("[!] Plugin file %s/%s not installed: names starting with a dot are skipped\n", src_dir, de->d_name);
+            continue;
+        }
         char s_path[512], d_path[512];
         snprintf(s_path, sizeof(s_path), "%s/%s", src_dir, de->d_name);
         snprintf(d_path, sizeof(d_path), "%s/%s", dst_dir, de->d_name);
@@ -844,8 +932,10 @@ static int replace_plugin_dir(const char *plug_id, const char *src_dir, const ch
 }
 
 /* A power cut inside replace_plugin_dir() leaves .<id>.new and .<id>.old, and between the two
- * renames no <id>. .<id>.new is complete then: it is written in full before the first rename.
- * Puts a version back in place, then removes what is left. */
+ * renames no <id>. .<id>.new is complete only then (.<id>.old exists): it is written in full
+ * before the first rename. Without .<id>.old it is a first install cut during its copy
+ * (half the files, maybe a cut script) and goes. Puts a version back in place, then removes
+ * what is left. */
 static void recover_replaced_dirs(void) {
     char names[32][80];
     int n = 0;
@@ -868,8 +958,8 @@ static void recover_replaced_dirs(void) {
         snprintf(nw, sizeof(nw), "%s/.%s.new", HARMONY_PLUGINS_DIR, id);
         snprintf(old, sizeof(old), "%s/.%s.old", HARMONY_PLUGINS_DIR, id);
         struct stat st;
-        if (stat(dest, &st) != 0) {
-            if ((stat(nw, &st) == 0 && rename(nw, dest) == 0) || (stat(old, &st) == 0 && rename(old, dest) == 0)) {
+        if (stat(dest, &st) != 0 && stat(old, &st) == 0) {
+            if ((stat(nw, &st) == 0 && rename(nw, dest) == 0) || rename(old, dest) == 0) {
                 printf("[*] Plugin '%s' put back in place after an interrupted install\n", id);
             }
         }
@@ -883,8 +973,10 @@ int plugin_mgr_init(void) {
     mkdir(HARMONY_PLUGIN_ROOT, 0755);
     mkdir(HARMONY_PLUGINS_DIR, 0755);
     snapshot_env();
-    /* the plugins of a hub_daemon that was killed (kill -9, crash) are no child of this one */
-    kill_plugin_leftovers(NULL);
+    /* the plugins of a hub_daemon that was killed (kill -9, crash) are no child of this one:
+     * gone before the new copies start (this runs before the main loop) */
+    sweep_leftovers(NULL, 0);
+    for (int t = 0; t < (PLUGIN_TERM_GRACE_S + 1) * 10 && reap_leftovers(0) > 0; t++) usleep(100000);
     recover_replaced_dirs();
 
     DIR *d = opendir(HARMONY_PLUGINS_DIR);
@@ -962,6 +1054,28 @@ static int wd_restarts(const char *id) {
     return 0;
 }
 
+/* Every second from the main loop: nothing here waits */
+void plugin_mgr_tick(void) {
+    reap_leftovers(0);
+    /* /tmp is RAM: a log over the limit starts again (plugins write it with O_APPEND). At the
+     * 10 s watchdog tick a plugin writing 2 MB/s reached 19 MB first. */
+    char ids[MAX_CHILDREN][64];
+    int n = 0;
+    pthread_mutex_lock(&s_kids_lock);
+    for (int i = 0; i < MAX_CHILDREN; i++) {
+        if (s_kids[i].pid > 0) memcpy(ids[n++], s_kids[i].id, sizeof(ids[0]));
+    }
+    pthread_mutex_unlock(&s_kids_lock);
+    for (int i = 0; i < n; i++) {
+        char log_path[160];
+        struct stat lst;
+        snprintf(log_path, sizeof(log_path), "%s/%s.log", HARMONY_PLUGINS_RUN_DIR, ids[i]);
+        if (stat(log_path, &lst) == 0 && lst.st_size > PLUGIN_LOG_MAX_BYTES && truncate(log_path, 0) == 0) {
+            printf("[*] Plugin '%s' log over %d KB: emptied\n", ids[i], PLUGIN_LOG_MAX_BYTES / 1024);
+        }
+    }
+}
+
 void plugin_mgr_watchdog_tick(void) {
     DIR *d = opendir(HARMONY_PLUGINS_DIR);
     if (!d) return;
@@ -971,13 +1085,6 @@ void plugin_mgr_watchdog_tick(void) {
     while ((de = readdir(d)) != NULL) {
         if (de->d_name[0] == '.') continue;
         if (!is_safe_plugin_id(de->d_name)) continue;
-        /* /tmp is RAM: a log over the limit starts again (plugins write it with O_APPEND) */
-        char log_path[160];
-        struct stat lst;
-        snprintf(log_path, sizeof(log_path), "%s/%s.log", HARMONY_PLUGINS_RUN_DIR, de->d_name);
-        if (stat(log_path, &lst) == 0 && lst.st_size > PLUGIN_LOG_MAX_BYTES && truncate(log_path, 0) == 0) {
-            printf("[*] Plugin '%s' log over %d KB: emptied\n", de->d_name, PLUGIN_LOG_MAX_BYTES / 1024);
-        }
         if (!is_plugin_enabled(de->d_name) || is_stopped_by_request(de->d_name)) continue;
         int slot = wd_slot(de->d_name);
         if (plugin_mgr_is_running(de->d_name)) {
@@ -1472,13 +1579,18 @@ int plugin_mgr_pull(const char *plugin_id, char *err_msg, size_t err_msg_sz) {
         return PLUGIN_ERR_BUSY;
     }
     int rc;
+    char cat_url[512], sha[65];
     if (dev && url[0]) {
         rc = install_dev_raw_unlocked(url, err_msg, err_msg_sz);
+    } else if (!repo[0] && (!url[0] || catalog_lookup(url, NULL, NULL, NULL, sha, repo) != 0 || !repo[0])) {
+        /* an upload, or an install that recorded no repository and whose archive no catalog
+         * lists now: the first entry with this id could come from any repository */
+        if (err_msg) snprintf(err_msg, err_msg_sz, "Where '%s' came from is not known (uploaded, or installed by an older version): install it again from the marketplace", plugin_id);
+        rc = -1;
     } else {
-        /* from the repository it was installed from, when that is known */
-        char cat_url[512], sha[65];
+        /* from the repository it was installed from */
         if (catalog_lookup(NULL, plugin_id, repo, cat_url, sha, NULL) != 0) {
-            if (err_msg) snprintf(err_msg, err_msg_sz, repo[0] ? "Its repository no longer lists '%s'" : "No repository lists '%s'", plugin_id);
+            if (err_msg) snprintf(err_msg, err_msg_sz, "Its repository no longer lists '%s'", plugin_id);
             rc = -1;
         } else {
             rc = install_from_url_unlocked(cat_url, sha, err_msg, err_msg_sz);

@@ -18,6 +18,7 @@ import socketserver
 import sys
 import threading
 import time
+import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from hub_harness import HubHarness
@@ -292,8 +293,14 @@ def main():
         st, devs = hub.http_get("/api/devices")
         bt_dev = next((d for d in devs.get("devices", []) if str(d.get("id")) == bt_id), {})
         check(bt_dev.get("plugin") == "roku-ecp" and "bdaddr" not in bt_dev, "Bluetooth-named plugin device keeps its plugin", str(bt_dev))
-        # ... and goes back to IR with plugin ""
-        st, res = hub.http_post("/api/device-save", {"deviceId": bt_id, "name": "BT Amp", "type": "IR", "plugin": ""})
+        # a save without "plugin" (a rename) keeps the plugin ...
+        st, res = hub.http_post("/api/device-save", {"deviceId": bt_id, "name": "BT Amp 2"})
+        st, devs = hub.http_get("/api/devices")
+        bt_dev = next((d for d in devs.get("devices", []) if str(d.get("id")) == bt_id), {})
+        check(bt_dev.get("plugin") == "roku-ecp", "A rename keeps the plugin", str(bt_dev))
+        # ... and the form the legacy web UI sends, with an empty plugin=, makes it IR again
+        form = urllib.parse.urlencode({"deviceId": bt_id, "name": "BT Amp", "type": "IR", "plugin": ""}).encode()
+        st, res = hub.http_post("/ir/device", None, headers={"Content-Type": "application/x-www-form-urlencoded"}, raw=form)
         check(st == 200, "Plugin device saved back as IR", str((st, res)))
         st, devs = hub.http_get("/api/devices")
         bt_dev = next((d for d in devs.get("devices", []) if str(d.get("id")) == bt_id), {})

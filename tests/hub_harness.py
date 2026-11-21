@@ -10,6 +10,7 @@ test_status.py and record_fixtures.py. Pure stdlib.
 """
 
 import base64
+import hashlib
 import http.client
 import json
 import os
@@ -27,6 +28,9 @@ REPO_ROOT = os.path.abspath(os.path.join(TESTS_DIR, ".."))
 BUILD_DIR = os.path.join(REPO_ROOT, "build", "tmp", "test_host")
 HUB_BIN = os.path.join(BUILD_DIR, "hub_daemon_test")
 MOCK_LIB = os.path.join(BUILD_DIR, "libmock_hardware.so")
+# plugin sockets and logs of the harness daemon: short (a socket path has 108 bytes, a long
+# checkout path did not fit) and one per checkout
+PLUGIN_RUN_DIR = "/tmp/hhp-%s" % hashlib.sha1(BUILD_DIR.encode()).hexdigest()[:8]
 SAMPLE_CONFIG = os.path.join(TESTS_DIR, "fixtures", "ha", "sample_config")
 
 # Sources of the host build of hub_daemon (keep in sync with build/compile_all.sh;
@@ -74,8 +78,8 @@ def build_hub_daemon_test(force=False, extra_cflags=None, out=HUB_BIN):
     the compile command changed, or with force)."""
     cmd = ["gcc", "-Wall", "-O2", "-g", "-Werror=implicit-function-declaration", "-DTEST_HARNESS=1",
            "-I" + os.path.join(REPO_ROOT, "payload", "source"),
-           # plugin sockets and logs under the build folder, not the host's /tmp/plugins
-           '-DHARMONY_PLUGINS_RUN_DIR="%s"' % os.path.join(BUILD_DIR, "plugin_run")]
+           # plugin sockets and logs not in the host's /tmp/plugins
+           '-DHARMONY_PLUGINS_RUN_DIR="%s"' % PLUGIN_RUN_DIR]
     cmd += list(extra_cflags or [])
     cmd += [os.path.join(REPO_ROOT, "payload", "source", s) for s in HUB_DAEMON_SOURCES]
     cmd += ["-lpthread", "-lm", "-o", out]

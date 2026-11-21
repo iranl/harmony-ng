@@ -606,8 +606,11 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
         btTrigCmdName = parts.slice(1).join(':');
       }
 
-      let pluginDef = this.getPluginForType(type) || (curDev?.plugin ? (this.installedPlugins || []).find(p => p.id === curDev.plugin) : null);
-      let pluginId = curDev?.plugin || pluginDef?.id || (type && type.startsWith('plugin:') ? type.substring(7) : null);
+      // The selected type decides: a plugin type binds the device, any other type clears a
+      // stored plugin (sent as plugin: ""; the stored id was sent and kept the plugin)
+      const selPlugin = this.getPluginForType(type);
+      let pluginId = (type && type.startsWith('plugin:')) ? type.substring(7)
+        : (curDev?.plugin && selPlugin?.id === curDev.plugin ? curDev.plugin : null);
       let pluginCfg = null;
       if (pluginId) {
         pluginCfg = {};
@@ -644,7 +647,7 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
           deviceId: devId,
           name: name || undefined,
           type: type || undefined,
-          plugin: pluginId || undefined,
+          plugin: pluginId || ((curDev?.plugin || String(curDev?.type || '').startsWith('plugin:')) ? '' : undefined),
           config: pluginCfg || undefined,
           manufacturer: mfg || undefined,
           model: model || undefined,

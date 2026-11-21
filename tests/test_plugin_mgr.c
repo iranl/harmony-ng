@@ -8,6 +8,7 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <pthread.h>
+#include <time.h>
 
 #include "../payload/source/plugin_mgr.h"
 #include "../payload/source/cJSON.h"
@@ -118,6 +119,11 @@ static const char *const MEMINFO_PLENTY = "MemTotal: 61440 kB\nMemFree: 20000 kB
 static int s_restart_rc[2];
 static void *restart_thread(void *arg) {
     *(int *)arg = plugin_mgr_restart("socky");
+    return NULL;
+}
+
+static void *restart_slowstop_thread(void *arg) {
+    *(int *)arg = plugin_mgr_restart("slowstop");
     return NULL;
 }
 
@@ -274,6 +280,8 @@ int main(void) {
         assert(strstr(env, RUN "/test-roku.sock|test-roku|" RUN "/test-roku.sock|" ROOT "/plugin-data/test-roku"));
     }
     assert(access(ROOT "/plugins/test-roku/.source.json", F_OK) != 0); /* local archive: no source */
+    /* no source: a pull would take the first catalog entry with this id, from any repository */
+    assert(plugin_mgr_pull("test-roku", err, sizeof(err)) == -1 && strstr(err, "not known"));
     printf("[+] Install starts the entrypoint (pid %d, argv and environment checked).\n", pid);
 
     /* 8. Listing and storage */
@@ -366,30 +374,34 @@ int main(void) {
      * environment) is stopped at init. A program started by hand in the plugin folder is no
      * plugin: the sweep by working directory killed it, and the shell that ran init.sh. */
     plugin_mgr_stop("test-roku");
-    pid_t orphan = fork();
-    if (orphan == 0) {
-        if (chdir(ROOT "/plugins/test-roku") != 0) _exit(1);
-        char *const env[] = { "HARMONY_PLUGIN_ID=test-roku", "PATH=/usr/bin:/bin", NULL };
-        execle("/bin/sleep", "sleep", "300", (char *)NULL, env);
-        _exit(1);
-    }
-    pid_t by_hand = fork();
-    if (by_hand == 0) {
-        if (chdir(ROOT "/plugins/test-roku") != 0) _exit(1);
-        unsetenv("HARMONY_PLUGIN_ID");
-        execl("/bin/sleep", "sleep", "300", (char *)NULL);
-        _exit(1);
+    /* a shell that exported only the id, and a plugin of another run folder (a second test
+     * daemon on the same machine), are no plugin of this hub_daemon either */
+    char *const env_orphan[] = { "HARMONY_PLUGIN_ID=test-roku", "HARMONY_SOCKET=" RUN "/test-roku.sock", "PATH=/usr/bin:/bin", NULL };
+    char *const env_by_hand[] = { "PATH=/usr/bin:/bin", NULL };
+    char *const env_id_only[] = { "HARMONY_PLUGIN_ID=test-roku", "PATH=/usr/bin:/bin", NULL };
+    char *const env_other[] = { "HARMONY_PLUGIN_ID=test-roku", "HARMONY_SOCKET=/tmp/elsewhere/test-roku.sock", "PATH=/usr/bin:/bin", NULL };
+    char *const *envs[] = { env_orphan, env_by_hand, env_id_only, env_other };
+    pid_t procs[4];
+    for (int i = 0; i < 4; i++) {
+        procs[i] = fork();
+        if (procs[i] == 0) {
+            if (chdir(ROOT "/plugins/test-roku") != 0) _exit(1);
+            execle("/bin/sleep", "sleep", "300", (char *)NULL, envs[i]);
+            _exit(1);
+        }
     }
     usleep(100000);
     plugin_mgr_init();
     int st;
-    for (int i = 0; i < 100 && waitpid(orphan, &st, WNOHANG) == 0; i++) usleep(20000);
-    assert(kill(orphan, 0) != 0);
-    assert(waitpid(by_hand, &st, WNOHANG) == 0); /* still running */
-    kill(by_hand, SIGKILL);
-    waitpid(by_hand, &st, 0);
+    for (int i = 0; i < 100 && waitpid(procs[0], &st, WNOHANG) == 0; i++) usleep(20000);
+    assert(kill(procs[0], 0) != 0);
+    for (int i = 1; i < 4; i++) {
+        assert(waitpid(procs[i], &st, WNOHANG) == 0); /* still running */
+        kill(procs[i], SIGKILL);
+        waitpid(procs[i], &st, 0);
+    }
     assert(plugin_mgr_is_running("test-roku")); /* enabled: started again by init */
-    printf("[+] Orphan plugin process stopped at init, a program started by hand kept, plugin started fresh.\n");
+    printf("[+] Orphan plugin process stopped at init; by hand, id only and another run folder kept; plugin started fresh.\n");
 
     /* 15b. The helper of a leader that died goes before the next start (each restart of a
      * plugin that forks added a copy); a copy that daemonized goes with the uninstall */
@@ -462,6 +474,110 @@ int main(void) {
     assert(plugin_mgr_set_enabled("never-installed", 0) == PLUGIN_ERR_NOT_FOUND);
     assert(access(RUN "/never-installed.stopped", F_OK) != 0);
     printf("[+] Dot-named entrypoint refused, overlapping restarts keep the socket, unknown stop is 404.\n");
+
+    /* 15g. A helper's EXIT trap (2 s here, about 5 s for ps5-wake) is not cut: one SIGTERM,
+     * the SIGKILL only after the grace (3 s in this build). A stop whose leader exits on
+     * SIGTERM sends its group no second one; a start after the leader died does not wait. */
+    make_src("trappy", "1",
+             "( trap 'sleep 2; touch /tmp/test_trap_done; exit 0' TERM; while :; do sleep 1 & wait $!; done ) &\n"
+             "echo $! > /tmp/test_trap_child\nexec sleep 310");
+    pack("/tmp/test_trappy.tar.gz");
+    unlink("/tmp/test_trap_done");
+    unlink("/tmp/test_trap_child");
+    assert(plugin_mgr_install_archive("/tmp/test_trappy.tar.gz", NULL, err, sizeof(err)) == 0);
+    pid_t trap_child = read_pid("/tmp/test_trap_child");
+    assert(trap_child > 1);
+    usleep(200000);
+    assert(plugin_mgr_stop("trappy") == 0);
+    for (int i = 0; i < 150 && access("/tmp/test_trap_done", F_OK) != 0; i++) {
+        plugin_mgr_tick();
+        usleep(20000);
+    }
+    assert(access("/tmp/test_trap_done", F_OK) == 0);
+    unlink("/tmp/test_trap_done");
+    unlink("/tmp/test_trap_child");
+    assert(plugin_mgr_start("trappy") == 0);
+    trap_child = read_pid("/tmp/test_trap_child");
+    assert(trap_child > 1);
+    usleep(200000);
+    kill(installed_field("trappy", "pid"), SIGKILL);
+    for (int i = 0; i < 100 && plugin_mgr_is_running("trappy"); i++) usleep(20000);
+    {
+        struct timespec t0, t1;
+        clock_gettime(CLOCK_MONOTONIC, &t0);
+        assert(plugin_mgr_start("trappy") == 0);
+        clock_gettime(CLOCK_MONOTONIC, &t1);
+        long ms = (t1.tv_sec - t0.tv_sec) * 1000 + (t1.tv_nsec - t0.tv_nsec) / 1000000;
+        assert(ms < 500); /* the main loop (watchdog restart) is not held */
+    }
+    for (int i = 0; i < 150 && access("/tmp/test_trap_done", F_OK) != 0; i++) {
+        plugin_mgr_tick();
+        usleep(20000);
+    }
+    assert(access("/tmp/test_trap_done", F_OK) == 0);
+    assert(plugin_mgr_uninstall("trappy") == 0);
+    /* a helper that ignores SIGTERM gets the SIGKILL from the tick once the grace has passed */
+    make_src("stubborn", "1", "( trap '' TERM; while :; do sleep 1; done ) &\necho $! > /tmp/test_trap_child\nexec sleep 311");
+    pack("/tmp/test_trappy.tar.gz");
+    unlink("/tmp/test_trap_child");
+    assert(plugin_mgr_install_archive("/tmp/test_trappy.tar.gz", NULL, err, sizeof(err)) == 0);
+    pid_t stubborn = read_pid("/tmp/test_trap_child");
+    assert(stubborn > 1);
+    usleep(200000);
+    kill(installed_field("stubborn", "pid"), SIGKILL);
+    for (int i = 0; i < 100 && plugin_mgr_is_running("stubborn"); i++) usleep(20000);
+    assert(plugin_mgr_start("stubborn") == 0);
+    plugin_mgr_tick();
+    usleep(500000);
+    assert(!pid_gone(stubborn)); /* within the grace */
+    for (int i = 0; i < 250 && !pid_gone(stubborn); i++) {
+        plugin_mgr_tick();
+        usleep(20000);
+    }
+    assert(pid_gone(stubborn));
+    stubborn = read_pid("/tmp/test_trap_child"); /* the helper of the new instance */
+    assert(plugin_mgr_uninstall("stubborn") == 0);
+    for (int i = 0; i < 250 && !pid_gone(stubborn); i++) {
+        plugin_mgr_tick();
+        usleep(20000);
+    }
+    assert(pid_gone(stubborn));
+    unlink("/tmp/test_trappy.tar.gz");
+    unlink("/tmp/test_trap_done");
+    unlink("/tmp/test_trap_child");
+
+    /* 15h. A disable while a restart runs answers busy and changes nothing */
+    make_src("slowstop", "1", "trap '' TERM\nwhile :; do sleep 1; done");
+    pack("/tmp/test_slowstop.tar.gz");
+    assert(plugin_mgr_install_archive("/tmp/test_slowstop.tar.gz", NULL, err, sizeof(err)) == 0);
+    usleep(200000);
+    {
+        pthread_t t;
+        int t_rc = -99;
+        pthread_create(&t, NULL, restart_slowstop_thread, &t_rc);
+        usleep(300000); /* its stop waits 1 s for a leader that ignores SIGTERM */
+        assert(plugin_mgr_set_enabled("slowstop", 0) == PLUGIN_ERR_BUSY);
+        assert(access(ROOT "/plugins/slowstop/disabled", F_OK) != 0);
+        pthread_join(t, NULL);
+        assert(t_rc == 0 && plugin_mgr_is_running("slowstop"));
+    }
+    assert(plugin_mgr_uninstall("slowstop") == 0);
+    unlink("/tmp/test_slowstop.tar.gz");
+
+    /* 15i. The log cap acts at the 1 s tick */
+    make_src("loud", "1", "head -c 400000 /dev/zero | tr '\\000' x\nexec sleep 312");
+    pack("/tmp/test_loud.tar.gz");
+    assert(plugin_mgr_install_archive("/tmp/test_loud.tar.gz", NULL, err, sizeof(err)) == 0);
+    {
+        struct stat lst;
+        for (int i = 0; i < 100 && (stat(RUN "/loud.log", &lst) != 0 || lst.st_size < 400000); i++) usleep(20000);
+        assert(lst.st_size >= 400000);
+        plugin_mgr_tick();
+        assert(stat(RUN "/loud.log", &lst) == 0 && lst.st_size < 256 * 1024);
+    }
+    assert(plugin_mgr_uninstall("loud") == 0);
+    unlink("/tmp/test_loud.tar.gz");
+    printf("[+] Helper traps not cut, non-blocking restart sweep, SIGKILL after grace, busy disable unchanged, log cap at the tick.\n");
 
     /* 16. In-use guard */
     write_file(ROOT "/config/devices.json",
@@ -563,12 +679,20 @@ int main(void) {
     sh("mkdir -p " ROOT "/plugins/.phoenix.new/bin " ROOT "/plugins/.phoenix.old");
     write_file(ROOT "/plugins/.phoenix.new/manifest.json", "{\"id\": \"phoenix\", \"version\": \"2\", \"entrypoint\": \"bin/drv\"}\n", 0);
     write_file(ROOT "/plugins/.phoenix.new/bin/drv", "#!/bin/sh\nexec sleep 309\n", 1);
+    /* a first install cut during its copy (no .old): half the files, never put in place */
+    sh("mkdir -p " ROOT "/plugins/.halfcopy.new/bin");
+    write_file(ROOT "/plugins/.halfcopy.new/manifest.json", "{\"id\": \"halfcopy\", \"version\": \"1\", \"entrypoint\": \"bin/drv\"}\n", 0);
+    write_file(ROOT "/plugins/.halfcopy.new/bin/drv", "#!/bin/sh\ntouch /tmp/test_halfcopy_ran\nexec sl", 1);
+    unlink("/tmp/test_halfcopy_ran");
     plugin_mgr_init();
     assert(access(ROOT "/plugins/phoenix/bin/drv", F_OK) == 0);
     assert(access(ROOT "/plugins/.phoenix.new", F_OK) != 0 && access(ROOT "/plugins/.phoenix.old", F_OK) != 0);
     assert(plugin_mgr_is_running("phoenix"));
     assert(plugin_mgr_uninstall("phoenix") == 0);
-    printf("[+] An update cut between its renames is put back in place at init.\n");
+    assert(access(ROOT "/plugins/halfcopy", F_OK) != 0 && access(ROOT "/plugins/.halfcopy.new", F_OK) != 0);
+    usleep(100000);
+    assert(access("/tmp/test_halfcopy_ran", F_OK) != 0);
+    printf("[+] An update cut between its renames is put back in place at init; a cut first install is removed.\n");
 
     /* 20. URL install with the right SHA-256, then the shutdown stops every child */
     sh("rm -rf /tmp/test_sha_srv && mkdir -p /tmp/test_sha_srv && cp /tmp/test_mock_plug.tar.gz /tmp/test_sha_srv/p.tar.gz");
