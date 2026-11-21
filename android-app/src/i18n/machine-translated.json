@@ -703,7 +703,7 @@
     "usb_wifi_setup_desc",
     "hide_on_remote",
     "pair_slot_n",
-    "unpair_slot_n"
+    "unpair_slot_n",
     "hub_update_restarting",
     "hub_update_reconnecting",
     "hub_update_complete_ver",
@@ -1417,7 +1417,7 @@
     "usb_wifi_setup_desc",
     "hide_on_remote",
     "pair_slot_n",
-    "unpair_slot_n"
+    "unpair_slot_n",
     "hub_update_restarting",
     "hub_update_reconnecting",
     "hub_update_complete_ver",
@@ -2131,7 +2131,7 @@
     "usb_wifi_setup_desc",
     "hide_on_remote",
     "pair_slot_n",
-    "unpair_slot_n"
+    "unpair_slot_n",
     "hub_update_restarting",
     "hub_update_reconnecting",
     "hub_update_complete_ver",
@@ -2845,7 +2845,7 @@
     "usb_wifi_setup_desc",
     "hide_on_remote",
     "pair_slot_n",
-    "unpair_slot_n"
+    "unpair_slot_n",
     "hub_update_restarting",
     "hub_update_reconnecting",
     "hub_update_complete_ver",
@@ -3559,7 +3559,7 @@
     "usb_wifi_setup_desc",
     "hide_on_remote",
     "pair_slot_n",
-    "unpair_slot_n"
+    "unpair_slot_n",
     "hub_update_restarting",
     "hub_update_reconnecting",
     "hub_update_complete_ver",
