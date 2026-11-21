@@ -377,17 +377,21 @@ Answers of the actions below:
 - `factory_reset`: `{"ok": true, "message": "Factory reset initiated. Reverting to stock firmware and rebooting."}`;
   `400` without `"confirm": "RESET"`.
 - `clean_stock_resources`: empties `/data/resources`, the stock Logitech files. Needs
-  `"confirm": "EMPTY"` (`400` without). `409` while `/data/harmony/config/devices.json` is missing (the
-  stock import still needs the files), while no saved copy exists (`/data/harmony/stock_resources_saved`,
-  written by `tools/backup_hub.py` once `backups/stock_resources_<hub>.tar` holds the files; every
-  `deploy_hub.py` run makes that backup), and when `/data/resources` is a link. `500` when a file could
+  `"confirm": "EMPTY"` (`400` without). `409` while `/data/harmony/config/devices.json` is missing or empty
+  (the stock import still needs the files), when `/data/resources` is a link, and while no saved copy of
+  the files as they are exists: `/data/harmony/stock_resources_saved` holds `<copy name> <count>:<hex>`,
+  written by `tools/backup_hub.py` once `backups/stock_resources_<hub>*.tar` holds exactly the files (every
+  `deploy_hub.py` run makes that backup). `<hex>` is the XOR of sha256(`"<size> <path>"`) over every
+  entry under `/data/resources` but directories (path relative to it, a link counts as size 0); the
+  route computes it again and refuses when it differs. `500` when a file could
   not be removed or the directory not read. Answers
   `{"ok": true, "freed_kb": 48, "stock_resources_kb": 0, "message": "..."}`: `freed_kb` is the free space
   of `/data` gained. In `GET /api/disk-space`, `stock_resources_kb` is the files' own size; `/data` is
   JFFS2, which compresses, so the flash space they take (and `freed_kb`) is smaller.
-  `stock_resources_saved` says whether the saved copy exists, `can_empty_stock_resources` whether the
-  action would run. The stock firmware needs these files: `tools/restore_stock.py` puts the saved copy
-  back when the archive it restores holds none, and refuses without it.
+  `stock_resources_saved` says whether the mark matches the files there now (false when there are
+  none), `can_empty_stock_resources` whether the action would run. The stock firmware needs these
+  files: `tools/restore_stock.py` puts the saved copy back on a stock restore whose archive holds none,
+  and refuses without it.
 - `mqtt_publish`: only `topic` and `payload` are read. `retain` is ignored: the message goes out
   with QoS 0 and is not retained. An empty `payload` is sent as `cmd`. The answer is
   `{"ok": true}` also when MQTT is off or `topic` is empty, so it does not tell whether anything

@@ -79,7 +79,8 @@ export function createView() {
         text: t('empty_stock_resources', 'Empty Stock Resources'),
         // Enabled only once the disk status says the files may go
         disabled: true,
-        hidden: true,
+        // style, not the hidden attribute: .btn sets display, which wins over [hidden]
+        style: { display: 'none' },
         onclick: async () => {
           const disk = await api.getSystemDisk().catch(() => null);
           const kb = disk?.stock_resources_kb ?? 0;
@@ -200,7 +201,7 @@ export function createView() {
         const kb = disk.stock_resources_kb;
         const canEmpty = disk.can_empty_stock_resources === true;
         // Hidden on firmware without the delete and when nothing is left
-        emptyResBtn.hidden = typeof kb !== 'number' || kb === 0;
+        emptyResBtn.style.display = typeof kb !== 'number' || kb === 0 ? 'none' : '';
         emptyResBtn.disabled = !canEmpty;
         emptyResBtn.title = canEmpty ? ''
           : !disk.stock_resources_saved ? t('stock_resources_not_saved', 'Kept until a backup has saved them (run deploy_hub.py or tools/backup_hub.py).')

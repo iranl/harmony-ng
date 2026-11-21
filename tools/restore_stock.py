@@ -17,6 +17,7 @@ Usage:
     python tools/restore_stock.py --backup backups/stock_hub_backup_latest.tar
     python tools/restore_stock.py --wifi-ssid "MyNetwork"   # asks for the Wi-Fi password
     python tools/restore_stock.py --pure-stock   # Completely removes Dropbear SSH
+    python tools/restore_stock.py --stock-resources backups/stock_resources_<hub>.tar  # emptied Hub
     python tools/restore_stock.py --force        # Bypass confirmation prompt
 """
 
@@ -264,28 +265,47 @@ def gain_root_over_usb(
         hid.close()
 
 
-def stock_resources_to_add(target: str, ssh_opts: list[str], hub_ip: str,
-                           backup_file: pathlib.Path) -> pathlib.Path | None:
-    """The stock firmware needs /data/resources. When the archive brings no stock files and the Hub
-    has none (they were emptied), the saved copy backups/stock_resources_<hub>.tar goes back too.
-    Raises, before anything is changed, when there is no such copy."""
-    try:
-        with tarfile.open(backup_file, "r:*") as tar:
-            if any(n.lstrip("/") == backup_hub.STOCK_RES_MEMBER for n in tar.getnames()):
-                return None
-    except (tarfile.TarError, OSError, EOFError):
-        pass  # a cut archive: its extraction below fails and says so
-    on_hub = run_ssh_cmd(target, "[ -f /data/resources/DeviceList.json ] && echo 1; true", ssh_opts)
-    if on_hub.stdout.strip() == "1":
+NOT_CHANGED = "The Hub's files were not changed (a root over USB done in this run stays)."
+
+
+def needs_stock_resources(members: list[str]) -> bool:
+    """True for a restore of the stock firmware whose archive brings no stock files
+    (/data/resources). An archive with /data/harmony restores HarmonyNG, which does not need them."""
+    names = [n.lstrip("/") for n in members]
+    if any(n.startswith("data/harmony/") for n in names):
+        return False
+    return not any(n.startswith("data/resources/") and n != "data/resources/" for n in names)
+
+
+def usable_stock_copy(path: pathlib.Path) -> bool:
+    return bool(backup_hub.archive_stock_files(path))
+
+
+def stock_resources_to_add(target: str, ssh_opts: list[str], members: list[str],
+                           explicit: pathlib.Path | None) -> pathlib.Path | None:
+    """The stock firmware needs /data/resources. On a stock restore whose archive brings none, while
+    the Hub has none (they were emptied), the newest copy backups/stock_resources_<hub>*.tar goes
+    back too; --stock-resources names it. Raises, before anything is changed, without a copy."""
+    if explicit:
+        return explicit
+    if not needs_stock_resources(members):
         return None
-    tag = backup_hub.hub_tag(["ssh"] + ssh_opts + [target], hub_ip)
-    saved = backup_hub.stock_resources_file(BACKUP_DIR, tag)
-    if backup_hub.archive_has_stock_resources(saved):
-        return saved
+    run = lambda cmd: run_ssh_cmd(target, cmd, ssh_opts)  # noqa: E731
+    if backup_hub.hub_stock_files(run):
+        return None
+    mac = backup_hub.hub_mac(run)
+    if not mac:
+        raise RuntimeError("the archive holds no stock files (data/resources), the Hub has none, and its MAC "
+                           "cannot be read to find its saved copy: name it with --stock-resources "
+                           f"backups/stock_resources_<hub>.tar. {NOT_CHANGED}")
+    copy = next((p for p in backup_hub.stock_copies(BACKUP_DIR, mac) if usable_stock_copy(p)), None)
+    if copy:
+        return copy
     raise RuntimeError(
-        f"{backup_file.name} holds no stock files (data/resources) and the Hub has none, so the stock "
-        f"firmware would not start. Put {saved.name} (saved by tools/backup_hub.py before the files were "
-        f"removed) in {BACKUP_DIR}, or name an archive that holds data/resources. Nothing was changed."
+        f"the archive holds no stock files (data/resources) and the Hub has none, so the stock firmware "
+        f"would not start. Put stock_resources_{mac}.tar (saved by tools/backup_hub.py before the files were "
+        f"removed) in {BACKUP_DIR}, name it with --stock-resources, or restore an archive that holds "
+        f"data/resources. {NOT_CHANGED}"
     )
 
 
@@ -323,6 +343,8 @@ def restore_stock_configuration(
     priv_key_path: pathlib.Path,
     backup_file: pathlib.Path,
     pure_stock: bool = False,
+    members: list[str] | None = None,
+    stock_copy: pathlib.Path | None = None,
 ) -> None:
     ssh_opts = get_ssh_opts(priv_key_path, hub_ip)
     target = f"root@{hub_ip}"
@@ -334,7 +356,9 @@ def restore_stock_configuration(
     machine = arch.stdout.strip()
     if arch.returncode != 0 or not machine.startswith("mips"):
         raise RuntimeError(f"{hub_ip} is not a Harmony Hub (uname -m: {machine or 'no answer'}); nothing was changed")
-    stock_extra = stock_resources_to_add(target, ssh_opts, hub_ip, backup_file)
+    stock_extra = stock_resources_to_add(target, ssh_opts, members or [], stock_copy)
+    if stock_extra:
+        print(f"[+] The stock files go back too: {stock_extra.name}")
 
     # Step 2: Kill all processes, except dropbear
     print("\n[*] [Step 2/5] Stopping all background daemons (preserving Dropbear SSH)...")
@@ -461,6 +485,9 @@ def main() -> None:
     parser.add_argument("--hub-ip", help="Known Hub LAN IP address")
     parser.add_argument("--pure-stock", action="store_true", help="Remove Dropbear SSH to return to 100%% factory state")
     parser.add_argument("--force", action="store_true", help="Bypass interactive confirmation prompt")
+    parser.add_argument("--stock-resources", type=pathlib.Path,
+                        help="Copy of the stock files (backups/stock_resources_<hub>.tar) to restore as well; by "
+                             "default it is added only on a stock restore whose archive has no data/resources")
     parser.add_argument("--skip-usb-root", action="store_true", help="Skip USB HID root (use if Hub SSH is already online)")
     ssh_hostkeys.add_reset_option(parser, "the Hub")
     args = parser.parse_args()
@@ -477,6 +504,11 @@ def main() -> None:
         members = validate_backup_archive(backup_path)
     except Exception as e:
         print(f"[-] Error locating backup archive: {e}")
+        sys.exit(1)
+
+    # Before the USB root
+    if args.stock_resources and not usable_stock_copy(args.stock_resources):
+        print(f"[-] {args.stock_resources} is no complete tar holding data/resources. Nothing was changed.")
         sys.exit(1)
 
     size_mb = backup_path.stat().st_size / (1024 * 1024)
@@ -517,7 +549,8 @@ def main() -> None:
 
     # 4. Restore configuration
     try:
-        restore_stock_configuration(hub_ip, priv_key_path, backup_path, args.pure_stock)
+        restore_stock_configuration(hub_ip, priv_key_path, backup_path, args.pure_stock, members,
+                                    args.stock_resources)
     except Exception as e:
         print(f"[-] Restoration failed: {e}")
         sys.exit(1)

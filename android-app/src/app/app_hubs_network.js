@@ -296,7 +296,8 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
           : !disk.stock_resources_saved ? t('stock_resources_not_saved') : t('stock_resources_not_imported');
       }
       if (btn) {
-        btn.hidden = kb === 0;
+        // style, not the hidden attribute: .btn sets display, which wins over [hidden]
+        btn.style.display = kb === 0 ? 'none' : '';
         btn.disabled = !canEmpty;
       }
     } catch {

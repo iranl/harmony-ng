@@ -13,6 +13,7 @@
 #include "harmony_version.h"
 #include "resource_cache.h"
 #include "cJSON.h"
+#include "sha256.h"
 #include "timezone_db.h"
 #include "hub_led.h"
 
@@ -80,8 +81,9 @@ static uint64_t get_directory_size_bytes(const char *path) {
 }
 
 #define STOCK_RES_DIR "/data/resources"
-/* Written by tools/backup_hub.py once a local archive holds the stock files (its name inside):
- * the only way back after the delete, so the route refuses without it */
+/* Written by tools/backup_hub.py once a local archive holds exactly the stock files there, as
+ * "<archive name> <fingerprint>": the only way back after the delete, so the route refuses
+ * unless the fingerprint matches the files now in /data/resources */
 #define STOCK_RES_SAVED "/data/harmony/stock_resources_saved"
 
 /* Apparent size (st_size). /data is JFFS2 (compressed), so the flash space they take is smaller. */
@@ -90,6 +92,67 @@ static uint64_t get_stock_resources_kb(void) {
     if (lstat(STOCK_RES_DIR, &st) != 0 || !S_ISDIR(st.st_mode)) return 0;
     uint64_t bytes = get_directory_size_bytes(STOCK_RES_DIR);
     return (bytes > 0) ? ((bytes + 1023) / 1024) : 0;
+}
+
+/* XOR of sha256("<size> <path below /data/resources>") over every entry but directories (a link
+ * counts as size 0), so the walk order does not matter: tools/backup_hub.py stock_fingerprint().
+ * Returns -1 when a directory cannot be read or a path is too long. */
+static int stock_fingerprint_walk(const char *path, const char *rel, uint8_t acc[32], int *count) {
+    DIR *d = opendir(path);
+    if (!d) return -1;
+    int rc = 0;
+    struct dirent *de;
+    char subpath[512], subrel[512], line[560];
+    while (rc == 0 && (de = readdir(d)) != NULL) {
+        if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0) continue;
+        int n = snprintf(subpath, sizeof(subpath), "%s/%s", path, de->d_name);
+        int m = rel[0] ? snprintf(subrel, sizeof(subrel), "%s/%s", rel, de->d_name)
+                       : snprintf(subrel, sizeof(subrel), "%s", de->d_name);
+        struct stat st;
+        if (n < 0 || (size_t)n >= sizeof(subpath) || m < 0 || (size_t)m >= sizeof(subrel) ||
+            lstat(subpath, &st) != 0) {
+            rc = -1;
+        } else if (S_ISDIR(st.st_mode)) {
+            rc = stock_fingerprint_walk(subpath, subrel, acc, count);
+        } else {
+            int len = snprintf(line, sizeof(line), "%llu %s",
+                               S_ISLNK(st.st_mode) ? 0ULL : (unsigned long long)st.st_size, subrel);
+            uint8_t digest[32];
+            sha256_hash((const uint8_t *)line, (size_t)len, digest);
+            for (int i = 0; i < 32; i++) acc[i] ^= digest[i];
+            (*count)++;
+        }
+    }
+    closedir(d);
+    return rc;
+}
+
+/* "<count>:<64 hex>" of /data/resources into out (at least 80 bytes); -1 on a read error */
+static int stock_fingerprint(char *out, size_t out_len) {
+    uint8_t acc[32] = {0};
+    int count = 0;
+    if (stock_fingerprint_walk(STOCK_RES_DIR, "", acc, &count) != 0) return -1;
+    int n = snprintf(out, out_len, "%d:", count);
+    for (int i = 0; i < 32 && n > 0 && (size_t)n + 2 < out_len; i++) n += snprintf(out + n, out_len - (size_t)n, "%02x", acc[i]);
+    return 0;
+}
+
+/* The mark is "<copy name> <fingerprint>": a copy of exactly the files there now was saved */
+static int stock_resources_saved(void) {
+    size_t len = 0;
+    char *mark = read_file_text_alloc(STOCK_RES_SAVED, 1024, &len);
+    if (!mark) return 0;
+    while (len > 0 && (mark[len - 1] == '\n' || mark[len - 1] == '\r' || mark[len - 1] == ' ')) mark[--len] = '\0';
+    const char *sp = strrchr(mark, ' ');
+    char fp[80];
+    int ok = sp && sp != mark && stock_fingerprint(fp, sizeof(fp)) == 0 && strcmp(sp + 1, fp) == 0;
+    free(mark);
+    return ok;
+}
+
+static int stock_import_done(void) {
+    struct stat st;
+    return stat("/data/harmony/config/devices.json", &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0;
 }
 
 /* Returns the number of entries that could not be removed (-1: path not opened) */
@@ -433,11 +496,11 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
         cJSON_AddNumberToObject(st, "cache_percent_free", cache_total_kb ? (double)(cache_free_kb * 100 / cache_total_kb) : 0);
 
         uint64_t stock_res_kb = get_stock_resources_kb();
-        int stock_saved = access(STOCK_RES_SAVED, F_OK) == 0;
+        int stock_saved = stock_res_kb > 0 && stock_resources_saved();
         cJSON_AddNumberToObject(st, "stock_resources_kb", (double)stock_res_kb);
         cJSON_AddBoolToObject(st, "stock_resources_saved", stock_saved);
         cJSON_AddBoolToObject(st, "can_empty_stock_resources",
-                              stock_res_kb > 0 && stock_saved && access("/data/harmony/config/devices.json", F_OK) == 0);
+                              stock_res_kb > 0 && stock_saved && stock_import_done());
 
         send_cjson_resp(client_fd, 200, st);
         cJSON_Delete(st);
@@ -631,14 +694,8 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                     return 1;
                 }
                 /* Only after the stock import: the files are its source */
-                if (access("/data/harmony/config/devices.json", F_OK) != 0) {
+                if (!stock_import_done()) {
                     send_json_error(client_fd, 409, "The stock configuration is not imported yet: /data/resources kept");
-                    close(client_fd);
-                    return 1;
-                }
-                if (access(STOCK_RES_SAVED, F_OK) != 0) {
-                    send_json_error(client_fd, 409, "No saved copy of the stock files yet: run tools/backup_hub.py "
-                                                    "(build/deploy_hub.py runs it) first; /data/resources kept");
                     close(client_fd);
                     return 1;
                 }
@@ -653,6 +710,13 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                 } else if (!S_ISDIR(rst.st_mode)) {
                     /* A link would empty its target; the host tools remove only the link */
                     send_json_error(client_fd, 409, "/data/resources is not a directory: nothing removed");
+                    close(client_fd);
+                    return 1;
+                } else if (get_stock_resources_kb() > 0 && !stock_resources_saved()) {
+                    /* Checked after the link test: the fingerprint walk would follow a link */
+                    send_json_error(client_fd, 409, "No saved copy of the stock files as they are now: run "
+                                                    "tools/backup_hub.py (build/deploy_hub.py runs it) first; "
+                                                    "/data/resources kept");
                     close(client_fd);
                     return 1;
                 }

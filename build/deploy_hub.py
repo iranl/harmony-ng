@@ -216,7 +216,12 @@ class HubDeployer:
             if not files:
                 print("[+] /data/resources is already empty.")
                 return
-            reason = csr.refusal(self.run_ssh)
+            reason, _ = csr.refusal(self.run_ssh, csr.backup_hub.default_backup_dir())
+            if reason and reason.startswith(csr.NO_COPY) and self.dry_run and not self.no_backup:
+                # The dry run skipped the backup that saves them
+                print("    [dry-run] would empty /data/resources once the backup has saved the stock files "
+                      f"({len(files)} file(s), {total:,} bytes before compression)")
+                return
         except (ImportError, RuntimeError, subprocess.SubprocessError) as e:
             reason = str(e)
         if reason:

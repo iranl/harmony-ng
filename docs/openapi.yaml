@@ -1150,7 +1150,7 @@ paths:
         '400':
           description: "factory_reset without confirm RESET; clean_stock_resources without confirm EMPTY; auth: a name of 32 bytes or more or with ':' or a line break, a password over 128 bytes, renaming the admin without the password, or turning authentication on with no admin account and no password"
         '409':
-          description: "reboot while a software update runs (Software update in progress. Manual reboot blocked.); clean_stock_resources: the stock configuration is not imported yet (no /data/harmony/config/devices.json), no saved copy of the stock files (tools/backup_hub.py), or /data/resources is a link; auth: the admin name is taken by another account"
+          description: "reboot while a software update runs (Software update in progress. Manual reboot blocked.); clean_stock_resources: the stock configuration is not imported yet (no or an empty /data/harmony/config/devices.json), no saved copy of the stock files as they are now (the fingerprint in /data/harmony/stock_resources_saved, written by tools/backup_hub.py, does not match), or /data/resources is a link; auth: the admin name is taken by another account"
         '500':
           description: "factory_reset: the reset script is not installed on this Hub; clean_stock_resources: some files in /data/resources could not be removed, or it could not be read; auth: the accounts could not be saved, or the admin name has access tokens left by a deleted account and the token file cannot be changed"
         '503':

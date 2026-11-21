@@ -7,11 +7,10 @@ This tool removes /data/resources with everything in it, creates it again empty 
 flushes flash buffers. build/deploy_hub.py --clean-stock-resources uses the same steps.
 
 The delete cannot be undone on the Hub, and the stock firmware needs these files
-(Context.json). So it runs only when a saved copy exists: tools/backup_hub.py (which
-build/deploy_hub.py runs before every deploy) saves the files once per Hub in
-backups/stock_resources_<hub>.tar and marks the Hub (/data/harmony/stock_resources_saved).
-Without the mark this tool runs that backup first. tools/restore_stock.py puts the files
-back when the archive it restores has none.
+(Context.json). So it runs only when a copy of exactly the files on the Hub (names, sizes and
+md5) is in the backups folder here: tools/backup_hub.py (which build/deploy_hub.py runs before
+every deploy) keeps it in backups/stock_resources_<hub>.tar. Without one this tool runs that
+backup first. tools/restore_stock.py puts the files back on a restore of the stock firmware.
 
 The sizes shown are the files' own sizes: /data is JFFS2, which compresses, so the flash
 space freed is smaller.
@@ -28,7 +27,6 @@ import os
 import pathlib
 import subprocess
 import sys
-from collections.abc import Callable
 
 # Shared SSH host key policy and backups (tools/ssh_hostkeys.py, tools/backup_hub.py, next to this file)
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
@@ -37,17 +35,9 @@ if str(SCRIPT_DIR) not in sys.path:
 import backup_hub  # noqa: E402
 import ssh_hostkeys  # noqa: E402
 
-Run = Callable[[str], subprocess.CompletedProcess]
-RES_DIR = "/data/resources"
-
-# Stock BusyBox (1.13.4) has no find, du, wc or "ls -R", and its "ls -l" prints no date: walk the
-# tree in the shell and take the size from "ls -ld". A link at /data/resources is reported, not walked.
-SCAN_CMD = (
-    'walk() { for f in "$1"/* "$1"/.[!.]* "$1"/..?*; do '
-    'if [ -L "$f" ] || [ -f "$f" ]; then echo "$(ls -ld "$f" | awk \'{print $5}\') $f"; '
-    'elif [ -d "$f" ]; then walk "$f"; fi; done; }; '
-    f'if [ -L {RES_DIR} ]; then echo LINK; elif [ -d {RES_DIR} ]; then walk {RES_DIR}; fi'
-)
+Run = backup_hub.Run
+RES_DIR = backup_hub.STOCK_RES_DIR
+LinkError = backup_hub.LinkError
 
 # Remove the directory itself: a "/data/resources/.*" glob would also match "..", that is /data.
 # rm and mkdir must succeed; only the sync chain may fail (stock BusyBox has no sync applet).
@@ -56,12 +46,10 @@ EMPTY_CMD = (
     "{ /data/harmony/bin/hub_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || sync 2>/dev/null; true; }"
 )
 
-STATE_CMD = (f"[ -s /data/harmony/config/devices.json ] && echo imported; "
-             f"[ -f {backup_hub.STOCK_RES_SAVED} ] && echo \"saved $(cat {backup_hub.STOCK_RES_SAVED})\"; true")
-
-
-class LinkError(RuntimeError):
-    pass
+IMPORTED_CMD = "[ -s /data/harmony/config/devices.json ] && echo imported; true"
+NOT_IMPORTED = ("/data/harmony/config/devices.json is missing or empty: the stock configuration is not "
+                "imported yet (build/deploy_hub.py imports it)")
+NO_COPY = "no copy of the stock files as they are on the Hub"
 
 
 def ssh_runner(host: str, user: str, ssh_opts: list[str]) -> Run:
@@ -89,41 +77,22 @@ def checked(run: Run, cmd: str) -> str:
 def scan_stock_resources(run: Run) -> tuple[list[tuple[str, int]], int]:
     """Every file under /data/resources (subdirectories too) as (relative path, size) and the total
     bytes. Raises LinkError when /data/resources is a link."""
-    files: list[tuple[str, int]] = []
-    for line in checked(run, SCAN_CMD).splitlines():
-        if line.strip() == "LINK":
-            raise LinkError(f"{RES_DIR} is a link, not a directory: nothing is removed")
-        size, _, path = line.partition(" ")
-        if not path.startswith(RES_DIR + "/"):
-            continue
-        try:
-            files.append((path[len(RES_DIR) + 1:], int(size)))
-        except ValueError:
-            files.append((path[len(RES_DIR) + 1:], 0))
+    files = [(rel, max(size, 0)) for rel, (size, _) in backup_hub.hub_stock_files(run).items()]
     return files, sum(sz for _, sz in files)
 
 
-def hub_state(run: Run) -> tuple[bool, str]:
-    """(stock configuration imported, name of the saved stock files archive or "")."""
-    imported, saved = False, ""
-    for line in checked(run, STATE_CMD).splitlines():
-        if line == "imported":
-            imported = True
-        elif line.startswith("saved "):
-            saved = line[len("saved "):].strip() or "?"
-    return imported, saved
-
-
-def refusal(run: Run) -> str | None:
-    """Why the files must stay (None: they may go)."""
-    imported, saved = hub_state(run)
-    if not imported:
-        return ("/data/harmony/config/devices.json is missing or empty: the stock configuration is not "
-                "imported yet (build/deploy_hub.py imports it)")
-    if not saved:
-        return ("no saved copy of the stock files: run tools/backup_hub.py (build/deploy_hub.py runs it) "
-                "first, it saves them in backups/stock_resources_<hub>.tar")
-    return None
+def refusal(run: Run, backup_dir: pathlib.Path) -> tuple[str | None, pathlib.Path | None]:
+    """(why the files must stay or None, the local copy that holds exactly the Hub's files)."""
+    if checked(run, IMPORTED_CMD).strip() != "imported":
+        return NOT_IMPORTED, None
+    mac = backup_hub.hub_mac(run)
+    if not mac:
+        return "the Hub's MAC cannot be read, so its saved copy cannot be told apart from another Hub's", None
+    copy = backup_hub.matching_copy(backup_dir, mac, backup_hub.hub_stock_files(run))
+    if copy is None:
+        return (f"{NO_COPY} in {backup_dir} (stock_resources_{mac}*.tar): run tools/backup_hub.py "
+                "(build/deploy_hub.py runs it) on this computer first"), None
+    return None, copy
 
 
 def empty_stock_resources(run: Run) -> str | None:
@@ -160,17 +129,16 @@ def main() -> int:
 
     run = ssh_runner(hub_ip, args.user, get_ssh_opts(args.key))
     print(f"[*] Inspecting stock resources on Harmony Hub at {hub_ip}...")
-    probe = run("uname -m")
-    if probe.returncode != 0:
-        if not ssh_hostkeys.report_failure(probe.stderr, hub_ip):
-            print(f"[-] Cannot reach the Hub over SSH: {(probe.stderr or '').strip()}", file=sys.stderr)
-        return 1
-    if not (probe.stdout or "").strip().startswith("mips"):
-        print(f"[-] {hub_ip} is not a Harmony Hub (uname -m: {(probe.stdout or '').strip()}); nothing was changed.",
-              file=sys.stderr)
-        return 1
-
     try:
+        probe = run("uname -m")
+        if probe.returncode != 0:
+            if not ssh_hostkeys.report_failure(probe.stderr, hub_ip):
+                print(f"[-] Cannot reach the Hub over SSH: {(probe.stderr or '').strip()}", file=sys.stderr)
+            return 1
+        if not (probe.stdout or "").strip().startswith("mips"):
+            print(f"[-] {hub_ip} is not a Harmony Hub (uname -m: {(probe.stdout or '').strip()}); nothing was changed.",
+                  file=sys.stderr)
+            return 1
         files, total_bytes = scan_stock_resources(run)
     except (RuntimeError, subprocess.SubprocessError) as e:
         print(f"[-] {e}", file=sys.stderr)
@@ -186,20 +154,24 @@ def main() -> int:
         print(f"    - {fname.ljust(25)} {sz:>8} bytes ({sz / 1024:>5.1f} kB)")
     print(f"[+] Files: {total_bytes:,} bytes (~{total_kb} kB). /data compresses, so less flash space is freed.")
 
+    backup_dir = backup_hub.default_backup_dir()
     try:
-        reason = refusal(run)
-        if reason and "no saved copy" in reason and not args.dry_run:
-            print("[*] No saved copy of the stock files yet: running the backup first...")
-            backup_hub.backup_hub(hub_host=hub_ip, hub_user=args.user, ssh_key=args.key)
-            reason = refusal(run)
-        _, saved = hub_state(run)
+        reason, copy = refusal(run, backup_dir)
+        if reason and reason.startswith(NO_COPY):
+            if args.dry_run:
+                print(f"[dry-run] No copy of the stock files as they are on the Hub in {backup_dir} yet: the real "
+                      "run saves them first (tools/backup_hub.py), then empties /data/resources. Nothing was changed.")
+                return 0
+            print("[*] No copy of the stock files as they are on the Hub yet: running the backup first...")
+            backup_hub.backup_hub(hub_host=hub_ip, hub_user=args.user, ssh_key=args.key, backup_dir=backup_dir)
+            reason, copy = refusal(run, backup_dir)
     except (RuntimeError, subprocess.SubprocessError) as e:
         print(f"[-] Error querying Hub: {e}", file=sys.stderr)
         return 1
     if reason:
         print(f"[-] {reason}. Nothing was changed.", file=sys.stderr)
         return 1
-    print(f"[+] Saved copy of the stock files: {saved} (tools/restore_stock.py puts them back on a revert to stock).")
+    print(f"[+] Saved copy of the stock files: {copy} (tools/restore_stock.py puts them back on a revert to stock).")
 
     if args.dry_run:
         print("\n[dry-run] Would empty /data/resources. Nothing was changed.")

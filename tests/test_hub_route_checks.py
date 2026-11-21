@@ -13,7 +13,8 @@ Route checks of hub_daemon (port 9101, own mock root, clients bound to 127.0.0.2
  5  factory reset does not answer "initiated" when its script is not installed
  6  POST /api/settings refuses a timezone name the Hub does not know (it ran as CET)
  7  mqtt.json, which holds the broker password, is made readable by its owner only
- 8  the stock resources delete needs a confirmation, the stock import and a saved copy, never
+ 8  the stock resources delete needs a confirmation, the stock import and a mark whose fingerprint
+    matches the files (a saved copy of them as they are), never
     follows a link at /data/resources, and reports a file it could not remove
 """
 
@@ -26,6 +27,8 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from hub_harness import HubHarness  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools"))
+import backup_hub  # noqa: E402
 
 PORT = 9101
 HOST = "127.0.0.2"
@@ -247,14 +250,30 @@ def test_stock_resources():
         check(st == 409 and os.path.isfile(os.path.join(res_dir, "DeviceList.json")),
               "no saved copy: refused, files kept", "%s %s" % (st, r))
 
-        with open(saved, "w") as f:
-            f.write("stock_resources_test.tar\n")
+        def mark(files):
+            with open(saved, "w") as f:
+                f.write("stock_resources_test.tar %s\n" % backup_hub.stock_fingerprint(files))
+
+        # A mark from other files (changed since they were saved): refused
+        mark({"DeviceList.json": (2999, ""), "sub/Context.json": (2, "")})
+        st, r = raw("POST", "/system", clean)
+        check(st == 409 and os.path.isfile(os.path.join(res_dir, "DeviceList.json")),
+              "stale mark: refused, files kept", "%s %s" % (st, r))
+        mark({"DeviceList.json": (3000, ""), "sub/Context.json": (2, "")})
+
         devices = os.path.join(hub.data_dir, "config", "devices.json")
-        os.rename(devices, devices + ".off")
+        with open(devices, "rb") as f:
+            devices_body = f.read()
+        open(devices, "w").close()  # a cut upload
+        st, r = raw("POST", "/system", clean)
+        check(st == 409 and os.path.isfile(os.path.join(res_dir, "DeviceList.json")),
+              "empty devices.json: refused, files kept", "%s %s" % (st, r))
+        os.unlink(devices)
         st, r = raw("POST", "/system", clean)
         check(st == 409 and os.path.isfile(os.path.join(res_dir, "DeviceList.json")),
               "stock config not imported: refused, files kept", "%s %s" % (st, r))
-        os.rename(devices + ".off", devices)
+        with open(devices, "wb") as f:
+            f.write(devices_body)
 
         st, r = raw("GET", "/api/disk-space")
         check(r.get("can_empty_stock_resources") is True, "can empty with a saved copy", str(r))
@@ -281,6 +300,7 @@ def test_stock_resources():
             with open(os.path.join(res_dir, "ro", "f.json"), "w") as f:
                 f.write("{}")
             os.chmod(os.path.join(res_dir, "ro"), 0o555)
+            mark({"ro/f.json": (2, "")})
             st, r = raw("POST", "/system", clean)
             os.chmod(os.path.join(res_dir, "ro"), 0o755)
             check(st == 500, "file not removable: 500", "%s %s" % (st, r))
