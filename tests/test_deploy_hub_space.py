@@ -92,6 +92,23 @@ class SpaceCheck(unittest.TestCase):
         stub.chmod(0o755)
         self.assertTrue(self.deploy(), self.deployer.deploy_failures)
 
+    def test_parse_space_reply_edge_cases(self):
+        self.assertEqual(deploy_hub.parse_space_reply("4204 5120 0"), (4204, 0))
+        self.assertEqual(deploy_hub.parse_space_reply("4204 5120 220"), (4204, 220))
+        self.assertEqual(deploy_hub.parse_space_reply("0 0 0"), (None, 0))
+        self.assertEqual(deploy_hub.parse_space_reply("unknown unknown 0"), (None, 0))
+        self.assertEqual(deploy_hub.parse_space_reply("unknown unknown 50"), (None, 50))
+        self.assertEqual(deploy_hub.parse_space_reply("  0"), (None, 0))
+        self.assertEqual(deploy_hub.parse_space_reply(""), (None, 0))
+        self.assertEqual(deploy_hub.parse_space_reply("garbage"), (None, 0))
+
+    def test_empty_df_output_produces_unknown(self):
+        stub = self.stub_dir / "df"
+        stub.write_text("#!/bin/sh\n# outputs nothing and succeeds\nexit 0\n")
+        stub.chmod(0o755)
+        self.assertTrue(self.deploy(), self.deployer.deploy_failures)
+
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
