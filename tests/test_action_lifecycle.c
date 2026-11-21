@@ -12,6 +12,7 @@
 #include "../payload/source/resource_cache.h"
 #include "../payload/source/orchestrator.h"
 #include "../payload/source/hub_events.h"
+#include "../payload/source/net_action.h"
 
 /* Mock device database */
 static cJSON *s_mock_device_root = NULL;
@@ -21,6 +22,8 @@ orch_state_t orch_get_state(void) { return ORCH_STATE_RUNNING; }
 const char *orch_get_current_activity(void) { return "1"; }
 /* the MQTT-type device path puts a button event on the daemon's bus */
 void hub_events_emit(hub_event_type_t type, cJSON *payload) { (void)type; cJSON_Delete(payload); }
+/* HTTP/TCP devices (net_action.c): none in these tests */
+int net_action_send(const cJSON *dev, const cJSON *cmd, const char *dev_id, const char *dev_name, const char *command) { (void)dev; (void)cmd; (void)dev_id; (void)dev_name; (void)command; return 0; }
 
 /* The shared device list (resource_cache.h): every acquire must be released */
 static int s_list_held = 0;

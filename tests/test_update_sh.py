@@ -68,6 +68,36 @@ class UpdateScript(unittest.TestCase):
         self.run_update("check", "https://example.invalid/ota")
         self.assertNotIn("[--header]", self.wget_log.read_text().splitlines())
 
+    def _stub_hub_fetch(self) -> pathlib.Path:
+        """hub_fetch stub: "--probe" succeeds (with the library path set), other calls record
+        their arguments and fail."""
+        log = self.root / "fetch.log"
+        hub_fetch = self.root / "data" / "harmony" / "bin" / "hub_fetch"
+        hub_fetch.parent.mkdir(parents=True, exist_ok=True)
+        hub_fetch.write_text(
+            "#!/bin/sh\n"
+            f'[ "$LD_LIBRARY_PATH" = \'{self.root}/data/harmony/lib\' ] || exit 127\n'
+            '[ "$1" = --probe ] && exit 0\n'
+            f'for a in "$@"; do echo "[$a]"; done >> \'{log}\'; echo END >> \'{log}\'; exit 1\n')
+        hub_fetch.chmod(0o755)
+        return log
+
+    def test_hub_fetch_used_when_installed(self):
+        log = self._stub_hub_fetch()
+        (self.root / "data" / "harmony" / "cacert.pem").write_text("x\n")
+        self.run_update("check", "https://example.invalid/ota", "tok123")
+        args = log.read_text().splitlines()
+        self.assertIn("[--ca]", args)
+        self.assertIn("[Authorization: token tok123]", args)
+        self.assertIn(f"[{self.root}/data/harmony/cacert.pem]", args)
+        self.assertFalse(self.wget_log.exists(), "wget is not used when hub_util has fetch")
+
+    def test_wget_used_without_ca_bundle(self):
+        log = self._stub_hub_fetch()
+        self.run_update("check", "https://example.invalid/ota")
+        self.assertFalse(log.exists())
+        self.assertTrue(self.wget_log.exists(), "no CA bundle: busybox wget")
+
     def test_second_apply_refused_while_one_runs(self):
         self.holder = subprocess.Popen(["sh", "-c", "sleep 30; :", "update.sh"])
         time.sleep(0.2)

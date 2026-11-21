@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include "net_device.h"
 #include "http_api_commands.h"
 #include "http_util.h"
 #include "config_store.h"
@@ -11,6 +12,20 @@
 #include <string.h>
 #include <unistd.h>
 #include <strings.h>
+
+
+/* The request fields of an HTTP or TCP command (net_device.h); config_sanitize.c checks them
+ * and sets the keyCode */
+static void copy_net_cmd_fields(const cJSON *p, cJSON *cmd) {
+    static const char *const keys[] = { "httpMethod", "httpPath", "httpBody", "httpContentType",
+                                        "tcpPayload", "tcpFormat" };
+    for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
+        const cJSON *j = cJSON_GetObjectItemCaseSensitive(p, keys[i]);
+        if (!cJSON_IsString(j)) continue;
+        cJSON_DeleteItemFromObjectCaseSensitive(cmd, keys[i]);
+        cJSON_AddStringToObject(cmd, keys[i], j->valuestring);
+    }
+}
 
 int http_api_commands_handle(int client_fd, const char *method, const char *clean_path,
                              const char *query, const char *body, const char *req) {
@@ -87,7 +102,8 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                 const char *tstr = (dtype && dtype->valuestring) ? dtype->valuestring : "";
                                 cJSON *dmfg = cJSON_GetObjectItemCaseSensitive(dev_item, "manufacturer");
                                 const char *mstr = (dmfg && dmfg->valuestring) ? dmfg->valuestring : "";
-                                int dev_is_bt = (strcasestr(tstr, "bluetooth") != NULL || strcasestr(tstr, "bt") != NULL || strcasestr(mstr, "bluetooth") != NULL);
+                                int dev_net = net_device_kind(dev_item);
+                                int dev_is_bt = !dev_net && (strcasestr(tstr, "bluetooth") != NULL || strcasestr(tstr, "bt") != NULL || strcasestr(mstr, "bluetooth") != NULL);
                                 int dev_is_mqtt = (strcasestr(tstr, "mqtt") != NULL || strcasestr(mstr, "mqtt") != NULL);
                                 int dev_is_plugin = plugin_mgr_device_plugin_id(dev_item, NULL, 0);
                                 int is_bt_cmd = dev_is_bt || (strncmp(raw_data, "G:HID", 5) == 0) || (strncmp(raw_data, "HID:", 4) == 0) || (strncmp(raw_data, "hid:", 4) == 0) || is_macro;
@@ -110,7 +126,8 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                         cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "isMacro");
                                         cJSON_AddBoolToObject(cmd_match, "isMacro", 1);
                                     }
-                                    if (is_bt_cmd || is_mqtt_cmd || is_ble_cmd || is_plugin_cmd) {
+                                    if (dev_net) copy_net_cmd_fields(p, cmd_match);
+                                    if (is_bt_cmd || is_mqtt_cmd || is_ble_cmd || is_plugin_cmd || dev_net) {
                                         cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "repeats");
                                         cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "port");
                                     } else {
@@ -130,7 +147,8 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                     if (is_macro) {
                                         cJSON_AddBoolToObject(new_cmd, "isMacro", 1);
                                     }
-                                    if (!is_bt_cmd && !is_mqtt_cmd && !is_ble_cmd && !is_plugin_cmd) {
+                                    if (dev_net) copy_net_cmd_fields(p, new_cmd);
+                                    if (!is_bt_cmd && !is_mqtt_cmd && !is_ble_cmd && !is_plugin_cmd && !dev_net) {
                                         cJSON_AddNumberToObject(new_cmd, "repeats", repeats);
                                         if (port > 0) cJSON_AddNumberToObject(new_cmd, "port", port);
                                     }

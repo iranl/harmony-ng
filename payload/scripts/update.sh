@@ -10,11 +10,18 @@ else
   BB="busybox"
 fi
 
-# busybox wget does not verify TLS certificates, so nothing downloaded here is trusted until
-# hub_util ota-verify has checked it: the Ed25519 signature of manifest.json against the release
-# keys built into the firmware, then the SHA-256 of every file against the signed manifest.
+# Downloads use hub_fetch, which checks the server certificate against the CA bundle (it loads
+# /data/harmony/lib/libbearssl.so.0; the stock ld-uClibc ignores rpath, hence LD_LIBRARY_PATH).
+# busybox wget (checks no certificate) is used only when hub_fetch or its library is missing (a
+# Hub still on an older release) or the CA bundle is missing. Either way nothing downloaded here is trusted
+# until hub_util ota-verify has checked it: the Ed25519 signature of manifest.json against the
+# release keys built into the firmware, then the SHA-256 of every file against the signed manifest.
 WGET="$BB wget"
 HUB_UTIL=/data/harmony/bin/hub_util
+HUB_FETCH=/data/harmony/bin/hub_fetch
+HUB_LIB=/data/harmony/lib
+CA_BUNDLE=/data/harmony/cacert.pem
+USE_FETCH=""
 TAR="$BB tar"
 
 CMD="${1:-apply}"
@@ -53,10 +60,22 @@ download_retry() {
   local timeout="${3:-12}"
   local max_attempts="${4:-3}"
   local i=1
+  if [ -z "$USE_FETCH" ]; then
+    USE_FETCH=0
+    if [ -x "$HUB_FETCH" ] && [ -s "$CA_BUNDLE" ] && LD_LIBRARY_PATH="$HUB_LIB" "$HUB_FETCH" --probe >/dev/null 2>&1; then
+      USE_FETCH=1
+    fi
+  fi
   while [ $i -le $max_attempts ]; do
     rm -f "$dst" 2>/dev/null
     # the header is one argument: unquoted, the token was passed to wget as extra URLs
-    if [ -n "$TOKEN_ARG" ]; then
+    if [ "$USE_FETCH" = 1 ]; then
+      if [ -n "$TOKEN_ARG" ]; then
+        LD_LIBRARY_PATH="$HUB_LIB" "$HUB_FETCH" -T "$timeout" --ca "$CA_BUNDLE" -H "Authorization: token ${TOKEN_ARG}" -o "$dst" "$url"
+      else
+        LD_LIBRARY_PATH="$HUB_LIB" "$HUB_FETCH" -T "$timeout" --ca "$CA_BUNDLE" -o "$dst" "$url"
+      fi
+    elif [ -n "$TOKEN_ARG" ]; then
       $WGET -q -T "$timeout" --header "Authorization: token ${TOKEN_ARG}" -O "$dst" "$url" 2>/dev/null
     else
       $WGET -q -T "$timeout" -O "$dst" "$url" 2>/dev/null
@@ -138,7 +157,7 @@ install_file() {
 }
 
 # Binaries of the unified package that go to /data/harmony/bin
-BUNDLE_BINS="hub_daemon hub_rf hub_btstack dropbearmulti hub_sync register_ehci eth_fix"
+BUNDLE_BINS="hub_daemon hub_fetch hub_rf hub_btstack dropbearmulti hub_sync register_ehci eth_fix"
 
 # install_bundle PKG: install every file of the unpacked package; stops at the first failure.
 install_bundle() {
@@ -164,6 +183,12 @@ install_bundle() {
     if [ -f "$_pkg/bin/$_b" ]; then
       install_file "$_pkg/bin/$_b" "/data/harmony/bin/$_b" 755 || return 1
     fi
+  done
+  # Shared libraries for plugins (libbearssl.so.0) -> /data/harmony/lib/
+  for _f in "$_pkg/lib/"*; do
+    [ -f "$_f" ] || continue
+    mkdir -p /data/harmony/lib 2>/dev/null
+    install_file "$_f" "/data/harmony/lib/${_f##*/}" 755 || return 1
   done
   # C. BusyBox -> /cache/bin/
   if [ -f "$_pkg/bin/busybox" ]; then

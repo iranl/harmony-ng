@@ -193,6 +193,21 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
     return this.postForm('/mqtt', data);
   }
 
+  /* HTTP(S) and TCP devices: connection settings (JSON: httpHeaders is a list) */
+  async saveDeviceNet(data) {
+    return this.postJson('/api/device-save', data);
+  }
+
+  async testDeviceNet(deviceId, command) {
+    const data = { id: String(deviceId) };
+    if (command) data.command = command;
+    return this.postJson('/api/device-net-test', data);
+  }
+
+  async forgetDeviceNetPin(deviceId) {
+    return this.postJson('/api/device-net-pin-forget', { id: String(deviceId) });
+  }
+
   /* Network (Wi-Fi & Ethernet) */
   async getNetworkStatus() {
     const data = await this.request('/api/network-status');

@@ -9,6 +9,8 @@
 #include "hub_events.h"
 #include "ble_adv_payload.h"
 #include "plugin_mgr.h"
+#include "net_device.h"
+#include "net_action.h"
 #include "cJSON.h"
 
 #include <stdio.h>
@@ -639,6 +641,10 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
      * path, and an IR device whose type happens to match a plugin name stays IR */
     char plugin_id[64] = {0};
     int is_plugin = plugin_mgr_device_plugin_id(target_dev, plugin_id, sizeof(plugin_id));
+    /* HTTP and TCP devices by their type only (net_device.h): a name with "mqtt" in it does
+     * not make one an MQTT device */
+    int net_kind = is_plugin ? NET_KIND_NONE : net_device_kind(target_dev);
+    if (net_kind) is_mqtt = 0;
 
     /* Find Command */
     cJSON *cmds = cJSON_GetObjectItemCaseSensitive(target_dev, "commands");
@@ -804,6 +810,11 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
     if (is_plugin && plugin_id[0]) {
         cJSON *j_cfg = cJSON_GetObjectItemCaseSensitive(target_dev, "config");
         ret = hw_plugin_command_send(plugin_id, actual_dev_id, dev_name, plug_cmd, action, 0, j_cfg ? j_cfg : target_dev);
+    } else if (net_kind) {
+        /* One request per press, and again for each repeat of a held key; queued for the
+         * net_action worker, so a slow device never holds this lock */
+        ret = action == HW_BTN_ACTION_RELEASE ? 0 :
+              net_action_send(target_dev, target_cmd, actual_dev_id, dev_name, command);
     } else if (is_ble_adv) {
         /* One broadcast per press: the receiver acts on the packet, not on how long it is held */
         if (action == HW_BTN_ACTION_RELEASE || action == HW_BTN_ACTION_REPEAT) {
@@ -1088,7 +1099,7 @@ static int device_command_exists_in(const cJSON *root, const char *target, int m
     if (j_dmfg && cJSON_IsString(j_dmfg) && strcasestr(j_dmfg->valuestring, "mqtt")) is_mqtt = 1;
     cJSON *j_mtop = cJSON_GetObjectItemCaseSensitive(target_dev, "mqttTopic");
     if (j_mtop && cJSON_IsString(j_mtop) && j_mtop->valuestring && j_mtop->valuestring[0]) is_mqtt = 1;
-    if (is_mqtt) return 1;
+    if (is_mqtt && !net_device_kind(target_dev)) return 1;
 
     /* Connect and Disconnect are found in the list like any command, as the sender looks them
      * up (the sanitizer adds both to every Bluetooth device). Accepted for any device, a job

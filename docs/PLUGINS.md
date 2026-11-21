@@ -165,8 +165,9 @@ The `manifest.json` file defines the plugin identity and how it appears in the W
 | `files` | `array` | *(Dev installs)* Relative paths the dev install downloads next to `manifest.json`. |
 | `pairing` | `object` | *(Optional)* Pairing dialog texts (`supported`, `title`, `button_label`, `host_label`, `prompt`, `pin_length`). |
 | `device_definition` | `object` | *(Optional)* Schema for devices created using this plugin. `config_fields`, when present, is an array of objects, each with a string `key`. |
+| `requires_libs` | `array` | *(Optional)* File names of the Hub's shared libraries the binary links, e.g. `["libbearssl.so.0"]` (see "Using TLS: the shared BearSSL" below). |
 
-The Hub refuses an install whose manifest has no safe `id`, no `version`, no valid `entrypoint` (or one not in the archive), or a malformed `config_fields`.
+The Hub refuses an install whose manifest has no safe `id`, no `version`, no valid `entrypoint` (or one not in the archive), a malformed `config_fields`, or a `requires_libs` entry that is not in `/data/harmony/lib` (a Hub on older firmware: update it first).
 
 #### Config Field Types
 
@@ -321,6 +322,40 @@ mips-buildroot-linux-uclibc-gcc -Wall -Os -s -o my_daemon main.c -lm
 2. **Symbols missing from the stock uClibc 0.9.30**: the toolchain's headers are uClibc-ng 1.0.24, so some calls link but are not on the Hub. `<ctype.h>` functions (`isdigit`, `tolower`, ...) import `__ctype_b_loc` / `__ctype_tolower_loc`, which the Hub lacks: the plugin starts and dies at the first call. Write these checks by hand; `build_plugins.sh` refuses a binary that imports `__ctype_`. Link statically only when a symbol you need is missing and cannot be avoided.
 3. **No futex on the Hub kernel**: a thread waiting on a condition variable, a semaphore, a contended mutex or `pthread_join` spins at 100 % CPU (#211). Use one thread and a `poll()` loop (socket, timers as poll timeouts); if a second thread is unavoidable, wake it through a pipe it `poll()`s.
 4. **Prefer POSIX shell scripts** using BusyBox applets (`sed`, `awk`, `wget`, `nc`) when network protocols allow (such as HTTP REST APIs). A script entrypoint must also stay in the foreground (`exec` the last command).
+5. **TLS: link the Hub's BearSSL**, do not bundle one (next section).
+
+#### Using TLS: the shared BearSSL
+The Hub firmware ships BearSSL once, as `/data/harmony/lib/libbearssl.so.0` (about 165 KB, needs
+only `libc.so.0`). The firmware's own TLS client (`hub_fetch`, for updates and HTTPS devices) uses
+it too. A plugin links it instead of a static copy of its own:
+
+```bash
+# BearSSL sources at the pinned commit, then the firmware build makes payload/lib/libbearssl.so.0
+sh build/fetch_bearssl.sh
+sh build/compile_all.sh bearssl
+
+mips-buildroot-linux-uclibc-gcc -Wall -Os -s -I build/tmp/bearssl/inc -o bin/my_daemon main.c \
+    -L payload/lib -l:libbearssl.so.0
+```
+
+and lists it in the manifest: `"requires_libs": ["libbearssl.so.0"]`. The Hub starts every
+plugin with `LD_LIBRARY_PATH=/data/harmony/lib`: the stock `ld-uClibc` 0.9.30 ignores a
+binary's rpath (`-Wl,-rpath` does not help). A plugin binary started by hand needs the same
+variable. The `android-tv` plugin linked this way is 34 KB instead of 100 KB.
+
+- **The commit is part of the ABI.** BearSSL contexts (`br_ssl_client_context`, ...) are structs
+  the caller allocates, so their size and layout must match the library. The library is built
+  from the commit pinned in `build/fetch_bearssl.sh`: compile against the headers of that commit.
+  A new commit gets a new name (`libbearssl.so.1`), and the old one stays until the plugins that
+  need it are rebuilt.
+- **Certificates.** The Hub's CA bundle is `/data/harmony/cacert.pem` (PEM; strip CR before
+  feeding it to `br_pem_decoder`, a copy from a Windows checkout has CRLF line ends). A device on
+  the LAN with a self-signed certificate is better served by pinning its key on first use, as
+  the `android-tv` plugin does.
+- The library exports only the functions in `build/bearssl_exports.txt`: the TLS 1.2 client,
+  certificate and PEM decoding, hashes, HMAC, HKDF, HMAC-DRBG, RSA and EC keys and signatures,
+  raw AES/GCM/ChaCha20. A plugin that needs more asks for it in that list (a new name keeps the
+  SONAME; removing one needs a new SONAME).
 
 ---
 
@@ -361,7 +396,7 @@ To make your plugin visible to all HarmonyNG users out-of-the-box:
 3. Open a Pull Request: CI builds it for the Hub and runs the host tests. Once merged, the release workflow publishes `<plugin_id>-v<version>` and adds the plugin, with its SHA-256, to `repository.json`. Bump `version` in `manifest.json` to release a change.
 
 #### Checksums and URLs
-BusyBox `wget` on the Hub does not verify TLS certificates. Every install that is not marked `dev` needs a SHA-256: the request's `sha256`, or the `sha256` of the marketplace entry for that `download_url`. Without one the install is refused, and an archive whose SHA-256 differs is refused. A `sha256` sent with a `dev` URL install is refused (the raw files cannot be checked). `build_plugins.sh` in `harmony-ng-plugins` writes `repository.json` with the checksum of each archive it builds: upload those exact archives. A pull installs the current marketplace entry of the plugin's id (checked the same way), from the repository it was installed from (two repositories may list the same id), or a dev plugin again from its dev URL. A plugin whose repository is not known (uploaded, or installed by an older version whose archive no catalog lists now) cannot be pulled: install it again from the marketplace.
+Downloads use `hub_fetch`, which checks the server certificate against the Hub's CA bundle (BusyBox `wget`, which checks none, only when `hub_fetch` or the bundle is missing). Every install that is not marked `dev` needs a SHA-256: the request's `sha256`, or the `sha256` of the marketplace entry for that `download_url`. Without one the install is refused, and an archive whose SHA-256 differs is refused. A `sha256` sent with a `dev` URL install is refused (the raw files cannot be checked). `build_plugins.sh` in `harmony-ng-plugins` writes `repository.json` with the checksum of each archive it builds: upload those exact archives. A pull installs the current marketplace entry of the plugin's id (checked the same way), from the repository it was installed from (two repositories may list the same id), or a dev plugin again from its dev URL. A plugin whose repository is not known (uploaded, or installed by an older version whose archive no catalog lists now) cannot be pulled: install it again from the marketplace.
 
 URLs (repositories, downloads) must be `http://` or `https://` with plain characters only (letters, digits, `-._~:/?#@&+,=%`). File names in a manifest's `files` list must be relative paths of letters, digits, `.`, `_`, `-` and `/`, without `..`. An archive with an absolute path, a `..` entry, or a symbolic or hard link entry is refused.
 
@@ -405,7 +440,7 @@ Users can simply paste your repository URL into the **Repositories** tab in thei
 
 - A plugin runs as root. Installing one runs its code as root, so the install, pull and repository routes need authentication to be on and the admin role.
 - **What the authentication gate does not stop**: while authentication is off, any client on the LAN can turn it on with an account of its own (`POST /api/system-action`, action `auth`), sign in and install a plugin. The gate makes that visible (the owner is locked out of the Hub afterwards), it does not prevent it. Turn authentication on yourself before the Hub is on a network you do not control. Real protection against an untrusted LAN needs signed catalogs and archives (roadmap task 1.3).
-- **What the SHA-256 protects against, and what not**: the checksum catches a damaged or cut download. It does not prove the archive is the published one: `repository.json`, which carries the checksums, comes over the same unverified channel (`wget` without certificate checks, `http://` accepted). Someone who can change the traffic between the Hub and the repository can replace both. Signing `repository.json` in the release workflow and verifying it on the Hub (as firmware updates are verified) is planned (roadmap task 1.3); until then, add only repositories you trust, on a network you trust.
+- **What the SHA-256 protects against, and what not**: the checksum catches a damaged or cut download. It does not prove the archive is the published one: `repository.json`, which carries the checksums, comes over the same channel (`http://` is accepted, and an `https://` certificate is only as good as the CAs in the bundle). Someone who can change the traffic between the Hub and the repository can replace both. Signing `repository.json` in the release workflow and verifying it on the Hub (as firmware updates are verified) is planned (roadmap task 1.3); until then, add only repositories you trust, on a network you trust.
 
 ---
 

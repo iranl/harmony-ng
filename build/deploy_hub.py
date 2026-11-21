@@ -483,10 +483,10 @@ class HubDeployer:
                 )
                 if not self.dry_skip("create hub_util symlinks and purge legacy standalone binaries"):
                     self.run_ssh(util_setup)
-                core_bins = ["hub_daemon", "hub_rf", "hub_btstack"]
+                core_bins = ["hub_daemon", "hub_fetch", "hub_rf", "hub_btstack"]
             else:
                 core_bins = [
-                    "hub_daemon", "hub_rf", "hub_sntp", "hub_btstack", "hub_sync",
+                    "hub_daemon", "hub_fetch", "hub_rf", "hub_sntp", "hub_btstack", "hub_sync",
                     "mknod", "register_ehci", "eth_fix"
                 ]
             for b in core_bins:
@@ -603,6 +603,14 @@ class HubDeployer:
                         self.deploy_file_if_changed(cfg, f"/data/harmony/config/{cfg.name}", "644")
                         if cfg.name == "cacert.pem" and not self.dry_run:
                             self.run_ssh("ln -sf /data/harmony/config/cacert.pem /data/harmony/cacert.pem 2>/dev/null || true")
+
+            # Shared libraries for plugins (libbearssl.so.0)
+            lib_dir = self.repo_root / "payload" / "lib"
+            if lib_dir.is_dir():
+                print("[*] Syncing shared libraries to /data/harmony/lib/...")
+                for lib in sorted(lib_dir.iterdir()):
+                    if lib.is_file():
+                        self.deploy_file_if_changed(lib, f"/data/harmony/lib/{lib.name}", "755")
 
             # Deploy USB Ethernet kernel modules
             if self.modules_dir.is_dir():
