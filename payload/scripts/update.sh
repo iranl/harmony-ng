@@ -54,6 +54,16 @@ REPO="${REPO%/}"
 
 TIMESTAMP=$(date +%s 2>/dev/null || echo 1)
 
+# State of the last apply for GET /api/update-status: running, restarting (with the new version)
+# or failed, and since= the seconds since boot (hub_daemon ends a "running" older than 30 minutes
+# on that clock, which SNTP never steps). In RAM: a reboot clears it; the new hub_daemon ends
+# "restarting" when it starts.
+UPDATE_STATE=/tmp/hub_update.state
+set_update_state() {
+  _since=$(now_secs)
+  { echo "state=$1"; [ -z "$2" ] || echo "version=$2"; [ -z "$_since" ] || echo "since=$_since"; } > "$UPDATE_STATE" 2>/dev/null || true
+}
+
 download_retry() {
   local url="$1"
   local dst="$2"
@@ -322,14 +332,14 @@ EOF
   return 0
 }
 
-# The reboot at the end of an update must not cut an activity switch in the middle (the devices
+# The services restart at the end of an update must not cut an activity switch in the middle (the devices
 # were left half switched). hub_daemon refuses to start an update while one runs, but a switch can
 # start during the download: wait until GET /api/activity (loopback, no login) reports no switch,
 # no queued request and no steps left to send, twice 1 s apart (a finished switch hands over to its
-# queued follower in between). Gives up after UPDATE_ACTIVITY_WAIT_SECS (600 s) and reboots anyway
+# queued follower in between). Gives up after UPDATE_ACTIVITY_WAIT_SECS (600 s) and restarts anyway
 # (the new files are installed already). A query that fails is "unknown", not "no switch": only a
 # hub_daemon that is not running means no switch; one that does not answer for
-# UPDATE_ACTIVITY_FAIL_SECS (60 s) in a row lets the reboot go on. Times are real seconds from
+# UPDATE_ACTIVITY_FAIL_SECS (60 s) in a row lets the restart go on. Times are real seconds from
 # /proc/uptime (a query can take 3 s; no steps when SNTP sets the clock), counted from the sleeps
 # when it cannot be read.
 UPTIME_FILE="${UPDATE_UPTIME_FILE:-/proc/uptime}"
@@ -377,7 +387,7 @@ wait_activity_switch() {
       fi
       idle=0
       if [ "$said" = 0 ]; then
-        echo "[*] An activity switch is running: the reboot waits until it has finished (at most ${max} s)."
+        echo "[*] An activity switch is running: the restart waits until it has finished (at most ${max} s)."
         said=1
       fi
     else
@@ -393,7 +403,7 @@ wait_activity_switch() {
       [ "$_fs" = "none" ] && _fs=""
       fail_counted=$((fail_counted + 2))
       if [ "$(since_secs "$_fs" "$fail_counted")" -ge "$fail_max" ]; then
-        echo "[!] hub_daemon has not answered for $(since_secs "$_fs" "$fail_counted") s: rebooting anyway."
+        echo "[!] hub_daemon has not answered for $(since_secs "$_fs" "$fail_counted") s: restarting anyway."
         return 0
       fi
     fi
@@ -401,15 +411,16 @@ wait_activity_switch() {
     counted=$((counted + 2))
   done
   if [ "$idle" -gt 0 ]; then
-    echo "[*] Waited $(since_secs "$start" "$counted") s: rebooting."
+    echo "[*] Waited $(since_secs "$start" "$counted") s: restarting."
   else
-    echo "[!] The activity switch is still running after $(since_secs "$start" "$counted") s: rebooting anyway."
+    echo "[!] The activity switch is still running after $(since_secs "$start" "$counted") s: restarting anyway."
   fi
   return 0
 }
 
 do_apply() {
   touch /tmp/hub_updating.flag 2>/dev/null || true
+  set_update_state running
   TMPDIR="/tmp/ota_update"
   trap 'rm -f $INSTALLING /tmp/hub_updating.flag; rm -rf "$TMPDIR" 2>/dev/null' EXIT
   # A kill ends the install (the file being copied stays the old one)
@@ -484,7 +495,7 @@ do_apply() {
       fi
       link_dropbear
       # The package no longer has the recovery access point: its script, settings and the
-      # hub_util links it used go (the reboot after the update stops one still running)
+      # hub_util links it used go (one still running stops at the next reboot)
       rm -f /data/harmony/recovery_ap.sh /data/harmony/scripts/recovery_ap.sh /data/harmony/bin/recovery_ap.sh \
             /data/harmony/recovery_ap.conf /data/harmony/bin/hub_portal /data/harmony/bin/hub_dhcpd 2>/dev/null || true
       for b in $BUNDLE_BINS; do
@@ -615,6 +626,10 @@ do_apply() {
   echo "$NEW_VER" > /data/harmony/remote_ui.version 2>/dev/null || true
   rm -f /data/harmony/update_available.flag /data/harmony/remote_ui.ota.gz /cache/remote_ui.ota.gz \
         /data/harmony/elite_ui.ota.gz /data/harmony/elite_ui.version /cache/elite_ui.ota.gz 2>/dev/null || true
+  # What a reboot cleared and a services restart keeps: the icons extracted from the old
+  # icons.tar.gz (the new hub_daemon extracts them again when the folder is missing) and a remote
+  # image of the old version that hub_rf kept for a resume (sent unverified once its manifest is gone)
+  rm -rf /tmp/www/assets/icons /tmp/remote_ui.ota.gz /tmp/remote_manifest.json /tmp/remote_manifest.json.sig 2>/dev/null || true
 
   # 7. Clean up temporary directory
   rm -rf "$TMPDIR" 2>/dev/null
@@ -623,6 +638,16 @@ do_apply() {
   /data/harmony/bin/hub_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || sync 2>/dev/null || true
 
   wait_activity_switch
+  # As build/deploy_hub.py: restarting the services loads the new files, no reboot needed (an
+  # update has no kernel modules; a new rcS.local takes effect at the next boot). Detached, its
+  # output to /dev/null: the services must not write into the apply log.
+  set_update_state restarting "$NEW_VER"
+  if [ -x /data/harmony/init.sh ]; then
+    echo "[+] Update to v${NEW_VER} applied successfully. Restarting Hub services..."
+    rm -f /tmp/harmony_stop 2>/dev/null || true
+    /data/harmony/init.sh restart >/dev/null 2>&1 </dev/null &
+    return 0
+  fi
   echo "[+] Update to v${NEW_VER} applied successfully. Initiating safe Hub reboot..."
   if [ -x /data/harmony/safe_reboot.sh ]; then
     /data/harmony/safe_reboot.sh &
@@ -735,6 +760,16 @@ apply_locked() {
   proc_start $$ > "$APPLY_LOCK/start"
   ( do_apply )
   _rc=$?
+  # A kill -9 of the subshell skips its EXIT trap: the flag must not stay behind (a running update
+  # for 30 minutes), nor the package in RAM (an OOM kill is the likely cause). A "<file>.new" being
+  # copied stays on flash until the next apply removes it. The last "[-]" line says it ended (a
+  # TERM prints none of its own).
+  if [ $_rc -ne 0 ]; then
+    rm -f /tmp/hub_updating.flag 2>/dev/null
+    rm -rf /tmp/ota_update 2>/dev/null
+    echo "[-] The software update ended with exit code $_rc."
+    set_update_state failed
+  fi
   rm -rf "$APPLY_LOCK" 2>/dev/null
   return $_rc
 }

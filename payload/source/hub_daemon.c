@@ -18,6 +18,7 @@
 #include "hub_ntp.h"
 #include "http_api_system.h"
 #include "http_api_remotes.h"
+#include "http_api_ota.h"
 #include "hub_key_channel.h"
 #include "harmony_version.h"
 #include "wifi_config.h"
@@ -225,6 +226,7 @@ int main(int argc, char **argv) {
 
     /* 1. Hardware, Config Store & Orchestrator Core */
     config_store_init();
+    ota_update_state_init();
     /* a Wi-Fi test (web UI or USB setup) cut short by a kill or a power cut: previous files back */
     wifi_config_recover();
     /* Rewrite VERSION only when it differs: every daemon start wrote it to flash */

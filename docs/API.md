@@ -75,7 +75,7 @@ Returns high-level hub status, firmware, identity, active activity, flash space,
     and `commit`: this firmware, as in `/api/system-info`.
   - `total_kb`, `free_kb`: size and free space of the `/data` flash partition, in KB (not memory);
     `cache_total_kb`, `cache_free_kb`: the same for `/cache`.
-  - `updating`: `true` while a firmware update runs (`/tmp/hub_updating.flag` exists).
+  - `updating`: `true` while a firmware update runs or the services restart after it, as in `GET /api/update-status` (2.1).
   - `auth_enabled`: whether authentication is on. `role` (`"admin"` or `"user"`) and `user` are the
     caller's own: the account name, `pat:<token name>` for a personal access token, `"admin"` when
     authentication is off or the request comes from the Hub itself.
@@ -370,7 +370,7 @@ Triggers on-demand Bluetooth host reconnection supervision. `target` (also accep
 ### 1.10 System Actions
 Answers of the actions below:
 - `reboot`: `{"ok": true, "message": "Rebooting hub now"}`; `409` while a firmware update runs
-  (`/tmp/hub_updating.flag` exists).
+  or the services restart after it (`updating` of `GET /api/update-status`, 2.1).
 - `factory_reset`: `{"ok": true, "message": "Factory reset initiated. Reverting to stock firmware and rebooting."}`;
   `400` without `"confirm": "RESET"`.
 - `mqtt_publish`: only `topic` and `payload` are read. `retain` is ignored: the message goes out
@@ -512,10 +512,31 @@ Returns running version, commit hash, build date, architecture, and whether an u
     "bt_version": "BTstack v1.5 (UART)",
     "arch": "mips (AR9344)",
     "update_available": false,
-    "updating": false
+    "updating": false,
+    "update_state": "idle"
   }
   ```
-  `updating` is `true` while an update is being installed (`/tmp/hub_updating.flag` exists).
+  `update_state` is the state of the last `POST /api/update-apply` since the Hub started:
+  - `running`: `update.sh apply` downloads and installs (`/tmp/hub_updating.flag` exists and the
+    run started less than 30 minutes ago, counted on the uptime clock, which SNTP does not step).
+    `update_step` is the last line of its output, untranslated, when it has one.
+  - `restarting`: the update is installed and the Hub services restart (`init.sh restart`, no
+    reboot); until then the old daemon answers. `update_target` is the version installed. The
+    state ends when the new daemon starts, or after 10 minutes of uptime when none starts: from
+    then on `current_version` tells whether the new
+    version runs.
+  - `failed`: the update ended with an error and nothing or not all was installed. `update_error`
+    is its first error line (`[-] ...`, the cause), untranslated. Every failed run ends with
+    `[-] The software update ended with exit code N.`, which is the only one when the run was
+    killed.
+  - `idle`: no update since the Hub started, or the update ended (compare `current_version` with
+    the version before). An `update.sh` from a release before `update_state` writes no state (it
+    runs the first update to this release, and reboots the Hub at its end): there the update
+    reports `running` while it runs and `idle` after it, whether it failed or not.
+
+  `updating` is `true` for `running` and `restarting`, here and in `GET /api/status`. While it is
+  `true`, a second `POST /api/update-apply` gets `409` with `"status": "busy"` and a reboot through
+  `POST /api/system-action` gets `409`.
   `fw_version` and `firmware` are the Logitech base firmware read from `/etc/version`.
 
 ### 2.2 Check for Updates
@@ -552,12 +573,13 @@ Executes `/data/harmony/update.sh` in the background and restarts services.
   route that changes the Hub this one is for admins once authentication is on (11.5). With
   authentication off (the default after install) any client on the LAN may call it.
 - **Signed releases only**: the update source (the official `ota` branch, or `repo`) must publish `manifest.json` and `manifest.json.sig`, the Ed25519 signature of the manifest by a release key built into the Hub firmware (`payload/source/ota_keys.h`). `update.sh` checks the signature with `hub_util ota-verify`, takes the version from the signed manifest, and installs a file only when its SHA-256 matches the manifest. Without a valid signature nothing is changed, whatever server `repo` names. Downloads use `hub_fetch`, which checks the server certificate against the CA bundle (`/data/harmony/cacert.pem`); a Hub without `hub_fetch` (the first update from an older release) or without the bundle falls back to BusyBox `wget`, which checks no certificate. The signature check does not depend on TLS either way.
-- **Not during an activity switch**: the update ends with a reboot, which must not cut an activity switch in the middle. While a switch runs, a request is queued behind it, or the steps after the switch point are still being sent, the request is refused with **`409 Conflict`** and starts nothing:
+- **Services restart, no reboot**: once every file is installed, `update.sh` restarts the Hub services with `init.sh restart`, as `build/deploy_hub.py` does by default. An update has no kernel modules. Waiting for the next boot: a new `rcS.local`, the running SSH server (it keeps its old binary) and the USB port mode chosen at boot. `update.sh` removes what a reboot used to clear and the new daemon would reuse: the icons extracted from the old `icons.tar.gz` (`/tmp/www/assets/icons`) and a remote image kept for a resume (`/tmp/remote_ui.ota.gz`, `/tmp/remote_manifest.json*`). Without an executable `init.sh` it reboots the Hub (`safe_reboot.sh`) instead.
+- **Not during an activity switch**: the update ends with a services restart, which must not cut an activity switch in the middle. While a switch runs, a request is queued behind it, or the steps after the switch point are still being sent, the request is refused with **`409 Conflict`** and starts nothing:
   ```json
   {"ok": false, "status": "activity_switch", "error": "An activity switch is running: start the update again when it has finished",
    "busy": true, "sending": true, "queued": null}
   ```
-  Send it again when `GET /api/activity` shows `busy` and `sending` false and `queued` null. A switch that starts while the update downloads holds the reboot: `update.sh` waits until `GET /api/activity` shows no switch twice in a row, 1 s apart (at most 10 minutes, then it reboots anyway, the new files being installed already). A query that fails counts as unknown: `update.sh` keeps asking, and reboots only when `hub_daemon` is not running or has not answered for 60 s. Both limits are real time from `/proc/uptime` (a query can take 3 s; a clock set by SNTP during the wait does not end it). Not covered: the fallback without an executable `update.sh` (`init.sh restart` 1 s after the request, so only the 409 at the request protects it); the first update to this version, which the old `update.sh` runs (the wait starts with the update after it); a switch started in the second between the last idle answer and the reboot; `build/deploy_hub.py` and `POST /api/system-action` `reboot`, which do not look at a running switch.
+  Send it again when `GET /api/activity` shows `busy` and `sending` false and `queued` null. A switch that starts while the update downloads holds the restart: `update.sh` waits until `GET /api/activity` shows no switch twice in a row, 1 s apart (at most 10 minutes, then it restarts anyway, the new files being installed already). A query that fails counts as unknown: `update.sh` keeps asking, and restarts only when `hub_daemon` is not running or has not answered for 60 s. Both limits are real time from `/proc/uptime` (a query can take 3 s; a clock set by SNTP during the wait does not end it). Not covered: the fallback without an executable `update.sh` (`init.sh restart` 1 s after the request, so only the 409 at the request protects it); the first update to this version, which the old `update.sh` runs (the wait starts with the update after it); a switch started in the second between the last idle answer and the restart; `build/deploy_hub.py` and `POST /api/system-action` `reboot`, which do not look at a running switch.
 - **Response `200 OK`**:
   ```json
   {
@@ -566,7 +588,7 @@ Executes `/data/harmony/update.sh` in the background and restarts services.
     "message": "Software update triggered. Hub services downloading and applying in background."
   }
   ```
-- **Response `409 Conflict`**: `{"ok": false, "status": "busy", "error": "A software update is already running"}` while an update started earlier is still running (its flag is less than 30 minutes old). `update.sh apply` also runs only once at a time.
+- **Response `409 Conflict`**: `{"ok": false, "status": "busy", "error": "A software update is already running"}` while an update started earlier is still running or the services restart after it (`update_state` `running` or `restarting`, 2.1). `update.sh apply` also runs only once at a time.
 
 ---
 

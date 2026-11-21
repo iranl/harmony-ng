@@ -360,6 +360,13 @@ static struct {
 } s_left[MAX_LEFTOVERS];
 static pthread_mutex_t s_left_lock = PTHREAD_MUTEX_INITIALIZER;
 
+/* Seconds on the monotonic clock: the SNTP step from 1970 does not cut or stretch the grace */
+static time_t mono_s(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec;
+}
+
 /* Plugin processes no slot tracks: helpers left when a plugin's leader died, a copy that
  * daemonized, the plugins of a hub_daemon that was killed. Each gets one SIGTERM, and the
  * SIGKILL PLUGIN_TERM_GRACE_S later from plugin_mgr_tick(): nothing waits here, and this
@@ -389,7 +396,7 @@ static void sweep_leftovers(const char *id, pid_t signalled) {
         found[n++] = pid;
     }
     closedir(d);
-    time_t now = time(NULL);
+    time_t now = mono_s();
     pthread_mutex_lock(&s_left_lock);
     for (int i = 0; i < n; i++) {
         int j, free_j = -1;
@@ -416,7 +423,7 @@ static void sweep_leftovers(const char *id, pid_t signalled) {
  * are still waiting. */
 static int reap_leftovers(int force) {
     int waiting = 0;
-    time_t now = time(NULL);
+    time_t now = mono_s();
     pthread_mutex_lock(&s_left_lock);
     for (int j = 0; j < MAX_LEFTOVERS; j++) {
         pid_t pid = s_left[j].pid;
@@ -541,7 +548,7 @@ static int do_start(const char *plugin_id) {
     unlink(marker);
 
     /* State that survives an update: the plugin directory is replaced on every install */
-    char data_dir[160];
+    char data_dir[256];
     snprintf(data_dir, sizeof(data_dir), "%s/%s", HARMONY_PLUGINS_DATA_DIR, plugin_id);
     mkdir(HARMONY_PLUGIN_ROOT, 0755);
     mkdir(HARMONY_PLUGINS_DATA_DIR, 0755);
@@ -558,7 +565,7 @@ static int do_start(const char *plugin_id) {
     snprintf(sock_path, sizeof(sock_path), "%s/%s.sock", HARMONY_PLUGINS_RUN_DIR, plugin_id);
     if (access(exe, X_OK) != 0) return -1;
 
-    char e_id[96], e_sock[160], e_data[200];
+    char e_id[96], e_sock[160], e_data[288];
     snprintf(e_id, sizeof(e_id), "HARMONY_PLUGIN_ID=%s", plugin_id);
     snprintf(e_sock, sizeof(e_sock), "HARMONY_SOCKET=%s", sock_path);
     snprintf(e_data, sizeof(e_data), "HARMONY_PLUGIN_DATA=%s", data_dir);
@@ -628,8 +635,11 @@ static int do_start(const char *plugin_id) {
     return rc;
 }
 
-/* SIGTERM to each plugin's process group, up to 1 s for all of them to exit, then SIGKILL.
- * All at once: one by one, each plugin that ignores SIGTERM cost 1 s of init.sh's 2 s. */
+/* SIGTERM to each plugin's process group, up to 1 s for the leaders to exit, then SIGKILL to
+ * the leaders that did not. Only the leaders: a helper of the group keeps its SIGTERM and
+ * finishes its EXIT trap (ps5-wake restores the Bluetooth address, about 5 s); the caller
+ * hands what is left of the group to the leftover table (SIGKILL after the grace). All at
+ * once: one by one, each plugin that ignores SIGTERM cost 1 s of init.sh's 2 s. */
 static void stop_pids(pid_t *pids, int n) {
     int status;
     for (int i = 0; i < n; i++) {
@@ -647,9 +657,7 @@ static void stop_pids(pid_t *pids, int n) {
             usleep(50000);
         }
         for (int i = 0; round == 0 && i < n; i++) {
-            if (pids[i] <= 0) continue;
-            kill(-pids[i], SIGKILL);
-            kill(pids[i], SIGKILL);
+            if (pids[i] > 0) kill(pids[i], SIGKILL);
         }
     }
 }
@@ -988,9 +996,10 @@ int plugin_mgr_init(void) {
     mkdir(HARMONY_PLUGINS_DIR, 0755);
     snapshot_env();
     /* the plugins of a hub_daemon that was killed (kill -9, crash) are no child of this one:
-     * gone before the new copies start (this runs before the main loop) */
+     * SIGTERM now, SIGKILL from plugin_mgr_tick() after the grace. No wait: this runs after
+     * the sockets listen, and a helper's EXIT trap held the first answer up to 8 s. The new
+     * copies start meanwhile, as at a watchdog restart. */
     sweep_leftovers(NULL, 0);
-    for (int t = 0; t < (PLUGIN_TERM_GRACE_S + 1) * 10 && reap_leftovers(0) > 0; t++) usleep(100000);
     recover_replaced_dirs();
 
     DIR *d = opendir(HARMONY_PLUGINS_DIR);
@@ -1072,22 +1081,23 @@ static int wd_restarts(const char *id) {
 void plugin_mgr_tick(void) {
     reap_leftovers(0);
     /* /tmp is RAM: a log over the limit starts again (plugins write it with O_APPEND). At the
-     * 10 s watchdog tick a plugin writing 2 MB/s reached 19 MB first. */
-    char ids[MAX_CHILDREN][64];
-    int n = 0;
-    pthread_mutex_lock(&s_kids_lock);
-    for (int i = 0; i < MAX_CHILDREN; i++) {
-        if (s_kids[i].pid > 0) memcpy(ids[n++], s_kids[i].id, sizeof(ids[0]));
-    }
-    pthread_mutex_unlock(&s_kids_lock);
-    for (int i = 0; i < n; i++) {
-        char log_path[160];
+     * 10 s watchdog tick a plugin writing 2 MB/s reached 19 MB first. Every log of the run
+     * folder, not only those of running slots: a helper writes on while its leader is dead
+     * and waits for the next backoff restart. */
+    DIR *d = opendir(HARMONY_PLUGINS_RUN_DIR);
+    if (!d) return;
+    struct dirent *de;
+    while ((de = readdir(d)) != NULL) {
+        size_t l = strlen(de->d_name);
+        if (l < 5 || strcmp(de->d_name + l - 4, ".log") != 0) continue;
+        char log_path[400];
         struct stat lst;
-        snprintf(log_path, sizeof(log_path), "%s/%s.log", HARMONY_PLUGINS_RUN_DIR, ids[i]);
-        if (stat(log_path, &lst) == 0 && lst.st_size > PLUGIN_LOG_MAX_BYTES && truncate(log_path, 0) == 0) {
-            printf("[*] Plugin '%s' log over %d KB: emptied\n", ids[i], PLUGIN_LOG_MAX_BYTES / 1024);
+        snprintf(log_path, sizeof(log_path), "%s/%s", HARMONY_PLUGINS_RUN_DIR, de->d_name);
+        if (stat(log_path, &lst) == 0 && S_ISREG(lst.st_mode) && lst.st_size > PLUGIN_LOG_MAX_BYTES && truncate(log_path, 0) == 0) {
+            printf("[*] Plugin log %s over %d KB: emptied\n", de->d_name, PLUGIN_LOG_MAX_BYTES / 1024);
         }
     }
+    closedir(d);
 }
 
 void plugin_mgr_watchdog_tick(void) {

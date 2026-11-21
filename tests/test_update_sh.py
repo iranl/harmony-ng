@@ -6,7 +6,9 @@ temporary directory and busybox replaced by a stub whose wget records its argume
   into separate words, so wget got the token as an extra URL and every download failed;
 - one apply at a time: with the lock held by a running update.sh, a second apply stops before
   it touches anything; a lock left by a run that no longer exists, or whose pid now belongs
-  to another process (other start time), is taken over and removed at the end.
+  to another process (other start time), is taken over and removed at the end;
+- a failed apply records state=failed with the uptime, and an apply killed with -9 (no EXIT
+  trap) still removes the flag and records failed with a last "[-]" line.
 """
 
 from __future__ import annotations
@@ -39,11 +41,12 @@ class UpdateScript(unittest.TestCase):
         stub = self.root / "stub" / "busybox"
         stub.write_text(
             "#!/bin/sh\n"
-            f'if [ "$1" = wget ]; then shift; for a in "$@"; do echo "[$a]"; done >> \'{self.wget_log}\'; '
+            f'if [ "$1" = wget ]; then [ -z "$UPD_WGET_SLEEP" ] || sleep "$UPD_WGET_SLEEP"; shift; for a in "$@"; do echo "[$a]"; done >> \'{self.wget_log}\'; '
             f"echo END >> '{self.wget_log}'; exit 1; fi\n"
             'exec "$@"\n')
         stub.chmod(0o755)
-        self.env = dict(os.environ, PATH=f"{self.root}/stub:/usr/bin:/bin")
+        (self.root / "uptime").write_text("1234.56 99.0\n")
+        self.env = dict(os.environ, PATH=f"{self.root}/stub:/usr/bin:/bin", UPDATE_UPTIME_FILE=str(self.root / "uptime"))
         self.lock = self.root / "tmp" / "ota_update.lock"
         self.holder = None
 
@@ -107,7 +110,64 @@ class UpdateScript(unittest.TestCase):
         self.assertIn("Another software update is running", res.stdout)
         self.assertNotIn("Starting software update", res.stdout)
         self.assertFalse((self.root / "tmp" / "hub_updating.flag").exists())
+        self.assertFalse((self.root / "tmp" / "hub_update.state").exists(),
+                         "a refused run leaves the state of the running one alone")
         self.assertTrue(self.lock.exists(), "the running update keeps its lock")
+
+    def test_failed_apply_records_failed_state(self):
+        # wget always fails: no signed manifest, nothing installed
+        res = self.run_update("apply")
+        self.assertIn("Update refused", res.stdout)
+        self.assertEqual((self.root / "tmp" / "hub_update.state").read_text(), "state=failed\nsince=1234\n")
+        self.assertFalse((self.root / "tmp" / "hub_updating.flag").exists())
+        self.assertIn("[-] The software update ended with exit code 1.", res.stdout)
+
+    def test_killed_apply_removes_the_flag(self):
+        # kill -9 of the ( do_apply ) subshell skips its EXIT trap; the parent cleans up
+        env = dict(self.env, UPD_WGET_SLEEP="30")
+        out_path = self.root / "apply.out"
+        with open(out_path, "w") as out_f:
+            proc = subprocess.Popen(["sh", str(self.script), "apply"], env=env, stdout=out_f, text=True)
+        flag = self.root / "tmp" / "hub_updating.flag"
+        for _ in range(100):
+            if flag.exists():
+                break
+            time.sleep(0.05)
+        self.assertTrue(flag.exists())
+        time.sleep(0.3)
+        kids = self.children_of(proc.pid)
+        self.assertTrue(kids, "the apply subshell runs")
+        below = [d for k in kids for d in self.descendants_of(k)]
+        for pid in kids:
+            os.kill(pid, 9)
+        proc.wait(timeout=30)
+        for pid in below:
+            try:
+                os.kill(pid, 9)
+            except ProcessLookupError:
+                pass
+        out = out_path.read_text()
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertFalse(flag.exists(), "the flag of the killed run is gone")
+        self.assertFalse((self.root / "tmp" / "ota_update").exists(), "its work directory in RAM is gone")
+        self.assertEqual((self.root / "tmp" / "hub_update.state").read_text(), "state=failed\nsince=1234\n")
+        self.assertIn("[-] The software update ended with exit code 137.", out)
+
+    def children_of(self, pid: int) -> list[int]:
+        return [int(p.name) for p in pathlib.Path("/proc").iterdir() if p.name.isdigit() and self.ppid_of(int(p.name)) == pid]
+
+    def descendants_of(self, pid: int) -> list[int]:
+        out = []
+        for k in self.children_of(pid):
+            out += [k] + self.descendants_of(k)
+        return out
+
+    @staticmethod
+    def ppid_of(pid: int) -> int:
+        try:
+            return int(pathlib.Path(f"/proc/{pid}/stat").read_text().rsplit(") ", 1)[1].split()[1])
+        except (OSError, IndexError, ValueError):
+            return -1
 
     def start_of(self, pid: int) -> str:
         return pathlib.Path(f"/proc/{pid}/stat").read_text().split(") ")[1].split()[19]

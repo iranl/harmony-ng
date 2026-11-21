@@ -118,12 +118,7 @@
     "update_check_failed_msg",
     "update_btn",
     "hub_downloading_update",
-    "hub_updated_rebooting",
-    "hub_updated_rebooting_wait",
     "update_wait_timed_out",
-    "hub_is_rebooting",
-    "hub_updated_reboot_complete_ver",
-    "hub_rebooting_reconnecting",
     "no_saved_hubs_yet",
     "scanning_ellipsis",
     "scanning_subnet_port",
@@ -902,6 +897,16 @@
     "net_no_pin",
     "net_cmd_name_required",
     "net_cmd_saved"
+    "plg_upload_too_large"
+    "hub_update_restarting",
+    "hub_update_reconnecting",
+    "hub_update_complete_ver",
+    "hub_update_failed_msg",
+    "hub_update_version_unchanged",
+    "hub_update_no_restart",
+    "hub_update_login_again",
+    "hub_update_ended_ver",
+    "hub_updating_desc"
   ],
   "fr": [
     "hold_repeat",
@@ -1021,12 +1026,7 @@
     "update_check_failed_msg",
     "update_btn",
     "hub_downloading_update",
-    "hub_updated_rebooting",
-    "hub_updated_rebooting_wait",
     "update_wait_timed_out",
-    "hub_is_rebooting",
-    "hub_updated_reboot_complete_ver",
-    "hub_rebooting_reconnecting",
     "no_saved_hubs_yet",
     "scanning_ellipsis",
     "scanning_subnet_port",
@@ -1805,6 +1805,16 @@
     "net_no_pin",
     "net_cmd_name_required",
     "net_cmd_saved"
+    "plg_upload_too_large"
+    "hub_update_restarting",
+    "hub_update_reconnecting",
+    "hub_update_complete_ver",
+    "hub_update_failed_msg",
+    "hub_update_version_unchanged",
+    "hub_update_no_restart",
+    "hub_update_login_again",
+    "hub_update_ended_ver",
+    "hub_updating_desc"
   ],
   "nl": [
     "hold_repeat",
@@ -1924,12 +1934,7 @@
     "update_check_failed_msg",
     "update_btn",
     "hub_downloading_update",
-    "hub_updated_rebooting",
-    "hub_updated_rebooting_wait",
     "update_wait_timed_out",
-    "hub_is_rebooting",
-    "hub_updated_reboot_complete_ver",
-    "hub_rebooting_reconnecting",
     "no_saved_hubs_yet",
     "scanning_ellipsis",
     "scanning_subnet_port",
@@ -2708,6 +2713,16 @@
     "net_no_pin",
     "net_cmd_name_required",
     "net_cmd_saved"
+    "plg_upload_too_large"
+    "hub_update_restarting",
+    "hub_update_reconnecting",
+    "hub_update_complete_ver",
+    "hub_update_failed_msg",
+    "hub_update_version_unchanged",
+    "hub_update_no_restart",
+    "hub_update_login_again",
+    "hub_update_ended_ver",
+    "hub_updating_desc"
   ],
   "es": [
     "hold_repeat",
@@ -2827,12 +2842,7 @@
     "update_check_failed_msg",
     "update_btn",
     "hub_downloading_update",
-    "hub_updated_rebooting",
-    "hub_updated_rebooting_wait",
     "update_wait_timed_out",
-    "hub_is_rebooting",
-    "hub_updated_reboot_complete_ver",
-    "hub_rebooting_reconnecting",
     "no_saved_hubs_yet",
     "scanning_ellipsis",
     "scanning_subnet_port",
@@ -3611,6 +3621,16 @@
     "net_no_pin",
     "net_cmd_name_required",
     "net_cmd_saved"
+    "plg_upload_too_large"
+    "hub_update_restarting",
+    "hub_update_reconnecting",
+    "hub_update_complete_ver",
+    "hub_update_failed_msg",
+    "hub_update_version_unchanged",
+    "hub_update_no_restart",
+    "hub_update_login_again",
+    "hub_update_ended_ver",
+    "hub_updating_desc"
   ],
   "it": [
     "hold_repeat",
@@ -3730,12 +3750,7 @@
     "update_check_failed_msg",
     "update_btn",
     "hub_downloading_update",
-    "hub_updated_rebooting",
-    "hub_updated_rebooting_wait",
     "update_wait_timed_out",
-    "hub_is_rebooting",
-    "hub_updated_reboot_complete_ver",
-    "hub_rebooting_reconnecting",
     "no_saved_hubs_yet",
     "scanning_ellipsis",
     "scanning_subnet_port",
@@ -4514,5 +4529,15 @@
     "net_no_pin",
     "net_cmd_name_required",
     "net_cmd_saved"
+    "plg_upload_too_large"
+    "hub_update_restarting",
+    "hub_update_reconnecting",
+    "hub_update_complete_ver",
+    "hub_update_failed_msg",
+    "hub_update_version_unchanged",
+    "hub_update_no_restart",
+    "hub_update_login_again",
+    "hub_update_ended_ver",
+    "hub_updating_desc"
   ]
 }

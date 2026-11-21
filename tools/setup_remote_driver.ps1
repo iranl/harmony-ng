@@ -99,6 +99,7 @@ if ($pnpText -match "Added successfully" -or $pnpText -match "Driver package add
 } else {
     Write-Host "[!] pnputil output:" -ForegroundColor Yellow
     Write-Host $pnpText -ForegroundColor Gray
+    throw "pnputil could not add the driver package (exit code $LASTEXITCODE). If it reports a catalog hash mismatch, rndis.inf must have CRLF line endings exactly as signed in RNDIS.cat."
 }
 
 # 4. Check for Connected Gadget & Force Re-binding
