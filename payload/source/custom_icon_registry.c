@@ -165,7 +165,7 @@ bool custom_icon_registry_has_uploaded_file(const char *icon_name) {
 
 int custom_icon_registry_sync_remote(uint8_t target_slot, uint16_t custom_id, const char *icon_name) {
     if (custom_id < CUSTOM_ICON_BASE_ID || !icon_name || !icon_name[0]) return -1;
-    if (target_slot < 1 || target_slot > 2) target_slot = 1;
+    if (target_slot < 1 || target_slot > MAX_PAIRED_REMOTES) target_slot = 1;
 
     char norm[80] = {0};
     normalize_name(icon_name, norm, sizeof(norm));

@@ -384,6 +384,8 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     setInputVal('devPowerOnDelay', dev.power_on_delay !== undefined ? dev.power_on_delay : dev.powerOnDelay, 1500);
     const pwrAlwaysCheck = document.getElementById('devIsPowerAlwaysOn');
     if (pwrAlwaysCheck) pwrAlwaysCheck.checked = Boolean(dev.is_power_always_on || dev.isPowerAlwaysOn);
+    const hideCheck = document.getElementById('devHideOnRemote');
+    if (hideCheck) hideCheck.checked = Boolean(dev.hideOnRemote);
 
     const editName = document.getElementById('editDevName');
     const editType = document.getElementById('editDevType');

@@ -92,7 +92,7 @@ bool ui_menu_handle_key(int code) {
         case 108: case 74:  /* KEY_DOWN, rocker down */
             g_menu_sel = (g_menu_sel + 1) % n;
             break;
-        case 28: case 148:  /* OK, KEY_PROG1 */
+        case 28: case 352: case 148:  /* OK (KEY_ENTER, KEY_OK), KEY_PROG1 */
             menu_activate(g_menu_sel);
             break;
         case 158: case 202: case 174:  /* Back, KEY_PROG3, Exit */

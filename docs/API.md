@@ -626,7 +626,9 @@ Returns `devices.json` as stored (`{"devices": [...]}`), `404` when it cannot be
 #### `POST /api/device-save` or `POST /ir/device`
 Creates or updates a device definition. A field that is left out keeps its stored value; a field
 with another name than those below is ignored without an error. Also read: `icon`, `powerOnDelay`,
-`isPowerAlwaysOn`, `powerOnSequence`, `powerOffSequence`, and for a Bluetooth device `bdaddr`
+`isPowerAlwaysOn`, `hideOnRemote` (true leaves the device out of the Elite's device pages and
+activity cards at the next config push; its commands still work from activity screen buttons
+and keys), `powerOnSequence`, `powerOffSequence`, and for a Bluetooth device `bdaddr`
 (older name `btHost`), `btAutoReconnect` (default on), `btReconnectDurationSec`,
 `btReconnectDelaySec`, `btTriggerDeviceId` and `btTriggerCommandName`. The MQTT pulse length is
 `mqttPulseMs` (milliseconds, default 1000); only `POST /api/device-mqtt-test` also takes `mqttPulse`.
@@ -1554,8 +1556,9 @@ Returns CC2544 radio state, paired remote slots, model identification, screen ca
   slot is `in_sync` when its remote reported the same number as `config_version` (always `true`
   for a Companion or Smart Control, which takes no configuration).
 - `ota`: the state of the RF firmware update, the same object as `GET /api/rf/ota-status` (7.5).
-- Both slot objects are always there, with every field; a slot without a remote has
-  `"active": false`. `sw_version`: the remote software's version as it reported it (`"unknown"`
+- The Hub has 6 remote slots (the CC2544 pipe table). The objects of slots 1 and 2 are always
+  there, with every field; a slot without a remote has `"active": false`. Slots 3 to 6 are listed
+  only while a remote is paired there (or the radio still has an address for the slot). `sw_version`: the remote software's version as it reported it (`"unknown"`
   before its first report, `"N/A"` for a remote without a screen).
 - `slots[].link`: RF traffic with the remote since `hub_rf` started: protocol frames received, frames sent that wait for an ACK (resends included) and how many were ACKed, resends, sends the Hub's CC2544 refused (NAK), and seconds since the last frame from the remote (`-1` before the first).
 - `slots[].link.key_*`: key frames of a touchscreen remote since `hub_rf` started. A key frame is sent once, with no acknowledgement and no resend; a remote that numbers its key frames (`docs/HARMONY_RF_PROTOCOL.md`, `RF_MSG_BUTTON_PRESS`) lets the Hub count the ones that did not arrive. `key_events`: key frames received that carry a number. `key_events_lost`: numbers missing between them. The lost ones are split by what the frames around the gap show: `key_lost_press` (a hold or release arrived for a key whose press was not seen: the key did nothing or started late), `key_lost_release` (a key frame arrived while the key before it was still down: that key stayed down), `key_lost_other` (holds, or nothing to tell them by); the three add up to `key_events_lost`. All stay `0` for a remote that does not number its key frames (older remote software, Companion, Smart Control). Each gap is also one line in the Hub log: `[!] RF key events lost: slot 1, 2 missing before #57 (release DirectionRight)`. Like the other link counters they are read on request: a change does not send an `rf_status` event.
@@ -1657,7 +1660,6 @@ every setting each time.
     "touchEnabled": true,
     "capButtonsEnabled": true,
     "gyroEnabled": true,
-    "gyroRate": 50,
     "btnBacklight": 1,
     "nightStart": 22,
     "nightEnd": 7,
@@ -1671,7 +1673,7 @@ every setting each time.
   ```
   - Values used for a setting that is left out (and, where a range is given, for a value outside
     it): `brightness` 2, `timeout` 10 (seconds; a given value is kept within 5 to 600),
-    `touchEnabled` false, `capButtonsEnabled` true, `gyroEnabled` true, `gyroRate` 50,
+    `touchEnabled` false, `capButtonsEnabled` true, `gyroEnabled` true,
     `btnBacklight` 2 (0 to 2), `nightStart` 22 and `nightEnd` 7 (hours, 0 to 23), `navToggleKey`
     139, `navToggleMode` 1, `confirmActivity` false, `touchSensitivity` 2 (1 to 3), `usbEth` false.
   - More settings: `noScreen`, `debugLogging` (older name `powerDebug`), `language` (`en`, `de`,
@@ -1680,7 +1682,7 @@ every setting each time.
     forces `layout` `list`). All false, `en` and not set when left out.
   - `remoteMode` is ignored: `0` is always stored and sent.
   - Each setting is also read under its snake_case name (`touch`, `gyro`, `nav_key`, `nav_mode`,
-    `confirm_act`, `touch_sensitivity`, `gyro_rate`, `btn_backlight`, `night_start`, `night_end`,
+    `confirm_act`, `touch_sensitivity`, `btn_backlight`, `night_start`, `night_end`,
     `usbeth`, `cap_buttons`, `no_screen`, `debug_logging`, `language_id`, `physical_nav`).
 - **Response `200 OK`**: `{"status": "saved_and_pushed", "ok": true}`. The answer is the same when
   the remote did not acknowledge the push (asleep or out of range): the settings are stored, the
@@ -1772,7 +1774,7 @@ Saves button assignments for the specified slot. The body must be one JSON objec
 
 #### `POST /api/rf-mapping-copy?from={1|2}&to={1|2}`
 Copies entire button mapping configuration from one remote slot to another.
-- **Query Parameters**: `from` (source slot, 1 or 2, default 1), `to` (destination slot, 1 or 2, default 2). Both may also be given in a JSON body (`{"from": 1, "to": 2}`), which wins over the query.
+- **Query Parameters**: `from` (source slot, 1 to 6, default 1), `to` (destination slot, 1 to 6, default 2). Both may also be given in a JSON body (`{"from": 1, "to": 2}`), which wins over the query.
 - A source slot without a mapping file is copied as the empty mapping `{"activities":{},"devices":{}}`. The destination slot is marked as waiting for a push (`sync_pending`, 7.1).
 - **Response `200 OK`**:
   ```json
@@ -1903,7 +1905,8 @@ They answer nothing on `cmd/response`; use `<base>/cmd` for acknowledged command
 `delayMs` for `delay_ms`, `hold_secs` or `holdSecs` for `hold`, and `holdMs` for `hold_ms`.
 `action` is `press`, `hold` or `release` (a tap otherwise); `hold` without a hold time holds the
 key for 0.5 s. The limits of 10.3 apply (32 commands, 50 repeats, 60 s delay, 10 s hold, 16 jobs,
-300 s per job). `<base>/remote/<n>/sleep` takes slot 1 or 2 only: there is no "all remotes" topic.
+300 s per job). `<base>/remote/<n>/sleep` takes slot 1 to 6 only: there is no "all remotes" topic. Home Assistant
+discovery announces the sleep buttons of slots 1 and 2.
 
 #### MQTT-type devices
 A device of type `MQTT` (or with `mqttEnabled`) is driven through the broker instead of IR or

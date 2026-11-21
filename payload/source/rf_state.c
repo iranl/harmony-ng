@@ -30,10 +30,7 @@ uint8_t g_config_version = 1;
 int g_log_level = LOG_LEVEL_INFO;
 int g_debug_logging = 0;
 
-remote_battery_t g_remote_batteries[MAX_PAIRED_REMOTES] = {
-    { .percent = 0, .charging = 0, .voltage_mv = 0, .last_update_ms = 0, .reported_at = 0, .restored = 0 },
-    { .percent = 0, .charging = 0, .voltage_mv = 0, .last_update_ms = 0, .reported_at = 0, .restored = 0 }
-};
+remote_battery_t g_remote_batteries[MAX_PAIRED_REMOTES];
 
 const char *g_rf_battery_cache_dir = "/tmp";
 /* Where remote_slot<N>_version.json lives (a test points it elsewhere) */
@@ -43,16 +40,18 @@ time_t (*g_rf_time_fn)(time_t *) = time;
 /* Before this the clock has not been set: 2024-01-01 */
 #define RF_CLOCK_VALID_EPOCH 1704067200LL
 
+_Static_assert(MAX_PAIRED_REMOTES == 6, "slot initializers below list 6 slots");
+
+#define RV_UNKNOWN { .sw_version = "unknown", .config_version = 0, .last_report_ms = 0 }
 remote_version_t g_remote_versions[MAX_PAIRED_REMOTES] = {
-    { .sw_version = "unknown", .config_version = 0, .last_report_ms = 0 },
-    { .sw_version = "unknown", .config_version = 0, .last_report_ms = 0 }
+    RV_UNKNOWN, RV_UNKNOWN, RV_UNKNOWN, RV_UNKNOWN, RV_UNKNOWN, RV_UNKNOWN
 };
+#undef RV_UNKNOWN
 
 remote_link_stats_t g_remote_link[MAX_PAIRED_REMOTES];
 
 paired_remote_t g_paired_remotes[MAX_PAIRED_REMOTES] = {
-    { .slot = 0x01, .active = false, .link_lost = false, .last_seen_ms = 0 },
-    { .slot = 0x02, .active = false, .link_lost = false, .last_seen_ms = 0 }
+    { .slot = 0x01 }, { .slot = 0x02 }, { .slot = 0x03 }, { .slot = 0x04 }, { .slot = 0x05 }, { .slot = 0x06 }
 };
 
 rf_ota_state_t g_rf_ota = { false, 0, 0, 0, 0, 0, 0, "" };
@@ -226,6 +225,13 @@ void mark_remote_slot_active(uint8_t slot) {
         g_remote_slot = slot;
         g_has_paired_device = true;
     }
+}
+
+bool rf_any_slot_active(void) {
+    for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {
+        if (g_paired_remotes[i].active) return true;
+    }
+    return false;
 }
 
 bool is_companion_slot(uint8_t slot) {

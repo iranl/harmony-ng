@@ -705,7 +705,10 @@
     "harmony_codeset_http_error",
     "harmony_no_codeset",
     "usb_wifi_setup_lbl",
-    "usb_wifi_setup_desc"
+    "usb_wifi_setup_desc",
+    "hide_on_remote",
+    "pair_slot_n",
+    "unpair_slot_n"
   ],
   "fr": [
     "hold_repeat",
@@ -1412,7 +1415,10 @@
     "harmony_codeset_http_error",
     "harmony_no_codeset",
     "usb_wifi_setup_lbl",
-    "usb_wifi_setup_desc"
+    "usb_wifi_setup_desc",
+    "hide_on_remote",
+    "pair_slot_n",
+    "unpair_slot_n"
   ],
   "nl": [
     "hold_repeat",
@@ -2119,7 +2125,10 @@
     "harmony_codeset_http_error",
     "harmony_no_codeset",
     "usb_wifi_setup_lbl",
-    "usb_wifi_setup_desc"
+    "usb_wifi_setup_desc",
+    "hide_on_remote",
+    "pair_slot_n",
+    "unpair_slot_n"
   ],
   "es": [
     "hold_repeat",
@@ -2826,7 +2835,10 @@
     "harmony_codeset_http_error",
     "harmony_no_codeset",
     "usb_wifi_setup_lbl",
-    "usb_wifi_setup_desc"
+    "usb_wifi_setup_desc",
+    "hide_on_remote",
+    "pair_slot_n",
+    "unpair_slot_n"
   ],
   "it": [
     "hold_repeat",
@@ -3533,6 +3545,9 @@
     "harmony_codeset_http_error",
     "harmony_no_codeset",
     "usb_wifi_setup_lbl",
-    "usb_wifi_setup_desc"
+    "usb_wifi_setup_desc",
+    "hide_on_remote",
+    "pair_slot_n",
+    "unpair_slot_n"
   ]
 }

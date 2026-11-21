@@ -128,30 +128,24 @@ int main(void) {
 
     /* 2. Range checks */
     write_mock("remote_settings.conf",
-               "btn_backlight=3\nnight_start=30\nnight_end=-1\ngyro_rate=7\nlog_level=9\n");
+               "btn_backlight=3\nnight_start=30\nnight_end=-1\nlog_level=9\n");
     g_btn_backlight_mode = 1;
     load_settings_conf();
     CHECK(g_btn_backlight_mode >= 0 && g_btn_backlight_mode <= 2, "key light mode out of range is not taken");
     CHECK(g_night_start_hour >= 0 && g_night_start_hour <= 23 && g_night_end_hour >= 0 && g_night_end_hour <= 23,
           "night hours out of range are not taken");
-    CHECK(g_gyro_rate_hz == 10 || g_gyro_rate_hz == 25 || g_gyro_rate_hz == 50 || g_gyro_rate_hz == 100,
-          "an accelerometer rate the remote does not offer is not taken from the file");
     CHECK(g_log_level >= LOG_LEVEL_ERR && g_log_level <= LOG_LEVEL_DEBUG, "log level out of range is not taken");
 
-    g_gyro_rate_hz = 25;
     rf_frame_t f;
     memset(&f, 0, sizeof(f));
     f.msg_type = RF_MSG_SETTINGS_PUSH;
     f.payload[0] = 3;
     f.payload[3] = 0;
     f.payload[4] = 30;
-    f.payload[11] = 7;
+    f.payload[11] = 7; /* the accelerometer rate of older Hubs: ignored */
     g_no_screen_mode = false;
     handle_hub_frame_remote(&f);
-    CHECK(g_gyro_rate_hz == 25, "a settings push with an accelerometer rate the remote does not offer keeps the rate");
-    f.payload[11] = 100;
-    handle_hub_frame_remote(&f);
-    CHECK(g_gyro_rate_hz == 100, "a settings push with an offered rate is applied");
+    CHECK(g_timeout_seconds == 30, "a settings push with the old accelerometer rate byte is still applied");
 
     if (s_fail) {
         printf("[-] test_remote_settings_files: FAILED\n");

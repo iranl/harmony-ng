@@ -175,14 +175,9 @@ The custom `remote_ui` firmware includes power management settings to maximize b
      - `OFF`: Always keeps physical keypad LEDs off (maximum battery savings).
      - `ON`: Illuminates keypads whenever the screen is on (remote pickup or button press).
      - `NIGHT` (default): Lights the buttons only inside the night window set with **Night Starts** and **Night Ends** (Settings -> DISPLAY; default 22:00 to 07:00, one hour per tap); they stay off during the day.
-2. **Gyroscope Rate**:
-   - Tap **Gyroscope Rate** in Settings -> POWER:
-     - `10 Hz` (**Recommended**): Cuts pickup standby power by over 60% while detecting lift gestures.
-     - `25 Hz`: Balanced response.
-     - `50 Hz` (default), `100 Hz`: High sensitivity.
-3. **Deep Standby**:
+2. **Deep Standby**:
    - Tap **Deep Standby** in Settings -> POWER: how long after the screen went dark the remote, on battery, suspends: `AT ONCE` (default, 2 seconds), `15m`, `30m`, `60m`, `120m`, `240m` or `NEVER`.
-4. **Tilt / Pickup Wake**:
+3. **Tilt / Pickup Wake**:
    - Tap **Tilt / Pickup Wake** in Settings -> POWER to turn waking by motion `ON` or `OFF`.
 
 ---

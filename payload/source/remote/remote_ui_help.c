@@ -237,7 +237,7 @@ bool ui_help_handle_key(int code) {
             if (s_help.state != HELP_QUESTION) handled = false;
             else s_help.sel = !s_help.sel;
             break;
-        case 28: case 148:  /* OK, KEY_PROG1 */
+        case 28: case 352: case 148:  /* OK (KEY_ENTER, KEY_OK), KEY_PROG1 */
             if (s_help.state == HELP_QUESTION) answer(s_help.sel == 0);
             else if (s_help.state == HELP_DONE) close_locked();
             break;

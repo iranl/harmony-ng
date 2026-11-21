@@ -264,6 +264,8 @@ The remote sets no ACK request flag on `RF_MSG_BATTERY_STATUS`, `RF_MSG_REMOTE_C
   - `0x04` `RF_CAP_UNIT_ID`: sends `RF_MSG_UNIT_ID` after every version report
   - `0x08` `RF_CAP_DEVICE_CMDS`: stores and ACKs `RF_MSG_DEVICE_CMD_CHUNK` (device browsing); for
     such a remote a device command frame without an ACK fails the config push like any other frame
+  - `0x40` `RF_CAP_STREAM_PUSH`: takes a streamed config push (see `RF_MSG_CONFIG_END`). `0x10`
+    and `0x20` are used on the `feat/elite-transition-help` branch.
 
 The remote sends this report when its link first comes up, every 24 hours, and before each full config request, so a Hub that restarted learns the capabilities before it builds the push. The Hub keeps them in `/data/harmony/remote_slot<N>_version.json` (`caps`). A remote drops frame types it doesn't know without an ACK, so the Hub must not send newer frame types to a remote that doesn't report them.
 
@@ -436,6 +438,22 @@ while the link is up, also one applied from a settings push, and when the Hub as
 - `payload[1]`: Config version being pushed.
 - `payload[2..3]` (clear only): Number of chunk frames (`0x0B`, `0x0C`, `0x0D`, `0x11`, `0x12`) that follow, 16-bit little-endian. `0` from Hubs that do not send it; the remote then shows no progress total.
 - A push is: clear, the chunk frames and `RF_MSG_SETTINGS_PUSH`, then complete. Every frame requests an ACK and is sent at most 3 times, with 300 ms to wait for the ACK each time. The Hub stops pushing to a slot at the first frame that slot never ACKs, so a remote never receives complete for a partial config.
+- **Streamed push** (remotes that report `RF_CAP_STREAM_PUSH`): the clear carries `payload[4]` = `1`
+  and is ACKed as above. Then both radios switch to `RF_PM_TRANSFER` (the remote after it sent
+  the ACK), and the Hub sends the rest of the push, complete included, without waiting.
+  - Each frame carries `RF_FLAG_STREAM` (`flags` bit `0x04`). The low nibble of `hdr_flag` is the
+    frame's index in the push, mod 16.
+  - Every 4th frame, the last one, and the 15th in flight carry `RF_FLAG_ACK_REQ`. The remote
+    answers with an `RF_MSG_ACK` whose `payload[2..3]` is the count of frames it took in order and
+    `payload[4]` = `0xF2` (`RF_PUSH_STREAMED`). The frame handlers' own ACKs are not sent.
+  - The remote takes a frame only when it is the next in order. The Hub keeps at most 15 frames in
+    flight (the 4-bit index) and sends from the remote's count again when it has not grown for 100 ms
+    (go-back-N). It gives up after 10 s without progress.
+  - The Hub sends 2 ms apart, as for the windowed OTA. In `RF_PM_ACTIVE` the remote gets a Hub frame
+    only with the ACK of one it sends, which held the stop-and-wait push to about 7 frames a second.
+  - Both radios go back to `RF_PM_ACTIVE` at the end. The Hub does this when the remote has every
+    frame or the push fails; the remote does it 3 s after the last stream frame. Until then it still
+    answers a resend after its last ACK was lost.
 - Limits of a push: 16 activities, 16 devices, 16 devices per activity, 255 commands per device, 255 button entries (`RF_BUTTON_LIST_MAX`), 64 steps. A device ID longer than 4 characters is cut to 4 in the device list, so the remote's device pages cannot address that device.
 - A chunk frame that arrives without a clear opens a sync by itself (with no total, so the 30 s limit below applies) and is stored and ACKed like any other. A complete that arrives outside a sync is ACKed only when it carries the version the remote already holds (a resend after a lost ACK); with another version it is ignored and not ACKed. The remote applies the config and adopts the version on complete.
 - If no frame arrives for 15 s (30 s when the clear carried no total), the remote abandons the push and restores its last complete config. It then waits 10 s (3 s when it has no config yet) before requesting a full sync on its own again.

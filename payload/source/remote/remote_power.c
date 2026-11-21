@@ -667,26 +667,23 @@ void remote_key_wake_screen(void) {
     g_screen_dirty = true;   /* drawn by the main loop, after the key events that are waiting */
 }
 
+static void write_sysfs_int(const char *path, int value) {
+    int fd = open(path, O_WRONLY);
+    if (fd < 0) return;
+    char buf[16];
+    int n = snprintf(buf, sizeof(buf), "%d\n", value);
+    if (write(fd, buf, n) < 0) {}
+    close(fd);
+}
+
+/* As stock: the sensor runs only while tilt wake is on and is powered down otherwise */
 void init_gyro_interrupt(void) {
-    int fdr = open(GYRO_DATA_RATE_SYS, O_WRONLY);
-    if (fdr >= 0) {
-        char rstr[16];
-        snprintf(rstr, sizeof(rstr), "%d\n", g_gyro_rate_hz > 0 ? g_gyro_rate_hz : 50);
-        write(fdr, rstr, strlen(rstr));
-        close(fdr);
-    }
-    int fdt = open(GYRO_INT1_THRESHOLD_SYS, O_WRONLY);
-    if (fdt >= 0) {
-        write(fdt, "5\n", 2);
-        close(fdt);
-    }
-    int fdd = open(GYRO_INT1_DURATION_SYS, O_WRONLY);
-    if (fdd >= 0) {
-        write(fdd, "1\n", 2);
-        close(fdd);
-    }
-    printf("[+] Accelerometer INT1 hardware interrupt configured (rate=%dHz, thresh=5, dur=1)\n",
-           g_gyro_rate_hz > 0 ? g_gyro_rate_hz : 50);
+    int rate = g_gyro_enabled ? GYRO_DATA_RATE_ON : 0;
+    write_sysfs_int(GYRO_DATA_RATE_SYS, rate);
+    write_sysfs_int(GYRO_INT1_THRESHOLD_SYS, GYRO_INT1_THRESHOLD);
+    write_sysfs_int(GYRO_INT1_DURATION_SYS, GYRO_INT1_DURATION);
+    printf("[+] Accelerometer INT1 configured (data_rate=0x%02x, thresh=%d, dur=%d)\n",
+           rate, GYRO_INT1_THRESHOLD, GYRO_INT1_DURATION);
 }
 
 /* The watchdog is opened, fed and closed from the main loop, the power manager thread and the

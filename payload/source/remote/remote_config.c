@@ -952,7 +952,6 @@ void load_settings_conf(void) {
             else if (strcmp(key, "cap_buttons") == 0 || strcmp(key, "capacitive_buttons") == 0) g_cap_buttons_enabled = (val != 0);
             else if (strcmp(key, "touch_sens") == 0) g_touch_sensitivity = (val >= 1 && val <= 3) ? val : 2;
             else if (strcmp(key, "gyro") == 0) g_gyro_enabled = (val != 0);
-            else if (strcmp(key, "gyro_rate") == 0) g_gyro_rate_hz = remote_gyro_rate_valid(val) ? val : 50;
             else if (strcmp(key, "deep_standby") == 0 || strcmp(key, "deep_standby_min") == 0) {
                 if (val == -1 || val == 0 || val == 15 || val == 30 || val == 60 || val == 120 || val == 240) {
                     g_deep_standby_min = val;
@@ -1004,10 +1003,6 @@ void load_settings_conf(void) {
  * time zone change): one at a time */
 static pthread_mutex_t s_settings_save_lock = PTHREAD_MUTEX_INITIALIZER;
 
-bool remote_gyro_rate_valid(int hz) {
-    return hz == 10 || hz == 25 || hz == 50 || hz == 100;
-}
-
 void save_settings_conf(void) {
     pthread_mutex_lock(&s_settings_save_lock);
     char buf[2048];
@@ -1017,7 +1012,6 @@ void save_settings_conf(void) {
         "cap_buttons=%d\n"
         "touch_sens=%d\n"
         "gyro=%d\n"
-        "gyro_rate=%d\n"
         "deep_standby=%d\n"
         "btn_backlight=%d\n"
         "night_start=%d\n"
@@ -1042,7 +1036,6 @@ void save_settings_conf(void) {
         g_cap_buttons_enabled ? 1 : 0,
         g_touch_sensitivity,
         g_gyro_enabled ? 1 : 0,
-        g_gyro_rate_hz,
         g_deep_standby_min,
         g_btn_backlight_mode,
         g_night_start_hour,

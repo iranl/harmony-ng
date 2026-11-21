@@ -69,14 +69,13 @@ static int query_param(const char *buf, const char *key, char *out, size_t out_s
 
 #define REQ_SLOT_ABSENT (-2)
 #define REQ_SLOT_BAD    (-1)
-/* The slot of a request: from the query (slot=1, 2, or 0 / all for every remote), else from a
- * JSON body ("slot": 0, 1 or 2). The whole request used to be searched for "slot=2" and
+/* The slot of a request: from the query (slot=1 to MAX_PAIRED_REMOTES, or 0 / all for every
+ * remote), else from a JSON body ("slot": 0 to MAX_PAIRED_REMOTES). The whole request used to be searched for "slot=2" and
  * "slot=1", so a slot in another form or a typing error meant "all remotes" for unpair. */
 static int req_slot(const char *buf) {
     char v[16];
     if (query_param(buf, "slot", v, sizeof(v))) {
-        if (strcmp(v, "1") == 0) return 1;
-        if (strcmp(v, "2") == 0) return 2;
+        if (v[0] >= '1' && v[0] <= '0' + MAX_PAIRED_REMOTES && v[1] == '\0') return v[0] - '0';
         if (strcmp(v, "0") == 0 || strcmp(v, "all") == 0) return 0;
         return REQ_SLOT_BAD;
     }
@@ -86,7 +85,7 @@ static int req_slot(const char *buf) {
     if (!root) return REQ_SLOT_ABSENT;
     cJSON *js = cJSON_IsObject(root) ? cJSON_GetObjectItem(root, "slot") : NULL;
     int slot = REQ_SLOT_ABSENT;
-    if (js) slot = (cJSON_IsNumber(js) && js->valuedouble >= 0 && js->valuedouble <= 2 &&
+    if (js) slot = (cJSON_IsNumber(js) && js->valuedouble >= 0 && js->valuedouble <= MAX_PAIRED_REMOTES &&
                     js->valuedouble == (double)js->valueint) ? js->valueint : REQ_SLOT_BAD;
     cJSON_Delete(root);
     return slot;
@@ -107,7 +106,7 @@ typedef struct { int slot; char type[32]; char id[32]; } icon_push_job_t;
 static void *icon_push_worker(void *arg) {
     icon_push_job_t *job = arg;
     int pushed = 0, tried = 0;
-    for (int s = 1; s <= 2; s++) {
+    for (int s = 1; s <= MAX_PAIRED_REMOTES; s++) {
         if (job->slot != 0 && job->slot != s) continue;
         if (job->slot == 0 && !g_paired_remotes[s - 1].active) continue;
         tried++;
@@ -122,51 +121,8 @@ static void *icon_push_worker(void *arg) {
  * it is not known yet (API thread only); RF_STATUS_STABLE_ONLY leaves the link counters and the
  * battery voltage out, giving a string that changes only when the status changed. */
 int rf_build_status_json(char *body, size_t len, unsigned flags) {
-    char addr1_str[16] = "None";
-    char addr2_str[16] = "None";
-    if (g_paired_remotes[0].rf_addr[0] || g_paired_remotes[0].rf_addr[1] || g_paired_remotes[0].rf_addr[2] || g_paired_remotes[0].rf_addr[3]) {
-        snprintf(addr1_str, sizeof(addr1_str), "%02X%02X%02X%02X",
-                 g_paired_remotes[0].rf_addr[0], g_paired_remotes[0].rf_addr[1], g_paired_remotes[0].rf_addr[2], g_paired_remotes[0].rf_addr[3]);
-    }
-    if (g_paired_remotes[1].rf_addr[0] || g_paired_remotes[1].rf_addr[1] || g_paired_remotes[1].rf_addr[2] || g_paired_remotes[1].rf_addr[3]) {
-        snprintf(addr2_str, sizeof(addr2_str), "%02X%02X%02X%02X",
-                 g_paired_remotes[1].rf_addr[0], g_paired_remotes[1].rf_addr[1], g_paired_remotes[1].rf_addr[2], g_paired_remotes[1].rf_addr[3]);
-    }
-
-    bool is_comp1 = is_companion_slot(1);
-    bool is_comp2 = is_companion_slot(2);
-    /* The product: Juniper (touchscreen) remotes by their skin id, Sprite remotes by the
-     * EquadID; "unknown" until known, never a guess */
-    const char *model1 = rf_slot_model_id(1);
-    const char *model2 = rf_slot_model_id(2);
-    const char *mname1 = rf_slot_model_name(1);
-    const char *mname2 = rf_slot_model_name(2);
-
-    /* "<product> (Slot N)"; while the product is unknown the CC2544 slot name, if any */
-    char name1[48], name2[48];
-    if (strcmp(model1, "unknown") == 0 && g_paired_remotes[0].name[0]) {
-        snprintf(name1, sizeof(name1), "%s (Slot 1)", g_paired_remotes[0].name);
-    } else {
-        snprintf(name1, sizeof(name1), "%s (Slot 1)", mname1 ? mname1 : "Harmony Remote");
-    }
-    if (strcmp(model2, "unknown") == 0 && g_paired_remotes[1].name[0]) {
-        snprintf(name2, sizeof(name2), "%s (Slot 2)", g_paired_remotes[1].name);
-    } else {
-        snprintf(name2, sizeof(name2), "%s (Slot 2)", mname2 ? mname2 : "Harmony Remote");
-    }
-
-    /* model_name: a string, null when the product is unknown; skin and equad_id: integers,
-     * null when not known */
-    char ident_json[MAX_PAIRED_REMOTES][112];
-    for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {
-        char skin_s[8] = "null", equad_s[8] = "null", mname_s[40] = "null";
-        const char *mn = (i == 0) ? mname1 : mname2;
-        if (mn) snprintf(mname_s, sizeof(mname_s), "\"%s\"", mn);
-        if (g_remote_versions[i].skin) snprintf(skin_s, sizeof(skin_s), "%u", (unsigned)g_remote_versions[i].skin);
-        if (g_paired_remotes[i].equad_id) snprintf(equad_s, sizeof(equad_s), "%u", (unsigned)g_paired_remotes[i].equad_id);
-        snprintf(ident_json[i], sizeof(ident_json[i]), ",\"model_name\":%s,\"skin\":%s,\"equad_id\":%s",
-                 mname_s, skin_s, equad_s);
-    }
+    bool is_comp[MAX_PAIRED_REMOTES];
+    for (int i = 0; i < MAX_PAIRED_REMOTES; i++) is_comp[i] = is_companion_slot((uint8_t)(i + 1));
 
     if ((flags & RF_STATUS_QUERY_RADIO) &&
         (g_hub_rf_addr[0] | g_hub_rf_addr[1] | g_hub_rf_addr[2] | g_hub_rf_addr[3]) == 0) {
@@ -200,29 +156,16 @@ int rf_build_status_json(char *body, size_t len, unsigned flags) {
         fclose(pdf);
     }
 
-    if (sync_pending) {
-        if ((pending_slot == 1 && is_comp1) || (pending_slot == 2 && is_comp2)) {
-            sync_pending = false;
-        }
-        if ((!g_paired_remotes[0].active || is_comp1) && (!g_paired_remotes[1].active || is_comp2)) {
-            sync_pending = false;
-        }
-    }
-
-    bool slot1_in_sync = is_comp1 ? true : (g_remote_versions[0].config_version == g_config_version && g_paired_remotes[0].active);
-    bool slot2_in_sync = is_comp2 ? true : (g_remote_versions[1].config_version == g_config_version && g_paired_remotes[1].active);
-
-    /* remote_id is present only once the remote reported it since pairing */
-    char rid_json[MAX_PAIRED_REMOTES][48];
+    bool any_active = false, any_screen_active = false;
     for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {
-        if (g_remote_versions[i].remote_id[0]) {
-            snprintf(rid_json[i], sizeof(rid_json[i]), ",\"remote_id\":\"%s\"", g_remote_versions[i].remote_id);
-        } else {
-            rid_json[i][0] = '\0';
-        }
+        if (!g_paired_remotes[i].active) continue;
+        any_active = true;
+        if (!is_comp[i]) any_screen_active = true;
     }
-    const char *ver1_str = (is_comp1 && strcmp(g_remote_versions[0].sw_version, "unknown") == 0) ? "N/A" : g_remote_versions[0].sw_version;
-    const char *ver2_str = (is_comp2 && strcmp(g_remote_versions[1].sw_version, "unknown") == 0) ? "N/A" : g_remote_versions[1].sw_version;
+    if (sync_pending) {
+        if (pending_slot >= 1 && pending_slot <= MAX_PAIRED_REMOTES && is_comp[pending_slot - 1]) sync_pending = false;
+        if (!any_screen_active) sync_pending = false;
+    }
 
     pthread_mutex_lock(&g_ota_lock);
     bool ota_in_prog = g_rf_ota.in_progress;
@@ -236,19 +179,72 @@ int rf_build_status_json(char *body, size_t len, unsigned flags) {
     snprintf(ota_err, sizeof(ota_err), "%s", g_rf_ota.error_msg);
     pthread_mutex_unlock(&g_ota_lock);
 
-    /* Link counters per slot; last_seen_s is -1 before the first frame. Left out of the
-     * change-detection form, like the battery voltage: they change on every frame, and the key
-     * event counters on every key. */
-    char link_json[MAX_PAIRED_REMOTES][320];
+    int blen = snprintf(body, len,
+        "{\"running\":true,\"ok\":true,\"fw_version\":\"v%d.00\",\"paired\":%s,\"rf_address\":\"%s\",\"hub_rf_address\":\"%s\",\"pairing_active\":%s,"
+        "\"sync_pending\":%s,\"sync_pending_slot\":%d,\"sync_pending_diff\":\"%s\",\"hub_config_version\":%d,"
+        "\"ota\":{\"in_progress\":%s,\"slot\":%d,\"status\":%d,\"sent_bytes\":%u,\"total_bytes\":%u,\"sent_chunks\":%u,\"total_chunks\":%u,\"error\":\"%s\"},"
+        "\"slots\":[",
+        g_fw_version, (g_has_paired_device || any_active) ? "true" : "false",
+        hub_rf_str, hub_rf_str,
+        g_pairing_mode ? "true" : "false",
+        sync_pending ? "true" : "false",
+        pending_slot, pending_diff, g_config_version,
+        ota_in_prog ? "true" : "false", ota_slot, ota_status, ota_sent_b, ota_tot_b, ota_sent_c, ota_tot_c, ota_err);
+    if (blen < 0 || (size_t)blen >= len) return -1;
+
     uint64_t now_ms = get_monotonic_ms();
     int stable = (flags & RF_STATUS_STABLE_ONLY) != 0;
+    int listed = 0;
     for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {
-        const remote_link_stats_t *ls = &g_remote_link[i];
-        long seen = g_paired_remotes[i].last_seen_ms ? (long)((now_ms - g_paired_remotes[i].last_seen_ms) / 1000) : -1;
-        if (stable) {
-            snprintf(link_json[i], sizeof(link_json[i]), "{}");
+        const paired_remote_t *r = &g_paired_remotes[i];
+        int slot = i + 1;
+        bool has_addr = r->rf_addr[0] || r->rf_addr[1] || r->rf_addr[2] || r->rf_addr[3];
+        /* Slots 1 and 2 are always listed (clients index them); a higher one once a remote is
+         * paired there */
+        if (i >= 2 && !r->active && !has_addr) continue;
+
+        char addr_str[16] = "None";
+        if (has_addr) {
+            snprintf(addr_str, sizeof(addr_str), "%02X%02X%02X%02X",
+                     r->rf_addr[0], r->rf_addr[1], r->rf_addr[2], r->rf_addr[3]);
+        }
+        /* The product: Juniper (touchscreen) remotes by their skin id, Sprite remotes by the
+         * EquadID; "unknown" until known, never a guess */
+        const char *model = rf_slot_model_id((uint8_t)slot);
+        const char *mname = rf_slot_model_name((uint8_t)slot);
+        /* "<product> (Slot N)"; while the product is unknown the CC2544 slot name, if any */
+        char name[48];
+        if (strcmp(model, "unknown") == 0 && r->name[0]) {
+            snprintf(name, sizeof(name), "%s (Slot %d)", r->name, slot);
         } else {
-            snprintf(link_json[i], sizeof(link_json[i]),
+            snprintf(name, sizeof(name), "%s (Slot %d)", mname ? mname : "Harmony Remote", slot);
+        }
+        /* model_name: a string, null when the product is unknown; skin and equad_id: integers,
+         * null when not known */
+        char skin_s[8] = "null", equad_s[8] = "null", mname_s[40] = "null";
+        if (mname) snprintf(mname_s, sizeof(mname_s), "\"%s\"", mname);
+        if (g_remote_versions[i].skin) snprintf(skin_s, sizeof(skin_s), "%u", (unsigned)g_remote_versions[i].skin);
+        if (r->equad_id) snprintf(equad_s, sizeof(equad_s), "%u", (unsigned)r->equad_id);
+
+        bool in_sync = is_comp[i] ? true : (g_remote_versions[i].config_version == g_config_version && r->active);
+        /* remote_id is present only once the remote reported it since pairing */
+        char rid_json[48] = "";
+        if (g_remote_versions[i].remote_id[0]) {
+            snprintf(rid_json, sizeof(rid_json), ",\"remote_id\":\"%s\"", g_remote_versions[i].remote_id);
+        }
+        const char *ver_str = (is_comp[i] && strcmp(g_remote_versions[i].sw_version, "unknown") == 0)
+                              ? "N/A" : g_remote_versions[i].sw_version;
+
+        /* Link counters; last_seen_s is -1 before the first frame. Left out of the
+         * change-detection form, like the battery voltage: they change on every frame, and the
+         * key event counters on every key. */
+        char link_json[320];
+        const remote_link_stats_t *ls = &g_remote_link[i];
+        long seen = r->last_seen_ms ? (long)((now_ms - r->last_seen_ms) / 1000) : -1;
+        if (stable) {
+            snprintf(link_json, sizeof(link_json), "{}");
+        } else {
+            snprintf(link_json, sizeof(link_json),
                      "{\"frames_rx\":%u,\"acked_sent\":%u,\"acked_ok\":%u,\"retries\":%u,\"naks\":%u,"
                      "\"key_events\":%u,\"key_events_lost\":%u,\"key_lost_press\":%u,\"key_lost_release\":%u,"
                      "\"key_lost_other\":%u,\"last_seen_s\":%ld}",
@@ -256,45 +252,31 @@ int rf_build_status_json(char *body, size_t len, unsigned flags) {
                      ls->key_events, ls->key_events_lost, ls->key_lost_press, ls->key_lost_release,
                      ls->key_lost_other, seen);
         }
-    }
-
-    /* battery.reported_at: Unix time of the report, null before the first one or while the clock
-     * was not set; part of the stable key, so every report is a change (one event per report) */
-    char reported_json[MAX_PAIRED_REMOTES][24];
-    for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {
+        /* battery.reported_at: Unix time of the report, null before the first one or while the
+         * clock was not set; part of the stable key, so every report is a change */
+        char reported_json[24] = "null";
         if (g_remote_batteries[i].reported_at > 0)
-            snprintf(reported_json[i], sizeof(reported_json[i]), "%lld", (long long)g_remote_batteries[i].reported_at);
-        else
-            snprintf(reported_json[i], sizeof(reported_json[i]), "null");
-    }
+            snprintf(reported_json, sizeof(reported_json), "%lld", (long long)g_remote_batteries[i].reported_at);
 
-    int blen = snprintf(body, len,
-        "{\"running\":true,\"ok\":true,\"fw_version\":\"v%d.00\",\"paired\":%s,\"rf_address\":\"%s\",\"hub_rf_address\":\"%s\",\"pairing_active\":%s,"
-        "\"sync_pending\":%s,\"sync_pending_slot\":%d,\"sync_pending_diff\":\"%s\",\"hub_config_version\":%d,"
-        "\"ota\":{\"in_progress\":%s,\"slot\":%d,\"status\":%d,\"sent_bytes\":%u,\"total_bytes\":%u,\"sent_chunks\":%u,\"total_chunks\":%u,\"error\":\"%s\"},"
-        "\"slots\":["
-        "{\"slot\":1,\"name\":\"%s\",\"model\":\"%s\"%s,\"has_screen\":%s,\"supports_ota\":%s,\"active\":%s,\"in_sync\":%s,\"address\":\"%s\",\"rf_address\":\"%s\",\"sw_version\":\"%s\"%s,\"config_version\":%d,\"battery\":{\"percent\":%d,\"charging\":%s,\"voltage_mv\":%d,\"reported_at\":%s,\"restored\":%s},\"link\":%s},"
-        "{\"slot\":2,\"name\":\"%s\",\"model\":\"%s\"%s,\"has_screen\":%s,\"supports_ota\":%s,\"active\":%s,\"in_sync\":%s,\"address\":\"%s\",\"rf_address\":\"%s\",\"sw_version\":\"%s\"%s,\"config_version\":%d,\"battery\":{\"percent\":%d,\"charging\":%s,\"voltage_mv\":%d,\"reported_at\":%s,\"restored\":%s},\"link\":%s}"
-        "]}",
-        g_fw_version, (g_has_paired_device || g_paired_remotes[0].active || g_paired_remotes[1].active) ? "true" : "false",
-        hub_rf_str, hub_rf_str,
-        g_pairing_mode ? "true" : "false",
-        sync_pending ? "true" : "false",
-        pending_slot, pending_diff, g_config_version,
-        ota_in_prog ? "true" : "false", ota_slot, ota_status, ota_sent_b, ota_tot_b, ota_sent_c, ota_tot_c, ota_err,
-        name1, model1, ident_json[0], is_comp1 ? "false" : "true", is_comp1 ? "false" : "true",
-        g_paired_remotes[0].active ? "true" : "false", slot1_in_sync ? "true" : "false", addr1_str, addr1_str,
-        ver1_str, rid_json[0], is_comp1 ? 0 : g_remote_versions[0].config_version,
-        g_remote_batteries[0].percent, g_remote_batteries[0].charging ? "true" : "false", stable ? 0 : g_remote_batteries[0].voltage_mv,
-        reported_json[0], g_remote_batteries[0].restored ? "true" : "false", link_json[0],
-        name2, model2, ident_json[1], is_comp2 ? "false" : "true", is_comp2 ? "false" : "true",
-        g_paired_remotes[1].active ? "true" : "false", slot2_in_sync ? "true" : "false", addr2_str, addr2_str,
-        ver2_str, rid_json[1], is_comp2 ? 0 : g_remote_versions[1].config_version,
-        g_remote_batteries[1].percent, g_remote_batteries[1].charging ? "true" : "false", stable ? 0 : g_remote_batteries[1].voltage_mv,
-        reported_json[1], g_remote_batteries[1].restored ? "true" : "false", link_json[1]);
-    if (blen < 0) return -1;
-    if ((size_t)blen >= len) return -1;
-    return blen;
+        int n = snprintf(body + blen, len - (size_t)blen,
+            "%s{\"slot\":%d,\"name\":\"%s\",\"model\":\"%s\",\"model_name\":%s,\"skin\":%s,\"equad_id\":%s,"
+            "\"has_screen\":%s,\"supports_ota\":%s,\"active\":%s,\"in_sync\":%s,\"address\":\"%s\",\"rf_address\":\"%s\","
+            "\"sw_version\":\"%s\"%s,\"config_version\":%d,"
+            "\"battery\":{\"percent\":%d,\"charging\":%s,\"voltage_mv\":%d,\"reported_at\":%s,\"restored\":%s},\"link\":%s}",
+            listed ? "," : "", slot, name, model, mname_s, skin_s, equad_s,
+            is_comp[i] ? "false" : "true", is_comp[i] ? "false" : "true",
+            r->active ? "true" : "false", in_sync ? "true" : "false", addr_str, addr_str,
+            ver_str, rid_json, is_comp[i] ? 0 : g_remote_versions[i].config_version,
+            g_remote_batteries[i].percent, g_remote_batteries[i].charging ? "true" : "false",
+            stable ? 0 : g_remote_batteries[i].voltage_mv,
+            reported_json, g_remote_batteries[i].restored ? "true" : "false", link_json);
+        if (n < 0 || (size_t)n >= len - (size_t)blen) return -1;
+        blen += n;
+        listed++;
+    }
+    int n = snprintf(body + blen, len - (size_t)blen, "]}");
+    if (n < 0 || (size_t)n >= len - (size_t)blen) return -1;
+    return blen + n;
 }
 
 int rf_api_body_status(const char *buf, size_t n, size_t cap) {
@@ -382,7 +364,7 @@ void *api_server_worker(void *arg) {
             int qslot = req_slot(buf);
             if (qslot == REQ_SLOT_BAD || (qslot == 0 && !route_takes_all_slots(buf))) {
                 const char *res = "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n"
-                                  "{\"error\":\"slot: 1 or 2 (0 or all for every remote where the route allows it)\",\"ok\":false}";
+                                  "{\"error\":\"slot: 1 to 6 (0 or all for every remote where the route allows it)\",\"ok\":false}";
                 write(cli, res, strlen(res));
             } else if (route_is(buf, "GET /api/rf/pair") || route_is(buf, "POST /api/rf/pair")) {
                 if (is_ota_busy()) {
@@ -441,7 +423,7 @@ void *api_server_worker(void *arg) {
                 } else {
                     int slot = qslot > 0 ? qslot : 0;
                     int sent_count = 0;
-                    for (int s = 1; s <= 2; s++) {
+                    for (int s = 1; s <= MAX_PAIRED_REMOTES; s++) {
                         if (slot != 0 && slot != s) continue;
                         if (slot == 0 && !g_paired_remotes[s - 1].active) continue;
                         if (is_companion_slot((uint8_t)s)) continue;
@@ -599,7 +581,7 @@ void *api_server_worker(void *arg) {
                         fclose(f);
                     } else {
                         snprintf(res_body, sizeof(res_body),
-                            "{\"slot\":%d,\"brightness\":2,\"timeout\":10,\"touchEnabled\":true,\"touch\":1,\"physicalNavEnabled\":false,\"physical_nav\":0,\"capButtonsEnabled\":true,\"cap_buttons\":1,\"gyroEnabled\":true,\"gyro\":1,\"gyroRate\":50,\"gyro_rate\":50,\"btnBacklight\":2,\"btn_backlight\":2,\"nightStart\":22,\"night_start\":22,\"nightEnd\":7,\"night_end\":7,\"navToggleKey\":139,\"nav_key\":139,\"navToggleMode\":1,\"nav_mode\":1,\"usbEth\":false,\"usbeth\":0,\"confirmActivity\":true,\"confirm_act\":1,\"touchSensitivity\":2,\"touch_sensitivity\":2,\"remoteMode\":0,\"remote_mode\":0,\"noScreen\":false,\"no_screen\":0,\"debugLogging\":false,\"debug_logging\":0,\"powerDebug\":false,\"power_debug\":0,\"language\":\"en\",\"language_id\":0}",
+                            "{\"slot\":%d,\"brightness\":2,\"timeout\":10,\"touchEnabled\":true,\"touch\":1,\"physicalNavEnabled\":false,\"physical_nav\":0,\"capButtonsEnabled\":true,\"cap_buttons\":1,\"gyroEnabled\":true,\"gyro\":1,\"btnBacklight\":2,\"btn_backlight\":2,\"nightStart\":22,\"night_start\":22,\"nightEnd\":7,\"night_end\":7,\"navToggleKey\":139,\"nav_key\":139,\"navToggleMode\":1,\"nav_mode\":1,\"usbEth\":false,\"usbeth\":0,\"confirmActivity\":true,\"confirm_act\":1,\"touchSensitivity\":2,\"touch_sensitivity\":2,\"remoteMode\":0,\"remote_mode\":0,\"noScreen\":false,\"no_screen\":0,\"debugLogging\":false,\"debug_logging\":0,\"powerDebug\":false,\"power_debug\":0,\"language\":\"en\",\"language_id\":0}",
                             slot);
                     }
                 }
@@ -625,7 +607,7 @@ void *api_server_worker(void *arg) {
                         cJSON *root = cJSON_Parse(body_start);
                         if (root) {
                             cJSON *jslot = cJSON_GetObjectItem(root, "slot");
-                            if (jslot && cJSON_IsNumber(jslot) && (jslot->valueint == 1 || jslot->valueint == 2)) {
+                            if (jslot && cJSON_IsNumber(jslot) && (jslot->valueint >= 1 && jslot->valueint <= MAX_PAIRED_REMOTES)) {
                                 slot = jslot->valueint;
                             }
                             cJSON *jb = cJSON_GetObjectItem(root, "brightness");
@@ -644,8 +626,6 @@ void *api_server_worker(void *arg) {
                             if (!jts) jts = cJSON_GetObjectItem(root, "touch_sensitivity");
                             cJSON *jrm = cJSON_GetObjectItem(root, "remoteMode");
                             if (!jrm) jrm = cJSON_GetObjectItem(root, "remote_mode");
-                            cJSON *jgr = cJSON_GetObjectItem(root, "gyroRate");
-                            if (!jgr) jgr = cJSON_GetObjectItem(root, "gyro_rate");
                             cJSON *jbb = cJSON_GetObjectItem(root, "btnBacklight");
                             if (!jbb) jbb = cJSON_GetObjectItem(root, "btn_backlight");
                             cJSON *jns = cJSON_GetObjectItem(root, "nightStart");
@@ -683,7 +663,6 @@ void *api_server_worker(void *arg) {
                             int confirm_act = (jca && (cJSON_IsTrue(jca) || (cJSON_IsNumber(jca) && jca->valueint != 0))) ? 1 : 0;
                             int touch_sens = (jts && jts->valueint >= 1 && jts->valueint <= 3) ? jts->valueint : 2;
                             int remote_mode = 0;
-                            int gyro_rate = (jgr && jgr->valueint > 0) ? jgr->valueint : 50;
                             int btn_backlight = (jbb && jbb->valueint >= 0 && jbb->valueint <= 2) ? jbb->valueint : 2;
                             int night_start = (jns && jns->valueint >= 0 && jns->valueint <= 23) ? jns->valueint : 22;
                             int night_end = (jne && jne->valueint >= 0 && jne->valueint <= 23) ? jne->valueint : 7;
@@ -733,8 +712,6 @@ void *api_server_worker(void *arg) {
                             cJSON_AddNumberToObject(norm, "touch_sensitivity", touch_sens);
                             cJSON_AddNumberToObject(norm, "remoteMode", remote_mode);
                             cJSON_AddNumberToObject(norm, "remote_mode", remote_mode);
-                            cJSON_AddNumberToObject(norm, "gyroRate", gyro_rate);
-                            cJSON_AddNumberToObject(norm, "gyro_rate", gyro_rate);
                             cJSON_AddNumberToObject(norm, "btnBacklight", btn_backlight);
                             cJSON_AddNumberToObject(norm, "btn_backlight", btn_backlight);
                             cJSON_AddNumberToObject(norm, "nightStart", night_start);
@@ -778,7 +755,7 @@ void *api_server_worker(void *arg) {
                             }
 
                             int push_res = rf_send_settings_push_slot((uint8_t)slot, bright, timeout, touch, gyro, nav_key, nav_mode,
-                                                       confirm_act, touch_sens, remote_mode, gyro_rate,
+                                                       confirm_act, touch_sens, remote_mode,
                                                        btn_backlight, night_start, night_end, usbeth, no_screen,
                                                        cap_buttons, power_debug, lang_id, theme, layout, physical_nav);
                             if (push_res == 0) {
@@ -945,7 +922,7 @@ void *api_server_worker(void *arg) {
                 }
             } else {
                 /* Status endpoint */
-                char body[3584];
+                char body[8192]; /* 6 slots */
                 int blen = rf_build_status_json(body, sizeof(body), RF_STATUS_QUERY_RADIO);
                 if (blen < 0) blen = snprintf(body, sizeof(body), "{\"ok\":false,\"error\":\"status too large\"}");
                 char header[256];
