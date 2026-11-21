@@ -316,6 +316,16 @@ void rf_sync_cache_invalidate(void) {
     s_ota_cache_epoch = 0;
 }
 
+void rf_config_version_bump(void) {
+    g_config_version++;
+    if (g_config_version == 0) g_config_version = 1;
+    char vline[16];
+    snprintf(vline, sizeof(vline), "%d\n", g_config_version);
+    if (atomic_file_write_str("/data/harmony/config_version", vline) != 0) {
+        fprintf(stderr, "[-] Could not save /data/harmony/config_version\n");
+    }
+}
+
 static void get_cached_tz_prefix(uint32_t now, char *out_prefix, uint8_t *out_len) {
     if (s_tz_cache_epoch == 0 || now < s_tz_cache_epoch || now - s_tz_cache_epoch >= TZ_CACHE_TTL_S) {
         FILE *ftz = fopen("/etc/TZ", "r");

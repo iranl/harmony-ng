@@ -481,11 +481,16 @@ void *config_push_worker(void *arg) {
         uint16_t delay_ms;
         char name[16];
         uint8_t warm_dev;   /* a Warmup step: 1 + index of its device in the device list */
-        uint8_t warm_count; /* Warmup steps at the head of this start sequence */
+        uint8_t warm_count; /* this activity's Warmup steps in warm_steps[] */
+        uint8_t warm_first; /* index of the first of them */
     };
     struct rf_step_send act_steps[64];
-    memset(act_steps, 0, sizeof(act_steps)); /* warm_dev and warm_count stay 0 outside the warmup code */
+    memset(act_steps, 0, sizeof(act_steps)); /* the warm fields stay 0 outside the warmup code */
     int total_step_count = 0;
+    /* Warmup steps apart: only some remotes get them, and those get them only in the room the
+       other steps leave of the remote's 64 (MAX_RF_STEPS) */
+    struct rf_step_send warm_steps[64];
+    int warm_total = 0;
 
     FILE *fsteps = fopen("/data/harmony/config/activities.json", "r");
     if (fsteps) {
@@ -515,8 +520,7 @@ void *config_push_worker(void *arg) {
                             }
                             if (!act_id[0]) continue;
 
-                            /* Room for the warmup steps added below */
-                            struct rf_step_send local_steps[16 + RF_WARMUP_STEPS_MAX];
+                            struct rf_step_send local_steps[16];
                             memset(local_steps, 0, sizeof(local_steps)); /* the default steps below copy ids and names without a terminator */
                             int local_count = 0;
 
@@ -633,17 +637,17 @@ void *config_push_worker(void *arg) {
                                 }
                                 break;
                             }
-                            if (warm_count > 0) {
-                                memmove(&local_steps[warm_count], &local_steps[0], (size_t)local_count * sizeof(local_steps[0]));
-                                memcpy(&local_steps[0], warm, (size_t)warm_count * sizeof(warm[0]));
-                                local_count += warm_count;
-                            }
+                            if (warm_total + warm_count > 64) warm_count = 0;
+                            int warm_first = warm_total;
+                            memcpy(&warm_steps[warm_total], warm, (size_t)warm_count * sizeof(warm[0]));
+                            warm_total += warm_count;
 
                             for (int s = 0; s < local_count && total_step_count < 64; s++) {
                                 act_steps[total_step_count] = local_steps[s];
                                 act_steps[total_step_count].step_idx = (uint8_t)s;
                                 act_steps[total_step_count].total_steps = (uint8_t)local_count;
                                 act_steps[total_step_count].warm_count = (uint8_t)warm_count;
+                                act_steps[total_step_count].warm_first = (uint8_t)warm_first;
                                 total_step_count++;
                             }
 
@@ -752,22 +756,42 @@ void *config_push_worker(void *arg) {
         uint8_t target_slot = target_slots[t];
         if (is_slot_direct_mode(target_slot)) continue;
         /* An older remote adds up every Warmup step and opens its switch screen only at the end
-           of the switch: it gets the list without them */
+           of the switch: it gets the list without them. A newer one gets an activity's Warmup
+           steps, all or none, while they fit next to the other steps. */
         bool warm_ok = target_slot >= 1 && target_slot <= 2 &&
                        (g_remote_versions[target_slot - 1].caps & RF_CAP_SWITCH_START);
-        int chunk = 0;
+        struct rf_step_send out[64];
+        int out_count = 0, warm_room = 64 - total_step_count;
+        uint8_t add = 0;
         for (int i = 0; i < total_step_count; i++) {
-            if (act_steps[i].warm_dev && !warm_ok) continue;
-            uint8_t skip = (warm_ok || (act_steps[i].step_idx & 0x80)) ? 0 : act_steps[i].warm_count;
+            const struct rf_step_send *s = &act_steps[i];
+            if (s->step_idx == 0) { /* the first start step of an activity */
+                add = (warm_ok && s->warm_count > 0 && s->warm_count <= warm_room) ? s->warm_count : 0;
+                warm_room -= add;
+                for (int w = 0; w < add; w++) {
+                    out[out_count] = warm_steps[s->warm_first + w];
+                    out[out_count].step_idx = (uint8_t)w;
+                    out[out_count].total_steps = (uint8_t)(s->total_steps + add);
+                    out_count++;
+                }
+            }
+            out[out_count] = *s;
+            if (!(s->step_idx & 0x80)) {
+                out[out_count].step_idx = (uint8_t)(s->step_idx + add);
+                out[out_count].total_steps = (uint8_t)(s->total_steps + add);
+            }
+            out_count++;
+        }
+        for (int i = 0; i < out_count; i++) {
             uint8_t payload[26] = {0};
-            payload[0] = (uint8_t)chunk++;
-            payload[1] = (uint8_t)(act_steps[i].step_idx - skip);
-            payload[2] = (uint8_t)(act_steps[i].total_steps - skip);
-            strncpy((char *)&payload[3], act_steps[i].act_id, 9);
-            payload[12] = (uint8_t)(act_steps[i].delay_ms & 0xFF);
-            payload[13] = (uint8_t)((act_steps[i].delay_ms >> 8) & 0xFF);
-            strncpy((char *)&payload[14], act_steps[i].name, 11);
-            if (act_steps[i].warm_dev) payload[21] = act_steps[i].warm_dev; /* after "Warmup" and its NUL */
+            payload[0] = (uint8_t)i;
+            payload[1] = out[i].step_idx;
+            payload[2] = out[i].total_steps;
+            strncpy((char *)&payload[3], out[i].act_id, 9);
+            payload[12] = (uint8_t)(out[i].delay_ms & 0xFF);
+            payload[13] = (uint8_t)((out[i].delay_ms >> 8) & 0xFF);
+            strncpy((char *)&payload[14], out[i].name, 11);
+            if (out[i].warm_dev) payload[21] = out[i].warm_dev; /* after "Warmup" and its NUL */
 
             rf_build_frame(&f, target_slot, RF_MSG_STEP_LIST_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 26);
             push_queue_add(&queue[t], &f);

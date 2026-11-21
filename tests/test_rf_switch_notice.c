@@ -2,7 +2,8 @@
  * goes only to remotes that report RF_CAP_SWITCH_START: an older remote takes it for the end of
  * the switch and closes its progress bar. The end notice goes to every remote. A sync query
  * answered mid-switch names the target with RF_ACT_SYNC_QUERY_SWITCHING for such a remote, so a
- * lost end notice does not hold its switch screen. Real hub_rf sources, /dev/rfspi a socket pair. */
+ * lost end notice does not hold its switch screen. Real hub_rf sources, /dev/rfspi a socket pair;
+ * the mock library (HARMONY_MOCK_ACTIVITY_FILES) puts /tmp/activity_* under the mock directory. */
 #undef main
 #include <stdio.h>
 #include <stdlib.h>
@@ -46,6 +47,10 @@ int main(void) {
     g_remote_versions[0].caps = RF_CAP_LONG_NAMES | RF_CAP_SWITCH_START; /* slot 1: new remote */
     g_remote_versions[1].caps = RF_CAP_LONG_NAMES;                       /* slot 2: older remote */
 
+    if (!getenv("HARMONY_MOCK_ACTIVITY_FILES")) {
+        printf("[-] test_rf_switch_notice: run it with HARMONY_MOCK_ACTIVITY_FILES=1 and the mock library\n");
+        return 1;
+    }
     int counts[16], states[16];
     rf_send_hub_activity_sync_state("3", 1, RF_ACT_SYNC_STARTING);
     drain(counts, states);
@@ -74,6 +79,20 @@ int main(void) {
     rf_send_hub_activity_query_reply(5, 1);
     drain(counts, states);
     CHECK(counts[1] == 1 && states[1] == RF_ACT_SYNC_QUERY, "query after the switch: plain answer");
+
+    /* A remote whose caps changed keeps a step list built for the old ones: a new config version
+       makes it ask for the push */
+    snprintf(g_remote_versions[1].sw_version, sizeof(g_remote_versions[1].sw_version), "2.5.2");
+    g_config_version = 5;
+    uint8_t rep[25] = {2, 5, 3, 5, RF_CAP_LONG_NAMES | RF_CAP_SWITCH_START};
+    rf_frame_t vf;
+    rf_build_frame(&vf, 2, RF_MSG_VERSION_REPORT, 6, 0, rep, 25);
+    handle_rf_frame(&vf);
+    CHECK(g_config_version == 6, "caps changed: new config version");
+    rf_build_frame(&vf, 2, RF_MSG_VERSION_REPORT, 7, 0, rep, 25);
+    handle_rf_frame(&vf);
+    CHECK(g_config_version == 6, "the same caps again: no new version");
+    drain(counts, states);
 
     close(sv[0]);
     close(sv[1]);

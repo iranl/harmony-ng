@@ -31,6 +31,9 @@ static inline void sync_touch_chunk(void) {
 
 /* The Hub sent RF_ACT_SYNC_STARTING once: it announces every switch it shows to this remote */
 static bool s_hub_sends_start = false;
+/* When the last start or end notice arrived: a query answer for a query sent before it was
+   built from the state before that notice */
+static uint64_t s_last_notice_ms = 0;
 
 static void sanitize_ascii(char *str, size_t max_len) {
     if (!str) return;
@@ -53,8 +56,16 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
 
     switch (f->msg_type) {
         case RF_MSG_ACTIVITY_SYNC: {
-            if (f->payload[24] == RF_ACT_SYNC_QUERY || f->payload[24] == RF_ACT_SYNC_QUERY_SWITCHING)
-                link_note_reply(f->seq, get_monotonic_ms()); /* answer to a sync query */
+            if (f->payload[24] == RF_ACT_SYNC_QUERY || f->payload[24] == RF_ACT_SYNC_QUERY_SWITCHING) {
+                uint64_t asked_ms = link_note_reply(f->seq, get_monotonic_ms()); /* answer to a sync query */
+                /* The Hub reads the state, then sends; a notice can go out in between */
+                if (asked_ms && asked_ms < s_last_notice_ms) {
+                    printf("[*] Sync answer older than the last switch notice: ignored\n");
+                    break;
+                }
+            } else {
+                s_last_notice_ms = get_monotonic_ms();
+            }
             char act_id[13] = {0};
             char act_name[24] = {0};
             /* The name ends before payload[24], the query-reply flag (rf_send_hub_activity_sync_slot()
@@ -87,6 +98,11 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                query answered mid-switch says the same (a remote that woke or restarted). */
             if (sync_state == RF_ACT_SYNC_STARTING || sync_state == RF_ACT_SYNC_QUERY_SWITCHING) {
                 s_hub_sends_start = true;
+                /* A query sent on a wake with the screen off (alarm wake): no switch state, it
+                   would block the suspend, and no queries go out to end it. The first query with
+                   the screen on shows the switch. */
+                if (sync_state == RF_ACT_SYNC_QUERY_SWITCHING && !g_screen_on) break;
+                g_switch_hub_heard_ms = now_ms;
                 if (g_is_switching_activity && strcmp(act_id, g_switching_target_id) == 0) {
                     g_switch_hub_started = true; /* the switch this remote asked for */
                 } else if (g_is_switching_activity || remote_view_follows_hub()) {

@@ -66,6 +66,7 @@ char g_switching_target_name[48] = "PowerOff";
 uint64_t g_switching_start_ms = 0;
 uint32_t g_switching_total_ms = 3500;
 volatile bool g_switch_hub_started = false;
+volatile uint64_t g_switch_hub_heard_ms = 0;
 
 /* Config Synchronization & RF OTA Lock overlay states */
 volatile bool g_is_syncing_config = false;

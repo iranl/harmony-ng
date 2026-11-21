@@ -553,13 +553,7 @@ void *api_server_worker(void *arg) {
                     rf_keymap_invalidate_activities_cache();
                     rf_keymap_invalidate_map(1);
                     rf_keymap_invalidate_map(2);
-                    g_config_version++;
-                    if (g_config_version == 0) g_config_version = 1;
-                    char vline[16];
-                    snprintf(vline, sizeof(vline), "%d\n", g_config_version);
-                    if (atomic_file_write_str("/data/harmony/config_version", vline) != 0) {
-                        fprintf(stderr, "[-] Could not save /data/harmony/config_version\n");
-                    }
+                    rf_config_version_bump();
                     pthread_t push_th;
                     int push_ok = (pthread_create(&push_th, NULL, config_push_worker, NULL) == 0);
                     if (push_ok) pthread_detach(push_th);

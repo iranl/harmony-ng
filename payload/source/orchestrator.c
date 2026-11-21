@@ -103,22 +103,20 @@ static void save_current_activity(const char *act_id) {
 /* Mirror active activity to /tmp/current_activity in RAM for atomic zero-contention
  * reads. Updates when activity actually switches (STEP_ACT_SWITCHED) or reaches idle;
  * in-flight target during switch is tracked in /tmp/activity_target. */
+/* These files are written whole (temporary file, then rename): hub_rf reads them at any time,
+   and a read of a truncated file would give it no activity or no switch */
 static void write_activity_mirror(const char *act_id) {
     if (!act_id || !act_id[0]) return;
-    FILE *ft = fopen("/tmp/current_activity", "w");
-    if (ft) {
-        fprintf(ft, "%s\n", act_id);
-        fclose(ft);
-    }
+    char line[40];
+    snprintf(line, sizeof(line), "%s\n", act_id);
+    (void)atomic_file_write_str("/tmp/current_activity", line);
 }
 
 static void write_activity_target(const char *act_id) {
     if (!act_id || !act_id[0]) return;
-    FILE *ft = fopen("/tmp/activity_target", "w");
-    if (ft) {
-        fprintf(ft, "%s\n", act_id);
-        fclose(ft);
-    }
+    char line[40];
+    snprintf(line, sizeof(line), "%s\n", act_id);
+    (void)atomic_file_write_str("/tmp/activity_target", line);
 }
 
 static void clear_activity_target(void) {
@@ -162,11 +160,9 @@ static const char *orch_state_name(orch_state_t st) {
  * (its event follows once they are, so it carries the right sending flag) */
 static void set_state_ex(orch_state_t st, int emit) {
     g_state = st;
-    FILE *fs = fopen("/tmp/activity_state", "w");
-    if (fs) {
-        fprintf(fs, "%s\n", orch_state_name(st));
-        fclose(fs);
-    }
+    char line[16];
+    snprintf(line, sizeof(line), "%s\n", orch_state_name(st));
+    (void)atomic_file_write_str("/tmp/activity_state", line);
     if (!emit) return;
     int sending = (g_queue_len > 0 || g_bg_len > 0) ? 1 : 0;
     if ((int)st == g_last_emitted_state && strcmp(g_current_act, g_last_emitted_act) == 0 &&

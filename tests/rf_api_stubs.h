@@ -38,6 +38,7 @@ void rf_notify_update_available(int slot) { (void)slot; }
 void rf_push_custom_icon(const char *id, const char *type) { (void)id; (void)type; }
 void record_config_diff(void) {}
 void rf_sync_cache_invalidate(void) {}
+void rf_config_version_bump(void) { g_config_version++; }
 int rf_wake_remote(uint8_t slot, int attempts) { (void)slot; (void)attempts; return 0; }
 void *config_push_worker(void *arg) { (void)arg; return NULL; }
 void *rf_ota_sender_worker(void *arg) { (void)arg; return NULL; }

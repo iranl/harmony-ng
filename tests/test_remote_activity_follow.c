@@ -20,6 +20,7 @@
 #include "remote/remote_fb.h"
 #include "remote/remote_rf.h"
 #include "remote/remote_rf_sync.h"
+#include "remote/remote_link.h"
 
 static int failures;
 static uint8_t s_seq = 1;
@@ -31,14 +32,18 @@ static uint8_t s_seq = 1;
     } while (0)
 
 /* ACTIVITY_SYNC from the Hub, short id format: id, NUL, name at payload[3], query flag at [24] */
-static void hub_activity_state(const char *id, const char *name, uint8_t state) {
+static void hub_activity_frame(const char *id, const char *name, uint8_t state, uint8_t seq) {
     uint8_t p[25] = {0};
     memcpy(p, id, strlen(id) < 2 ? strlen(id) : 2);
     strncpy((char *)&p[3], name, 20);
     p[24] = state;
     rf_frame_t rf;
-    rf_build_frame(&rf, 1, RF_MSG_ACTIVITY_SYNC, s_seq++, 0, p, 25);
+    rf_build_frame(&rf, 1, RF_MSG_ACTIVITY_SYNC, seq, 0, p, 25);
     handle_hub_frame_remote(&rf);
+}
+
+static void hub_activity_state(const char *id, const char *name, uint8_t state) {
+    hub_activity_frame(id, name, state, s_seq++);
 }
 
 static void hub_activity(const char *id, const char *name, bool query_reply) {
@@ -239,6 +244,38 @@ int main(void) {
           "query answered mid-switch on home: progress bar shown");
     hub_activity_state("2", "Play Games", RF_ACT_SYNC_COMPLETE);
     CHECK(!g_is_switching_activity && strcmp(g_active_activity_id, "2") == 0, "end notice closes it");
+
+    /* 17. The Hub read its state for a query answer just before it sent a notice: the answer
+       arrives after the notice and is older than it */
+    reset_state("1");
+    g_current_view = VIEW_ACTIVITIES;
+    link_note_query(9, get_monotonic_ms() - 100);
+    hub_activity_state("3", "Music", RF_ACT_SYNC_STARTING);
+    hub_activity_frame("1", "Watch TV", RF_ACT_SYNC_QUERY, 9);
+    CHECK(g_is_switching_activity, "a plain answer to a query sent before the start notice keeps the bar");
+    link_note_query(10, get_monotonic_ms() - 50);
+    hub_activity_state("3", "Music", RF_ACT_SYNC_COMPLETE);
+    hub_activity_frame("3", "Music", RF_ACT_SYNC_QUERY_SWITCHING, 10);
+    CHECK(!g_is_switching_activity, "a switching answer to a query sent before the end notice opens no bar");
+    link_note_query(11, get_monotonic_ms());
+    hub_activity_state("2", "Play Games", RF_ACT_SYNC_STARTING);
+    link_note_query(12, get_monotonic_ms() + 5);
+    hub_activity_frame("2", "Play Games", RF_ACT_SYNC_QUERY_SWITCHING, 12);
+    hub_activity_frame("2", "Play Games", RF_ACT_SYNC_COMPLETE, s_seq++);
+    CHECK(!g_is_switching_activity && strcmp(g_active_activity_id, "2") == 0,
+          "answers to later queries still count, and the end notice closes the bar");
+
+    /* 18. A query answered mid-switch with the screen off (alarm wake): no switch state, it would
+       block the suspend with no query to end it */
+    reset_state("1");
+    g_current_view = VIEW_ACTIVITIES;
+    g_screen_on = false;
+    hub_activity_state("3", "Music", RF_ACT_SYNC_QUERY_SWITCHING);
+    CHECK(!g_is_switching_activity, "query answered mid-switch with the screen off: no switch screen");
+    g_screen_on = true;
+    hub_activity_state("3", "Music", RF_ACT_SYNC_QUERY_SWITCHING);
+    CHECK(g_is_switching_activity, "the next answer with the screen on shows it");
+    hub_activity_state("3", "Music", RF_ACT_SYNC_COMPLETE);
 
     if (failures) {
         printf("[-] test_remote_activity_follow: %d check(s) failed\n", failures);

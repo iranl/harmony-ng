@@ -3,7 +3,9 @@
  * devices or devices the start sequence powers on), longest first, with the device in
  * payload[21]; only a remote that reports RF_CAP_SWITCH_START gets them. The default steps stay
  * when the activity has no start sequence, and a Delay before the first command is a step of its
- * own. Same harness as test_rf_push_targets.c: the real hub_rf sources, /dev/rfspi a socket pair,
+ * own. The Warmup steps fill only the room the other steps leave of the remote's 64: an older
+ * remote gets every other step, a newer one the Warmup steps of the first activities that fit.
+ * Same harness as test_rf_push_targets.c: the real hub_rf sources, /dev/rfspi a socket pair,
  * a radio thread that ACKs every frame. */
 #undef main
 #include <stdio.h>
@@ -77,6 +79,30 @@ static int start_steps(int slot, const char *act_id, const step_t **out, int max
     return n;
 }
 
+/* One config push to both slots, the steps each slot got in s_steps */
+static void run_push(void) {
+    memset(s_step_count, 0, sizeof(s_step_count));
+    s_stop = 0;
+    int sv[2];
+    if (socketpair(AF_UNIX, SOCK_SEQPACKET, 0, sv) != 0) { perror("socketpair"); exit(1); }
+    g_rf_fd = sv[0];
+    s_radio_fd = sv[1];
+    pthread_t th;
+    pthread_create(&th, NULL, radio_worker, NULL);
+    config_push_worker(NULL);
+    s_stop = 1;
+    shutdown(sv[0], SHUT_RDWR);
+    pthread_join(th, NULL);
+    close(sv[0]);
+    close(sv[1]);
+}
+
+static int chunks_contiguous(int slot) {
+    int ok = s_step_count[slot] > 0;
+    for (int i = 0; i < s_step_count[slot]; i++) ok = ok && s_steps[slot][i].chunk == (unsigned)i;
+    return ok;
+}
+
 static int s_fail;
 #define CHECK(cond, msg) do { if (!(cond)) { printf("[-] %s\n", msg); s_fail = 1; } else printf("[+] %s\n", msg); } while (0)
 
@@ -100,13 +126,6 @@ int main(void) {
                " \"startSequence\": [{\"deviceId\": \"6\", \"command\": \"PowerOn\", \"delay\": 500}]}"
                "]}");
 
-    int sv[2];
-    if (socketpair(AF_UNIX, SOCK_SEQPACKET, 0, sv) != 0) { perror("socketpair"); return 1; }
-    g_rf_fd = sv[0];
-    s_radio_fd = sv[1];
-    pthread_t th;
-    pthread_create(&th, NULL, radio_worker, NULL);
-
     for (int i = 0; i < 2; i++) {
         g_paired_remotes[i].slot = (uint8_t)(i + 1);
         g_paired_remotes[i].active = true;
@@ -119,11 +138,7 @@ int main(void) {
     g_remote_slot = 1;
     g_config_version = 7;
 
-    config_push_worker(NULL);
-
-    s_stop = 1;
-    shutdown(sv[0], SHUT_RDWR);
-    pthread_join(th, NULL);
+    run_push();
 
     const step_t *st[20];
     int n = start_steps(1, "10", st, 20);
@@ -151,9 +166,42 @@ int main(void) {
     n = start_steps(2, "10", st, 20);
     CHECK(n == 2 && strcmp(st[0]->name, "Delay") == 0 && st[0]->step_idx == 0 && st[0]->total == 2 &&
           st[1]->step_idx == 1, "an older remote gets no Warmup steps, numbered without them");
-    int contiguous = s_step_count[2] > 0;
-    for (int i = 0; i < s_step_count[2]; i++) contiguous = contiguous && s_steps[2][i].chunk == (unsigned)i;
-    CHECK(contiguous && s_step_count[2] == s_step_count[1] - 3, "its chunk indexes have no gaps");
+    CHECK(chunks_contiguous(2) && s_step_count[2] == s_step_count[1] - 3, "its chunk indexes have no gaps");
+
+    /* 10 activities with 4 warmup devices, 3 start steps and 1 stop step each: 41 steps with the
+       PowerOff step, room for 23 Warmup steps */
+    write_file("/data/harmony/config/devices.json",
+               "{\"devices\": ["
+               "{\"id\": \"1\", \"name\": \"D1\", \"powerOnDelay\": 2000, \"commands\": []}, {\"id\": \"2\", \"name\": \"D2\", \"powerOnDelay\": 3000, \"commands\": []},"
+               "{\"id\": \"3\", \"name\": \"D3\", \"powerOnDelay\": 4000, \"commands\": []}, {\"id\": \"4\", \"name\": \"D4\", \"powerOnDelay\": 5000, \"commands\": []}]}");
+    char acts[4096] = "{\"activities\": [";
+    for (int a = 0; a < 10; a++) {
+        char one[256];
+        snprintf(one, sizeof(one),
+                 "%s{\"id\": \"%d\", \"name\": \"A%d\", \"deviceIds\": [\"1\", \"2\", \"3\", \"4\"],"
+                 " \"startSequence\": [{\"command\": \"A\"}, {\"command\": \"B\"}, {\"command\": \"C\"}],"
+                 " \"stopSequence\": [{\"command\": \"Off\"}]}",
+                 a ? "," : "", 20 + a, a);
+        strcat(acts, one);
+    }
+    strcat(acts, "]}");
+    write_file("/data/harmony/config/activities.json", acts);
+    run_push();
+    int all_old = 1, all_new = 1, warm_acts = 0, numbered = 1;
+    for (int a = 0; a < 10; a++) {
+        char id[8];
+        snprintf(id, sizeof(id), "%d", 20 + a);
+        n = start_steps(2, id, st, 20);
+        all_old = all_old && n == 3 && st[0]->total == 3;
+        n = start_steps(1, id, st, 20);
+        all_new = all_new && (n == 3 || n == 7);
+        if (n == 7) warm_acts++;
+        for (int i = 0; i < n; i++) numbered = numbered && st[i]->step_idx == (unsigned)i && st[i]->total == (unsigned)n;
+    }
+    CHECK(all_old && s_step_count[2] == 41 && chunks_contiguous(2),
+          "Warmup steps take no room from an older remote: every activity keeps its steps");
+    CHECK(all_new && warm_acts == 5 && s_step_count[1] == 61 && chunks_contiguous(1) && numbered,
+          "a newer remote gets every other step, and the Warmup steps (all of an activity) while they fit");
 
     if (s_fail) {
         printf("[-] test_rf_push_steps: FAILED\n");

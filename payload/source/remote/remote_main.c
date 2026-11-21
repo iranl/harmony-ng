@@ -539,7 +539,11 @@ int main(int argc, char **argv) {
             /* A switch the Hub announced ends with its end notice; this is the fallback when
                that notice is lost. Without the announcement (older Hub) the estimate ends it. */
             uint64_t switch_grace_ms = g_switch_hub_started ? 10000 : 400;
-            if (ms_since(now_ms, g_switching_start_ms) > (uint64_t)g_switching_total_ms + switch_grace_ms) {
+            /* and not while the Hub still answers that the switch runs: closed early, the next
+               answer would open the screen again from zero */
+            bool hub_still_switching = g_switch_hub_started && ms_since(now_ms, g_switch_hub_heard_ms) <= 10000;
+            if (ms_since(now_ms, g_switching_start_ms) > (uint64_t)g_switching_total_ms + switch_grace_ms &&
+                !hub_still_switching) {
                 printf("[*] Activity switch complete (elapsed %llums), unlocking screen\n", (unsigned long long)ms_since(now_ms, g_switching_start_ms));
                 g_is_switching_activity = false;
                 g_switch_hub_started = false;

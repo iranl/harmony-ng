@@ -240,6 +240,8 @@ extern uint32_t g_switching_total_ms;
 /* The Hub announced the shown switch (RF_ACT_SYNC_STARTING): its end notice closes the switch
  * screen, whatever activity it names */
 extern volatile bool g_switch_hub_started;
+/* When the Hub last said a switch runs (start notice or mid-switch query answer) */
+extern volatile uint64_t g_switch_hub_heard_ms;
 
 extern volatile bool g_is_syncing_config;
 extern uint64_t g_sync_start_ms;

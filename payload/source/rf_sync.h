@@ -33,6 +33,8 @@ uint8_t rf_check_update_flags(uint8_t slot);
 void rf_notify_update_available(uint8_t target_slot);
 void rf_send_hub_time_sync_slot_if_due(uint8_t slot);
 void rf_sync_cache_invalidate(void);
+/* A new config version: every remote that reports another one asks for the push */
+void rf_config_version_bump(void);
 int rf_push_custom_icon(int target_slot, const char *type_str, const char *id_str);
 int rf_push_custom_icon_file(int target_slot, const char *file_path, const char *id_str);
 void *activity_sync_worker(void *arg);
