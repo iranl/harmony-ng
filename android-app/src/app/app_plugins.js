@@ -700,10 +700,12 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
       btn.addEventListener('click', () => {
         const pId = btn.getAttribute('data-plugin-id');
         const inpId = btn.getAttribute('data-input-id');
-        if (pairingDef?.type === 'listen') {
+        if (pairingDef?.type === 'listen' || pairingDef?.type === 'confirm') {
           const editing = inpId.startsWith('edit_');
+          const host = pairingDef.type === 'confirm' ? (document.getElementById(inpId)?.value || '').trim() : '';
           this.runListenPairing(pId, editing ? 'edit_plug_cfg_' : 'plug_cfg_',
-            editing ? 'edit_plug_pair_status' : 'new_plug_pair_status', btn, pairingDef.timeout_s);
+            editing ? 'edit_plug_pair_status' : 'new_plug_pair_status', btn, pairingDef.timeout_s,
+            pairingDef.type === 'confirm', host);
           return;
         }
         const hostVal = document.getElementById(inpId)?.value || '';
@@ -810,10 +812,12 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
       btn.addEventListener('click', () => {
         const pId = btn.getAttribute('data-plugin-id');
         const inpId = btn.getAttribute('data-input-id');
-        if (pairingDef?.type === 'listen') {
+        if (pairingDef?.type === 'listen' || pairingDef?.type === 'confirm') {
           const editing = inpId.startsWith('edit_');
+          const host = pairingDef.type === 'confirm' ? (document.getElementById(inpId)?.value || '').trim() : '';
           this.runListenPairing(pId, editing ? 'edit_plug_cfg_' : 'plug_cfg_',
-            editing ? 'edit_plug_pair_status' : 'new_plug_pair_status', btn, pairingDef.timeout_s);
+            editing ? 'edit_plug_pair_status' : 'new_plug_pair_status', btn, pairingDef.timeout_s,
+            pairingDef.type === 'confirm', host);
           return;
         }
         const hostVal = document.getElementById(inpId)?.value || '';
@@ -822,17 +826,22 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
     });
   }
 
-  // A "listen" pairing: the plugin hears its device itself (no address to give). The Hub answers
-  // at once; the status is polled until the plugin reports what it found, and those values fill
+  // A "listen" pairing: the plugin hears its device itself (no address to give). A "confirm"
+  // pairing: the user accepts a prompt on the device (a TV) at the host given. The Hub answers at
+  // once; the status is polled until the plugin reports the end, and the values it returns fill
   // the device fields (fieldPrefix + key). The user saves the device as usual.
-  async runListenPairing(pluginId, fieldPrefix, statusId, btn, timeoutS) {
+  async runListenPairing(pluginId, fieldPrefix, statusId, btn, timeoutS, confirm = false, host = '') {
     const show = (txt) => {
       const el = document.getElementById(statusId);
       if (el) el.textContent = txt;
     };
+    if (confirm && !host) {
+      show(t('plg_pair_host_required'));
+      return;
+    }
     const ask = async (action) => {
       try {
-        return await this.client.pairPlugin(pluginId, action, '');
+        return await this.client.pairPlugin(pluginId, action, host);
       } catch (err) {
         return { ok: false, stage: 'error', message: err.message };
       }
@@ -843,7 +852,8 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
       const end = Date.now() + ((Number(res?.timeout_s) || Number(timeoutS) || 30) + 2) * 1000;
       for (;;) {
         if (res?.ok === false || res?.stage === 'error' || res?.error) {
-          show(tf('plg_listen_failed', { error: res?.message || res?.error || '' }));
+          const error = res?.message || res?.error || '';
+          show(confirm ? tf('plg_pairing_failed', { error }) : tf('plg_listen_failed', { error }));
           return;
         }
         if (res?.stage === 'done') {
@@ -851,15 +861,16 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
             const inp = document.getElementById(fieldPrefix + key);
             if (inp) inp.value = String(val);
           });
-          show(res.message || t('plg_listen_done'));
+          show(res.message || (confirm ? t('plg_paired_toast') : t('plg_listen_done')));
           return;
         }
         const left = Math.round((end - Date.now()) / 1000);
         if (left <= 0) {
-          show(tf('plg_listen_failed', { error: '' }));
+          show(confirm ? tf('plg_pairing_failed', { error: t('plg_confirm_timeout') }) : tf('plg_listen_failed', { error: '' }));
           return;
         }
-        show(res?.message ? `${res.message} (${left} s)` : tf('plg_listen_running', { s: left }));
+        show(res?.message ? `${res.message} (${left} s)`
+          : (confirm ? tf('plg_confirm_running', { s: left }) : tf('plg_listen_running', { s: left })));
         await new Promise(r => setTimeout(r, 1000));
         res = await ask('status');
       }

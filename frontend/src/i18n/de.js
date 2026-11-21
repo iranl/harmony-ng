@@ -1334,6 +1334,8 @@ export default {
     "plg_device_pairing": "Gerätekopplung",
     "plg_listen_done": "Gefunden. Die Felder sind ausgefüllt: Gerät speichern.",
     "plg_listen_failed": "Nichts gefunden. {error}",
+    "plg_confirm_running": "Anfrage am Gerät bestätigen: noch {s} s",
+    "plg_confirm_timeout": "die Anfrage wurde nicht rechtzeitig bestätigt.",
     "plg_listen_running": "Warte auf das Gerät: noch {s} s",
     "plg_pair_device": "Gerät koppeln",
     "plg_pair_host_required": "Bitte IP-Adresse oder Host des Geräts eingeben",

@@ -1334,6 +1334,8 @@ export default {
     "plg_device_pairing": "Appairage de l'appareil",
     "plg_listen_done": "Trouvé. Les champs sont remplis : enregistrez l'appareil.",
     "plg_listen_failed": "Rien trouvé. {error}",
+    "plg_confirm_running": "Acceptez la demande sur l'appareil : encore {s} s",
+    "plg_confirm_timeout": "la demande n'a pas été acceptée à temps.",
     "plg_listen_running": "Écoute de l'appareil : encore {s} s",
     "plg_pair_device": "Appairer l'appareil",
     "plg_pair_host_required": "Saisissez l'adresse IP ou l'hôte de l'appareil",

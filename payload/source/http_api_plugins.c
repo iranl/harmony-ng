@@ -293,11 +293,14 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
         int port = (j_port && cJSON_IsNumber(j_port)) ? j_port->valueint : 0;
         cJSON_Delete(json);
 
-        /* The manifest's pairing block: a "listen" pairing (the plugin hears its device, no
-         * address to give) needs no host and returns at once; the UI polls action "status" */
+        /* The manifest's pairing block. Two pairings return at once and the UI polls action
+         * "status": "listen" (the plugin hears its device, no address to give, no host) and
+         * "confirm" (the user accepts a prompt on the device, e.g. a TV; host, no PIN) */
         cJSON *pairing = plugin_mgr_is_safe_id(id) ? plugin_mgr_get_manifest_item(id, "pairing") : NULL;
         const cJSON *j_ptype = pairing ? cJSON_GetObjectItemCaseSensitive(pairing, "type") : NULL;
         int is_listen = cJSON_IsString(j_ptype) && strcmp(j_ptype->valuestring, "listen") == 0;
+        int is_confirm = cJSON_IsString(j_ptype) && strcmp(j_ptype->valuestring, "confirm") == 0;
+        int is_async = is_listen || is_confirm;
         const cJSON *j_rh = pairing ? cJSON_GetObjectItemCaseSensitive(pairing, "requires_host") : NULL;
         int needs_host = j_rh ? cJSON_IsTrue(j_rh) : !is_listen;
         const cJSON *j_to = pairing ? cJSON_GetObjectItemCaseSensitive(pairing, "timeout_s") : NULL;
@@ -369,25 +372,25 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
 
             /* Wait for the status file: up to timeout_s (default 15 s: the start of a pairing is
              * a connect (5 s timeout), a TLS handshake and three exchanges; 5 s reported a timeout
-             * while the pairing went on and succeeded). A listen pairing waits 1 s at most: it
-             * runs for timeout_s and the UI polls. */
-            int polls = is_listen ? 10 : timeout_s * 10;
+             * while the pairing went on and succeeded). A listen or confirm pairing waits 1 s at
+             * most: it runs for timeout_s and the UI polls. */
+            int polls = is_async ? 10 : timeout_s * 10;
             for (int i = 0; i < polls && !res_obj; i++) {
                 usleep(100000);
                 res_obj = read_pair_status(stat_path, act, is_pin);
             }
 
-            if (!res_obj && is_listen) {
+            if (!res_obj && is_async) {
                 res_obj = cJSON_CreateObject();
                 cJSON_AddBoolToObject(res_obj, "ok", 1);
-                cJSON_AddStringToObject(res_obj, "stage", "listening");
+                cJSON_AddStringToObject(res_obj, "stage", is_listen ? "listening" : "confirm_on_device");
             } else if (!res_obj) {
                 res_obj = cJSON_CreateObject();
                 cJSON_AddBoolToObject(res_obj, "ok", 0);
                 cJSON_AddStringToObject(res_obj, "stage", "error");
                 cJSON_AddStringToObject(res_obj, "message", "Device did not respond or pairing timed out");
             }
-            if (is_listen && !cJSON_GetObjectItemCaseSensitive(res_obj, "timeout_s")) {
+            if (is_async && !cJSON_GetObjectItemCaseSensitive(res_obj, "timeout_s")) {
                 cJSON_AddNumberToObject(res_obj, "timeout_s", timeout_s);
             }
         }

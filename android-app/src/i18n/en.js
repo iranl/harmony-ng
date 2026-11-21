@@ -2036,6 +2036,8 @@ export default {
     "plg_listen_running": "Listening for the device: {s} s left",
     "plg_listen_done": "Found. The fields are filled in: save the device.",
     "plg_listen_failed": "Nothing found. {error}",
+    "plg_confirm_running": "Accept the request on the device: {s} s left",
+    "plg_confirm_timeout": "the device was not accepted in time.",
     "plg_pin_length": "Please enter the {n}-character verification code",
     "plg_pull_btn": "⟳ Pull from Git (Dev)",
     "plg_pull_failed": "Pull failed: {error}",

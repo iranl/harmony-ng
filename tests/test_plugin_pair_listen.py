@@ -2,7 +2,8 @@
 """
 POST /api/plugins/pair without a host (a "listen" pairing, PR #243 review): the route returns
 at once, action "status" reads the plugin's status file, and only config keys the manifest's
-config_fields declare reach the UI. A plugin without a listen pairing still needs a host.
+config_fields declare reach the UI. A PIN pairing still needs a host; a "confirm" pairing (the
+user accepts a prompt on the device) needs a host and returns at once like listen.
 
 The harness cannot run a plugin (its file mock does not cover chdir), so the test writes the
 status file the plugin would write.
@@ -57,6 +58,10 @@ def main():
                 {"key": "switch_mac", "type": "string"}, {"key": "controller_mac", "type": "string"},
                 {"key": "controller_pid", "type": "string"}]},
         })
+        install(hub, "confirmer", {
+            "id": "confirmer", "version": "1.0.0", "entrypoint": "bin/drv",
+            "pairing": {"supported": True, "type": "confirm", "timeout_s": 45},
+        })
         install(hub, "pinner", {
             "id": "pinner", "version": "1.0.0", "entrypoint": "bin/drv",
             "pairing": {"supported": True, "type": "pin_display"},
@@ -93,6 +98,21 @@ def main():
 
         st, res = hub.http_post("/api/plugins/pair", {"id": "pinner", "action": "start"})
         check(st == 400, "a PIN pairing still needs a host", str((st, res)))
+
+        # confirm: the user accepts a prompt on the device; a host is needed, no PIN, polled
+        st, res = hub.http_post("/api/plugins/pair", {"id": "confirmer", "action": "start"})
+        check(st == 400, "a confirm pairing needs a host", str((st, res)))
+        t0 = time.time()
+        st, res = hub.http_post("/api/plugins/pair", {"id": "confirmer", "action": "start", "host": "192.168.1.70"}, timeout=10)
+        check(st == 200 and res.get("stage") == "confirm_on_device" and res.get("timeout_s") == 45,
+              "confirm pairing answers at once: confirm_on_device", str((st, res)))
+        check(time.time() - t0 < 3, "the confirm route does not wait for the user")
+        cstatus = os.path.join(PLUGIN_RUN_DIR, "confirmer.status")
+        with open(cstatus + ".tmp", "w") as f:
+            json.dump({"ok": True, "action": "start_pair", "stage": "done", "message": "accepted"}, f)
+        os.rename(cstatus + ".tmp", cstatus)
+        st, res = hub.http_post("/api/plugins/pair", {"id": "confirmer", "action": "status"})
+        check(st == 200 and res.get("stage") == "done", "confirm status polls reach done", str((st, res)))
         st, res = hub.http_post("/api/plugins/pair", {"id": "../x", "action": "status"})
         check(st == 400, "unsafe id refused for status", str((st, res)))
 

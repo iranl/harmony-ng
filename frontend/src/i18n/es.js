@@ -1334,6 +1334,8 @@ export default {
     "plg_device_pairing": "Emparejamiento del dispositivo",
     "plg_listen_done": "Encontrado. Los campos están rellenados: guarda el dispositivo.",
     "plg_listen_failed": "No se encontró nada. {error}",
+    "plg_confirm_running": "Acepta la solicitud en el dispositivo: quedan {s} s",
+    "plg_confirm_timeout": "la solicitud no se aceptó a tiempo.",
     "plg_listen_running": "Escuchando el dispositivo: quedan {s} s",
     "plg_pair_device": "Emparejar dispositivo",
     "plg_pair_host_required": "Introduce la dirección IP o el host del dispositivo",

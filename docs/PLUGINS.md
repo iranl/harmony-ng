@@ -163,7 +163,7 @@ The `manifest.json` file defines the plugin identity and how it appears in the W
 | `homepage` | `string` | URL to source repository or documentation. |
 | `entrypoint` | `string` | **Required.** Relative path of the binary or script the Hub runs (it must be in the archive). |
 | `files` | `array` | *(Dev installs)* Relative paths the dev install downloads next to `manifest.json`. |
-| `pairing` | `object` | *(Optional)* Pairing: `supported`, `type` (`pin_display`, the default, or `listen`), `requires_host` (default true; false for `listen`), `timeout_s` (default 15, at most 60) and the dialog texts (`title`, `button_label`, `description`, `instructions`, `host_label`, `prompt`, `pin_length`). See [Pairing Protocol](#pairing-protocol). |
+| `pairing` | `object` | *(Optional)* Pairing: `supported`, `type` (`pin_display`, the default, `confirm` or `listen`), `requires_host` (default true; false for `listen`), `timeout_s` (default 15, at most 60) and the dialog texts (`title`, `button_label`, `description`, `instructions`, `host_label`, `prompt`, `pin_length`). See [Pairing Protocol](#pairing-protocol). |
 | `device_definition` | `object` | *(Optional)* Schema for devices created using this plugin. `config_fields`, when present, is an array of objects, each with a string `key`. A `default_commands` entry may have `"range": [min, max]`: the integer values the command takes (see `value` below). |
 | `requires_libs` | `array` | *(Optional)* File names of the Hub's shared libraries the binary links, e.g. `["libbearssl.so.0"]` (see "Using TLS: the shared BearSSL" below). |
 
@@ -294,6 +294,9 @@ A plugin that finds its device itself (it hears the device's own radio packets, 
 ```json
 { "ok": true, "action": "start_pair", "stage": "done", "message": "Switch 2 found", "config": { "switch_mac": "98:E2:55:99:1F:97", "controller_mac": "11:22:33:44:55:66" } }
 ```
+
+#### Pairing confirmed on the device (`"type": "confirm"`)
+For a device that asks the user to accept the Hub on its own screen (a Samsung or LG TV) and then gives the plugin a token: `"pairing": {"supported": true, "type": "confirm", "timeout_s": 45}`. It runs as `listen` above (the route answers within 1 s, here with `stage: confirm_on_device`, and the UIs poll `status`), but a `host` is needed (the device's `host` config field) and no PIN is asked. Keep the token the device gives in `HARMONY_PLUGIN_DATA`, not in the status `config`: `config` is for values the user may see and edit.
 
 ---
 

@@ -1334,6 +1334,8 @@ export default {
     "plg_device_pairing": "Associazione del dispositivo",
     "plg_listen_done": "Trovato. I campi sono compilati: salva il dispositivo.",
     "plg_listen_failed": "Nessun risultato. {error}",
+    "plg_confirm_running": "Accetta la richiesta sul dispositivo: ancora {s} s",
+    "plg_confirm_timeout": "la richiesta non è stata accettata in tempo.",
     "plg_listen_running": "In ascolto del dispositivo: ancora {s} s",
     "plg_pair_device": "Associa dispositivo",
     "plg_pair_host_required": "Inserisci l'indirizzo IP o l'host del dispositivo",

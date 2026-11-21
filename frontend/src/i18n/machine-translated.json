@@ -628,7 +628,9 @@
     "plg_pair_prompt",
     "plg_paired_toast",
     "plg_pairing_failed",
-    "plg_verify_code"
+    "plg_verify_code",
+    "plg_confirm_running",
+    "plg_confirm_timeout"
   ],
   "fr": [
     "confirm_btn",
@@ -1258,7 +1260,9 @@
     "plg_pair_prompt",
     "plg_paired_toast",
     "plg_pairing_failed",
-    "plg_verify_code"
+    "plg_verify_code",
+    "plg_confirm_running",
+    "plg_confirm_timeout"
   ],
   "nl": [
     "confirm_btn",
@@ -1888,7 +1892,9 @@
     "plg_pair_prompt",
     "plg_paired_toast",
     "plg_pairing_failed",
-    "plg_verify_code"
+    "plg_verify_code",
+    "plg_confirm_running",
+    "plg_confirm_timeout"
   ],
   "es": [
     "confirm_btn",
@@ -2518,7 +2524,9 @@
     "plg_pair_prompt",
     "plg_paired_toast",
     "plg_pairing_failed",
-    "plg_verify_code"
+    "plg_verify_code",
+    "plg_confirm_running",
+    "plg_confirm_timeout"
   ],
   "it": [
     "confirm_btn",
@@ -3148,6 +3156,8 @@
     "plg_pair_prompt",
     "plg_paired_toast",
     "plg_pairing_failed",
-    "plg_verify_code"
+    "plg_verify_code",
+    "plg_confirm_running",
+    "plg_confirm_timeout"
   ]
 }

@@ -4341,6 +4341,8 @@ paths:
         `status` returns the plugin's current status and sends nothing.
         A plugin whose manifest has `pairing.type: listen` hears its device itself: no `host` is needed, `start` answers
         within 1 s (`stage: listening`, with `timeout_s`) and the client polls `status` until `stage` is `done` or `error`.
+        `pairing.type: confirm` (the user accepts the Hub on the device's screen) runs the same way with a `host`, no PIN,
+        and `stage: confirm_on_device`.
         The answer is the status object the plugin writes; a missing answer gives `stage: error`. Its `config` object
         (values the plugin learned) keeps only keys the manifest's `config_fields` declare, with string, number or bool values.
       requestBody:

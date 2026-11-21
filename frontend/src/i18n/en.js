@@ -1334,6 +1334,8 @@ export default {
     "plg_device_pairing": "Device Pairing",
     "plg_listen_done": "Found. The fields are filled in: save the device.",
     "plg_listen_failed": "Nothing found. {error}",
+    "plg_confirm_running": "Accept the request on the device: {s} s left",
+    "plg_confirm_timeout": "the device was not accepted in time.",
     "plg_listen_running": "Listening for the device: {s} s left",
     "plg_pair_device": "Pair Device",
     "plg_pair_host_required": "Please enter device IP address or host",

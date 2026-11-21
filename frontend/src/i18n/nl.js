@@ -1334,6 +1334,8 @@ export default {
     "plg_device_pairing": "Apparaat koppelen",
     "plg_listen_done": "Gevonden. De velden zijn ingevuld: sla het apparaat op.",
     "plg_listen_failed": "Niets gevonden. {error}",
+    "plg_confirm_running": "Accepteer het verzoek op het apparaat: nog {s} s",
+    "plg_confirm_timeout": "het verzoek is niet op tijd geaccepteerd.",
     "plg_listen_running": "Luisteren naar het apparaat: nog {s} s",
     "plg_pair_device": "Apparaat koppelen",
     "plg_pair_host_required": "Voer het IP-adres of de host van het apparaat in",

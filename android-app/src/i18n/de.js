@@ -2036,6 +2036,8 @@ export default {
     "plg_listen_running": "Warte auf das Gerät: noch {s} s",
     "plg_listen_done": "Gefunden. Die Felder sind ausgefüllt: Gerät speichern.",
     "plg_listen_failed": "Nichts gefunden. {error}",
+    "plg_confirm_running": "Anfrage am Gerät bestätigen: noch {s} s",
+    "plg_confirm_timeout": "die Anfrage wurde nicht rechtzeitig bestätigt.",
     "plg_pin_length": "Bitte den {n}-stelligen Bestätigungscode eingeben",
     "plg_pull_btn": "⟳ Aus Git laden (Dev)",
     "plg_pull_failed": "Laden fehlgeschlagen: {error}",

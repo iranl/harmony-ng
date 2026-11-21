@@ -2036,6 +2036,8 @@ export default {
     "plg_listen_running": "Escuchando el dispositivo: quedan {s} s",
     "plg_listen_done": "Encontrado. Los campos están rellenados: guarda el dispositivo.",
     "plg_listen_failed": "No se encontró nada. {error}",
+    "plg_confirm_running": "Acepta la solicitud en el dispositivo: quedan {s} s",
+    "plg_confirm_timeout": "la solicitud no se aceptó a tiempo.",
     "plg_pin_length": "Introduce el código de verificación de {n} caracteres",
     "plg_pull_btn": "⟳ Traer desde Git (desarrollo)",
     "plg_pull_failed": "Error al traer: {error}",

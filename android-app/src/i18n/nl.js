@@ -2036,6 +2036,8 @@ export default {
     "plg_listen_running": "Luisteren naar het apparaat: nog {s} s",
     "plg_listen_done": "Gevonden. De velden zijn ingevuld: sla het apparaat op.",
     "plg_listen_failed": "Niets gevonden. {error}",
+    "plg_confirm_running": "Accepteer het verzoek op het apparaat: nog {s} s",
+    "plg_confirm_timeout": "het verzoek is niet op tijd geaccepteerd.",
     "plg_pin_length": "Voer de verificatiecode van {n} tekens in",
     "plg_pull_btn": "⟳ Ophalen uit Git (dev)",
     "plg_pull_failed": "Ophalen mislukt: {error}",

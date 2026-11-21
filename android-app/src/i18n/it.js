@@ -2036,6 +2036,8 @@ export default {
     "plg_listen_running": "In ascolto del dispositivo: ancora {s} s",
     "plg_listen_done": "Trovato. I campi sono compilati: salva il dispositivo.",
     "plg_listen_failed": "Nessun risultato. {error}",
+    "plg_confirm_running": "Accetta la richiesta sul dispositivo: ancora {s} s",
+    "plg_confirm_timeout": "la richiesta non è stata accettata in tempo.",
     "plg_pin_length": "Inserisci il codice di verifica di {n} caratteri",
     "plg_pull_btn": "⟳ Scarica da Git (sviluppo)",
     "plg_pull_failed": "Download non riuscito: {error}",

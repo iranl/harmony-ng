@@ -907,14 +907,11 @@
     "hub_update_login_again",
     "hub_update_ended_ver",
     "hub_updating_desc",
-    "hub_updated_rebooting",
-    "hub_updated_rebooting_wait",
-    "hub_is_rebooting",
-    "hub_updated_reboot_complete_ver",
-    "hub_rebooting_reconnecting",
     "plg_listen_running",
     "plg_listen_done",
-    "plg_listen_failed"
+    "plg_listen_failed",
+    "plg_confirm_running",
+    "plg_confirm_timeout"
   ],
   "fr": [
     "hold_repeat",
@@ -1823,14 +1820,11 @@
     "hub_update_login_again",
     "hub_update_ended_ver",
     "hub_updating_desc",
-    "hub_updated_rebooting",
-    "hub_updated_rebooting_wait",
-    "hub_is_rebooting",
-    "hub_updated_reboot_complete_ver",
-    "hub_rebooting_reconnecting",
     "plg_listen_running",
     "plg_listen_done",
-    "plg_listen_failed"
+    "plg_listen_failed",
+    "plg_confirm_running",
+    "plg_confirm_timeout"
   ],
   "nl": [
     "hold_repeat",
@@ -2739,14 +2733,11 @@
     "hub_update_login_again",
     "hub_update_ended_ver",
     "hub_updating_desc",
-    "hub_updated_rebooting",
-    "hub_updated_rebooting_wait",
-    "hub_is_rebooting",
-    "hub_updated_reboot_complete_ver",
-    "hub_rebooting_reconnecting",
     "plg_listen_running",
     "plg_listen_done",
-    "plg_listen_failed"
+    "plg_listen_failed",
+    "plg_confirm_running",
+    "plg_confirm_timeout"
   ],
   "es": [
     "hold_repeat",
@@ -3655,14 +3646,11 @@
     "hub_update_login_again",
     "hub_update_ended_ver",
     "hub_updating_desc",
-    "hub_updated_rebooting",
-    "hub_updated_rebooting_wait",
-    "hub_is_rebooting",
-    "hub_updated_reboot_complete_ver",
-    "hub_rebooting_reconnecting",
     "plg_listen_running",
     "plg_listen_done",
-    "plg_listen_failed"
+    "plg_listen_failed",
+    "plg_confirm_running",
+    "plg_confirm_timeout"
   ],
   "it": [
     "hold_repeat",
@@ -4571,13 +4559,10 @@
     "hub_update_login_again",
     "hub_update_ended_ver",
     "hub_updating_desc",
-    "hub_updated_rebooting",
-    "hub_updated_rebooting_wait",
-    "hub_is_rebooting",
-    "hub_updated_reboot_complete_ver",
-    "hub_rebooting_reconnecting",
     "plg_listen_running",
     "plg_listen_done",
-    "plg_listen_failed"
+    "plg_listen_failed",
+    "plg_confirm_running",
+    "plg_confirm_timeout"
   ]
 }
