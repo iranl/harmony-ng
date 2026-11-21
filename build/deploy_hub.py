@@ -199,6 +199,43 @@ class HubDeployer:
     def run_ssh(self, cmd_str: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(self.get_ssh_cmd(cmd_str), capture_output=True, text=True)
 
+    def empty_stock_resources(self, imported_now: bool) -> None:
+        """--clean-stock-resources: the steps of tools/clean_stock_resources.py, over this deploy's SSH."""
+        # The files are the import's source: never in the run that imported them (its scp results
+        # are not checked), so the next run deletes them once the import is known to be there
+        if imported_now:
+            print("[!] The stock configuration was imported in this run: /data/resources NOT emptied. "
+                  "Check the devices and activities, then run again with --clean-stock-resources.")
+            return
+        tools_dir = (self.script_dir if self.bundle_layout else self.repo_root) / "tools"
+        if str(tools_dir) not in sys.path:
+            sys.path.insert(0, str(tools_dir))
+        try:
+            import clean_stock_resources as csr
+            files, total = csr.scan_stock_resources(self.run_ssh)
+            if not files:
+                print("[+] /data/resources is already empty.")
+                return
+            reason = csr.refusal(self.run_ssh)
+        except (ImportError, RuntimeError, subprocess.SubprocessError) as e:
+            reason = str(e)
+        if reason:
+            print(f"[!] /data/resources NOT emptied: {reason}.")
+            self.deploy_failures.append("/data/resources (--clean-stock-resources)")
+            return
+        if self.dry_skip(f"empty /data/resources ({len(files)} file(s), {total:,} bytes before compression)"):
+            return
+        print(f"[*] Emptying /data/resources ({len(files)} file(s), {total:,} bytes before compression)...")
+        try:
+            err = csr.empty_stock_resources(self.run_ssh)
+        except (RuntimeError, subprocess.SubprocessError) as e:
+            err = str(e)
+        if err:
+            print(f"[!] Emptying /data/resources failed: {err}")
+            self.deploy_failures.append("/data/resources (--clean-stock-resources)")
+        else:
+            print("[+] /data/resources emptied.")
+
     def dry_skip(self, msg: str) -> bool:
         if self.dry_run:
             print(f"    [dry-run] would {msg}")
@@ -463,6 +500,7 @@ class HubDeployer:
             # Stock config conversion via migrate_hub_configs.py if needed
             has_dev_res = self.run_ssh("[ -f /data/harmony/config/devices.json ] && echo 1 || echo 0")
             has_dev = has_dev_res.stdout.strip() == "1"
+            imported_now = False
             if not has_dev:
                 has_stock_res = self.run_ssh("[ -f /data/resources/DeviceList.json ] && echo 1 || echo 0")
                 has_stock = has_stock_res.stdout.strip() == "1"
@@ -474,7 +512,11 @@ class HubDeployer:
 
                 if has_stock and not mig_script:
                     print("[!] Stock configuration found but migrate_hub_configs.py missing: configs NOT migrated.")
-                elif has_stock and mig_script and not self.dry_skip("migrate stock configuration and upload"):
+                elif has_stock and mig_script and self.dry_run:
+                    imported_now = True
+                    print("    [dry-run] would migrate stock configuration and upload")
+                elif has_stock and mig_script:
+                    imported_now = True
                     print("[*] Migrating stock Logitech configurations to canonical v2.0 format...")
                     with tempfile.TemporaryDirectory() as tmp_dir:
                         tmp_p = pathlib.Path(tmp_dir)
@@ -503,22 +545,7 @@ class HubDeployer:
                 print("    [dry-run] /data/harmony/config/devices.json exists: stock config would not be imported")
 
             if self.clean_stock_resources:
-                has_stock = self.run_ssh("[ -d /data/resources ] && [ -n \"$(ls -A /data/resources 2>/dev/null)\" ] && echo 1 || echo 0").stdout.strip() == "1"
-                # Only after the stock import: a failed migration must keep its source files
-                migrated = self.run_ssh("[ -f /data/harmony/config/devices.json ] && echo 1 || echo 0").stdout.strip() == "1"
-                if has_stock and not migrated:
-                    print("[!] /data/harmony/config/devices.json is missing (stock import failed?): /data/resources NOT emptied.")
-                elif has_stock and not self.dry_skip("empty /data/resources to reclaim flash storage"):
-                    print("[*] Emptying /data/resources to reclaim flash storage (a stock revert then needs the golden backup)...")
-                    # Remove the directory itself: a "/data/resources/.*" glob would also match "..", that is /data
-                    res = self.run_ssh(
-                        "rm -rf /data/resources; mkdir -p /data/resources; "
-                        "/data/harmony/bin/hub_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || sync 2>/dev/null || true"
-                    )
-                    if res.returncode == 0:
-                        print("[+] /data/resources emptied successfully.")
-                    else:
-                        print(f"[!] Emptying /data/resources failed: {res.stderr.strip()}")
+                self.empty_stock_resources(imported_now)
 
             # Query remote hashes for core binaries and configs
             self.query_remote_hashes(
@@ -815,13 +842,17 @@ def main() -> None:
     parser.add_argument("--no-backup", action="store_true", help="Skip pre-deployment backup")
     parser.add_argument("--stage-remote-ota", action="store_true", help="Stage local remote_ui.ota.gz into Hub /tmp/remote_ui.ota.gz (RAM tmpfs) for offline testing")
     ssh_hostkeys.add_reset_option(parser, "the Hub")
-    parser.add_argument("--clean-stock-resources", action="store_true", help="Empty /data/resources (stock Logitech files) after the stock import to reclaim flash storage; "
-                             "a revert to stock then needs the golden backup")
+    parser.add_argument("--clean-stock-resources", action="store_true",
+                        help="Empty /data/resources (stock Logitech files) on a Hub whose stock configuration was "
+                             "imported in an earlier run and whose files are saved in backups/stock_resources_<hub>.tar "
+                             "(the pre-deployment backup saves them)")
 
     args = parser.parse_args()
     target_host = args.flag_host or args.host
     if not target_host:
         parser.error("HUB_ADDRESS is required (pass as first argument or --host=IP)")
+    if args.clean_stock_resources and args.webui_only:
+        parser.error("--clean-stock-resources does not run with --webui-only")
     # Before any USB or device work: a stop here leaves the device untouched
     ssh_hostkeys.require_known_hosts()
     if args.reset_host_key:

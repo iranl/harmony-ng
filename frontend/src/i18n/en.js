@@ -1251,9 +1251,8 @@ export default {
     "harmony_no_codeset": "No codeset specified",
     "empty_stock_resources": "Empty Stock Resources",
     "clean_stock_resources_title": "Empty Stock Resources",
-    "clean_stock_resources_confirm": "Are you sure you want to empty /data/resources? This will delete stock Logitech config files and free about {kb} kB of flash memory. A revert to the stock firmware then needs the golden backup.",
+    "clean_stock_resources_confirm": "Empty /data/resources? This deletes the stock Logitech files ({kb} kB uncompressed; less flash space is freed, as the flash is compressed). A revert to the stock firmware then needs the saved copy (stock_resources_<hub>.tar).",
     "freed_stock_resources_toast": "Freed ~{kb} kB of flash storage!",
-    "empty_stock_resources_btn": "Empty Stock Resources (~{kb} kB)",
-    "stock_resources_empty": "Stock Resources Empty (0 kB)",
     "stock_resources_not_imported": "Kept until the stock configuration is imported.",
+    "stock_resources_not_saved": "Kept until a backup has saved them (run deploy_hub.py or tools/backup_hub.py).",
 };

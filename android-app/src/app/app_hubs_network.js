@@ -272,26 +272,32 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
   }
 
   async refreshStockResources() {
+    const card = document.getElementById('cardStockResources');
     const badge = document.getElementById('stockResourcesBadge');
     const detail = document.getElementById('stockResourcesDetail');
     const btn = document.getElementById('btnCleanStockResources');
-    if (!badge && !btn) return;
+    if (!card) return;
+    if (btn) btn.disabled = true;
 
     try {
       const disk = await this.client.getSystemDisk();
-      const kb = disk?.stock_resources_kb ?? 0;
-      const canEmpty = disk?.can_empty_stock_resources ?? kb > 0;
+      const kb = disk?.stock_resources_kb;
+      // Firmware without the stock resources delete: no card
+      card.hidden = typeof kb !== 'number';
+      if (card.hidden) return;
+      const canEmpty = disk.can_empty_stock_resources === true;
       if (badge) {
         badge.textContent = `${kb} kB`;
         badge.className = `badge ${kb > 0 ? 'warn' : 'ok'}`;
       }
       if (detail) {
         detail.textContent = kb === 0 ? t('stock_resources_empty')
-          : canEmpty ? tf('stock_resources_used', { kb }) : t('stock_resources_not_imported');
+          : canEmpty ? tf('stock_resources_used', { kb })
+          : !disk.stock_resources_saved ? t('stock_resources_not_saved') : t('stock_resources_not_imported');
       }
       if (btn) {
+        btn.hidden = kb === 0;
         btn.disabled = !canEmpty;
-        btn.textContent = kb > 0 ? tf('empty_stock_resources_btn', { kb }) : t('stock_resources_cleaned');
       }
     } catch {
       if (badge) badge.textContent = t('unknown');

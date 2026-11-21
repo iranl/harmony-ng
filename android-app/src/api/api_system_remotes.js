@@ -317,7 +317,7 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
   }
 
   async cleanStockResources() {
-    return this.saveSystemAction('clean_stock_resources');
+    return this.saveSystemAction('clean_stock_resources', { confirm: 'EMPTY' });
   }
 
   async getUpdateStatus() {

@@ -716,9 +716,8 @@
     "clean_resources_failed",
     "stock_resources_used",
     "stock_resources_empty",
-    "empty_stock_resources_btn",
-    "stock_resources_cleaned",
-    "stock_resources_not_imported"
+    "stock_resources_not_imported",
+    "stock_resources_not_saved"
   ],
   "fr": [
     "hold_repeat",
@@ -1436,9 +1435,8 @@
     "clean_resources_failed",
     "stock_resources_used",
     "stock_resources_empty",
-    "empty_stock_resources_btn",
-    "stock_resources_cleaned",
-    "stock_resources_not_imported"
+    "stock_resources_not_imported",
+    "stock_resources_not_saved"
   ],
   "nl": [
     "hold_repeat",
@@ -2156,9 +2154,8 @@
     "clean_resources_failed",
     "stock_resources_used",
     "stock_resources_empty",
-    "empty_stock_resources_btn",
-    "stock_resources_cleaned",
-    "stock_resources_not_imported"
+    "stock_resources_not_imported",
+    "stock_resources_not_saved"
   ],
   "es": [
     "hold_repeat",
@@ -2876,9 +2873,8 @@
     "clean_resources_failed",
     "stock_resources_used",
     "stock_resources_empty",
-    "empty_stock_resources_btn",
-    "stock_resources_cleaned",
-    "stock_resources_not_imported"
+    "stock_resources_not_imported",
+    "stock_resources_not_saved"
   ],
   "it": [
     "hold_repeat",
@@ -3596,8 +3592,7 @@
     "clean_resources_failed",
     "stock_resources_used",
     "stock_resources_empty",
-    "empty_stock_resources_btn",
-    "stock_resources_cleaned",
-    "stock_resources_not_imported"
+    "stock_resources_not_imported",
+    "stock_resources_not_saved"
   ]
 }

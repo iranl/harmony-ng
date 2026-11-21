@@ -77,12 +77,15 @@ export function createView() {
         className: 'btn btn-secondary',
         id: 'btn-empty-stock-res',
         text: t('empty_stock_resources', 'Empty Stock Resources'),
+        // Enabled only once the disk status says the files may go
+        disabled: true,
+        hidden: true,
         onclick: async () => {
           const disk = await api.getSystemDisk().catch(() => null);
           const kb = disk?.stock_resources_kb ?? 0;
           const ok = await confirm.ask({
             title: t('clean_stock_resources_title', 'Empty Stock Resources'),
-            message: t('clean_stock_resources_confirm', 'Are you sure you want to empty /data/resources? This will delete stock Logitech config files and free about {kb} kB of flash memory. A revert to the stock firmware then needs the golden backup.', { kb }),
+            message: t('clean_stock_resources_confirm', 'Empty /data/resources? This deletes the stock Logitech files ({kb} kB uncompressed; less flash space is freed, as the flash is compressed). A revert to the stock firmware then needs the saved copy (stock_resources_<hub>.tar).', { kb }),
             danger: true,
           });
           if (ok) {
@@ -194,12 +197,14 @@ export function createView() {
 
       const emptyResBtn = container.querySelector('#btn-empty-stock-res');
       if (emptyResBtn && disk) {
-        const kb = disk.stock_resources_kb ?? 0;
-        const canEmpty = disk.can_empty_stock_resources ?? kb > 0;
-        emptyResBtn.textContent = kb === 0 ? t('stock_resources_empty', 'Stock Resources Empty (0 kB)')
-          : canEmpty ? t('empty_stock_resources_btn', 'Empty Stock Resources (~{kb} kB)', { kb })
-          : t('stock_resources_not_imported', 'Kept until the stock configuration is imported.');
+        const kb = disk.stock_resources_kb;
+        const canEmpty = disk.can_empty_stock_resources === true;
+        // Hidden on firmware without the delete and when nothing is left
+        emptyResBtn.hidden = typeof kb !== 'number' || kb === 0;
         emptyResBtn.disabled = !canEmpty;
+        emptyResBtn.title = canEmpty ? ''
+          : !disk.stock_resources_saved ? t('stock_resources_not_saved', 'Kept until a backup has saved them (run deploy_hub.py or tools/backup_hub.py).')
+          : t('stock_resources_not_imported', 'Kept until the stock configuration is imported.');
       }
     } catch (e) {
       statsMount.textContent = t('error_msg', 'Error: {error}', { error: e.message });

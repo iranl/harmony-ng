@@ -144,6 +144,7 @@ Returns the flash space of `/data` (of root `/` when `/data` cannot be read) and
     "cache_used_kb": 6144,
     "cache_percent_free": 25,
     "stock_resources_kb": 251,
+    "stock_resources_saved": true,
     "can_empty_stock_resources": true
   }
   ```
@@ -375,11 +376,18 @@ Answers of the actions below:
   (`/tmp/hub_updating.flag` exists).
 - `factory_reset`: `{"ok": true, "message": "Factory reset initiated. Reverting to stock firmware and rebooting."}`;
   `400` without `"confirm": "RESET"`.
-- `clean_stock_resources`: empties `/data/resources` (the stock Logitech files, `stock_resources_kb` in
-  the disk status above) and answers `{"ok": true, "freed_kb": 251, "stock_resources_kb": 0, "message": "..."}`;
-  `409` while `/data/harmony/config/devices.json` is missing (the stock import still needs the files),
-  `500` when a file could not be removed. The stock firmware needs these files: after this, a revert to
-  stock needs the golden backup (`tools/restore_stock.py --backup backups/golden_hub_backup_<hub>.tar`).
+- `clean_stock_resources`: empties `/data/resources`, the stock Logitech files. Needs
+  `"confirm": "EMPTY"` (`400` without). `409` while `/data/harmony/config/devices.json` is missing (the
+  stock import still needs the files), while no saved copy exists (`/data/harmony/stock_resources_saved`,
+  written by `tools/backup_hub.py` once `backups/stock_resources_<hub>.tar` holds the files; every
+  `deploy_hub.py` run makes that backup), and when `/data/resources` is a link. `500` when a file could
+  not be removed or the directory not read. Answers
+  `{"ok": true, "freed_kb": 48, "stock_resources_kb": 0, "message": "..."}`: `freed_kb` is the free space
+  of `/data` gained. In `GET /api/disk-space`, `stock_resources_kb` is the files' own size; `/data` is
+  JFFS2, which compresses, so the flash space they take (and `freed_kb`) is smaller.
+  `stock_resources_saved` says whether the saved copy exists, `can_empty_stock_resources` whether the
+  action would run. The stock firmware needs these files: `tools/restore_stock.py` puts the saved copy
+  back when the archive it restores holds none, and refuses without it.
 - `mqtt_publish`: only `topic` and `payload` are read. `retain` is ignored: the message goes out
   with QoS 0 and is not retained. An empty `payload` is sent as `cmd`. The answer is
   `{"ok": true}` also when MQTT is off or `topic` is empty, so it does not tell whether anything

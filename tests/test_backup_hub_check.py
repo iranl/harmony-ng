@@ -25,7 +25,11 @@ from tools import backup_hub  # noqa: E402
 
 FAKE_SSH = """#!/bin/sh
 for last; do :; done
+[ -n "$FAKE_LOG" ] && echo "$last" >> "$FAKE_LOG"
 case "$last" in
+  *"stock_resources_saved ] && [ ! -f"*) [ -n "$FAKE_EMPTIED" ] && echo "$FAKE_EMPTIED"; exit 0 ;;
+  *"-cf - /data/resources 2>"*) cat "$FAKE_STOCK_TAR"; exit 0 ;;
+  *"DeviceList.json ] && echo 1"*) if [ -n "$FAKE_STOCK_TAR" ]; then echo 1; else echo 0; fi ;;
   *"-cf -"*)
     head -c "$FAKE_TAR_BYTES" "$FAKE_TAR"
     exit "$FAKE_TAR_RC" ;;
@@ -92,6 +96,43 @@ class BackupHubCheck(unittest.TestCase):
         # tarfile alone reads this as a valid, shorter archive
         self.assertFalse(self.run_backup(512 * 14, 0))
         self.assertEqual(self.saved(), [])
+
+    def test_stock_files_saved_once_and_hub_marked(self):
+        stock = pathlib.Path(self.tmp.name) / "stock.tar"
+        with tarfile.open(stock, "w", format=tarfile.USTAR_FORMAT) as tf:
+            info = tarfile.TarInfo("data/resources/DeviceList.json")
+            info.size = 3
+            tf.addfile(info, io.BytesIO(b"{}\n"))
+        log = pathlib.Path(self.tmp.name) / "ssh.log"
+        os.environ["FAKE_STOCK_TAR"] = str(stock)
+        os.environ["FAKE_LOG"] = str(log)
+        self.assertTrue(self.run_backup(self.full, 0))
+        saved = self.backups / "stock_resources_001122334455.tar"
+        self.assertTrue(backup_hub.archive_has_stock_resources(saved))
+        self.assertIn("echo stock_resources_001122334455.tar > /data/harmony/stock_resources_saved", log.read_text())
+        # Kept for good: a second run does not stream it again
+        mtime = saved.stat().st_mtime_ns
+        log.write_text("")
+        self.assertTrue(self.run_backup(self.full, 0))
+        self.assertEqual(saved.stat().st_mtime_ns, mtime)
+        self.assertNotIn("-cf - /data/resources 2>", log.read_text())
+
+    def test_stock_copy_without_device_list_is_not_kept(self):
+        stock = pathlib.Path(self.tmp.name) / "stock.tar"
+        make_tar(stock)  # no data/resources/DeviceList.json in it
+        log = pathlib.Path(self.tmp.name) / "ssh.log"
+        os.environ["FAKE_STOCK_TAR"] = str(stock)
+        os.environ["FAKE_LOG"] = str(log)
+        self.run_backup(self.full, 0)
+        self.assertNotIn("stock_resources_001122334455.tar", self.saved())
+        self.assertNotIn("> /data/harmony/stock_resources_saved", log.read_text())
+
+    def test_no_golden_once_the_stock_files_are_gone(self):
+        os.environ["FAKE_EMPTIED"] = "stock_resources_001122334455.tar"
+        self.assertTrue(self.run_backup(self.full, 0))
+        names = self.saved()
+        self.assertNotIn("golden_hub_backup_001122334455.tar", names)
+        self.assertEqual(len([n for n in names if n.startswith("hub_backup_001122334455_")]), 1, names)
 
     def test_ssh_failure_with_full_stream(self):
         self.assertFalse(self.run_backup(self.full, 255))

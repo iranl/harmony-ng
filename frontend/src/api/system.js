@@ -62,7 +62,7 @@ export function createSystemApi(client) {
     },
 
     async cleanStockResources() {
-      return client.postForm('/system', { action: 'clean_stock_resources' });
+      return client.postForm('/system', { action: 'clean_stock_resources', confirm: 'EMPTY' });
     },
 
     async saveSystemAction(action, extra = {}) {

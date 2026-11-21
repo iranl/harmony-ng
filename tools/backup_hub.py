@@ -12,6 +12,9 @@ Features:
 - File names carry the Hub's id (its Wi-Fi MAC), so several Hubs can share one folder
 - Rotates each Hub's rolling backups: the newest 5, plus the newest of each of the
   8 weeks before them
+- Saves the stock Logitech files (/data/resources) once per Hub in stock_resources_<hub>.tar
+  (never overwritten) and marks the Hub (/data/harmony/stock_resources_saved): the stock
+  resources delete (web UI, tools/clean_stock_resources.py) needs that mark
 """
 
 from __future__ import annotations
@@ -72,6 +75,27 @@ def get_ssh_cmd(host: str, user: str = "root", key_path: str | None = None) -> l
 GOLDEN_PATHS = "/data/resources /etc/passwd /etc/network /etc/TZ /etc/wpa_supplicant.conf /etc/dropbear"
 ROLLING_PATHS = ("/data/harmony /data/resources /data/stock_backup /etc/passwd /etc/network /etc/TZ "
                  "/etc/wpa_supplicant.conf /etc/dropbear")
+
+# The stock Logitech files: one archive per Hub, kept for good, and the mark on the Hub that says
+# one exists (the stock resources delete refuses without it)
+STOCK_RES_MEMBER = "data/resources/DeviceList.json"
+STOCK_RES_SAVED = "/data/harmony/stock_resources_saved"
+
+
+def stock_resources_file(backup_dir: pathlib.Path, tag: str) -> pathlib.Path:
+    return backup_dir / f"stock_resources_{tag}.tar"
+
+
+def archive_has_stock_resources(path: pathlib.Path) -> bool:
+    """True when path is a complete tar that holds the stock device list."""
+    if not path.is_file() or not tar_is_complete(path):
+        return False
+    try:
+        with tarfile.open(path, "r:*") as tf:
+            return any(n.lstrip("/") == STOCK_RES_MEMBER for n in tf.getnames())
+    except (tarfile.TarError, OSError, EOFError):
+        return False
+
 
 # Rotation: the newest KEEP_RECENT rolling backups of a Hub, plus the newest one of each of
 # the KEEP_WEEKS calendar weeks before them (a week that already has one of the newest
@@ -140,6 +164,36 @@ def save_archive(ssh_base: list[str], remote_cmd: str, dest: pathlib.Path) -> bo
         part.unlink(missing_ok=True)
         return False
     part.replace(dest)
+    return True
+
+
+def save_stock_resources(ssh_base: list[str], tar_cmd: str, backup_dir: pathlib.Path, tag: str,
+                         dry_run: bool = False) -> bool:
+    """Keep one archive of /data/resources per Hub and mark the Hub when it exists. Returns False
+    only when the Hub has the files and no copy could be saved."""
+    dest = stock_resources_file(backup_dir, tag)
+    on_hub = subprocess.run(ssh_base + ["[ -f /data/resources/DeviceList.json ] && echo 1 || echo 0"],
+                            capture_output=True, text=True).stdout.strip() == "1"
+    if not archive_has_stock_resources(dest):
+        if not on_hub:
+            return True  # nothing to save (emptied before, or a Hub without stock files)
+        if dry_run:
+            print(f"    [dry-run] would save the stock files to {dest.name}")
+            return True
+        print(f"[*] Saving the stock Logitech files (/data/resources) to {dest.name}...")
+        if not save_archive(ssh_base, f"{tar_cmd} -cf - /data/resources 2>/dev/null || true", dest):
+            return False
+        if not archive_has_stock_resources(dest):
+            print(f"[!] {dest.name} holds no {STOCK_RES_MEMBER}; removed, the Hub is not marked as saved.")
+            dest.unlink(missing_ok=True)
+            return False
+        print(f"[+] Stock files saved: {dest.name} ({dest.stat().st_size // 1024} KB, kept for good)")
+    if dry_run:
+        return True
+    mark = subprocess.run(ssh_base + [f"mkdir -p /data/harmony && echo {dest.name} > {STOCK_RES_SAVED}"],
+                          capture_output=True, text=True)
+    if mark.returncode != 0:
+        print(f"[!] Could not mark the Hub ({STOCK_RES_SAVED}): {mark.stderr.strip()}")
     return True
 
 
@@ -240,8 +294,15 @@ def backup_hub(
         # is kept as it is, and no new golden backup is made: it would hold today's state, not
         # the stock one, under a name that says otherwise.
         legacy_golden = backup_dir / "golden_hub_backup.tar"
+        stock_emptied = subprocess.run(
+            ssh_base + [f"[ -f {STOCK_RES_SAVED} ] && [ ! -f /data/resources/DeviceList.json ] && cat {STOCK_RES_SAVED}"],
+            capture_output=True, text=True).stdout.strip()
         if not golden_file.is_file() and legacy_golden.is_file():
             print(f"[+] legacy golden backup kept: {legacy_golden.name}")
+        elif not golden_file.is_file() and stock_emptied:
+            # A golden backup made now would hold no stock files, under a name that says it does
+            print(f"[!] No golden backup made: the stock files were removed from this Hub. Their copy is "
+                  f"{stock_emptied}, in the backups folder of the computer that saved it.")
         elif not golden_file.is_file():
             print(f"[*] Creating the first (GOLDEN) backup of this Hub ({tag})...")
             if dry_run:
@@ -256,7 +317,11 @@ def backup_hub(
         else:
             print(f"[+] Golden backup already exists: {golden_file.name}")
 
-        # 2. Rolling backup
+        # 2. The stock files, once per Hub (the way back after the stock resources delete)
+        if not save_stock_resources(ssh_base, tar_cmd, backup_dir, tag, dry_run):
+            print("[!] The stock files could not be saved; the Hub is not marked as saved.")
+
+        # 3. Rolling backup
         print("[*] Creating rolling backup...")
         if dry_run:
             print(f"    [dry-run] would save rolling backup to {rolling_file}")
@@ -269,7 +334,7 @@ def backup_hub(
                 print("[!] Rolling backup failed; older backups were kept.")
                 return False
 
-        # 3. Rotate this Hub's rolling backups (only archives that passed the check exist)
+        # 4. Rotate this Hub's rolling backups (only archives that passed the check exist)
         stale = backups_to_remove(list(backup_dir.glob(f"hub_backup_{tag}_*.tar")))
         if stale:
             print(f"[*] Rotating backups of {tag} (keeping the newest {KEEP_RECENT} and one per week "

@@ -1251,9 +1251,8 @@ export default {
     "harmony_no_codeset": "Geen codeset opgegeven",
     "empty_stock_resources": "Originele bronnen legen",
     "clean_stock_resources_title": "Originele bronnen legen",
-    "clean_stock_resources_confirm": "Weet u zeker dat u /data/resources wilt legen? Hiermee worden de originele Logitech-configuratiebestanden verwijderd en komt er ongeveer {kb} kB flashgeheugen vrij. Voor een terugkeer naar de originele firmware is daarna de golden back-up nodig.",
+    "clean_stock_resources_confirm": "/data/resources legen? Dit verwijdert de originele Logitech-bestanden ({kb} kB ongecomprimeerd; omdat het flashgeheugen comprimeert, komt er minder ruimte vrij). Voor een terugkeer naar de originele firmware is daarna de opgeslagen kopie (stock_resources_<hub>.tar) nodig.",
     "freed_stock_resources_toast": "~{kb} kB flashgeheugen vrijgemaakt!",
-    "empty_stock_resources_btn": "Originele bronnen legen (~{kb} kB)",
-    "stock_resources_empty": "Originele bronnen leeg (0 kB)",
     "stock_resources_not_imported": "Blijven bewaard tot de originele configuratie is geïmporteerd.",
+    "stock_resources_not_saved": "Blijven bewaard tot een back-up ze heeft opgeslagen (voer deploy_hub.py of tools/backup_hub.py uit).",
 };

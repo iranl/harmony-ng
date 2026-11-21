@@ -1251,9 +1251,8 @@ export default {
     "harmony_no_codeset": "Kein Codesatz angegeben",
     "empty_stock_resources": "Originalressourcen leeren",
     "clean_stock_resources_title": "Originalressourcen leeren",
-    "clean_stock_resources_confirm": "Möchten Sie /data/resources wirklich leeren? Dadurch werden die originalen Logitech-Konfigurationsdateien gelöscht und ca. {kb} kB Flash-Speicher freigegeben. Für eine Rückkehr zur Originalfirmware ist danach das Golden-Backup nötig.",
+    "clean_stock_resources_confirm": "/data/resources leeren? Dadurch werden die originalen Logitech-Dateien gelöscht ({kb} kB unkomprimiert; da der Flash-Speicher komprimiert, wird weniger Platz frei). Für eine Rückkehr zur Originalfirmware ist danach die gesicherte Kopie (stock_resources_<hub>.tar) nötig.",
     "freed_stock_resources_toast": "~{kb} kB Flash-Speicher freigegeben!",
-    "empty_stock_resources_btn": "Originalressourcen leeren (~{kb} kB)",
-    "stock_resources_empty": "Originalressourcen leer (0 kB)",
     "stock_resources_not_imported": "Bleibt erhalten, bis die Originalkonfiguration importiert ist.",
+    "stock_resources_not_saved": "Bleiben erhalten, bis ein Backup sie gesichert hat (deploy_hub.py oder tools/backup_hub.py ausführen).",
 };

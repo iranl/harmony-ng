@@ -13,6 +13,8 @@ Route checks of hub_daemon (port 9101, own mock root, clients bound to 127.0.0.2
  5  factory reset does not answer "initiated" when its script is not installed
  6  POST /api/settings refuses a timezone name the Hub does not know (it ran as CET)
  7  mqtt.json, which holds the broker password, is made readable by its owner only
+ 8  the stock resources delete needs a confirmation, the stock import and a saved copy, never
+    follows a link at /data/resources, and reports a file it could not remove
 """
 
 import base64
@@ -227,10 +229,68 @@ def test_query_params():
         check(st == 500, "missing script reported, not 'initiated'", "%s %s" % (st, r))
 
 
+def test_stock_resources():
+    print("[-] 8  stock resources delete")
+    stock = {"resources/DeviceList.json": "x" * 3000, "resources/sub/Context.json": "{}"}
+    clean = json.dumps({"action": "clean_stock_resources", "confirm": "EMPTY"}).encode()
+    with HubHarness(port=PORT, host=HOST, extra_root_files=stock) as hub:
+        res_dir = os.path.join(hub.mock_dir, "data", "resources")
+        saved = os.path.join(hub.data_dir, "stock_resources_saved")
+        st, r = raw("GET", "/api/disk-space")
+        check(st == 200 and r.get("stock_resources_kb") == 3 and r.get("stock_resources_saved") is False
+              and r.get("can_empty_stock_resources") is False, "disk fields before a saved copy", str(r))
+
+        st, r = raw("POST", "/system", json.dumps({"action": "clean_stock_resources"}).encode())
+        check(st == 400 and os.path.isfile(os.path.join(res_dir, "DeviceList.json")),
+              "no confirm: refused, files kept", "%s %s" % (st, r))
+        st, r = raw("POST", "/system", clean)
+        check(st == 409 and os.path.isfile(os.path.join(res_dir, "DeviceList.json")),
+              "no saved copy: refused, files kept", "%s %s" % (st, r))
+
+        with open(saved, "w") as f:
+            f.write("stock_resources_test.tar\n")
+        devices = os.path.join(hub.data_dir, "config", "devices.json")
+        os.rename(devices, devices + ".off")
+        st, r = raw("POST", "/system", clean)
+        check(st == 409 and os.path.isfile(os.path.join(res_dir, "DeviceList.json")),
+              "stock config not imported: refused, files kept", "%s %s" % (st, r))
+        os.rename(devices + ".off", devices)
+
+        st, r = raw("GET", "/api/disk-space")
+        check(r.get("can_empty_stock_resources") is True, "can empty with a saved copy", str(r))
+        st, r = raw("POST", "/system", clean)
+        check(st == 200 and isinstance(r, dict) and r.get("stock_resources_kb") == 0
+              and isinstance(r.get("freed_kb"), (int, float)) and os.listdir(res_dir) == [],
+              "emptied, directory kept", "%s %s" % (st, r))
+
+        # A link at /data/resources: its target is never emptied
+        target = os.path.join(hub.mock_dir, "elsewhere")
+        os.makedirs(target)
+        with open(os.path.join(target, "keep.json"), "w") as f:
+            f.write("{}")
+        os.rmdir(res_dir)
+        os.symlink(target, res_dir)
+        st, r = raw("POST", "/system", clean)
+        check(st == 409 and os.path.isfile(os.path.join(target, "keep.json")),
+              "link at /data/resources: refused, target kept", "%s %s" % (st, r))
+        os.unlink(res_dir)
+
+        # Not removable (a read-only directory): an error, never "emptied" (root can write anywhere)
+        if os.geteuid() != 0:
+            os.makedirs(os.path.join(res_dir, "ro"))
+            with open(os.path.join(res_dir, "ro", "f.json"), "w") as f:
+                f.write("{}")
+            os.chmod(os.path.join(res_dir, "ro"), 0o555)
+            st, r = raw("POST", "/system", clean)
+            os.chmod(os.path.join(res_dir, "ro"), 0o755)
+            check(st == 500, "file not removable: 500", "%s %s" % (st, r))
+
+
 def main():
     test_map_saves()
     test_icons()
     test_query_params()
+    test_stock_resources()
     if failed:
         print("[-] %d check(s) failed" % failed)
         sys.exit(1)
