@@ -104,6 +104,8 @@ def main():
         check(st not in (0, 413), "300 KB import is still read (answered by the import route)", "status %d" % st)
         st, _ = post_raw(PORT, "/api/custom-icons", 300000)
         check(st not in (0, 413), "300 KB icon upload is still read", "status %d" % st)
+        st, _ = post_raw(PORT, "/api/plugins/install", 300000)
+        check(st not in (0, 413), "300 KB plugin archive upload is still read", "status %d" % st)
         st, dt = post_raw(PORT, "/import", 3 * 1024 * 1024, send_body=False)
         check(st == 413 and dt < 2, "3 MB import: 413 before the body", "status %d after %.1f s" % (st, dt))
 

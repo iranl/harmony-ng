@@ -38,8 +38,8 @@ info:
 
     ### Replies every route can give
     These are not repeated under each operation: `401` and `403` as above; `413`
-    `Request body too large` for a body over 64 KB (2 MB for `POST /import` and
-    `POST /api/custom-icons`, 256 KB for `/api/rf-mapping-save`, `/api/remote-mapping-save` and
+    `Request body too large` for a body over 64 KB (2 MB for `POST /import`,
+    `POST /api/custom-icons` and `POST /api/plugins/install`, 256 KB for `/api/rf-mapping-save`, `/api/remote-mapping-save` and
     `POST /api/ui-remote-layout`); `400` `Bad request` for a body shorter than its
     `Content-Length`; `404` `{"ok":false,"error":"Not Found"}` for an unknown route or a method
     the route does not take. These replies are JSON objects with `ok: false` and `error`.
@@ -92,6 +92,8 @@ tags:
     description: Upload, crop, store, and RF-sync custom PNG icons for activities, devices, and commands
   - name: UI Remote Layout
     description: Web and touch UI button mapping and custom layout configuration
+  - name: Plugins
+    description: Community plugin daemons, the plugin marketplace and plugin repositories (docs/PLUGINS.md)
 
 paths:
   /health:
@@ -1255,6 +1257,8 @@ paths:
                 btReconnectDelaySec: {type: integer, description: "Seconds before the reconnect starts after the trigger command (2 when missing)"}
                 btTriggerDeviceId: {type: string, description: "Device whose command starts the reconnect"}
                 btTriggerCommandName: {type: string, description: "Command that starts the reconnect (also deviceId:Command)"}
+                plugin: {type: string, description: "Id of the plugin this device belongs to (a safe id: letters, digits, - and _; 400 otherwise). Only this field or a type plugin:<id> makes a device a plugin device; it then has no controlPort."}
+                config: {oneOf: [{type: object}, {type: string}], description: "Plugin device settings (the plugin's config_fields), an object or that object as a JSON string. A top-level key is copied into config only for a plugin device and only when its config_fields declare it."}
             example:
               deviceId: "70321456"
               name: LG OLED TV
@@ -4036,6 +4040,367 @@ paths:
           description: Body over 2 MB
         '500':
           description: 'The files could not be written (Import failed: could not write the files)'
+
+  /api/plugins:
+    get:
+      tags:
+        - Plugins
+      summary: List installed plugins and plugin storage
+      description: 'Every plugin in /data/harmony/plugins with its manifest, state and size, plus the free space of /data. Admin role only. pid (of the process hub_daemon started) is present only while the plugin runs. stopped is true after a stop request (the watchdog does not restart it). docs/PLUGINS.md.'
+      responses:
+        '200':
+          description: Installed plugins
+          content:
+            application/json:
+              example:
+                ok: true
+                plugins:
+                  - id: roku-ecp
+                    name: Roku ECP
+                    version: 1.1.0
+                    description: Roku External Control Protocol driver
+                    enabled: true
+                    running: true
+                    stopped: false
+                    restarts: 0
+                    pid: 1234
+                    manifest: {}
+                    size_bytes: 24576
+                    size_formatted: 24.0 KB
+                storage:
+                  total_bytes: 16777216
+                  free_bytes: 8388608
+                  used_bytes: 8388608
+                  total_formatted: 16.0 MB
+                  free_formatted: 8.0 MB
+                  used_formatted: 8.0 MB
+    delete:
+      tags:
+        - Plugins
+      summary: Uninstall a plugin
+      description: 'Same as POST /api/plugins/uninstall. The plugin id is read from a JSON body ({"id": "roku-ecp"}) or from the query (?id=roku-ecp).'
+      parameters:
+        - name: id
+          in: query
+          required: false
+          schema:
+            type: string
+          example: roku-ecp
+      responses:
+        '200':
+          description: Plugin stopped and removed
+          content:
+            application/json:
+              example:
+                ok: true
+                id: roku-ecp
+                message: Plugin uninstalled
+        '400':
+          description: "Missing id, a device still uses the plugin (Cannot delete plugin 'roku-ecp': currently in use by device '12'), or the uninstall failed (Failed to uninstall plugin)"
+        '404':
+          description: Plugin not installed
+        '409':
+          description: A plugin install is running
+
+  /api/plugins/uninstall:
+    post:
+      tags:
+        - Plugins
+      summary: Uninstall a plugin
+      description: Stops the plugin and removes its folder, its state in /data/harmony/plugin-data/<id> (pairing keys) and its log. Refused while a device in devices.json uses the plugin.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - id
+              properties:
+                id:
+                  type: string
+            example:
+              id: roku-ecp
+      responses:
+        '200':
+          description: Plugin stopped and removed
+          content:
+            application/json:
+              example:
+                ok: true
+                id: roku-ecp
+                message: Plugin uninstalled
+        '400':
+          description: "Missing id, a device still uses the plugin (Cannot delete plugin 'roku-ecp': currently in use by device '12'), or the uninstall failed (Failed to uninstall plugin)"
+        '404':
+          description: Plugin not installed
+        '409':
+          description: A plugin install is running
+
+  /api/plugins/marketplace:
+    get:
+      tags:
+        - Plugins
+      summary: List plugins offered by the configured repositories
+      description: The plugins of every repository.json in the repository list, as the repositories give them (id, name, version, author, description, download_url, sha256, device_definition), plus repository (the list it came from). Entries without an id are left out. Cached 10 minutes; refresh=1 fetches the repositories again.
+      parameters:
+        - name: refresh
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [1]
+      responses:
+        '200':
+          description: Marketplace catalog
+          content:
+            application/json:
+              example:
+                ok: true
+                marketplace:
+                  - id: roku-ecp
+                    name: Roku ECP
+                    version: 1.1.0
+                    author: harmony-ng
+                    description: Roku External Control Protocol driver
+                    download_url: https://github.com/iranl/harmony-ng-plugins/releases/download/roku-ecp-v1.1.0/roku-ecp-plugin.tar.gz
+                    sha256: 0000000000000000000000000000000000000000000000000000000000000000
+
+  /api/plugins/repositories:
+    get:
+      tags:
+        - Plugins
+      summary: List plugin repository URLs
+      responses:
+        '200':
+          description: Repository URLs
+          content:
+            application/json:
+              example:
+                ok: true
+                repositories:
+                  - https://raw.githubusercontent.com/iranl/harmony-ng-plugins/main/repository.json
+    post:
+      tags:
+        - Plugins
+      summary: Add or remove a plugin repository URL
+      description: "Admin role only. Refused with 403 while authentication is off: a plugin runs as root."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - action
+                - url
+              properties:
+                action:
+                  type: string
+                  enum:
+                    - add
+                    - remove
+                url:
+                  type: string
+            example:
+              action: add
+              url: https://raw.githubusercontent.com/user/repo/main/repository.json
+      responses:
+        '200':
+          description: The repository list after the change
+          content:
+            application/json:
+              example:
+                ok: true
+                repositories:
+                  - https://raw.githubusercontent.com/iranl/harmony-ng-plugins/main/repository.json
+                  - https://raw.githubusercontent.com/user/repo/main/repository.json
+        '400':
+          description: Invalid JSON body, or an unknown action or a URL that could not be added or removed (Failed to update repositories)
+        '403':
+          description: Authentication is off
+
+  /api/plugins/install:
+    post:
+      tags:
+        - Plugins
+      summary: Install a plugin from a URL or an uploaded archive
+      description: |
+        Admin role only. Refused with 403 while authentication is off: a plugin runs as root.
+
+        One of:
+        - `url`: the Hub downloads the .tar.gz (at most 1 MB) and checks it against `sha256` (from the request, or from the marketplace entry of that URL). Without either the install is refused. With `dev: true` the URL is a raw manifest.json (or its folder) and the files the manifest lists are installed without an archive (development only); `sha256` is then refused, as raw files cannot be checked.
+        - `archive_base64`: the .tar.gz archive itself, base64 encoded, at most 1 MB (an upload, or the browser download used when the Hub could not download the URL). It needs `sha256`, or `dev: true` for a local build.
+
+        The upload is base64 inside JSON only. The archive is checked before it is unpacked (no absolute paths, no `..`, no symbolic or hard links), the manifest is validated (safe id, version, an entrypoint in the archive, config_fields an array of objects with a key), and the unpacked size is compared with the free space of /tmp and of /data (256 KB stay free). The new version is copied next to the installed one and replaces it only when every file was written; on any error the installed version stays.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url:
+                  type: string
+                sha256:
+                  type: string
+                dev:
+                  type: boolean
+                  default: false
+                archive_base64:
+                  type: string
+            example:
+              url: https://github.com/iranl/harmony-ng-plugins/releases/download/roku-ecp-v1.1.0/roku-ecp-plugin.tar.gz
+      responses:
+        '200':
+          description: Plugin installed
+          content:
+            application/json:
+              example:
+                ok: true
+                message: Plugin installed successfully
+        '400':
+          description: No sha256 known, the checksum, the archive check, the manifest, the space check or the install failed; error says which
+        '403':
+          description: Authentication is off
+        '409':
+          description: Another plugin install is running
+        '413':
+          description: Body over 2 MB, or archive over 1 MB
+        '502':
+          description: The Hub could not download the URL (the web UIs may then download it in the browser and upload it with the catalog sha256)
+
+  /api/plugins/pull:
+    post:
+      tags:
+        - Plugins
+      summary: Update an installed plugin from where it came from
+      description: "A plugin installed with dev: true is installed again from its dev URL. Any other plugin gets the current marketplace entry of its id, checked against that entry's sha256. Admin role only. Refused with 403 while authentication is off: a plugin runs as root."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - id
+              properties:
+                id:
+                  type: string
+            example:
+              id: roku-ecp
+      responses:
+        '200':
+          description: Plugin files updated
+          content:
+            application/json:
+              example:
+                ok: true
+                message: Plugin files updated directly from repository
+        '400':
+          description: Invalid JSON body, Missing plugin id, no repository lists the plugin, or the download failed
+        '403':
+          description: Authentication is off
+        '409':
+          description: Another plugin install is running
+
+  /api/plugins/pair:
+    post:
+      tags:
+        - Plugins
+      summary: Pair a plugin with its device
+      description: |
+        Starts the plugin daemon if needed, sends the pairing step to it and waits up to 15 s for its answer.
+        `action` `start` (default) asks the device to show a code; `pin` (or `finish_pair`) sends the code the user read from the device.
+        The answer is the status object the plugin writes; a missing answer gives `stage: error`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - id
+                - host
+              properties:
+                id:
+                  type: string
+                action:
+                  type: string
+                  enum:
+                    - start
+                    - pin
+                    - finish_pair
+                  default: start
+                host:
+                  type: string
+                port:
+                  type: integer
+                  description: Optional; without it the plugin uses its own port
+                pin:
+                  type: string
+            example:
+              id: android-tv
+              action: pin
+              host: 192.168.1.50
+              pin: 1A2B3C
+      responses:
+        '200':
+          description: The plugin's answer with ok true
+          content:
+            application/json:
+              example:
+                ok: true
+                stage: paired
+                message: Paired
+        '400':
+          description: 'Invalid JSON body, Missing or invalid plugin id, host or port, or the plugin answer with ok false. Without an answer in 15 s: {"ok": false, "stage": "error", "message": "Device did not respond or pairing timed out"}'
+
+  /api/plugins/action:
+    post:
+      tags:
+        - Plugins
+      summary: Start, stop, restart, enable or disable a plugin
+      description: enable and disable are kept across reboots; stop holds the daemon down until start or restart (the watchdog does not restart it).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - id
+                - action
+              properties:
+                id:
+                  type: string
+                action:
+                  type: string
+                  enum:
+                    - start
+                    - stop
+                    - restart
+                    - enable
+                    - disable
+            example:
+              id: roku-ecp
+              action: restart
+      responses:
+        '200':
+          description: Action done
+          content:
+            application/json:
+              example:
+                ok: true
+                id: roku-ecp
+                action: restart
+                running: true
+        '400':
+          description: Invalid JSON body, or Action failed or invalid plugin ID
+        '404':
+          description: Plugin not installed
+        '409':
+          description: A start, stop, restart or install of this plugin is already running
 
 components:
   securitySchemes:

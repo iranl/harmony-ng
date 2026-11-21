@@ -327,7 +327,13 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
     // IR Studio Actions
     document.getElementById('btnStudioAddDevice')?.addEventListener('click', () => {
       const box = document.getElementById('studioNewDeviceBox');
-      if (box) box.style.display = (box.style.display === 'none') ? 'block' : 'none';
+      if (box) {
+        const isOpening = (box.style.display === 'none');
+        box.style.display = isOpening ? 'block' : 'none';
+        if (isOpening && typeof this.updateDeviceStudioPluginTypes === 'function') {
+          this.updateDeviceStudioPluginTypes();
+        }
+      }
     });
     document.getElementById('btnStudioCancelNewDevice')?.addEventListener('click', () => {
       const box = document.getElementById('studioNewDeviceBox');
@@ -361,6 +367,94 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
         if (pCustom) pCustom.style.display = (mode === 'custom') ? 'block' : 'none';
       });
     });
+    document.querySelectorAll('.plug-add-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        const mode = tab.getAttribute('data-plug-mode');
+        document.querySelectorAll('.plug-add-tab').forEach(t => {
+          t.classList.toggle('btn-primary', t === tab);
+          t.classList.toggle('btn-ghost', t !== tab);
+        });
+        const pPresets = document.getElementById('addModePluginPresets');
+        const pCustom = document.getElementById('addModePluginCustom');
+        if (pPresets) pPresets.style.display = (mode === 'presets') ? 'block' : 'none';
+        if (pCustom) pCustom.style.display = (mode === 'custom') ? 'block' : 'none';
+      });
+    });
+    document.getElementById('plugPresetsFilter')?.addEventListener('input', () => {
+      const dev = (this.inventory.devices || []).find(d => String(d.id) === String(document.getElementById('manageDeviceSelect')?.value));
+      if (dev) this.renderPluginPresetsList(dev);
+    });
+    document.getElementById('btnPlugAddAllPresets')?.addEventListener('click', async () => {
+      const devId = this.selectedIrDeviceId || document.getElementById('manageDeviceSelect')?.value;
+      const dev = (this.inventory.devices || []).find(d => String(d.id) === String(devId));
+      if (!dev) return;
+      const pluginId = dev.plugin || (dev.type && dev.type.startsWith('plugin:') ? dev.type.substring(7) : '');
+      const plug = (this.installedPlugins || []).find(p => p.id === pluginId);
+      const defCmds = plug?.device_definition?.default_commands || [];
+      const existingNames = new Set((dev.commands || []).map(c => (typeof c === 'string' ? c : c.name || '').toLowerCase()));
+      const toAdd = defCmds.filter(c => !existingNames.has(c.name.toLowerCase()));
+      if (toAdd.length === 0) return alert(t('plg_all_cmds_added'));
+      const btn = document.getElementById('btnPlugAddAllPresets');
+      if (btn) btn.textContent = t('plg_adding');
+      try {
+        for (const c of toAdd) {
+          await this.client.saveLearnedCommand({
+            deviceId: dev.id,
+            name: c.name,
+            raw: c.keyCode,
+            mode: 'plugin'
+          });
+        }
+        await this.refreshData();
+        const updatedDev = (this.inventory.devices || []).find(d => String(d.id) === String(dev.id));
+        if (updatedDev) this.updateStudioDeviceView(updatedDev);
+      } catch (err) {
+        alert(t('failed_to_save', 'Failed to save: ') + err.message);
+      } finally {
+        if (btn) btn.textContent = t('plg_add_all');
+      }
+    });
+    document.getElementById('btnTestPlugCustom')?.addEventListener('click', async () => {
+      const devId = this.selectedIrDeviceId || document.getElementById('manageDeviceSelect')?.value;
+      const name = document.getElementById('plugCustomCmdName')?.value.trim();
+      const code = document.getElementById('plugCustomCmdCode')?.value.trim();
+      if (!code) return alert(t('plg_enter_keycode'));
+      const stat = document.getElementById('plugCustomStatus');
+      if (stat) stat.textContent = t('plg_sending_test');
+      try {
+        await this.client.sendCommand(devId, name || code);
+        if (stat) stat.innerHTML = '<span style="color:var(--success)">' + t('plg_test_sent') + '</span>';
+      } catch (err) {
+        if (stat) stat.innerHTML = '<span style="color:var(--danger)">' + tfHtml('plg_error_msg', { error: err.message }) + '</span>';
+      }
+    });
+    document.getElementById('btnSavePlugCustom')?.addEventListener('click', async () => {
+      const devId = this.selectedIrDeviceId || document.getElementById('manageDeviceSelect')?.value;
+      const name = document.getElementById('plugCustomCmdName')?.value.trim();
+      const code = document.getElementById('plugCustomCmdCode')?.value.trim();
+      if (!name || !code) return alert(t('plg_enter_name_keycode'));
+      const stat = document.getElementById('plugCustomStatus');
+      if (stat) stat.textContent = t('plg_saving_cmd');
+      try {
+        // PLUGIN:<plugin id>:<code>: without the id the Hub sent the command name instead
+        const devObj = (this.inventory?.devices || []).find(d => String(d.id) === String(devId));
+        const plugId = devObj?.plugin || (devObj?.type?.startsWith('plugin:') ? devObj.type.substring(7) : '');
+        await this.client.saveLearnedCommand({
+          deviceId: devId,
+          name,
+          raw: code.startsWith('PLUGIN:') ? code : `PLUGIN:${plugId}:${code}`,
+          mode: 'plugin'
+        });
+        if (stat) stat.innerHTML = '<span style="color:var(--success)">' + t('plg_cmd_saved') + '</span>';
+        document.getElementById('plugCustomCmdName').value = '';
+        document.getElementById('plugCustomCmdCode').value = '';
+        await this.refreshData();
+        const dev = (this.inventory.devices || []).find(d => String(d.id) === String(devId));
+        if (dev) this.updateStudioDeviceView(dev);
+      } catch (err) {
+        if (stat) stat.innerHTML = '<span style="color:var(--danger)">' + tfHtml('plg_error_msg', { error: err.message }) + '</span>';
+      }
+    });
     document.getElementById('btPresetsFilter')?.addEventListener('input', () => {
       const dev = (this.inventory.devices || []).find(d => String(d.id) === String(document.getElementById('manageDeviceSelect')?.value));
       if (dev) this.renderBtPresetsList(dev);
@@ -390,9 +484,17 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
         const curId = this.selectedIrDeviceId || sel?.value;
         const dev = (this.inventory.devices || []).find(d => String(d.id) === String(curId));
         if (dev) {
+          if (typeof this.updateDeviceStudioPluginTypes === 'function') {
+            this.updateDeviceStudioPluginTypes();
+          }
+          const isPlugin = !!(dev.plugin || (dev.type && (dev.type.startsWith('plugin:') || this.getPluginForType(dev.type))));
           const isBt = (dev.type === 'BT' || dev.type === 'Bluetooth' || dev.isBt);
+          const isMqtt = (dev.type === 'MQTT' || dev.mqttEnabled);
+          const isIr = !isPlugin && !isBt && !isMqtt;
           const devEditBtBox = document.getElementById('devEditBtReconnectBox');
           if (devEditBtBox) devEditBtBox.style.display = isBt ? 'block' : 'none';
+          const devEditTimingsBox = document.getElementById('devEditTimingsBox');
+          if (devEditTimingsBox) devEditTimingsBox.style.display = isIr ? 'block' : 'none';
 
           const nameInp = document.getElementById('editDevName');
           const typeInp = document.getElementById('editDevType');
@@ -400,7 +502,29 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
           const mdlInp = document.getElementById('editDevModel');
           const iconInp = document.getElementById('editDevIcon');
           if (nameInp) nameInp.value = dev.name || '';
-          if (typeInp) typeInp.value = dev.type || '';
+          if (typeInp) {
+            const pluginDef = this.getPluginForType(dev.type) || (dev.plugin ? (this.installedPlugins || []).find(p => p.id === dev.plugin) : null);
+            const plugId = dev.plugin || pluginDef?.id || (dev.type && dev.type.startsWith('plugin:') ? dev.type.substring(7) : '');
+            const targetTypeVal = plugId ? (dev.type && dev.type.startsWith('plugin:') ? dev.type : (pluginDef?.device_definition?.device_type && dev.type.toLowerCase() === pluginDef.device_definition.device_type.toLowerCase() ? dev.type : `plugin:${plugId}`)) : (dev.type || 'IR');
+            let opt = typeInp.querySelector(`option[value="${targetTypeVal}"]`) || typeInp.querySelector(`option[value="${dev.type}"]`);
+            if (!opt && plugId) {
+              let optgroup = document.getElementById('editDevTypePluginGroup');
+              if (!optgroup) {
+                optgroup = document.createElement('optgroup');
+                optgroup.id = 'editDevTypePluginGroup';
+                optgroup.label = t('plg_community_plugins');
+                typeInp.appendChild(optgroup);
+              }
+              opt = document.createElement('option');
+              opt.value = targetTypeVal;
+              opt.textContent = tf('plg_type_option', { name: pluginDef?.device_definition?.display_name || pluginDef?.name || plugId });
+              optgroup.appendChild(opt);
+            }
+            typeInp.value = opt ? opt.value : targetTypeVal;
+            if (typeof this.handleEditDeviceTypeChanged === 'function') {
+              this.handleEditDeviceTypeChanged(typeInp.value, dev.config || dev);
+            }
+          }
           if (mfgInp) mfgInp.value = dev.manufacturer || '';
           if (mdlInp) mdlInp.value = dev.model || '';
           if (iconInp) {
@@ -436,16 +560,30 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
       }
     });
     document.getElementById('editDevType')?.addEventListener('change', (e) => {
+      const val = e.target.value;
+      const isBt = (val === 'BT');
+      const isPlugin = val.startsWith('plugin:') || !!this.getPluginForType(val);
+      const isMqtt = (val === 'MQTT');
+      const isIr = !isBt && !isPlugin && !isMqtt;
       const devEditBtBox = document.getElementById('devEditBtReconnectBox');
-      if (devEditBtBox) devEditBtBox.style.display = e.target.value === 'BT' ? 'block' : 'none';
+      if (devEditBtBox) devEditBtBox.style.display = isBt ? 'block' : 'none';
+      const devEditTimingsBox = document.getElementById('devEditTimingsBox');
+      if (devEditTimingsBox) devEditTimingsBox.style.display = isIr ? 'block' : 'none';
+      if (typeof this.handleEditDeviceTypeChanged === 'function') {
+        const sel = document.getElementById('manageDeviceSelect');
+        const devId = this.selectedIrDeviceId || sel?.value;
+        const curDev = (this.inventory?.devices || []).find(d => String(d.id) === String(devId));
+        this.handleEditDeviceTypeChanged(val, curDev?.config || curDev);
+      }
     });
     document.getElementById('btnSaveDevDetails')?.addEventListener('click', async () => {
       const sel = document.getElementById('manageDeviceSelect');
       const devId = this.selectedIrDeviceId || sel?.value;
       if (!devId) return;
       this.selectedIrDeviceId = String(devId);
+      const curDev = (this.inventory?.devices || []).find(d => String(d.id) === String(devId));
       const name = document.getElementById('editDevName')?.value.trim();
-      const type = document.getElementById('editDevType')?.value.trim();
+      const type = curDev?.type || document.getElementById('editDevType')?.value.trim() || 'IR';
       const mfg = document.getElementById('editDevMfg')?.value.trim();
       const model = document.getElementById('editDevModel')?.value.trim();
       const icon = document.getElementById('editDevIcon')?.value.trim();
@@ -468,6 +606,34 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
         btTrigCmdName = parts.slice(1).join(':');
       }
 
+      // The selected type decides: a plugin type binds the device, any other type clears a
+      // stored plugin (sent as plugin: ""; the stored id was sent and kept the plugin)
+      const selPlugin = this.getPluginForType(type);
+      let pluginId = (type && type.startsWith('plugin:')) ? type.substring(7)
+        : (curDev?.plugin && selPlugin?.id === curDev.plugin ? curDev.plugin : null);
+      let pluginCfg = null;
+      if (pluginId) {
+        pluginCfg = {};
+        document.querySelectorAll('[id^="edit_plug_cfg_"]').forEach(inp => {
+          const key = inp.id.replace('edit_plug_cfg_', '');
+          pluginCfg[key] = (inp.type === 'number') ? Number(inp.value) : inp.value;
+        });
+        const plug = (this.installedPlugins || []).find(p => p.id === pluginId);
+        if (plug?.device_definition?.config_fields) {
+          for (const f of plug.device_definition.config_fields) {
+            if (pluginCfg[f.key] === undefined || pluginCfg[f.key] === '') {
+              const el = document.getElementById(`edit_plug_cfg_${f.key}`);
+              const val = el ? el.value : undefined;
+              if (val !== undefined && val !== '') {
+                pluginCfg[f.key] = (f.type === 'number') ? Number(val) : val;
+              } else if (f.default !== undefined) {
+                pluginCfg[f.key] = f.default;
+              }
+            }
+          }
+        }
+      }
+
       const stat = document.getElementById('devEditStatus');
       const delayProblem = deviceDelayError(t('delay_label_inter_device'), idd) || deviceDelayError(t('delay_label_inter_key'), ikd) ||
         deviceDelayError(t('delay_label_hold_inter_key'), hikd) || (pod < 0 ? t('power_on_delay_negative') : null);
@@ -481,6 +647,8 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
           deviceId: devId,
           name: name || undefined,
           type: type || undefined,
+          plugin: pluginId || ((curDev?.plugin || String(curDev?.type || '').startsWith('plugin:')) ? '' : undefined),
+          config: pluginCfg || undefined,
           manufacturer: mfg || undefined,
           model: model || undefined,
           icon: icon || undefined,
@@ -719,6 +887,7 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
       let mode = document.getElementById('editCmdType')?.value;
       if (devType === 'BT') mode = 'bt';
       else if (devType === 'MQTT') mode = 'mqtt';
+      else if (devType === 'PLUGIN') mode = 'plugin';
       const raw = document.getElementById('editCmdPayload')?.value.trim();
       const repeats = Number(document.getElementById('editCmdRepeats')?.value) || 3;
       const port = Number(document.getElementById('editCmdPort')?.value) || 0;
@@ -734,7 +903,7 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
           raw,
           mode
         };
-        if (mode !== 'bt' && mode !== 'mqtt') {
+        if (mode !== 'bt' && mode !== 'mqtt' && mode !== 'plugin') {
           payloadData.repeats = repeats;
           payloadData.port = port;
         }
