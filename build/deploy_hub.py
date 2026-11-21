@@ -87,8 +87,11 @@ def parse_space_reply(reply: str) -> tuple[int | None, int]:
     kernel, e.g. /tmp) has no usable figure, so its free space is unknown.
     """
     parts = reply.strip().split()
-    avail_kb = int(parts[0]) if parts and parts[0].isdigit() else None
-    total_kb = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None
+    if len(parts) < 3 or parts[0] == "unknown" or not parts[0].isdigit():
+        old_kb = int(parts[-1]) if parts and parts[-1].isdigit() else 0
+        return None, old_kb
+    avail_kb = int(parts[0])
+    total_kb = int(parts[1]) if parts[1].isdigit() else None
     old_kb = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
     if total_kb == 0:
         avail_kb = None
@@ -136,6 +139,7 @@ class HubDeployer:
 
         self.deploy_failures: list[str] = []
         self.remote_hashes: dict[str, str] = {}
+        self.staged_ram_bb = False
         # Set once the Hub's services were stopped, cleared when the last step started them again
         self.services_stopped = False
 
@@ -222,7 +226,8 @@ class HubDeployer:
         size_kb = (src.stat().st_size + 1023) // 1024
         space_check = (
             f"mkdir -p '{ddir}' 2>/dev/null; rm -f '{dst}.new' 2>/dev/null; "
-            f"a=$(df -k '{ddir}' 2>/dev/null | awk 'END {{print $(NF-2), $(NF-4)}}'); o=0; "
+            f"a=$( (/cache/bin/busybox df -k '{ddir}' 2>/dev/null || /tmp/busybox df -k '{ddir}' 2>/dev/null || df -k '{ddir}' 2>/dev/null) | "
+            f"awk 'END {{ if (NR > 0 && NF >= 3) print $(NF-2), $(NF-4) }}' ); o=0; "
             f"[ -f '{dst}' ] && o=$(ls -l '{dst}' 2>/dev/null | awk '{{print int(($5+1023)/1024)}}'); "
             f'echo "${{a:-unknown unknown}} ${{o:-0}}"'
         )
@@ -294,6 +299,8 @@ class HubDeployer:
         try:
             return self._deploy()
         finally:
+            if self.staged_ram_bb and not self.dry_run:
+                self.run_ssh("rm -f /tmp/busybox 2>/dev/null || true")
             if self.services_stopped:
                 print("[!] Deployment ended early: starting the Hub services again...", file=sys.stderr)
                 self.run_ssh(self.RESTART_CMD)
@@ -349,6 +356,24 @@ class HubDeployer:
             print(f"[-] Not built for the Hub (MIPS) in {self.bin_dir}: {', '.join(wrong)}. Nothing was changed.",
                   file=sys.stderr)
             return False
+
+        # If stock BusyBox lacks df, stage local BusyBox in RAM (/tmp)
+        # so free space checks and tools work before /cache/bin/busybox is deployed.
+        has_df = self.run_ssh("test -x /cache/bin/busybox && /cache/bin/busybox df -k / >/dev/null 2>&1 || type df >/dev/null 2>&1")
+        if has_df.returncode != 0 and not self.dry_run:
+            local_bb = self.bin_dir / "busybox"
+            if local_bb.is_file():
+                try:
+                    with open(local_bb, "rb") as f_in:
+                        stage_res = subprocess.run(
+                            self.get_ssh_cmd("cat > /tmp/busybox && chmod 755 /tmp/busybox"),
+                            stdin=f_in,
+                            capture_output=True,
+                        )
+                    if stage_res.returncode == 0:
+                        self.staged_ram_bb = True
+                except Exception as e:
+                    print(f"[!] Warning during RAM BusyBox staging: {e}", file=sys.stderr)
 
         if not self.webui_only:
             # 1. Run automated backup first
@@ -414,8 +439,18 @@ class HubDeployer:
                 "rm -rf /data/codex-backups /data/codexmqtt /data/harmony-backups /cache/crashlog-*.json 2>/dev/null; "
                 "rm -f /data/harmony/mqtt_config.json /data/harmony/elite_remote_map.json /data/harmony/bt_devices.json /data/devices.json /data/activities.json /data/harmony/devices.json /data/harmony/config/.imported /data/remote_ui.ota.gz /data/remote_ui.version 2>/dev/null || true; "
                 "rm -f /cache/codex_*.ota.gz /cache/codex_*.ota /cache/*.new /cache/*/*.new /data/harmony/*.new /data/harmony/*/*.new /data/rf_pair_test /data/test_hub_tx /data/codex_rf /data/hub_rf /data/harmony/bin/codex_* /cache/bin/codex_* /var/run/codex_* 2>/dev/null || true; "
-                "if [ -s /data/harmony/bin/dropbearmulti ] && [ -x /data/harmony/bin/dropbearmulti ]; then _harm_m=$(md5sum /data/harmony/bin/dropbearmulti 2>/dev/null | awk '{print $1}'); _data_m=$(md5sum /data/dropbearmulti 2>/dev/null | awk '{print $1}'); if [ -n \"$_harm_m\" ] && { [ \"$_harm_m\" = \"$_data_m\" ] || [ \"$_harm_m\" = \"3733327fd04bca282dbf06f33da0bf6c\" ]; }; then rm -f /data/dropbearmulti /usr/sbin/dropbearmulti 2>/dev/null || true; fi; for _a in dropbear dropbearkey dbclient scp; do [ -f /data/harmony/bin/$_a ] && [ ! -L /data/harmony/bin/$_a ] && rm -f /data/harmony/bin/$_a 2>/dev/null; ln -sf /data/harmony/bin/dropbearmulti /data/harmony/bin/$_a 2>/dev/null || true; done; for _a in dropbearkey dbclient scp; do ln -sf /data/harmony/bin/dropbearmulti /usr/sbin/$_a 2>/dev/null || true; done; fi; "
-                "mkdir -p /data/harmony/bin /data/harmony/www/assets /data/harmony/config /data/harmony/custom_icons"
+                "mkdir -p /data/harmony/bin /data/harmony/www/assets /data/harmony/config /data/harmony/custom_icons; "
+                "if [ -x /data/dropbearmulti ] && [ ! -s /data/harmony/bin/dropbearmulti ]; then cp -p /data/dropbearmulti /data/harmony/bin/dropbearmulti 2>/dev/null || true; fi; "
+                "_dbm=\"\"; [ -s /data/harmony/bin/dropbearmulti ] && [ -x /data/harmony/bin/dropbearmulti ] && _dbm=/data/harmony/bin/dropbearmulti; "
+                "[ -z \"$_dbm\" ] && [ -s /data/dropbearmulti ] && [ -x /data/dropbearmulti ] && _dbm=/data/dropbearmulti; "
+                "if [ -n \"$_dbm\" ]; then "
+                "  if [ \"$_dbm\" = \"/data/harmony/bin/dropbearmulti\" ]; then "
+                "    _harm_m=$(md5sum /data/harmony/bin/dropbearmulti 2>/dev/null | awk '{print $1}'); _data_m=$(md5sum /data/dropbearmulti 2>/dev/null | awk '{print $1}'); "
+                "    if [ -n \"$_harm_m\" ] && { [ \"$_harm_m\" = \"$_data_m\" ] || [ \"$_harm_m\" = \"3733327fd04bca282dbf06f33da0bf6c\" ]; }; then rm -f /data/dropbearmulti /usr/sbin/dropbearmulti 2>/dev/null || true; fi; "
+                "    for _a in dropbear dropbearkey dbclient scp; do [ -f /data/harmony/bin/$_a ] && [ ! -L /data/harmony/bin/$_a ] && rm -f /data/harmony/bin/$_a 2>/dev/null; ln -sf /data/harmony/bin/dropbearmulti /data/harmony/bin/$_a 2>/dev/null || true; done; "
+                "  fi; "
+                "  for _a in dropbearkey dbclient scp; do ln -sf \"$_dbm\" /usr/sbin/$_a 2>/dev/null || true; done; "
+                "fi"
             )
             if not self.dry_skip("move legacy /data/codex files to /data/harmony and remove obsolete files"):
                 self.run_ssh(mig_paths_cmd)
@@ -483,10 +518,10 @@ class HubDeployer:
                 )
                 if not self.dry_skip("create hub_util symlinks and purge legacy standalone binaries"):
                     self.run_ssh(util_setup)
-                core_bins = ["hub_daemon", "hub_rf", "hub_btstack"]
+                core_bins = ["hub_daemon", "hub_fetch", "hub_rf", "hub_btstack"]
             else:
                 core_bins = [
-                    "hub_daemon", "hub_rf", "hub_sntp", "hub_btstack", "hub_sync",
+                    "hub_daemon", "hub_fetch", "hub_rf", "hub_sntp", "hub_btstack", "hub_sync",
                     "mknod", "register_ehci", "eth_fix"
                 ]
             for b in core_bins:
@@ -494,7 +529,7 @@ class HubDeployer:
                 if src.is_file():
                     self.deploy_file_if_changed(src, f"/data/harmony/bin/{b}", "755")
 
-            # Dropbear SSH server
+            # Dropbear SSH server (deploy first so remote scp server is updated and verified)
             dropbear_src = None
             if (self.bin_dir / "dropbearmulti").is_file():
                 dropbear_src = self.bin_dir / "dropbearmulti"
@@ -519,6 +554,28 @@ class HubDeployer:
                 )
                 if not self.dry_skip("create dropbear multicall symlinks and safely deduplicate"):
                     self.run_ssh(dropbear_links)
+
+            # Deploy core binaries
+            if (self.bin_dir / "hub_util").is_file():
+                self.deploy_file_if_changed(self.bin_dir / "hub_util", "/data/harmony/bin/hub_util", "755")
+                util_setup = (
+                    "for _app in hub_sync sync mknod register_ehci eth_fix hub_sntp; do "
+                    "  [ -f /data/harmony/bin/$_app ] && [ ! -L /data/harmony/bin/$_app ] && rm -f /data/harmony/bin/$_app 2>/dev/null; "
+                    "  ln -sf /data/harmony/bin/hub_util /data/harmony/bin/$_app 2>/dev/null || true; "
+                    "done"
+                )
+                if not self.dry_skip("create hub_util symlinks and purge legacy standalone binaries"):
+                    self.run_ssh(util_setup)
+                core_bins = ["hub_daemon", "hub_rf", "hub_btstack"]
+            else:
+                core_bins = [
+                    "hub_daemon", "hub_rf", "hub_sntp", "hub_btstack", "hub_sync",
+                    "mknod", "register_ehci", "eth_fix"
+                ]
+            for b in core_bins:
+                src = self.bin_dir / b
+                if src.is_file():
+                    self.deploy_file_if_changed(src, f"/data/harmony/bin/{b}", "755")
 
             # Extended BusyBox
             local_bb = self.bin_dir / "busybox"
@@ -603,6 +660,14 @@ class HubDeployer:
                         self.deploy_file_if_changed(cfg, f"/data/harmony/config/{cfg.name}", "644")
                         if cfg.name == "cacert.pem" and not self.dry_run:
                             self.run_ssh("ln -sf /data/harmony/config/cacert.pem /data/harmony/cacert.pem 2>/dev/null || true")
+
+            # Shared libraries for plugins (libbearssl.so.0)
+            lib_dir = self.repo_root / "payload" / "lib"
+            if lib_dir.is_dir():
+                print("[*] Syncing shared libraries to /data/harmony/lib/...")
+                for lib in sorted(lib_dir.iterdir()):
+                    if lib.is_file():
+                        self.deploy_file_if_changed(lib, f"/data/harmony/lib/{lib.name}", "755")
 
             # Deploy USB Ethernet kernel modules
             if self.modules_dir.is_dir():

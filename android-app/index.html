@@ -112,7 +112,7 @@
       <h3 id="hubUpdatingTitle" style="margin: 0; font-size: 18px; font-weight: 700; color: #fff;"
         data-i18n="hub_updating_title">Hub Software Update</h3>
       <p id="hubUpdatingDesc" style="margin: 0; font-size: 14px; color: rgba(255, 255, 255, 0.75); line-height: 1.4;"
-        data-i18n="hub_updating_desc">Hub is updated and is rebooting. Please wait...</p>
+        data-i18n="hub_updating_desc">The Hub installs the update and restarts its services. Please wait...</p>
       <div class="updating-progress-badge">
         <span class="updating-pulse-dot"></span>
         <span id="hubUpdatingStatusText" data-i18n="hub_updating_status">Applying update...</span>
@@ -133,8 +133,7 @@
       </div>
       <div class="update-banner-text">
         <strong id="hubUpdateTitle" data-i18n="update_available_banner">Hub Software Update Available</strong>
-        <span id="hubUpdateDesc" class="update-subtext" data-i18n="update_available_sub">A newer release is available.
-          Tap to view and install.</span>
+        <span id="hubUpdateDesc" class="update-subtext" data-i18n="update_available_sub">A newer release is available.</span>
       </div>
     </div>
     <div class="update-banner-actions">
@@ -944,6 +943,8 @@
                 <option value="IR" selected data-i18n="trans_ir">Infrared (IR)</option>
                 <option value="BT" data-i18n="trans_bt">Bluetooth (BT)</option>
                 <option value="MQTT" data-i18n="trans_mqtt">MQTT (Smart Home / Virtual)</option>
+                <option value="HTTP" data-i18n="trans_http">HTTP / HTTPS (Network)</option>
+                <option value="TCP" data-i18n="trans_tcp">TCP (Network)</option>
               </select>
             </div>
           </div>
@@ -1077,6 +1078,8 @@
                     <option value="IR" data-i18n="trans_ir">Infrared (IR)</option>
                     <option value="BT" data-i18n="trans_bt">Bluetooth (BT)</option>
                     <option value="MQTT" data-i18n="trans_mqtt">MQTT (Smart Home / Virtual)</option>
+                    <option value="HTTP" data-i18n="trans_http">HTTP / HTTPS (Network)</option>
+                    <option value="TCP" data-i18n="trans_tcp">TCP (Network)</option>
                   </select>
                 </div>
                 <div>
@@ -1355,6 +1358,12 @@
             style="display: none; gap: 6px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">
             <button type="button" id="tabAddMqtt" class="btn btn-sm btn-primary mqtt-add-tab active"
               data-mqtt-mode="mqtt" data-i18n="add_mqtt_command_btn">Add MQTT Command</button>
+          </div>
+
+          <!-- Tabs for HTTP / TCP Mode -->
+          <div id="netAddTabsRow"
+            style="display: none; gap: 6px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">
+            <button type="button" class="btn btn-sm btn-primary active" data-i18n="net_add_command_btn">Add HTTP / TCP Command</button>
           </div>
 
           <!-- Tabs for Plugin Mode -->
@@ -1723,6 +1732,132 @@
                   Device</button>
               </div>
             </form>
+          </div>
+
+          <!-- Mode 8: HTTP / TCP device: connection and commands -->
+          <div id="addModeNet" style="display: none;">
+            <div class="card" style="margin-bottom: 12px;">
+              <h3 style="font-size: 15px; margin-bottom: 8px;" data-i18n="net_connection_card">Connection</h3>
+              <div class="row">
+                <div>
+                  <label for="netHost" data-i18n="net_host_lbl">Host or IP address</label>
+                  <input id="netHost" class="form-control" autocomplete="off" data-i18n-placeholder="ph_net_host">
+                </div>
+                <div>
+                  <label for="netPort" data-i18n="net_port_lbl">Port</label>
+                  <input id="netPort" type="number" min="1" max="65535" class="form-control">
+                </div>
+                <div>
+                  <label for="netTimeoutMs" data-i18n="net_timeout_lbl">Timeout (ms)</label>
+                  <input id="netTimeoutMs" type="number" min="500" max="15000" step="100" class="form-control">
+                </div>
+              </div>
+              <div class="row" style="margin-top: 8px;">
+                <div>
+                  <label style="display: flex; align-items: center; gap: 6px; margin-top: 22px;">
+                    <input type="checkbox" id="netTls"><span data-i18n="net_tls_lbl">Use TLS (HTTPS)</span>
+                  </label>
+                </div>
+                <div id="netTlsVerifyWrap">
+                  <label for="netTlsVerify" data-i18n="net_tls_verify_lbl">Certificate check</label>
+                  <select id="netTlsVerify" class="form-control">
+                    <option value="verify" data-i18n="net_verify_ca">Trusted certificate authority</option>
+                    <option value="pin" data-i18n="net_verify_pin">Pin the device's key on first use</option>
+                    <option value="insecure" data-i18n="net_verify_insecure">No check (encryption only)</option>
+                  </select>
+                </div>
+              </div>
+              <div id="netHttpOnly">
+                <div style="margin-top: 8px;">
+                  <label for="netHeaders" data-i18n="net_headers_lbl">Headers (one "Name: value" per line)</label>
+                  <textarea id="netHeaders" class="form-control" rows="3" spellcheck="false"></textarea>
+                </div>
+                <div class="row" style="margin-top: 8px;">
+                  <div>
+                    <label for="netAuthType" data-i18n="net_auth_lbl">Authentication</label>
+                    <select id="netAuthType" class="form-control">
+                      <option value="none" data-i18n="net_auth_none">None</option>
+                      <option value="basic" data-i18n="net_auth_basic">User name and password (Basic)</option>
+                      <option value="bearer" data-i18n="net_auth_bearer">Bearer token</option>
+                    </select>
+                  </div>
+                  <div id="netAuthUserWrap">
+                    <label for="netAuthUser" data-i18n="username">Username</label>
+                    <input id="netAuthUser" class="form-control" autocomplete="off">
+                  </div>
+                  <div id="netAuthPassWrap">
+                    <label for="netAuthPass" data-i18n="password">Password</label>
+                    <input id="netAuthPass" type="password" class="form-control" autocomplete="new-password">
+                  </div>
+                  <div id="netAuthTokenWrap">
+                    <label for="netAuthToken" data-i18n="net_token_lbl">Token</label>
+                    <input id="netAuthToken" type="password" class="form-control" autocomplete="new-password">
+                  </div>
+                </div>
+              </div>
+              <div id="netConnStatus" class="subtle" style="margin-top: 8px;"></div>
+              <div class="actions" style="margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px;">
+                <button id="btnNetSaveConn" type="button" class="btn btn-sm btn-primary" data-i18n="net_save_conn_btn">Save Connection</button>
+                <button id="btnNetTestConn" type="button" class="btn btn-sm btn-secondary" data-i18n="net_test_conn_btn">▶ Test Connection</button>
+                <button id="btnNetForgetPin" type="button" class="btn btn-sm btn-ghost" data-i18n="net_forget_pin_btn">Forget Pinned Key</button>
+              </div>
+            </div>
+
+            <div class="card">
+              <h3 style="font-size: 15px; margin-bottom: 8px;" data-i18n="net_add_command_btn">Add HTTP / TCP Command</h3>
+              <div>
+                <label for="netCmdName" data-i18n="cmd_name_lbl">Command Name</label>
+                <input id="netCmdName" class="form-control" data-i18n-placeholder="ph_mqtt_cmd_name">
+              </div>
+              <div id="netCmdHttp">
+                <div class="row" style="margin-top: 8px;">
+                  <div>
+                    <label for="netCmdMethod" data-i18n="net_method_lbl">Method</label>
+                    <select id="netCmdMethod" class="form-control" translate="no">
+                      <option value="GET">GET</option>
+                      <option value="POST">POST</option>
+                      <option value="PUT">PUT</option>
+                      <option value="PATCH">PATCH</option>
+                      <option value="DELETE">DELETE</option>
+                    </select>
+                  </div>
+                  <div style="flex: 3;">
+                    <label for="netCmdPath" data-i18n="net_path_lbl">Path</label>
+                    <input id="netCmdPath" class="form-control" spellcheck="false" data-i18n-placeholder="ph_net_path">
+                  </div>
+                </div>
+                <div style="margin-top: 8px;">
+                  <label for="netCmdBody" data-i18n="net_body_lbl">Body (optional)</label>
+                  <textarea id="netCmdBody" class="form-control" rows="3" spellcheck="false"></textarea>
+                </div>
+                <div style="margin-top: 8px;">
+                  <label for="netCmdContentType" data-i18n="net_content_type_lbl">Content type (optional)</label>
+                  <input id="netCmdContentType" class="form-control" spellcheck="false" data-i18n-placeholder="ph_net_content_type">
+                </div>
+              </div>
+              <div id="netCmdTcp">
+                <div class="row" style="margin-top: 8px;">
+                  <div style="flex: 3;">
+                    <label for="netCmdPayload" data-i18n="net_payload_lbl">Data to send</label>
+                    <input id="netCmdPayload" class="form-control" spellcheck="false">
+                  </div>
+                  <div>
+                    <label for="netCmdFormat" data-i18n="net_format_lbl">Format</label>
+                    <select id="netCmdFormat" class="form-control">
+                      <option value="text" data-i18n="net_format_text">Text</option>
+                      <option value="hex" data-i18n="net_format_hex">Hex bytes</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="mini muted" style="margin-top: 4px;" data-i18n="net_tcp_escapes_hint">In text, \r \n \t and \xHH send those bytes.</div>
+              </div>
+              <div class="mini muted" style="margin-top: 6px;" data-i18n="net_placeholders_hint">{device} and {command} are replaced with the device and command name.</div>
+              <div id="netCmdStatus" class="subtle" style="margin-top: 8px;"></div>
+              <div class="actions" style="margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px;">
+                <button id="btnNetTestCmd" type="button" class="btn btn-sm btn-secondary" data-i18n="net_save_test_cmd_btn">▶ Save and Test</button>
+                <button id="btnNetSaveCmd" type="button" class="btn btn-sm btn-primary" data-i18n="save_cmd_to_device">Save Command to Device</button>
+              </div>
+            </div>
           </div>
 
           <!-- Mode 7: Plugin Standard Key Presets -->

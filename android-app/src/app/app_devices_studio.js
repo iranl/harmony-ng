@@ -573,6 +573,10 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
   }
 
   openCommandEditModal(dev, c) {
+    if (this.isNetDevice(dev)) {
+      this.fillNetCommand(dev, c);
+      return;
+    }
     const modal = document.getElementById('cmdEditModal');
     if (!modal) return;
     document.getElementById('editCmdDevId').value = String(dev.id);
@@ -807,6 +811,20 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
 
   updateStudioAddPanels(dev) {
     if (!dev) return;
+    const isNet = this.isNetDevice(dev);
+    const netTabsRow = document.getElementById('netAddTabsRow');
+    const pNet = document.getElementById('addModeNet');
+    if (netTabsRow) netTabsRow.style.display = isNet ? 'flex' : 'none';
+    if (pNet) pNet.style.display = isNet ? 'block' : 'none';
+    if (isNet) {
+      for (const id of ['irAddTabsRow', 'btAddTabsRow', 'mqttAddTabsRow', 'pluginAddTabsRow', 'addModeLearn', 'addModeDb',
+        'addModePaste', 'addModeBtPresets', 'addModeBtCustom', 'addModeMqtt', 'addModePluginPresets', 'addModePluginCustom']) {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+      }
+      this.renderNetPanel(dev);
+      return;
+    }
     const isPlugin = !!(dev.plugin || (dev.type && dev.type.startsWith('plugin:')));
     const isBt = !isPlugin && (dev.type === 'BT' || dev.type === 'Bluetooth' || dev.isBt);
     const isMqtt = !isPlugin && !isBt && (dev.type === 'MQTT' || dev.mqttEnabled);
@@ -1057,6 +1075,210 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
       .replace('{device_id}', dev.id)
       .replace('{command}', cmdName);
     previewEl.textContent = preview;
+  }
+
+  /* ---- HTTP(S) and TCP devices (payload/source/net_device.h) ---- */
+
+  isNetDevice(dev) {
+    return !!dev && !dev.plugin && (dev.type === 'HTTP' || dev.type === 'TCP');
+  }
+
+  netSelectedDevice() {
+    const devs = this.inventory?.devices || [];
+    return devs.find(d => String(d.id) === String(this.selectedDeviceId)) || null;
+  }
+
+  netStatus(id, ok, text) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (!text) el.innerHTML = '';
+    else if (ok) el.innerHTML = `<span style="color:var(--success)">${escapeHtml(text)}</span>`;
+    else el.innerHTML = `<span style="color:var(--danger)">${escapeHtml(text)}</span>`;
+  }
+
+  renderNetPanel(dev) {
+    const isHttp = dev.type === 'HTTP';
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+    if (this._netPanelDevId !== String(dev.id)) {
+      // filled once per device: a refresh does not overwrite what is being typed
+      this._netPanelDevId = String(dev.id);
+      set('netHost', dev.netHost || '');
+      set('netPort', dev.netPort > 0 ? String(dev.netPort) : '');
+      set('netTimeoutMs', String(dev.netTimeoutMs || 3000));
+      const tls = document.getElementById('netTls');
+      if (tls) tls.checked = !!dev.netTls;
+      set('netTlsVerify', dev.netTlsVerify || 'verify');
+      set('netHeaders', (dev.httpHeaders || []).map(h => `${h.name}: ${h.value || ''}`).join('\n'));
+      set('netAuthType', dev.httpAuthType || 'none');
+      set('netAuthUser', dev.httpUser || '');
+      set('netAuthPass', '');
+      set('netAuthToken', '');
+      set('netCmdName', '');
+      set('netCmdMethod', 'GET');
+      set('netCmdPath', '');
+      set('netCmdBody', '');
+      set('netCmdContentType', '');
+      set('netCmdPayload', '');
+      set('netCmdFormat', 'text');
+      this.netStatus('netConnStatus', true, '');
+      this.netStatus('netCmdStatus', true, '');
+    }
+    const pass = document.getElementById('netAuthPass');
+    if (pass) pass.placeholder = dev.hasHttpPassword ? t('keep_current_pwd_lbl') : '';
+    const token = document.getElementById('netAuthToken');
+    if (token) token.placeholder = dev.hasHttpToken ? t('net_keep_current_token') : '';
+    const show = (id, on) => { const el = document.getElementById(id); if (el) el.style.display = on ? '' : 'none'; };
+    show('netHttpOnly', isHttp);
+    show('netCmdHttp', isHttp);
+    show('netCmdTcp', !isHttp);
+    this.updateNetPanelVisibility();
+    this.bindNetPanelEvents();
+  }
+
+  updateNetPanelVisibility() {
+    const show = (id, on) => { const el = document.getElementById(id); if (el) el.style.display = on ? '' : 'none'; };
+    const tls = !!document.getElementById('netTls')?.checked;
+    const auth = document.getElementById('netAuthType')?.value || 'none';
+    show('netTlsVerifyWrap', tls);
+    show('btnNetForgetPin', tls && document.getElementById('netTlsVerify')?.value === 'pin');
+    show('netAuthUserWrap', auth === 'basic');
+    show('netAuthPassWrap', auth === 'basic');
+    show('netAuthTokenWrap', auth === 'bearer');
+  }
+
+  bindNetPanelEvents() {
+    if (this._netPanelBound) return;
+    this._netPanelBound = true;
+    for (const id of ['netTls', 'netTlsVerify', 'netAuthType']) {
+      document.getElementById(id)?.addEventListener('change', () => this.updateNetPanelVisibility());
+    }
+    document.getElementById('btnNetSaveConn')?.addEventListener('click', () => this.saveNetConnection(false));
+    document.getElementById('btnNetTestConn')?.addEventListener('click', () => this.saveNetConnection(true));
+    document.getElementById('btnNetForgetPin')?.addEventListener('click', () => this.forgetNetPin());
+    document.getElementById('btnNetSaveCmd')?.addEventListener('click', () => this.saveNetCommand(false));
+    document.getElementById('btnNetTestCmd')?.addEventListener('click', () => this.saveNetCommand(true));
+  }
+
+  /* "Name: value" lines; a line without a name and a colon is an error */
+  parseNetHeaders(text) {
+    const out = [];
+    for (const line of String(text || '').split('\n')) {
+      const l = line.trim();
+      if (!l) continue;
+      const i = l.indexOf(':');
+      if (i <= 0) throw new Error(tf('net_bad_header_line', { line: l }));
+      out.push({ name: l.slice(0, i).trim(), value: l.slice(i + 1).trim() });
+    }
+    return out;
+  }
+
+  netTestText(r) {
+    if (!r) return t('net_test_failed');
+    const parts = [];
+    if (r.status) parts.push(`HTTP ${r.status}`);
+    if (r.error) parts.push(r.error);
+    if (r.pinned) parts.push(t('net_key_pinned'));
+    if (r.tlsFingerprint) parts.push(tf('net_key_fingerprint', { fp: r.tlsFingerprint.slice(0, 16) }));
+    if (r.response) parts.push(r.response.slice(0, 120));
+    return (r.ok ? '✓ ' : '') + (parts.join(' · ') || (r.ok ? t('net_test_ok') : t('net_test_failed')));
+  }
+
+  async saveNetConnection(andTest) {
+    const dev = this.netSelectedDevice();
+    if (!dev) return;
+    const val = id => (document.getElementById(id)?.value || '').trim();
+    try {
+      const payload = {
+        id: String(dev.id),
+        type: dev.type,
+        netHost: val('netHost'),
+        netPort: Number(val('netPort') || 0),
+        netTls: !!document.getElementById('netTls')?.checked,
+        netTlsVerify: val('netTlsVerify') || 'verify',
+        netTimeoutMs: Number(val('netTimeoutMs') || 3000)
+      };
+      if (dev.type === 'HTTP') {
+        payload.httpHeaders = this.parseNetHeaders(document.getElementById('netHeaders')?.value);
+        payload.httpAuthType = val('netAuthType') || 'none';
+        payload.httpUser = val('netAuthUser');
+        // empty: the Hub keeps the stored secret (GET never returns it)
+        if (val('netAuthPass')) payload.httpPassword = document.getElementById('netAuthPass').value;
+        if (val('netAuthToken')) payload.httpToken = document.getElementById('netAuthToken').value;
+      }
+      this.netStatus('netConnStatus', true, t('net_saving'));
+      const res = await this.client.saveDeviceNet(payload);
+      if (res && res.ok === false) throw new Error(res.error || t('failed_save_device_hub'));
+      this._netPanelDevId = null; // refill from the saved device
+      await this.refreshData();
+      if (andTest) {
+        this.netStatus('netConnStatus', true, t('net_testing'));
+        const r = await this.client.testDeviceNet(dev.id);
+        this.netStatus('netConnStatus', !!r?.ok, this.netTestText(r));
+      } else {
+        this.netStatus('netConnStatus', true, '✓ ' + t('net_conn_saved'));
+      }
+    } catch (err) {
+      this.netStatus('netConnStatus', false, tf('error_msg', { error: err.message }));
+    }
+  }
+
+  async forgetNetPin() {
+    const dev = this.netSelectedDevice();
+    if (!dev) return;
+    try {
+      const r = await this.client.forgetDeviceNetPin(dev.id);
+      this.netStatus('netConnStatus', true, r?.removed ? t('net_pin_forgotten') : t('net_no_pin'));
+    } catch (err) {
+      this.netStatus('netConnStatus', false, tf('error_msg', { error: err.message }));
+    }
+  }
+
+  fillNetCommand(dev, c) {
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+    set('netCmdName', c.name || '');
+    set('netCmdMethod', c.httpMethod || 'GET');
+    set('netCmdPath', c.httpPath || '');
+    set('netCmdBody', c.httpBody || '');
+    set('netCmdContentType', c.httpContentType || '');
+    set('netCmdPayload', c.tcpPayload || '');
+    set('netCmdFormat', c.tcpFormat || 'text');
+    this.netStatus('netCmdStatus', true, '');
+    document.getElementById('netCmdName')?.focus();
+  }
+
+  async saveNetCommand(andTest) {
+    const dev = this.netSelectedDevice();
+    if (!dev) return;
+    const val = id => document.getElementById(id)?.value || '';
+    const name = val('netCmdName').trim();
+    if (!name) {
+      this.netStatus('netCmdStatus', false, t('net_cmd_name_required'));
+      return;
+    }
+    const data = { deviceId: String(dev.id), name, raw: '' };
+    if (dev.type === 'HTTP') {
+      data.httpMethod = val('netCmdMethod') || 'GET';
+      data.httpPath = val('netCmdPath').trim() || '/';
+      data.httpBody = val('netCmdBody');
+      data.httpContentType = val('netCmdContentType').trim();
+    } else {
+      data.tcpPayload = val('netCmdPayload');
+      data.tcpFormat = val('netCmdFormat') || 'text';
+    }
+    try {
+      const res = await this.client.saveLearnedCommand(data);
+      if (res && res.ok === false) throw new Error(res.error || t('failed_save_device_hub'));
+      await this.refreshData();
+      if (andTest) {
+        this.netStatus('netCmdStatus', true, t('net_testing'));
+        const r = await this.client.testDeviceNet(dev.id, name);
+        this.netStatus('netCmdStatus', !!r?.ok, this.netTestText(r));
+      } else {
+        this.netStatus('netCmdStatus', true, '✓ ' + t('net_cmd_saved'));
+      }
+    } catch (err) {
+      this.netStatus('netCmdStatus', false, tf('error_msg', { error: err.message }));
+    }
   }
 
 }

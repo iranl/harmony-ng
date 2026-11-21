@@ -2,8 +2,12 @@
 PATH=/data/harmony/bin:/cache/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 trap '' HUP
 # run from a plugin (or a shell that exported these): hub_daemon and the other services must
-# not look like plugin processes to the stop sweeps
-unset HARMONY_PLUGIN_ID HARMONY_SOCKET HARMONY_PLUGIN_DATA
+# not look like plugin processes to the stop sweeps. unset alone is not enough: a forked
+# ( ... ) & supervisor keeps this shell's exec-time /proc/<pid>/environ, so run again clean.
+if [ -n "$HARMONY_PLUGIN_ID$HARMONY_SOCKET$HARMONY_PLUGIN_DATA" ]; then
+  unset HARMONY_PLUGIN_ID HARMONY_SOCKET HARMONY_PLUGIN_DATA
+  exec /bin/sh "$0" "$@"
+fi
 LOG=/tmp/harmony-init.log
 
 sync_fs() {

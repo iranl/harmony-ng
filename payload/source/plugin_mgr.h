@@ -18,6 +18,8 @@
 /* Per-plugin state kept across updates (passed as HARMONY_PLUGIN_DATA) */
 #define HARMONY_PLUGINS_DATA_DIR    HARMONY_PLUGIN_ROOT "/plugin-data"
 #define HARMONY_REPOSITORIES_FILE   HARMONY_PLUGIN_ROOT "/config/repositories.json"
+/* Shared libraries for plugins (libbearssl.so.0), passed as LD_LIBRARY_PATH (no rpath on uClibc 0.9.30) */
+#define HARMONY_PLUGIN_LIB_DIR      HARMONY_PLUGIN_ROOT "/lib"
 #define HARMONY_DEFAULT_REPO_URL    "https://raw.githubusercontent.com/iranl/harmony-ng-plugins/main/repository.json"
 
 /* Error codes besides -1: another install is running (HTTP 409), no such plugin (404) */

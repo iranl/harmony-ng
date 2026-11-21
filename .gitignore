@@ -40,6 +40,7 @@ build/icons.tar.gz
 payload/www/assets/icons/
 payload/bin/*
 !payload/bin/.gitkeep
+payload/lib/
 remote/bin/*
 !remote/bin/.gitkeep
 !remote/bin/dropbearmulti_musl

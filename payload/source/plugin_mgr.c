@@ -96,9 +96,12 @@ static int is_safe_rel_path(const char *f) {
     return 1;
 }
 
-/* wget without a shell; the output is removed when the download failed */
+/* hub_fetch (certificate checked), or wget without a shell when the Hub has no hub_fetch,
+ * its library or the CA bundle (host tests); the output is removed when the download failed */
 static int fetch_url(const char *url, const char *out_path, long max_bytes, unsigned int max_ms) {
     if (!is_safe_url(url)) return -1;
+    int checked = fetch_url_checked(url, out_path, max_bytes, max_ms, 10);
+    if (checked != RUN_NO_FETCH) return checked;
     /* busybox with its wget applet on the Hub; a plain wget elsewhere (host tests) */
     static const char *const tools[][2] = {
         { "/cache/bin/busybox", "wget" }, { "/data/harmony/bin/busybox", "wget" },
@@ -252,6 +255,10 @@ static void busy_drop(const char *id) {
  * uClibc reads /etc/TZ, which the settings save keeps current. */
 static char **s_base_env;
 static char *s_env_path; /* "PATH=/cache/bin:/data/harmony/bin:<inherited PATH>" */
+/* "LD_LIBRARY_PATH=<HARMONY_PLUGIN_LIB_DIR>[:<inherited>]": the shared libraries for plugins
+ * (libbearssl.so.0). The stock ld-uClibc 0.9.30 ignores DT_RPATH, so -Wl,-rpath alone does
+ * not find them (checked on a Hub: "can't load library"). */
+static char *s_env_ldpath;
 
 static void snapshot_env(void) {
     if (s_base_env) return;
@@ -260,17 +267,23 @@ static void snapshot_env(void) {
     char **e = calloc(n + 1, sizeof(char *));
     if (!e) return;
     size_t k = 0;
-    const char *old_path = NULL;
+    const char *old_path = NULL, *old_ld = NULL;
     for (size_t i = 0; i < n; i++) {
         const char *v = environ[i];
         if (strncmp(v, "PATH=", 5) == 0) old_path = v + 5;
-        if (strncmp(v, "PATH=", 5) == 0 || strncmp(v, "HARMONY_", 8) == 0 || strncmp(v, "TZ=", 3) == 0) continue;
+        if (strncmp(v, "LD_LIBRARY_PATH=", 16) == 0) old_ld = v + 16;
+        if (strncmp(v, "PATH=", 5) == 0 || strncmp(v, "HARMONY_", 8) == 0 || strncmp(v, "TZ=", 3) == 0 ||
+            strncmp(v, "LD_LIBRARY_PATH=", 16) == 0) continue;
         if ((e[k] = strdup(v)) != NULL) k++;
     }
     /* sized to the inherited PATH: a fixed buffer cut a long one before /usr/bin */
     if (!old_path || !old_path[0]) old_path = "/bin:/sbin:/usr/bin:/usr/sbin";
     size_t path_len = strlen(old_path) + sizeof("PATH=/cache/bin:/data/harmony/bin:");
     if ((s_env_path = malloc(path_len)) != NULL) snprintf(s_env_path, path_len, "PATH=/cache/bin:/data/harmony/bin:%s", old_path);
+    size_t ld_len = (old_ld ? strlen(old_ld) : 0) + sizeof("LD_LIBRARY_PATH=" HARMONY_PLUGIN_LIB_DIR ":");
+    if ((s_env_ldpath = malloc(ld_len)) != NULL)
+        snprintf(s_env_ldpath, ld_len, "LD_LIBRARY_PATH=%s%s%s", HARMONY_PLUGIN_LIB_DIR,
+                 old_ld && old_ld[0] ? ":" : "", old_ld && old_ld[0] ? old_ld : "");
     s_base_env = e;
 }
 
@@ -348,6 +361,13 @@ static struct {
 } s_left[MAX_LEFTOVERS];
 static pthread_mutex_t s_left_lock = PTHREAD_MUTEX_INITIALIZER;
 
+/* Seconds on the monotonic clock: the SNTP step from 1970 does not cut or stretch the grace */
+static time_t mono_s(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec;
+}
+
 /* Plugin processes no slot tracks: helpers left when a plugin's leader died, a copy that
  * daemonized, the plugins of a hub_daemon that was killed. Each gets one SIGTERM, and the
  * SIGKILL PLUGIN_TERM_GRACE_S later from plugin_mgr_tick(): nothing waits here, and this
@@ -377,7 +397,7 @@ static void sweep_leftovers(const char *id, pid_t signalled) {
         found[n++] = pid;
     }
     closedir(d);
-    time_t now = time(NULL);
+    time_t now = mono_s();
     pthread_mutex_lock(&s_left_lock);
     for (int i = 0; i < n; i++) {
         int j, free_j = -1;
@@ -404,7 +424,7 @@ static void sweep_leftovers(const char *id, pid_t signalled) {
  * are still waiting. */
 static int reap_leftovers(int force) {
     int waiting = 0;
-    time_t now = time(NULL);
+    time_t now = mono_s();
     pthread_mutex_lock(&s_left_lock);
     for (int j = 0; j < MAX_LEFTOVERS; j++) {
         pid_t pid = s_left[j].pid;
@@ -529,7 +549,7 @@ static int do_start(const char *plugin_id) {
     unlink(marker);
 
     /* State that survives an update: the plugin directory is replaced on every install */
-    char data_dir[160];
+    char data_dir[256];
     snprintf(data_dir, sizeof(data_dir), "%s/%s", HARMONY_PLUGINS_DATA_DIR, plugin_id);
     mkdir(HARMONY_PLUGIN_ROOT, 0755);
     mkdir(HARMONY_PLUGINS_DATA_DIR, 0755);
@@ -546,19 +566,20 @@ static int do_start(const char *plugin_id) {
     snprintf(sock_path, sizeof(sock_path), "%s/%s.sock", HARMONY_PLUGINS_RUN_DIR, plugin_id);
     if (access(exe, X_OK) != 0) return -1;
 
-    char e_id[96], e_sock[160], e_data[200];
+    char e_id[96], e_sock[160], e_data[288];
     snprintf(e_id, sizeof(e_id), "HARMONY_PLUGIN_ID=%s", plugin_id);
     snprintf(e_sock, sizeof(e_sock), "HARMONY_SOCKET=%s", sock_path);
     snprintf(e_data, sizeof(e_data), "HARMONY_PLUGIN_DATA=%s", data_dir);
     snapshot_env();
-    if (!s_env_path) return -1;
+    if (!s_env_path || !s_env_ldpath) return -1;
     size_t n_env = 0;
     while (s_base_env && s_base_env[n_env]) n_env++;
-    char **envp = calloc(n_env + 5, sizeof(char *));
+    char **envp = calloc(n_env + 6, sizeof(char *));
     if (!envp) return -1;
     size_t k = 0;
     for (size_t i = 0; i < n_env; i++) envp[k++] = s_base_env[i];
     envp[k++] = s_env_path;
+    envp[k++] = s_env_ldpath;
     envp[k++] = e_id;
     envp[k++] = e_sock;
     envp[k++] = e_data;
@@ -615,8 +636,11 @@ static int do_start(const char *plugin_id) {
     return rc;
 }
 
-/* SIGTERM to each plugin's process group, up to 1 s for all of them to exit, then SIGKILL.
- * All at once: one by one, each plugin that ignores SIGTERM cost 1 s of init.sh's 2 s. */
+/* SIGTERM to each plugin's process group, up to 1 s for the leaders to exit, then SIGKILL to
+ * the leaders that did not. Only the leaders: a helper of the group keeps its SIGTERM and
+ * finishes its EXIT trap (ps5-wake restores the Bluetooth address, about 5 s); the caller
+ * hands what is left of the group to the leftover table (SIGKILL after the grace). All at
+ * once: one by one, each plugin that ignores SIGTERM cost 1 s of init.sh's 2 s. */
 static void stop_pids(pid_t *pids, int n) {
     int status;
     for (int i = 0; i < n; i++) {
@@ -634,9 +658,7 @@ static void stop_pids(pid_t *pids, int n) {
             usleep(50000);
         }
         for (int i = 0; round == 0 && i < n; i++) {
-            if (pids[i] <= 0) continue;
-            kill(-pids[i], SIGKILL);
-            kill(pids[i], SIGKILL);
+            if (pids[i] > 0) kill(pids[i], SIGKILL);
         }
     }
 }
@@ -975,9 +997,10 @@ int plugin_mgr_init(void) {
     mkdir(HARMONY_PLUGINS_DIR, 0755);
     snapshot_env();
     /* the plugins of a hub_daemon that was killed (kill -9, crash) are no child of this one:
-     * gone before the new copies start (this runs before the main loop) */
+     * SIGTERM now, SIGKILL from plugin_mgr_tick() after the grace. No wait: this runs after
+     * the sockets listen, and a helper's EXIT trap held the first answer up to 8 s. The new
+     * copies start meanwhile, as at a watchdog restart. */
     sweep_leftovers(NULL, 0);
-    for (int t = 0; t < (PLUGIN_TERM_GRACE_S + 1) * 10 && reap_leftovers(0) > 0; t++) usleep(100000);
     recover_replaced_dirs();
 
     DIR *d = opendir(HARMONY_PLUGINS_DIR);
@@ -1059,22 +1082,23 @@ static int wd_restarts(const char *id) {
 void plugin_mgr_tick(void) {
     reap_leftovers(0);
     /* /tmp is RAM: a log over the limit starts again (plugins write it with O_APPEND). At the
-     * 10 s watchdog tick a plugin writing 2 MB/s reached 19 MB first. */
-    char ids[MAX_CHILDREN][64];
-    int n = 0;
-    pthread_mutex_lock(&s_kids_lock);
-    for (int i = 0; i < MAX_CHILDREN; i++) {
-        if (s_kids[i].pid > 0) memcpy(ids[n++], s_kids[i].id, sizeof(ids[0]));
-    }
-    pthread_mutex_unlock(&s_kids_lock);
-    for (int i = 0; i < n; i++) {
-        char log_path[160];
+     * 10 s watchdog tick a plugin writing 2 MB/s reached 19 MB first. Every log of the run
+     * folder, not only those of running slots: a helper writes on while its leader is dead
+     * and waits for the next backoff restart. */
+    DIR *d = opendir(HARMONY_PLUGINS_RUN_DIR);
+    if (!d) return;
+    struct dirent *de;
+    while ((de = readdir(d)) != NULL) {
+        size_t l = strlen(de->d_name);
+        if (l < 5 || strcmp(de->d_name + l - 4, ".log") != 0) continue;
+        char log_path[400];
         struct stat lst;
-        snprintf(log_path, sizeof(log_path), "%s/%s.log", HARMONY_PLUGINS_RUN_DIR, ids[i]);
-        if (stat(log_path, &lst) == 0 && lst.st_size > PLUGIN_LOG_MAX_BYTES && truncate(log_path, 0) == 0) {
-            printf("[*] Plugin '%s' log over %d KB: emptied\n", ids[i], PLUGIN_LOG_MAX_BYTES / 1024);
+        snprintf(log_path, sizeof(log_path), "%s/%s", HARMONY_PLUGINS_RUN_DIR, de->d_name);
+        if (stat(log_path, &lst) == 0 && S_ISREG(lst.st_mode) && lst.st_size > PLUGIN_LOG_MAX_BYTES && truncate(log_path, 0) == 0) {
+            printf("[*] Plugin log %s over %d KB: emptied\n", de->d_name, PLUGIN_LOG_MAX_BYTES / 1024);
         }
     }
+    closedir(d);
 }
 
 void plugin_mgr_watchdog_tick(void) {
@@ -1196,6 +1220,29 @@ static int validate_manifest(const cJSON *m, const char *src_dir, char *err_msg,
         if (stat(ep_path, &st) != 0 || !S_ISREG(st.st_mode)) {
             if (err_msg) snprintf(err_msg, err_msg_sz, "Entrypoint '%.60s' is not in the plugin", j_ep->valuestring);
             return -1;
+        }
+    }
+    /* Shared libraries the plugin links (e.g. "libbearssl.so.0", docs/PLUGINS.md): each must be
+     * in HARMONY_PLUGIN_LIB_DIR, else the plugin would be installed and then fail to start */
+    const cJSON *libs = cJSON_GetObjectItemCaseSensitive(m, "requires_libs");
+    if (libs) {
+        const cJSON *l = NULL;
+        if (!cJSON_IsArray(libs)) {
+            if (err_msg) snprintf(err_msg, err_msg_sz, "Manifest requires_libs must be an array");
+            return -1;
+        }
+        cJSON_ArrayForEach(l, libs) {
+            if (!cJSON_IsString(l) || !is_safe_rel_path(l->valuestring) || strchr(l->valuestring, '/')) {
+                if (err_msg) snprintf(err_msg, err_msg_sz, "Manifest requires_libs holds a bad library name");
+                return -1;
+            }
+            char lib_path[512];
+            snprintf(lib_path, sizeof(lib_path), "%s/%s", HARMONY_PLUGIN_LIB_DIR, l->valuestring);
+            if (access(lib_path, R_OK) != 0) {
+                if (err_msg) snprintf(err_msg, err_msg_sz, "The plugin needs %.60s, which this Hub does not have (update the Hub software)",
+                                      l->valuestring);
+                return -1;
+            }
         }
     }
     const cJSON *dd = cJSON_GetObjectItemCaseSensitive(m, "device_definition");
@@ -1380,8 +1427,8 @@ static int install_from_url_unlocked(const char *url, const char *sha256_hex, ch
         return -1;
     }
 
-    /* busybox wget does not check certificates: the SHA-256 (from the caller or the
-     * marketplace entry) is what tells a damaged archive. It is required. */
+    /* The SHA-256 (from the caller or the marketplace entry) is what tells a damaged or
+     * replaced archive (the busybox wget fallback checks no certificate). It is required. */
     char want[65] = {0}, cat_sha[65], repo[512];
     /* its repository is recorded (for a pull) only when that entry has this checksum */
     int listed = catalog_lookup(url, NULL, NULL, NULL, cat_sha, repo) == 0;

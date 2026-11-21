@@ -169,6 +169,9 @@ int main(void) {
         { "{\"id\": \"ok\", \"version\": \"1\", \"entrypoint\": \"bin/drv\", \"device_definition\": {\"default_commands\": [{\"name\": \"L\", \"range\": [100, 1]}]}}", "range" },
         { "{\"id\": \"ok\", \"version\": \"1\", \"entrypoint\": \"bin/drv\", \"device_definition\": {\"default_commands\": [{\"name\": \"L\", \"range\": [1.5, 9]}]}}", "range" },
         { "{\"id\": \"ok\", \"version\": \"1\", \"entrypoint\": \"bin/drv\", \"device_definition\": {\"default_commands\": [{\"name\": \"L\", \"range\": [1]}]}}", "range" },
+        { "{\"id\": \"ok\", \"version\": \"1\", \"entrypoint\": \"bin/drv\", \"requires_libs\": \"libbearssl.so.0\"}", "must be an array" },
+        { "{\"id\": \"ok\", \"version\": \"1\", \"entrypoint\": \"bin/drv\", \"requires_libs\": [\"../lib/x.so\"]}", "bad library name" },
+        { "{\"id\": \"ok\", \"version\": \"1\", \"entrypoint\": \"bin/drv\", \"requires_libs\": [\"libnope.so.0\"]}", "does not have" },
     };
     for (size_t i = 0; i < sizeof(bad_manifests) / sizeof(bad_manifests[0]); i++) {
         make_src("ok", "1", "exec sleep 300");
@@ -182,7 +185,21 @@ int main(void) {
     }
     assert(access(ROOT "/plugins/ok", F_OK) != 0);
     unlink("/tmp/test_bad.tar.gz");
-    printf("[+] Bad manifests refused (id, version, entrypoint, config_fields, command range).\n");
+    printf("[+] Bad manifests refused (id, version, entrypoint, config_fields, command range, requires_libs).\n");
+
+    /* A library the Hub has (HARMONY_PLUGIN_LIB_DIR) is accepted */
+    sh("mkdir -p " ROOT "/lib && : > " ROOT "/lib/libok.so.0");
+    make_src("libuser", "1", "exec sleep 300");
+    write_file(SRC "/manifest.json",
+               "{\"id\": \"libuser\", \"version\": \"1\", \"entrypoint\": \"bin/drv\", \"requires_libs\": [\"libok.so.0\"]}", 0);
+    pack("/tmp/test_libuser.tar.gz");
+    rc = plugin_mgr_install_archive("/tmp/test_libuser.tar.gz", NULL, err, sizeof(err));
+    if (rc != 0) fprintf(stderr, "requires_libs install: rc=%d err=%s\n", rc, err);
+    assert(rc == 0);
+    plugin_mgr_uninstall("libuser");
+    unlink("/tmp/test_libuser.tar.gz");
+    sh("rm -rf " ROOT "/lib");
+    printf("[+] requires_libs with a library the Hub has: installed.\n");
 
     /* 3. Archives that write outside the unpack directory, or link, are refused before the
      * unpack. Python writes the entries: tar drops '../' when it packs. A hard link is
@@ -248,7 +265,7 @@ int main(void) {
      * foreground with the socket as argv[1] and the HARMONY_* environment. Its own child
      * (a helper) is in the same process group. */
     make_src("test-roku", "1.2.3",
-             "echo \"$1|$HARMONY_PLUGIN_ID|$HARMONY_SOCKET|$HARMONY_PLUGIN_DATA\" > /tmp/test_plug_env\n"
+             "echo \"$1|$HARMONY_PLUGIN_ID|$HARMONY_SOCKET|$HARMONY_PLUGIN_DATA|$LD_LIBRARY_PATH\" > /tmp/test_plug_env\n"
              "sleep 300 &\necho $! > /tmp/test_plug_child\nexec sleep 300");
     pack("/tmp/test_mock_plug.tar.gz");
     unlink("/tmp/test_plug_env");
@@ -281,6 +298,8 @@ int main(void) {
         assert(f && fgets(env, sizeof(env), f));
         fclose(f);
         assert(strstr(env, RUN "/test-roku.sock|test-roku|" RUN "/test-roku.sock|" ROOT "/plugin-data/test-roku"));
+        /* the shared libraries for plugins: the stock ld-uClibc ignores a binary's rpath */
+        assert(strstr(env, "|" ROOT "/lib"));
     }
     assert(access(ROOT "/plugins/test-roku/.source.json", F_OK) != 0); /* local archive: no source */
     /* no source: a pull would take the first catalog entry with this id, from any repository */
@@ -580,7 +599,72 @@ int main(void) {
     }
     assert(plugin_mgr_uninstall("loud") == 0);
     unlink("/tmp/test_loud.tar.gz");
-    printf("[+] Helper traps not cut, non-blocking restart sweep, SIGKILL after grace, busy disable unchanged, log cap at the tick.\n");
+    /* a log no running slot writes (a helper writing on while its leader is dead) is capped too */
+    {
+        char big[1024];
+        memset(big, 'x', sizeof(big));
+        FILE *f = fopen(RUN "/ghost.log", "w");
+        assert(f);
+        for (int i = 0; i < 400; i++) fwrite(big, 1, sizeof(big), f);
+        fclose(f);
+        struct stat lst;
+        plugin_mgr_tick();
+        assert(stat(RUN "/ghost.log", &lst) == 0 && lst.st_size == 0);
+        unlink(RUN "/ghost.log");
+    }
+
+    /* 15j. A leader that ignores SIGTERM gets the SIGKILL at 1 s, its helper does not: the
+     * helper's EXIT trap (ps5-wake: signal() keeps recv() blocking) still completes */
+    make_src("deaf", "1",
+             "( trap 'sleep 2; touch /tmp/test_trap_done; exit 0' TERM; while :; do sleep 1 & wait $!; done ) &\n"
+             "echo $! > /tmp/test_trap_child\ntrap '' TERM\nwhile :; do sleep 1; done");
+    pack("/tmp/test_deaf.tar.gz");
+    unlink("/tmp/test_trap_done");
+    unlink("/tmp/test_trap_child");
+    assert(plugin_mgr_install_archive("/tmp/test_deaf.tar.gz", NULL, err, sizeof(err)) == 0);
+    trap_child = read_pid("/tmp/test_trap_child");
+    assert(trap_child > 1);
+    usleep(200000);
+    int deaf_leader = installed_field("deaf", "pid");
+    assert(plugin_mgr_stop("deaf") == 0);
+    assert(pid_gone(deaf_leader));
+    for (int i = 0; i < 200 && access("/tmp/test_trap_done", F_OK) != 0; i++) {
+        plugin_mgr_tick();
+        usleep(20000);
+    }
+    assert(access("/tmp/test_trap_done", F_OK) == 0);
+    unlink("/tmp/test_trap_done");
+
+    /* 15k. hub_daemon start does not wait for a leftover that ignores SIGTERM (the HTTP
+     * sockets already listen): the tick sends the SIGKILL after the grace */
+    {
+        char *const env_deaf[] = { "HARMONY_PLUGIN_ID=deaf", "HARMONY_SOCKET=" RUN "/deaf.sock", "PATH=/usr/bin:/bin", NULL };
+        pid_t deaf = fork();
+        if (deaf == 0) {
+            execle("/bin/sh", "sh", "-c", "trap '' TERM; while :; do sleep 1; done", (char *)NULL, env_deaf);
+            _exit(1);
+        }
+        usleep(200000);
+        struct timespec t0, t1;
+        clock_gettime(CLOCK_MONOTONIC, &t0);
+        plugin_mgr_init();
+        clock_gettime(CLOCK_MONOTONIC, &t1);
+        long ms = (t1.tv_sec - t0.tv_sec) * 1000 + (t1.tv_nsec - t0.tv_nsec) / 1000000;
+        assert(ms < 500);
+        int dst;
+        assert(waitpid(deaf, &dst, WNOHANG) == 0); /* within the grace */
+        int gone = 0;
+        for (int i = 0; i < 250 && !gone; i++) {
+            plugin_mgr_tick();
+            usleep(20000);
+            gone = waitpid(deaf, &dst, WNOHANG) == deaf;
+        }
+        assert(gone && WIFSIGNALED(dst) && WTERMSIG(dst) == SIGKILL);
+    }
+    assert(plugin_mgr_uninstall("deaf") == 0);
+    unlink("/tmp/test_deaf.tar.gz");
+    unlink("/tmp/test_trap_child");
+    printf("[+] Helper traps not cut (also with a leader that ignores SIGTERM), non-blocking restart and init sweeps, SIGKILL after grace, busy disable unchanged, log cap at the tick for every log.\n");
 
     /* 16. In-use guard */
     write_file(ROOT "/config/devices.json",

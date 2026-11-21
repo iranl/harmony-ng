@@ -51,9 +51,9 @@ The Hub uses JFFS2 on SPI NOR flash, which is shared with the CC2544 RF transcei
 - `hub_daemon` checks enabled plugins every 10 seconds via a background watchdog tick, which reaps an exited plugin (`waitpid`) and logs its exit status.
 - If an enabled plugin crashes, it is automatically restarted. A plugin that keeps dying is restarted with a growing gap (20 s, 40 s, … up to 5 minutes); the gap resets once it stays up for a watchdog period. `GET /api/plugins` reports the count as `restarts`.
 - A plugin stopped on request (stop, disable, uninstall) is not restarted by the watchdog; `GET /api/plugins` reports it as `stopped`. Start, restart or enable clears it.
-- When plugins are stopped or restarted, `hub_daemon` follows strict **Rule 1 termination discipline**: `SIGTERM` to the plugin's process group (the plugin and any helper it started), up to 1 second for the plugin to exit, then `SIGKILL` to the group. A helper still running its `EXIT` trap after the plugin exited is not signalled again; it gets `SIGKILL` only if it is still there 8 seconds later. A shutdown signals all plugins at once, so it takes at most 2 seconds in total.
+- When plugins are stopped or restarted, `hub_daemon` follows strict **Rule 1 termination discipline**: `SIGTERM` to the plugin's process group (the plugin and any helper it started), up to 1 second for the plugin to exit, then `SIGKILL` to the plugin itself (not the group). A helper of the group keeps its `SIGTERM` and is not signalled again while it runs its `EXIT` trap; it gets `SIGKILL` only if it is still there 8 seconds later. A shutdown signals all plugins at once, so it takes at most 2 seconds in total.
 - One start, stop, restart, enable or disable per plugin at a time: a second one while the first runs answers HTTP 409 and changes nothing.
-- Plugin processes `hub_daemon` does not track (helpers of a plugin that died, a plugin left by a `hub_daemon` that was killed) are found by the `HARMONY_PLUGIN_ID` and `HARMONY_SOCKET` in their environment. Before the plugin starts again, and on stop and uninstall, they get one `SIGTERM`, and `SIGKILL` 8 seconds later if they are still there; nothing waits for them (a watchdog restart does not hold the main loop). When `hub_daemon` starts, it waits for them (up to 8 seconds) before it starts the plugins. `hub_daemon` itself and the processes that started it are never taken. `init.sh stop` stops `hub_daemon` with `SIGTERM` (which stops its plugins), gives plugin processes still left up to 5 seconds to exit, then sends `SIGTERM`, and `SIGKILL` 1 second later.
+- Plugin processes `hub_daemon` does not track (helpers of a plugin that died, a plugin left by a `hub_daemon` that was killed) are found by the `HARMONY_PLUGIN_ID` and `HARMONY_SOCKET` in their environment. Before the plugin starts again, and on stop and uninstall, they get one `SIGTERM`, and `SIGKILL` 8 seconds later if they are still there; nothing waits for them (a watchdog restart does not hold the main loop). At `hub_daemon` start they get the same `SIGTERM`, and the plugins start without waiting for them. `hub_daemon` itself and the processes that started it are never taken. `init.sh stop` stops `hub_daemon` with `SIGTERM` (which stops its plugins), gives plugin processes still left up to 5 seconds to exit, then sends `SIGTERM`, and `SIGKILL` 1 second later.
 - An update interrupted by a power cut (between the swap of the old and the new folder) is put back in place when `hub_daemon` starts.
 
 ---
@@ -165,8 +165,9 @@ The `manifest.json` file defines the plugin identity and how it appears in the W
 | `files` | `array` | *(Dev installs)* Relative paths the dev install downloads next to `manifest.json`. |
 | `pairing` | `object` | *(Optional)* Pairing: `supported`, `type` (`pin_display`, the default, or `listen`), `requires_host` (default true; false for `listen`), `timeout_s` (default 15, at most 60) and the dialog texts (`title`, `button_label`, `description`, `instructions`, `host_label`, `prompt`, `pin_length`). See [Pairing Protocol](#pairing-protocol). |
 | `device_definition` | `object` | *(Optional)* Schema for devices created using this plugin. `config_fields`, when present, is an array of objects, each with a string `key`. A `default_commands` entry may have `"range": [min, max]`: the integer values the command takes (see `value` below). |
+| `requires_libs` | `array` | *(Optional)* File names of the Hub's shared libraries the binary links, e.g. `["libbearssl.so.0"]` (see "Using TLS: the shared BearSSL" below). |
 
-The Hub refuses an install whose manifest has no safe `id`, no `version`, no valid `entrypoint` (or one not in the archive), a malformed `config_fields`, or a `default_commands` range that is not two integers with min <= max.
+The Hub refuses an install whose manifest has no safe `id`, no `version`, no valid `entrypoint` (or one not in the archive), a malformed `config_fields`, a `default_commands` range that is not two integers with min <= max, or a `requires_libs` entry that is not in `/data/harmony/lib` (a Hub on older firmware: update it first).
 
 #### Config Field Types
 
@@ -185,11 +186,13 @@ The Hub refuses an install whose manifest has no safe `id`, no `version`, no val
 
 - in the plugin folder (`/data/harmony/plugins/<id>`), in its own session and process group;
 - with the socket path as `argv[1]` and the environment below;
-- stdin `/dev/null`, stdout and stderr to `/tmp/plugins/<id>.log` (written new at each start, appended to; `/tmp` is RAM, so `hub_daemon` empties a log over 256 KB, checked every second);
+- stdin `/dev/null`, stdout and stderr to `/tmp/plugins/<id>.log` (written new at each start, appended to; `/tmp` is RAM, so `hub_daemon` empties every `*.log` of `/tmp/plugins` over 256 KB, checked every second, also while the plugin is not running);
 - default signal handlers and no blocked signals (`hub_daemon` itself ignores `SIGPIPE`);
 - none of `hub_daemon`'s sockets or files.
 
-The entrypoint must **stay in the foreground** for as long as the plugin runs: do not fork into the background, do not write a pid file. When it exits, the next watchdog tick (every 10 s) sees it and restarts it (with the backoff above); an entrypoint that daemonizes is therefore started again at each backoff period, its earlier copy stopped each time. To stop it, `hub_daemon` sends `SIGTERM` to its process group, waits up to 1 second, then sends `SIGKILL`.
+The entrypoint must **stay in the foreground** for as long as the plugin runs: do not fork into the background, do not write a pid file. When it exits, the next watchdog tick (every 10 s) sees it and restarts it (with the backoff above); an entrypoint that daemonizes is therefore started again at each backoff period, its earlier copy stopped each time. To stop it, `hub_daemon` sends `SIGTERM` to its process group, waits up to 1 second, then sends `SIGKILL` to the entrypoint; its helpers get `SIGKILL` 8 seconds after the `SIGTERM` if still there.
+
+A restart, an update and a watchdog restart start the new instance without waiting for the old helpers: an old helper's `EXIT` trap can still run next to the new instance. An update or an uninstall removes the plugin folder while that trap runs, so a trap must not call files of the plugin folder, and must not remove a lock the new instance may have taken (create the lock with `set -C` and remove it only when it holds your own pid). At most 32 such processes are tracked at a time; more get `SIGKILL` at once.
 
 Every process the plugin starts inherits `HARMONY_PLUGIN_ID` and `HARMONY_SOCKET` (keep them in the environment of your helpers). `hub_daemon` uses them to find plugin processes it does not track: helpers left when the plugin itself died, a copy that daemonized against the rule above, plugins of a `hub_daemon` that was killed. These get one `SIGTERM`, then `SIGKILL` if they are still there 8 seconds later: before the plugin starts again, on stop and uninstall, and at `hub_daemon` start (`init.sh stop` does the same). Keep a helper's cleanup (an `EXIT` trap) under 8 seconds. A program you start by hand in a plugin folder has neither variable and is left alone.
 
@@ -340,6 +343,40 @@ mips-buildroot-linux-uclibc-gcc -Wall -Os -s -o my_daemon main.c -lm
 2. **Symbols missing from the stock uClibc 0.9.30**: the toolchain's headers are uClibc-ng 1.0.24, so some calls link but are not on the Hub. `<ctype.h>` functions (`isdigit`, `tolower`, ...) import `__ctype_b_loc` / `__ctype_tolower_loc`, which the Hub lacks: the plugin starts and dies at the first call. Write these checks by hand; `build_plugins.sh` refuses a binary that imports `__ctype_`. Link statically only when a symbol you need is missing and cannot be avoided.
 3. **No futex on the Hub kernel**: a thread waiting on a condition variable, a semaphore, a contended mutex or `pthread_join` spins at 100 % CPU (#211). Use one thread and a `poll()` loop (socket, timers as poll timeouts); if a second thread is unavoidable, wake it through a pipe it `poll()`s.
 4. **Prefer POSIX shell scripts** using BusyBox applets (`sed`, `awk`, `wget`, `nc`) when network protocols allow (such as HTTP REST APIs). A script entrypoint must also stay in the foreground (`exec` the last command).
+5. **TLS: link the Hub's BearSSL**, do not bundle one (next section).
+
+#### Using TLS: the shared BearSSL
+The Hub firmware ships BearSSL once, as `/data/harmony/lib/libbearssl.so.0` (about 165 KB, needs
+only `libc.so.0`). The firmware's own TLS client (`hub_fetch`, for updates and HTTPS devices) uses
+it too. A plugin links it instead of a static copy of its own:
+
+```bash
+# BearSSL sources at the pinned commit, then the firmware build makes payload/lib/libbearssl.so.0
+sh build/fetch_bearssl.sh
+sh build/compile_all.sh bearssl
+
+mips-buildroot-linux-uclibc-gcc -Wall -Os -s -I build/tmp/bearssl/inc -o bin/my_daemon main.c \
+    -L payload/lib -l:libbearssl.so.0
+```
+
+and lists it in the manifest: `"requires_libs": ["libbearssl.so.0"]`. The Hub starts every
+plugin with `LD_LIBRARY_PATH=/data/harmony/lib`: the stock `ld-uClibc` 0.9.30 ignores a
+binary's rpath (`-Wl,-rpath` does not help). A plugin binary started by hand needs the same
+variable. The `android-tv` plugin linked this way is 34 KB instead of 100 KB.
+
+- **The commit is part of the ABI.** BearSSL contexts (`br_ssl_client_context`, ...) are structs
+  the caller allocates, so their size and layout must match the library. The library is built
+  from the commit pinned in `build/fetch_bearssl.sh`: compile against the headers of that commit.
+  A new commit gets a new name (`libbearssl.so.1`), and the old one stays until the plugins that
+  need it are rebuilt.
+- **Certificates.** The Hub's CA bundle is `/data/harmony/cacert.pem` (PEM; strip CR before
+  feeding it to `br_pem_decoder`, a copy from a Windows checkout has CRLF line ends). A device on
+  the LAN with a self-signed certificate is better served by pinning its key on first use, as
+  the `android-tv` plugin does.
+- The library exports only the functions in `build/bearssl_exports.txt`: the TLS 1.2 client,
+  certificate and PEM decoding, hashes, HMAC, HKDF, HMAC-DRBG, RSA and EC keys and signatures,
+  raw AES/GCM/ChaCha20. A plugin that needs more asks for it in that list (a new name keeps the
+  SONAME; removing one needs a new SONAME).
 
 ---
 
@@ -380,7 +417,7 @@ To make your plugin visible to all HarmonyNG users out-of-the-box:
 3. Open a Pull Request: CI builds it for the Hub and runs the host tests. Once merged, the release workflow publishes `<plugin_id>-v<version>` and adds the plugin, with its SHA-256, to `repository.json`. Bump `version` in `manifest.json` to release a change.
 
 #### Checksums and URLs
-BusyBox `wget` on the Hub does not verify TLS certificates. Every install that is not marked `dev` needs a SHA-256: the request's `sha256`, or the `sha256` of the marketplace entry for that `download_url`. Without one the install is refused, and an archive whose SHA-256 differs is refused. A `sha256` sent with a `dev` URL install is refused (the raw files cannot be checked). `build_plugins.sh` in `harmony-ng-plugins` writes `repository.json` with the checksum of each archive it builds: upload those exact archives. A pull installs the current marketplace entry of the plugin's id (checked the same way), from the repository it was installed from (two repositories may list the same id), or a dev plugin again from its dev URL. A plugin whose repository is not known (uploaded, or installed by an older version whose archive no catalog lists now) cannot be pulled: install it again from the marketplace.
+Downloads use `hub_fetch`, which checks the server certificate against the Hub's CA bundle (BusyBox `wget`, which checks none, only when `hub_fetch` or the bundle is missing). Every install that is not marked `dev` needs a SHA-256: the request's `sha256`, or the `sha256` of the marketplace entry for that `download_url`. Without one the install is refused, and an archive whose SHA-256 differs is refused. A `sha256` sent with a `dev` URL install is refused (the raw files cannot be checked). `build_plugins.sh` in `harmony-ng-plugins` writes `repository.json` with the checksum of each archive it builds: upload those exact archives. A pull installs the current marketplace entry of the plugin's id (checked the same way), from the repository it was installed from (two repositories may list the same id), or a dev plugin again from its dev URL. A plugin whose repository is not known (uploaded, or installed by an older version whose archive no catalog lists now) cannot be pulled: install it again from the marketplace.
 
 URLs (repositories, downloads) must be `http://` or `https://` with plain characters only (letters, digits, `-._~:/?#@&+,=%`). File names in a manifest's `files` list must be relative paths of letters, digits, `.`, `_`, `-` and `/`, without `..`. An archive with an absolute path, a `..` entry, or a symbolic or hard link entry is refused.
 
@@ -424,7 +461,7 @@ Users can simply paste your repository URL into the **Repositories** tab in thei
 
 - A plugin runs as root. Installing one runs its code as root, so the install, pull and repository routes need authentication to be on and the admin role.
 - **What the authentication gate does not stop**: while authentication is off, any client on the LAN can turn it on with an account of its own (`POST /api/system-action`, action `auth`), sign in and install a plugin. The gate makes that visible (the owner is locked out of the Hub afterwards), it does not prevent it. Turn authentication on yourself before the Hub is on a network you do not control. Real protection against an untrusted LAN needs signed catalogs and archives (roadmap task 1.3).
-- **What the SHA-256 protects against, and what not**: the checksum catches a damaged or cut download. It does not prove the archive is the published one: `repository.json`, which carries the checksums, comes over the same unverified channel (`wget` without certificate checks, `http://` accepted). Someone who can change the traffic between the Hub and the repository can replace both. Signing `repository.json` in the release workflow and verifying it on the Hub (as firmware updates are verified) is planned (roadmap task 1.3); until then, add only repositories you trust, on a network you trust.
+- **What the SHA-256 protects against, and what not**: the checksum catches a damaged or cut download. It does not prove the archive is the published one: `repository.json`, which carries the checksums, comes over the same channel (`http://` is accepted, and an `https://` certificate is only as good as the CAs in the bundle). Someone who can change the traffic between the Hub and the repository can replace both. Signing `repository.json` in the release workflow and verifying it on the Hub (as firmware updates are verified) is planned (roadmap task 1.3); until then, add only repositories you trust, on a network you trust.
 
 ---
 

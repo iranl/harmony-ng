@@ -12,7 +12,10 @@ export function createDevicesApi(client) {
         const plugId = typeof dev.plugin === 'string' && dev.plugin
           ? dev.plugin
           : (typeof dev.type === 'string' && dev.type.startsWith('plugin:') ? dev.type.slice(7) : '');
-        const cleanType = plugId ? `plugin:${plugId}` : (dev.type === 'BT' ? 'BT' : (dev.type === 'MQTT' ? 'MQTT' : 'IR'));
+        // HTTP and TCP devices (payload/source/net_device.h) keep their type: as 'IR' a save
+        // from this UI turned them into infrared devices
+        const isNet = !plugId && (dev.type === 'HTTP' || dev.type === 'TCP');
+        const cleanType = plugId ? `plugin:${plugId}` : (isNet ? dev.type : (dev.type === 'BT' ? 'BT' : (dev.type === 'MQTT' ? 'MQTT' : 'IR')));
         const isBt = cleanType === 'BT';
         const isMqtt = cleanType === 'MQTT';
         const hostAddr = dev.bdaddr || dev.btHost || '';
@@ -58,7 +61,7 @@ export function createDevicesApi(client) {
               keyCode: kCode,
               raw: rawStr
             };
-            if (!isBtCmd && !isMqttCmd) {
+            if (!isBtCmd && !isMqttCmd && !isNet) {
               cmdObj.repeats = c.repeats !== undefined ? c.repeats : 3;
               cmdObj.port = c.port !== undefined ? c.port : (c.controlPort || dev.controlPort || 7);
             }

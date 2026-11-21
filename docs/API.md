@@ -75,7 +75,7 @@ Returns high-level hub status, firmware, identity, active activity, flash space,
     and `commit`: this firmware, as in `/api/system-info`.
   - `total_kb`, `free_kb`: size and free space of the `/data` flash partition, in KB (not memory);
     `cache_total_kb`, `cache_free_kb`: the same for `/cache`.
-  - `updating`: `true` while a firmware update runs (`/tmp/hub_updating.flag` exists).
+  - `updating`: `true` while a firmware update runs or the services restart after it, as in `GET /api/update-status` (2.1).
   - `auth_enabled`: whether authentication is on. `role` (`"admin"` or `"user"`) and `user` are the
     caller's own: the account name, `pat:<token name>` for a personal access token, `"admin"` when
     authentication is off or the request comes from the Hub itself.
@@ -370,7 +370,7 @@ Triggers on-demand Bluetooth host reconnection supervision. `target` (also accep
 ### 1.10 System Actions
 Answers of the actions below:
 - `reboot`: `{"ok": true, "message": "Rebooting hub now"}`; `409` while a firmware update runs
-  (`/tmp/hub_updating.flag` exists).
+  or the services restart after it (`updating` of `GET /api/update-status`, 2.1).
 - `factory_reset`: `{"ok": true, "message": "Factory reset initiated. Reverting to stock firmware and rebooting."}`;
   `400` without `"confirm": "RESET"`.
 - `mqtt_publish`: only `topic` and `payload` are read. `retain` is ignored: the message goes out
@@ -512,10 +512,31 @@ Returns running version, commit hash, build date, architecture, and whether an u
     "bt_version": "BTstack v1.5 (UART)",
     "arch": "mips (AR9344)",
     "update_available": false,
-    "updating": false
+    "updating": false,
+    "update_state": "idle"
   }
   ```
-  `updating` is `true` while an update is being installed (`/tmp/hub_updating.flag` exists).
+  `update_state` is the state of the last `POST /api/update-apply` since the Hub started:
+  - `running`: `update.sh apply` downloads and installs (`/tmp/hub_updating.flag` exists and the
+    run started less than 30 minutes ago, counted on the uptime clock, which SNTP does not step).
+    `update_step` is the last line of its output, untranslated, when it has one.
+  - `restarting`: the update is installed and the Hub services restart (`init.sh restart`, no
+    reboot); until then the old daemon answers. `update_target` is the version installed. The
+    state ends when the new daemon starts, or after 10 minutes of uptime when none starts: from
+    then on `current_version` tells whether the new
+    version runs.
+  - `failed`: the update ended with an error and nothing or not all was installed. `update_error`
+    is its first error line (`[-] ...`, the cause), untranslated. Every failed run ends with
+    `[-] The software update ended with exit code N.`, which is the only one when the run was
+    killed.
+  - `idle`: no update since the Hub started, or the update ended (compare `current_version` with
+    the version before). An `update.sh` from a release before `update_state` writes no state (it
+    runs the first update to this release, and reboots the Hub at its end): there the update
+    reports `running` while it runs and `idle` after it, whether it failed or not.
+
+  `updating` is `true` for `running` and `restarting`, here and in `GET /api/status`. While it is
+  `true`, a second `POST /api/update-apply` gets `409` with `"status": "busy"` and a reboot through
+  `POST /api/system-action` gets `409`.
   `fw_version` and `firmware` are the Logitech base firmware read from `/etc/version`.
 
 ### 2.2 Check for Updates
@@ -551,13 +572,14 @@ Executes `/data/harmony/update.sh` in the background and restarts services.
   `update-check`. `repo` chooses the server the new firmware is downloaded from, so like every
   route that changes the Hub this one is for admins once authentication is on (11.5). With
   authentication off (the default after install) any client on the LAN may call it.
-- **Signed releases only**: the update source (the official `ota` branch, or `repo`) must publish `manifest.json` and `manifest.json.sig`, the Ed25519 signature of the manifest by a release key built into the Hub firmware (`payload/source/ota_keys.h`). `update.sh` checks the signature with `hub_util ota-verify`, takes the version from the signed manifest, and installs a file only when its SHA-256 matches the manifest. Without a valid signature nothing is changed, whatever server `repo` names. TLS is not relied on: the Hub's `wget` does not verify certificates.
-- **Not during an activity switch**: the update ends with a reboot, which must not cut an activity switch in the middle. While a switch runs, a request is queued behind it, or the steps after the switch point are still being sent, the request is refused with **`409 Conflict`** and starts nothing:
+- **Signed releases only**: the update source (the official `ota` branch, or `repo`) must publish `manifest.json` and `manifest.json.sig`, the Ed25519 signature of the manifest by a release key built into the Hub firmware (`payload/source/ota_keys.h`). `update.sh` checks the signature with `hub_util ota-verify`, takes the version from the signed manifest, and installs a file only when its SHA-256 matches the manifest. Without a valid signature nothing is changed, whatever server `repo` names. Downloads use `hub_fetch`, which checks the server certificate against the CA bundle (`/data/harmony/cacert.pem`); a Hub without `hub_fetch` (the first update from an older release) or without the bundle falls back to BusyBox `wget`, which checks no certificate. The signature check does not depend on TLS either way.
+- **Services restart, no reboot**: once every file is installed, `update.sh` restarts the Hub services with `init.sh restart`, as `build/deploy_hub.py` does by default. An update has no kernel modules. Waiting for the next boot: a new `rcS.local`, the running SSH server (it keeps its old binary) and the USB port mode chosen at boot. `update.sh` removes what a reboot used to clear and the new daemon would reuse: the icons extracted from the old `icons.tar.gz` (`/tmp/www/assets/icons`) and a remote image kept for a resume (`/tmp/remote_ui.ota.gz`, `/tmp/remote_manifest.json*`). Without an executable `init.sh` it reboots the Hub (`safe_reboot.sh`) instead.
+- **Not during an activity switch**: the update ends with a services restart, which must not cut an activity switch in the middle. While a switch runs, a request is queued behind it, or the steps after the switch point are still being sent, the request is refused with **`409 Conflict`** and starts nothing:
   ```json
   {"ok": false, "status": "activity_switch", "error": "An activity switch is running: start the update again when it has finished",
    "busy": true, "sending": true, "queued": null}
   ```
-  Send it again when `GET /api/activity` shows `busy` and `sending` false and `queued` null. A switch that starts while the update downloads holds the reboot: `update.sh` waits until `GET /api/activity` shows no switch twice in a row, 1 s apart (at most 10 minutes, then it reboots anyway, the new files being installed already). A query that fails counts as unknown: `update.sh` keeps asking, and reboots only when `hub_daemon` is not running or has not answered for 60 s. Both limits are real time from `/proc/uptime` (a query can take 3 s; a clock set by SNTP during the wait does not end it). Not covered: the fallback without an executable `update.sh` (`init.sh restart` 1 s after the request, so only the 409 at the request protects it); the first update to this version, which the old `update.sh` runs (the wait starts with the update after it); a switch started in the second between the last idle answer and the reboot; `build/deploy_hub.py` and `POST /api/system-action` `reboot`, which do not look at a running switch.
+  Send it again when `GET /api/activity` shows `busy` and `sending` false and `queued` null. A switch that starts while the update downloads holds the restart: `update.sh` waits until `GET /api/activity` shows no switch twice in a row, 1 s apart (at most 10 minutes, then it restarts anyway, the new files being installed already). A query that fails counts as unknown: `update.sh` keeps asking, and restarts only when `hub_daemon` is not running or has not answered for 60 s. Both limits are real time from `/proc/uptime` (a query can take 3 s; a clock set by SNTP during the wait does not end it). Not covered: the fallback without an executable `update.sh` (`init.sh restart` 1 s after the request, so only the 409 at the request protects it); the first update to this version, which the old `update.sh` runs (the wait starts with the update after it); a switch started in the second between the last idle answer and the restart; `build/deploy_hub.py` and `POST /api/system-action` `reboot`, which do not look at a running switch.
 - **Response `200 OK`**:
   ```json
   {
@@ -566,7 +588,7 @@ Executes `/data/harmony/update.sh` in the background and restarts services.
     "message": "Software update triggered. Hub services downloading and applying in background."
   }
   ```
-- **Response `409 Conflict`**: `{"ok": false, "status": "busy", "error": "A software update is already running"}` while an update started earlier is still running (its flag is less than 30 minutes old). `update.sh apply` also runs only once at a time.
+- **Response `409 Conflict`**: `{"ok": false, "status": "busy", "error": "A software update is already running"}` while an update started earlier is still running or the services restart after it (`update_state` `running` or `restarting`, 2.1). `update.sh apply` also runs only once at a time.
 
 ---
 
@@ -614,13 +636,20 @@ Returns all registered devices and basic commands from `/data/harmony/config/dev
     (`POST /api/bt-link-device`, 6.5) has `bdaddr` too;
   - MQTT (`type` `MQTT`, or `mqttEnabled` true, see 8.1 "MQTT-type devices"): no `controlPort`,
     commands without `port` and `repeats`; instead `"mqttEnabled": true`, `mqttTopic` and
-    `mqttPulseMs`. A device never has `controlPort` and `mqttEnabled` together.
+    `mqttPulseMs`. A device never has `controlPort` and `mqttEnabled` together;
+  - HTTP and TCP (`type` exactly `HTTP` or `TCP`, see 3.9): no `controlPort`, commands without
+    `port` and `repeats`; instead `netHost`, `netPort`, `netTls`, `netTlsVerify`, `netTimeoutMs`,
+    and for HTTP `httpHeaders`, `httpAuthType`, `httpUser`. `httpPassword` and `httpToken` are
+    always sent as `""`, with `"hasHttpPassword": true` / `"hasHttpToken": true` when one is
+    stored. Commands carry `keyCode` `HTTP:<name>` with `httpMethod`, `httpPath`, `httpBody`,
+    `httpContentType`, or `TCP:<name>` with `tcpPayload` and `tcpFormat`.
 
   A command carries its code as `keyCode` and as `raw`, and `"isMacro": true` when it is a macro.
 - **Response `404`**: `{"ok": false, "error": "DeviceList not found"}` when the list cannot be loaded.
 
 #### `GET /api/devices`
-Returns `devices.json` as stored (`{"devices": [...]}`), `404` when it cannot be read.
+Returns `devices.json` as stored (`{"devices": [...]}`), `404` when it cannot be read. The
+credentials of HTTP devices are hidden as in `GET /api/inventory`.
 
 ### 3.2 Save Device
 #### `POST /api/device-save` or `POST /ir/device`
@@ -651,6 +680,18 @@ plugin device, even when it matches a plugin's name. A top-level key is copied i
 for a plugin device and only when the plugin's `config_fields` declare it. The plugin choice comes
 before the MQTT and Bluetooth guesses from `type` and `manufacturer`. A save without `plugin` keeps
 the stored one; `"plugin": ""` makes the device a non-plugin device again.
+
+`type` `HTTP` or `TCP` makes the device an HTTP or TCP device (3.9). Its fields: `netHost` (host
+name or IP address: letters, digits, `.`, `-`, `_`, `:`), `netPort` (1 to 65535; an HTTP device
+without one uses 80, or 443 with TLS), `netTls` (bool), `netTlsVerify` (`verify`, the default,
+`pin` or `insecure`), `netTimeoutMs` (500 to 15000, default 3000), and for HTTP `httpHeaders`
+(at most 8 `{"name", "value"}`; not `Host`, `Connection`, `Content-Length`,
+`Transfer-Encoding`), `httpAuthType` (`none`, `basic` or `bearer`), `httpUser`, `httpPassword`,
+`httpToken`. An empty or missing `httpPassword` / `httpToken` keeps the stored one; only the
+credentials of the chosen `httpAuthType` are kept. A host, port, timeout, verify mode, auth type
+or header that cannot be used (a header name with a space, a value with CR or LF) is refused with
+`400`. The HTTP/TCP choice comes before the MQTT and Bluetooth guesses (only a plugin wins over
+it). The command fields are saved with `POST /api/command-save` (3.5) or a `commands` list.
 - **Request Body**:
   ```json
   {
@@ -821,6 +862,44 @@ Publishes the MQTT pulse of a device once, the way a command to an MQTT-type dev
   device's name. `command` defaults to `PowerToggle`.
 - **Response `200 OK`**: `{"ok": true, "pulseMs": 1000, "topic": "harmony/hub/button/Plug/PowerToggle", "message": "MQTT test publish sent"}`.
 - **Response `503`**: `{"ok": false, "error": "MQTT broker not connected"}`: MQTT is disabled or the broker is not connected.
+
+### 3.9 HTTP and TCP Devices
+A command to an HTTP device is one request to `netHost:netPort` (HTTPS with `netTls`); a command
+to a TCP device opens a connection, sends `tcpPayload` and closes it. Both run on one worker
+thread in the order they come: the key path never waits for the device. A press and each repeat
+of a held key send the command; a release sends nothing. In `httpPath` (percent-encoded),
+`httpBody` and `tcpPayload`, `{device}` and `{command}` are replaced with the device and command
+name. `tcpFormat` `text` decodes `\r`, `\n`, `\t`, `\\` and `\xHH`; `hex` sends the hex digits as
+bytes (spaces and `:` between them are ignored). An HTTP request has `Connection: close`, the
+device's headers, `Authorization: Basic ...` or `Bearer ...`, and a `Content-Type`
+(`httpContentType`, else `application/json` for a body starting with `{` or `[`, else
+`text/plain`). Redirects are not followed.
+
+TLS (BearSSL, TLS 1.0 to 1.2) checks the certificate by `netTlsVerify`:
+- `verify`: it must chain to a CA in `/data/harmony/cacert.pem` and name `netHost` (a certificate
+  for an IP address is not supported: use `pin` for one);
+- `pin`: the first key the device shows is kept in `config/tls_pins.json` (by `host:port`), and
+  a connection with another key is refused until the pin is forgotten (below);
+- `insecure`: any certificate (encryption only).
+
+A clock that is not set yet (before the build date) is taken as the build date for the
+certificate dates.
+
+#### `POST /api/device-net-test`
+Runs a command of an HTTP or TCP device now and waits for it (up to about 4 times
+`netTimeoutMs`). Without `command`: the connection and TLS handshake only.
+- **Request Body**: `{"id": "50", "command": "Power"}` (`deviceId` is accepted as well).
+- **Response `200 OK`**: `{"ok": true, "status": 200, "response": "{\"done\":true}", "tlsFingerprint": "9f86...", "pinned": true}`.
+  `ok` is false with an `error` when the request failed or answered 400 or more. `response` is
+  the start of the answer (512 bytes at most; for TCP the first data the device sent back).
+  `tlsFingerprint` is the SHA-256 of the server key; `pinned` is set when this run pinned it.
+- **Response `400`**: not an HTTP or TCP device. **`404`**: no device with that id, or no
+  command of that name.
+
+#### `POST /api/device-net-pin-forget`
+- **Request Body**: `{"id": "50"}`.
+- **Response `200 OK`**: `{"ok": true, "removed": true}` (`removed` false when no key was
+  pinned for the device's host and port).
 
 ---
 

@@ -38,8 +38,17 @@ class BumpVersion(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    # Path.write_text translates line ends only on native Windows, so on Linux (CI) a
+    # text-mode write would keep CRLF and pass; the tool runs with write_text disabled instead.
+    GUARD = ("import pathlib, runpy, sys\n"
+             "def no_text_write(*a, **k): raise AssertionError('text-mode write')\n"
+             "pathlib.Path.write_text = no_text_write\n"
+             "sys.argv = sys.argv[1:]\n"
+             "runpy.run_path(sys.argv[0], run_name='__main__')\n")
+
     def run_tool(self, *args) -> subprocess.CompletedProcess[str]:
-        return subprocess.run([sys.executable, str(self.root / "scripts" / "bump_version.py"), *args],
+        return subprocess.run([sys.executable, "-c", self.GUARD,
+                               str(self.root / "scripts" / "bump_version.py"), *args],
                               capture_output=True, text=True, timeout=60)
 
     def version_code(self) -> int:
@@ -66,6 +75,26 @@ class BumpVersion(unittest.TestCase):
         self.assertRegex(text, r'\A\{\s*"name":\s*"[^"]*",\s*"version":\s*"9\.9\.9"')
         self.assertRegex(text, r'"":\s*\{\s*"name":\s*"[^"]*",\s*"version":\s*"9\.9\.9"')
         self.assertEqual(re.findall(r'"node_modules/[^"]+":\s*\{\s*"version":\s*"[^"]+"', text), deps_before)
+
+    def test_crlf_checkout_stays_clean(self):
+        # A Windows checkout (core.autocrlf) has CRLF line ends; the build syncs from WSL
+        crlf = ["VERSION", "docs/openapi.yaml", "android-app/src/app/app_icons_ui.js",
+                "android-app/android/app/build.gradle"]
+        for f in crlf:
+            p = self.root / f
+            p.write_bytes(p.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+        before = {f: (self.root / f).read_bytes() for f in FILES}
+        mtimes = {f: (self.root / f).stat().st_mtime_ns for f in FILES}
+        res = self.run_tool("--sync")
+        self.assertEqual(res.returncode, 0, res.stdout)
+        for f in FILES:
+            self.assertEqual((self.root / f).read_bytes(), before[f], f"--sync changed {f}")
+            self.assertEqual((self.root / f).stat().st_mtime_ns, mtimes[f], f"--sync rewrote {f}")
+        self.assertEqual(self.run_tool("--version", "9.9.9").returncode, 0)
+        for f in crlf:
+            data = (self.root / f).read_bytes()
+            self.assertIn(b"9.9.9", data, f)
+            self.assertNotIn(b"\n", data.replace(b"\r\n", b""), f"{f} got a lone LF")
 
     def test_release_raises_version_code_once(self):
         before = self.version_code()

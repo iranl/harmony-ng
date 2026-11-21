@@ -43,6 +43,7 @@ STAGING_DIR = REPO_ROOT / "build" / "ota_staging"
 HUB_BINARIES = [
     "hub_util",
     "hub_daemon",
+    "hub_fetch",
     "hub_rf",
     "hub_btstack",
     "hub_sntp",
@@ -50,6 +51,11 @@ HUB_BINARIES = [
     "mknod",
     "register_ehci",
     "eth_fix",
+]
+
+# Shared libraries for plugins, installed to /data/harmony/lib by update.sh
+HUB_LIBRARIES = [
+    "libbearssl.so.0",
 ]
 
 REMOTE_BINARIES = [
@@ -211,6 +217,14 @@ def package_ota(output_dir: Path, version: str):
             for f in config_dir.iterdir():
                 if f.is_file():
                     tar.add(f, arcname=f"config/{f.name}")
+        # Shared libraries for plugins (built by compile_all.sh into payload/lib; the release
+        # workflow brings them in the hub-binaries artifact)
+        for lname in HUB_LIBRARIES:
+            src = find_candidate_file(lname, MIPS_SEARCH_PATHS + [REPO_ROOT / "payload" / "lib"])
+            if src and src.exists():
+                tar.add(src, arcname=f"lib/{lname}")
+            else:
+                print(f"[-] Warning: {lname} not found: plugins that need it will not start")
         # WebUI
         if www_src and www_src.is_dir():
             for root, _, files in os.walk(www_src):
