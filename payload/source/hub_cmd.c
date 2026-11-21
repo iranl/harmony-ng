@@ -17,6 +17,7 @@
 #include "ws_server.h"
 #include "hub_info.h"
 #include "bt_common.h"
+#include "remote_slots.h"
 #include <pthread.h>
 
 #include <stdio.h>
@@ -601,7 +602,7 @@ cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin) {
     if (strcmp(action, "rf_wake") == 0 || strcmp(action, "rf_sleep") == 0) {
         const cJSON *js = cJSON_GetObjectItemCaseSensitive(req, "slot");
         int slot = (js && cJSON_IsNumber(js)) ? js->valueint : 1;
-        if (slot < 1 || slot > 2) return ack(req, action, 0, 400, "slot: 1 or 2");
+        if (slot < 1 || slot > REMOTE_SLOT_MAX) return ack(req, action, 0, 400, "slot: 1 to 6");
         char path[64];
         snprintf(path, sizeof(path), "/api/rf/%s?slot=%d", strcmp(action, "rf_wake") == 0 ? "wake" : "sleep", slot);
         int st = rf_request("POST", path, "{}");

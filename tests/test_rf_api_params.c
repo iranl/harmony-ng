@@ -55,9 +55,9 @@ int main(void) {
     pthread_t th;
     pthread_create(&th, NULL, api_server_worker, NULL);
 
-    int st = api("POST /api/rf/unpair?slot=3 HTTP/1.1\r\nHost: x\r\n\r\n");
+    int st = api("POST /api/rf/unpair?slot=7 HTTP/1.1\r\nHost: x\r\n\r\n");
     CHECK(st == 400 && g_paired_remotes[0].active && g_paired_remotes[1].active,
-          "unpair?slot=3 answered %d, slot 1 %s, slot 2 %s", st,
+          "unpair?slot=7 answered %d, slot 1 %s, slot 2 %s", st,
           g_paired_remotes[0].active ? "paired" : "unpaired", g_paired_remotes[1].active ? "paired" : "unpaired");
 
     pair_both();

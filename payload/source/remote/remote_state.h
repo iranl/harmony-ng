@@ -47,6 +47,12 @@ extern "C" {
 #define GYRO_DATA_RATE_SYS      "/sys/devices/platform/i2c_davinci.1/i2c-1/1-0019/data_rate"
 #define GYRO_INT1_THRESHOLD_SYS "/sys/devices/platform/i2c_davinci.1/i2c-1/1-0019/int1_threshold"
 #define GYRO_INT1_DURATION_SYS  "/sys/devices/platform/i2c_davinci.1/i2c-1/1-0019/int1_duration"
+/* Stock LIS3DH setup (hops/init.lua setAccel, kernel platform data). data_rate is a raw CTRL_REG1
+ * byte, not Hz: the driver stores (CTRL_REG1 & 0x0F) | value. 0x30 = ODR 25 Hz, 0 = power down.
+ * The INT1 motion threshold is in 16 mg steps (+-2 g), the duration in 1/ODR steps. */
+#define GYRO_DATA_RATE_ON       0x30
+#define GYRO_INT1_THRESHOLD     10
+#define GYRO_INT1_DURATION      3
 #define GYRO_XYZ_SYS            "/sys/devices/platform/i2c_davinci.1/i2c-1/1-0019/xyz"
 #define RFSPI_DEV               "/dev/rfspi"
 #define ACTIVITY_JSON_FILE        "/data/activities.json"
@@ -287,7 +293,6 @@ extern activity_trigger_btn_t g_act_triggers[MAX_ACT_TRIGGERS];
 extern int g_act_trigger_count;
 
 extern bool g_gyro_enabled;
-extern int g_gyro_rate_hz;
 extern int g_deep_standby_min;
 extern int g_btn_backlight_mode;
 extern int g_night_start_hour;

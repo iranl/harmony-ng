@@ -123,21 +123,28 @@ void *key_repeat_thread(void *arg) {
     return NULL;
 }
 
+/* The Synaptics Clearpad reports the touches and the capacitive Home / Favorites keys.
+ * Pass 1 looks for it by name as the stock UI does (luadraws scans event0..4): the remote also
+ * registers a "TPS6507x Touchscreen" that never reports anything, so a loose "touch" match on
+ * the first pass could open the wrong device and leave touch and both keys dead. */
 int find_touchscreen_fd(void) {
     const char *candidates[] = {
         "/dev/input/event2",
         "/dev/input/event3",
         "/dev/input/touchscreen0",
         "/dev/input/event1",
-        "/dev/input/event0"
+        "/dev/input/event0",
+        "/dev/input/event4"
     };
-    for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
-        int fd = open(candidates[i], O_RDONLY | O_NONBLOCK | O_CLOEXEC);
-        if (fd >= 0) {
+    for (int pass = 0; pass < 2; pass++) {
+        for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
+            int fd = open(candidates[i], O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+            if (fd < 0) continue;
             char name[128] = {0};
             if (ioctl(fd, EVIOCGNAME(sizeof(name)), name) >= 0) {
-                if (strstr(name, "Clearpad") || strstr(name, "clearpad") ||
-                    strstr(name, "touch") || strstr(name, "Touch")) {
+                bool clearpad = strstr(name, "Clearpad") || strstr(name, "clearpad");
+                bool touch = strstr(name, "touch") || strstr(name, "Touch");
+                if (clearpad || (pass == 1 && touch && !strstr(name, "TPS6507x"))) {
                     printf("[+] Discovered touchscreen at %s: %s (fd=%d)\n", candidates[i], name, fd);
                     return fd;
                 }

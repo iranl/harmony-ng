@@ -13,6 +13,7 @@ void rf_wake_and_reconnect(void);
  * re-sync is written behind that frame */
 void rf_wake_for_key(void);
 int rf_send_frame(rf_frame_t *frame);
+extern bool g_rf_mute_acks;
 void rf_send_button_event(uint16_t key_code, int value);
 void rf_send_sync_query(void);
 void rf_send_full_sync_request(void);

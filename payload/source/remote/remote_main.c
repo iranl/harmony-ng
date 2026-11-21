@@ -188,6 +188,23 @@ static void key_set_swallowed(int code, bool on) {
 static int s_touch_max_x = 0;
 static int s_touch_max_y = 0;
 
+/* The rocker (78 up, 74 down) held while it drives the screen: the main loop moves the
+ * selection again KEY_HOLD_INTERVAL_MS after the press and then every NAV_HOLD_REPEAT_MS.
+ * The keypad sends no autorepeat of its own; any that comes is ignored so a step is not doubled. */
+static int s_nav_hold_code = 0;
+static uint64_t s_nav_hold_next_ms = 0;
+
+static void nav_key_event(int code, int value) {
+    if (code == 78 || code == 74) {
+        if (value == 2) return;
+        if (value == 1) {
+            s_nav_hold_code = code;
+            s_nav_hold_next_ms = get_monotonic_ms() + KEY_HOLD_INTERVAL_MS;
+        }
+    }
+    handle_navigation_key(code, value);
+}
+
 static void touch_probe_range(int fd) {
     struct input_absinfo ax, ay;
     s_touch_max_x = 0;
@@ -500,6 +517,11 @@ int main(int argc, char **argv) {
         } else if (g_screen_on) {
             tv.tv_sec = 0;
             tv.tv_usec = 100000;
+            if (s_nav_hold_code != 0) { /* wake in time for the next step of a held rocker */
+                uint64_t now = get_monotonic_ms();
+                uint64_t wait_ms = s_nav_hold_next_ms > now ? s_nav_hold_next_ms - now : 0;
+                if (wait_ms < 100) tv.tv_usec = (suseconds_t)(wait_ms * 1000);
+            }
         } else {
             bool in_deep = remote_deep_standby_due(standby_s) && get_monotonic_ms() >= g_suspend_hold_until_ms;
             tv.tv_sec = (!is_docked && in_deep) ? 30 : 2;
@@ -531,6 +553,15 @@ int main(int argc, char **argv) {
             g_act_key_long_fired = true;
             printf("[*] Activities key held: opening the menu\n");
             ui_menu_open();
+        }
+
+        if (s_nav_hold_code != 0 && now_ms >= s_nav_hold_next_ms) {
+            if (!g_screen_on || g_menu_open) {
+                s_nav_hold_code = 0; /* the release can come while the screen is dark or the menu open */
+            } else {
+                handle_navigation_key(s_nav_hold_code, 2);
+                s_nav_hold_next_ms = now_ms + NAV_HOLD_REPEAT_MS;
+            }
         }
 
         static uint64_t last_progress_render_ms = 0;
@@ -590,6 +621,7 @@ int main(int argc, char **argv) {
         }
 
         ui_help_tick(now_ms);
+        remote_stream_tick(now_ms);
 
         if (g_confirm_pending_idx >= 0 && now_ms >= g_confirm_pending_deadline_ms) {
             g_confirm_pending_idx = -1;
@@ -755,6 +787,7 @@ int main(int argc, char **argv) {
                      * change or a blank screen would drop it below, and the hold repeats would
                      * go on until the next key */
                     if (ev.value == 0 && remote_release_held_rf_key(ev.code)) continue;
+                    if (ev.value == 0 && ev.code == s_nav_hold_code) s_nav_hold_code = 0;
 
                     /* A new press means the release was missed; it acts as usual */
                     if (key_swallowed(ev.code)) {
@@ -776,11 +809,19 @@ int main(int argc, char **argv) {
 
                     uint16_t rf_code = linux_to_harmony_rf_key(ev.code);
 
+                    /* The capacitive Activities (364) and Devices (102) keys have no RF code: when
+                       they arrive here and not on the touch device, they drive the screen on every
+                       view (handle_navigation_key checks the cap button setting) */
+                    if (ev.code == 102 || ev.code == 364) {
+                        handle_navigation_key(ev.code, ev.value);
+                        continue;
+                    }
+
                     /* With physical navigation enabled, the bottom keys drive the screen on all views (KEY_BACK passes through to RF) */
                     if (g_physical_nav_enabled) {
                         if (ev.code == 78 || ev.code == 74 || ev.code == 149 || ev.code == 203 ||
                             ev.code == 148 || ev.code == 202 || ev.code == 102 || ev.code == 364) {
-                            handle_navigation_key(ev.code, ev.value);
+                            nav_key_event(ev.code, ev.value);
                             continue;
                         }
                     }
@@ -789,7 +830,7 @@ int main(int argc, char **argv) {
                     if (!g_touch_enabled || g_current_view == VIEW_SETTINGS || g_current_view == VIEW_PAIRING) {
                         if (ev.code == 78 || ev.code == 74 || ev.code == 149 || ev.code == 203 ||
                             ev.code == 148 || ev.code == 202 || ev.code == 158 || ev.code == 102 || ev.code == 364) {
-                            handle_navigation_key(ev.code, ev.value);
+                            nav_key_event(ev.code, ev.value);
                             continue;
                         }
                     }

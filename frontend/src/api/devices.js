@@ -27,6 +27,7 @@ export function createDevicesApi(client) {
           defaultInterDeviceDelay: dev.defaultInterDeviceDelay !== undefined ? Number(dev.defaultInterDeviceDelay) : 500,
           powerOnDelay: dev.powerOnDelay !== undefined ? Number(dev.powerOnDelay) : 1500,
           isPowerAlwaysOn: Boolean(dev.isPowerAlwaysOn),
+          hideOnRemote: Boolean(dev.hideOnRemote),
           bdaddr: hostAddr,
           btHost: hostAddr,
           btAutoReconnect: dev.btAutoReconnect !== undefined ? Number(dev.btAutoReconnect) : 1,

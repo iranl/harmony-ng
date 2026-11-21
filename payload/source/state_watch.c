@@ -92,7 +92,7 @@ cJSON *state_watch_fetch_rf_status(void) {
         close(s);
         return NULL;
     }
-    size_t cap = 8192, len = 0;
+    size_t cap = 16384, len = 0; /* the status of 6 slots */
     char *buf = (char *)malloc(cap + 1);
     if (!buf) {
         close(s);

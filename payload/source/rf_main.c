@@ -8,6 +8,7 @@
 #include "rf_api.h"
 #include "rf_config_push.h"
 #include "rf_help.h"
+#include "rf_push_queue.h"
 #include "atomic_file.h"
 
 #include <stdio.h>
@@ -85,24 +86,25 @@ void handle_rf_frame(const rf_frame_t *f) {
         static uint16_t s_logged; /* one line per slot */
         if (!(s_logged & (1u << fslot))) {
             s_logged |= (uint16_t)(1u << fslot);
-            printf("[-] RF frame type 0x%02X from slot %u ignored: only slots 1 and 2 hold a remote\n", f->msg_type, fslot);
+            printf("[-] RF frame type 0x%02X from slot %u ignored: only slots 1 to %d hold a remote\n", f->msg_type, fslot, MAX_PAIRED_REMOTES);
         }
         return;
     }
-    if (f->dev_slot == 1 || f->dev_slot == 2) {
+    if (f->dev_slot >= 1 && f->dev_slot <= MAX_PAIRED_REMOTES) {
         mark_remote_slot_active(f->dev_slot);
         rf_slot_saw_protocol_frame(f->dev_slot);
     }
     switch (f->msg_type) {
         case RF_MSG_ACK: {
             ota_note_chunk_ack(f->dev_slot, f->payload);
+            push_note_stream_ack(f->dev_slot, f->payload);
             rf_signal_ack_from(f->dev_slot, f->payload[0], f->payload[1], f->payload);
             break;
         }
 
         case RF_MSG_BUTTON_PRESS: {
             uint8_t slot = (f->dev_slot & 0x0F);
-            if (slot < 1 || slot > 2) slot = 1;
+            if (slot < 1 || slot > MAX_PAIRED_REMOTES) slot = 1;
             uint16_t key_code = ((uint16_t)f->payload[0] << 8) | f->payload[1];
             uint8_t state = f->payload[2];
             char btn_name[18] = {0};
@@ -153,7 +155,7 @@ void handle_rf_frame(const rf_frame_t *f) {
 
         case RF_MSG_DEVICE_CMD_REQUEST: {
             uint8_t slot = (f->dev_slot & 0x0F);
-            if (slot < 1 || slot > 2) slot = 1;
+            if (slot < 1 || slot > MAX_PAIRED_REMOTES) slot = 1;
             char act_or_dev[13] = {0};
             memcpy(act_or_dev, f->payload, 10);
             uint8_t btn_idx = f->payload[10];
@@ -238,7 +240,7 @@ void handle_rf_frame(const rf_frame_t *f) {
 
         case RF_MSG_BATTERY_STATUS: {
             uint8_t slot = f->dev_slot & 0x0F;
-            if (slot < 1 || slot > 2) slot = 1;
+            if (slot < 1 || slot > MAX_PAIRED_REMOTES) slot = 1;
             int idx = slot - 1;
             rf_battery_note_report(slot, f->payload[0], f->payload[1],
                                    (uint16_t)f->payload[2] | ((uint16_t)f->payload[3] << 8));
@@ -257,7 +259,7 @@ void handle_rf_frame(const rf_frame_t *f) {
 
         case RF_MSG_REMOTE_CONFIG_BACKUP: {
             uint8_t slot = f->dev_slot & 0x0F;
-            if (slot < 1 || slot > 2) slot = 1;
+            if (slot < 1 || slot > MAX_PAIRED_REMOTES) slot = 1;
             printf("[*] REMOTE_CONFIG_BACKUP: Slot %d\n", slot);
             save_remote_config_backup(slot, f->payload);
             if (!is_ota_busy()) {
@@ -270,7 +272,7 @@ void handle_rf_frame(const rf_frame_t *f) {
 
         case RF_MSG_VERSION_REPORT: {
             uint8_t slot = f->dev_slot & 0x0F;
-            if (slot < 1 || slot > 2) slot = 1;
+            if (slot < 1 || slot > MAX_PAIRED_REMOTES) slot = 1;
             uint8_t maj = f->payload[0];
             uint8_t min = f->payload[1];
             uint8_t pat = f->payload[2];
@@ -309,7 +311,7 @@ void handle_rf_frame(const rf_frame_t *f) {
         case RF_MSG_UNIT_ID: {
             /* The remote's factory unit id and skin id (rf_proto.h), applied by rf_state.c */
             uint8_t slot = f->dev_slot & 0x0F;
-            if (slot < 1 || slot > 2) slot = 1;
+            if (slot < 1 || slot > MAX_PAIRED_REMOTES) slot = 1;
             if (rf_slot_apply_unit_id(slot, f->payload)) rf_state_save_version_file(slot);
             rf_key_note_restart_hint(slot); /* follows every version report, which may have been lost */
             rf_frame_t ack;
@@ -320,7 +322,7 @@ void handle_rf_frame(const rf_frame_t *f) {
 
         case RF_MSG_OTA_REQUEST: {
             uint8_t slot = f->dev_slot & 0x0F;
-            if (slot < 1 || slot > 2) slot = g_remote_slot ? g_remote_slot : 1;
+            if (slot < 1 || slot > MAX_PAIRED_REMOTES) slot = g_remote_slot ? g_remote_slot : 1;
             printf("[*] Remote in slot %d requested RF OTA pull\n", slot);
             pthread_mutex_lock(&g_ota_lock);
             if (!g_rf_ota.in_progress && g_rf_ota.status_code != 3) {
@@ -351,18 +353,17 @@ void handle_rf_frame(const rf_frame_t *f) {
 
         case RF_MSG_UNPAIR_NOTIFY: {
             uint8_t slot = f->dev_slot & 0x0F;
-            if (slot < 1 || slot > 2) slot = 1;
+            if (slot < 1 || slot > MAX_PAIRED_REMOTES) slot = 1;
             RF_LOG(LOG_LEVEL_INFO, "[*] UNPAIR_NOTIFY received from Remote Slot %d\n", slot);
             /* The ACK first: once the slot is removed from the CC2544 it cannot reach the remote */
             rf_frame_t ack;
             rf_build_ack(&ack, slot, f->seq, 0x00);
             rf_send_frame(&ack);
             usleep(30000);
-            uint8_t s = (slot == 2) ? 0x02 : 0x01;
-            uint8_t unpair[7] = {0x10, 0xFF, 0x80, 0xB2, 0x03, s, 0x00};
+            uint8_t unpair[7] = {0x10, 0xFF, 0x80, 0xB2, 0x03, slot, 0x00};
             rf_write_cmd(unpair, sizeof(unpair));
             rf_slot_forget(slot); /* the same cleanup as an unpair from the Hub */
-            if (!g_paired_remotes[0].active && !g_paired_remotes[1].active) {
+            if (!rf_any_slot_active()) {
                 g_has_paired_device = false;
                 memset(g_paired_addr, 0, sizeof(g_paired_addr));
             }
@@ -454,7 +455,7 @@ int main(int argc, char **argv) {
     rf_migrate_legacy_names();
 
     /* Load last known remote software and config versions (and unit id) from disk */
-    for (int slot = 1; slot <= 2; slot++) {
+    for (int slot = 1; slot <= MAX_PAIRED_REMOTES; slot++) {
         rf_state_load_version_file(slot);
 
         /* The battery state is no longer kept on flash: remove a file left by older builds */
@@ -545,10 +546,10 @@ int main(int argc, char **argv) {
     while (g_running) {
         sleep(1);
         rf_battery_fix_times(); /* a report from before the clock was set gets its reported_at */
-        char key[3584];
+        char key[8192]; /* 6 slots */
         if (rf_build_status_json(key, sizeof(key), RF_STATUS_STABLE_ONLY) < 0) continue;
         if (last_key && strcmp(last_key, key) == 0) continue;
-        char body[3584];
+        char body[8192];
         int blen = rf_build_status_json(body, sizeof(body), 0);
         if (blen <= 0) continue;
         char resp[128];

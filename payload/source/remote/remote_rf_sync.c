@@ -38,6 +38,34 @@ static void sanitize_ascii(char *str, size_t max_len) {
     str[max_len - 1] = '\0';
 }
 
+/* Streamed config push (RF_CAP_STREAM_PUSH), set up by CONFIG_END clear: frames carry
+ * RF_FLAG_STREAM and their index mod 16 in f->seq. One is handled only when it is the next in
+ * order (go-back-N: the Hub resends from the first missing one); an ACK request is answered
+ * with the count of frames received in order. Kept on after CONFIG_END complete so a resend
+ * after a lost last ACK is answered; ended by remote_stream_tick() when the Hub goes quiet. */
+#define STREAM_QUIET_MS 3000
+static volatile bool s_stream_active;
+static volatile uint16_t s_stream_contig;
+static volatile uint64_t s_stream_last_ms;
+
+static void stream_start(void) {
+    s_stream_contig = 0;
+    s_stream_last_ms = get_monotonic_ms();
+    if (!s_stream_active) {
+        s_stream_active = true;
+        remote_rf_set_power_mode(RF_PM_TRANSFER);
+    }
+}
+
+void remote_stream_tick(uint64_t now_ms) {
+    if (!s_stream_active || ms_since(now_ms, s_stream_last_ms) < STREAM_QUIET_MS) return;
+    s_stream_active = false;
+    if (!g_is_ota_updating) remote_rf_set_power_mode(RF_PM_ACTIVE);
+    printf("[*] Streamed config push ended (%u frames in order)\n", (unsigned)s_stream_contig);
+}
+
+static void handle_hub_frame_body(const rf_frame_t *f);
+
 void handle_hub_frame_remote(const rf_frame_t *f) {
     if (f->dev_slot & 0x0F) g_remote_slot = f->dev_slot & 0x0F;
 
@@ -48,6 +76,29 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
     if (ota_frame) return;
     if (handle_icon_frame(f)) return;
 
+    if (f->flags & RF_FLAG_STREAM) {
+        if (!s_stream_active) return; /* left over from a push that ended */
+        s_stream_last_ms = get_monotonic_ms();
+        if ((f->seq & 0x0F) == (s_stream_contig & 0x0F)) {
+            s_stream_contig++;
+            g_rf_mute_acks = true;
+            handle_hub_frame_body(f);
+            g_rf_mute_acks = false;
+        }
+        if (f->flags & RF_FLAG_ACK_REQ) {
+            rf_frame_t ack;
+            rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
+            ack.payload[2] = (uint8_t)(s_stream_contig & 0xFF);
+            ack.payload[3] = (uint8_t)(s_stream_contig >> 8);
+            ack.payload[4] = RF_PUSH_STREAMED;
+            rf_send_frame(&ack);
+        }
+        return;
+    }
+    handle_hub_frame_body(f);
+}
+
+static void handle_hub_frame_body(const rf_frame_t *f) {
     switch (f->msg_type) {
         case RF_MSG_ACTIVITY_SYNC: {
             if (f->payload[24] == 1) link_note_reply(f->seq, get_monotonic_ms()); /* answer to a sync query */
@@ -139,6 +190,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
         }
 
         case RF_MSG_CONFIG_END: {
+            bool start_stream = false;
             uint8_t phase = f->payload[0];
             uint8_t version = f->payload[1];
             printf("[*] CONFIG_END: phase=%s version=%d\n", phase == 0 ? "clear" : "complete", version);
@@ -157,6 +209,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                 init_act_triggers();
                 pthread_mutex_unlock(&g_sync_lock);
                 g_screen_dirty = true;
+                start_stream = (f->payload[4] == 1); /* the rest of the push comes streamed */
             } else {
                 /* Tested under the lock: the main loop gives up on a stalled sync under it too,
                    and then restores the saved config; the new version must not be stamped on it */
@@ -186,6 +239,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             rf_frame_t ack;
             rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
             rf_send_frame(&ack);
+            if (start_stream) stream_start(); /* after the ACK: the Hub waits for it in RF_PM_ACTIVE */
             break;
         }
 
@@ -421,17 +475,16 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             if (g_brightness_val < 1) g_brightness_val = 1;
             if (g_brightness_val > 5) g_brightness_val = 5;
             g_touch_enabled = (f->payload[1] != 0);
+            bool prev_gyro = g_gyro_enabled;
             g_gyro_enabled = (f->payload[2] != 0);
+            if (g_gyro_enabled != prev_gyro && g_gyro_fd >= 0) init_gyro_interrupt();
             g_timeout_seconds = rf_clamp_screen_timeout(((int)f->payload[3] << 8) | f->payload[4]);
             /* payload[5..7]: the NAV toggle key and mode of older firmware, ignored */
             g_confirm_activity = (f->payload[8] != 0);
             if (f->payload[9] >= 1 && f->payload[9] <= 3) g_touch_sensitivity = f->payload[9];
 
             /* Extended settings fields */
-            if (remote_gyro_rate_valid(f->payload[11]) && f->payload[11] != g_gyro_rate_hz) {
-                g_gyro_rate_hz = f->payload[11];
-                if (g_gyro_fd >= 0) init_gyro_interrupt();
-            }
+            /* payload[11]: the accelerometer rate of older Hubs, ignored (the stock rate is fixed) */
             if (f->payload[12] <= 2) g_btn_backlight_mode = f->payload[12];
             if (f->payload[13] <= 23) g_night_start_hour = f->payload[13];
             if (f->payload[14] <= 23) g_night_end_hour = f->payload[14];
@@ -465,8 +518,8 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                 set_backlight_level(g_brightness_val);
             }
             save_settings_conf();
-            printf("[*] Settings push: bright=%d touch=%d cap=%d gyro=%d rate=%d timeout=%d confirm=%d sens=%d bl=%d night=%02d-%02d no_screen=%d pwrdbg=%d lang=%d\n",
-                   g_brightness_val, g_touch_enabled, g_cap_buttons_enabled, g_gyro_enabled, g_gyro_rate_hz, g_timeout_seconds,
+            printf("[*] Settings push: bright=%d touch=%d cap=%d gyro=%d timeout=%d confirm=%d sens=%d bl=%d night=%02d-%02d no_screen=%d pwrdbg=%d lang=%d\n",
+                   g_brightness_val, g_touch_enabled, g_cap_buttons_enabled, g_gyro_enabled, g_timeout_seconds,
                    g_confirm_activity, g_touch_sensitivity,
                    g_btn_backlight_mode, g_night_start_hour, g_night_end_hour, g_no_screen_mode, g_power_debug, (int)g_language);
             rf_frame_t ack;

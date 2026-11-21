@@ -17,7 +17,7 @@ int get_settings_sub_count(void) {
         case SETTINGS_VIEW_ACTIVITIES: return 4;
         case SETTINGS_VIEW_DISPLAY:    return 7;
         case SETTINGS_VIEW_TOUCH:      return 4;
-        case SETTINGS_VIEW_POWER:      return 6;
+        case SETTINGS_VIEW_POWER:      return 5;
         case SETTINGS_VIEW_SYSTEM:     return 3;
         case SETTINGS_VIEW_UPDATE:     return 2;
         case SETTINGS_VIEW_FACTORY_RESET: return 2;
@@ -458,38 +458,35 @@ void render_settings_screen(void) {
             break;
         }
         case SETTINGS_VIEW_POWER: {
-            const char *labels[6] = { tr(STR_TILT_WAKE), tr(STR_GYRO_RATE), tr(STR_DEEP_STANDBY), tr(STR_BATTERY_LEVEL), tr(STR_DEBUG_LOGGING), tr(STR_SUSPEND_RAM) };
-            char values[6][32];
+            const char *labels[5] = { tr(STR_TILT_WAKE), tr(STR_DEEP_STANDBY), tr(STR_BATTERY_LEVEL), tr(STR_DEBUG_LOGGING), tr(STR_SUSPEND_RAM) };
+            char values[5][32];
             snprintf(values[0], sizeof(values[0]), "[ %s ]", g_gyro_enabled ? "ON" : "OFF");
-            snprintf(values[1], sizeof(values[1]), "[ %dHz ]", g_gyro_rate_hz);
             if (g_deep_standby_min == 0) {
-                snprintf(values[2], sizeof(values[2]), "[ NEVER ]");
+                snprintf(values[1], sizeof(values[1]), "[ NEVER ]");
             } else if (g_deep_standby_min < 0) {
-                snprintf(values[2], sizeof(values[2]), "[ AT ONCE ]");
+                snprintf(values[1], sizeof(values[1]), "[ AT ONCE ]");
             } else {
-                snprintf(values[2], sizeof(values[2]), "[ %dm ]", g_deep_standby_min);
+                snprintf(values[1], sizeof(values[1]), "[ %dm ]", g_deep_standby_min);
             }
             read_remote_battery();
-            snprintf(values[3], sizeof(values[3]), "[ %d%% %dmV ]", g_battery_info.percent, g_battery_info.voltage_mv);
-            snprintf(values[4], sizeof(values[4]), "[ %s ]", g_power_debug ? "ON" : "OFF");
-            snprintf(values[5], sizeof(values[5]), "[ SLEEP ]");
-            uint16_t cols[6] = {
+            snprintf(values[2], sizeof(values[2]), "[ %d%% %dmV ]", g_battery_info.percent, g_battery_info.voltage_mv);
+            snprintf(values[3], sizeof(values[3]), "[ %s ]", g_power_debug ? "ON" : "OFF");
+            snprintf(values[4], sizeof(values[4]), "[ SLEEP ]");
+            uint16_t cols[5] = {
                 g_gyro_enabled ? RGB_GREEN : RGB_RED,
-                RGB_TEAL,
                 (g_deep_standby_min == 0) ? RGB_YELLOW : RGB_TEAL,
                 (g_battery_info.percent < 20) ? RGB_RED : RGB_GREEN,
                 g_power_debug ? RGB_GREEN : RGB_TEXT_MUTED,
                 RGB_TEAL
             };
-            const char *icons[6] = {
-                "/opt/luadraws/appscommon/asset/footer/flip.png",
+            const char *icons[5] = {
                 "/opt/luadraws/appscommon/asset/footer/flip.png",
                 "/opt/luadraws/appscommon/asset/footer/footermenu_sleeptimer.png",
                 "/opt/luadraws/appscommon/asset/battery/level100.png",
                 "/opt/luadraws/appscommon/asset/header/charging.png",
                 "/opt/luadraws/appscommon/asset/footer/footermenu_sleeptimer.png"
             };
-            render_settings_items(tr(STR_CAT_POWER), 6, labels, values, cols, icons, g_selected_sub_item);
+            render_settings_items(tr(STR_CAT_POWER), 5, labels, values, cols, icons, g_selected_sub_item);
             break;
         }
         case SETTINGS_VIEW_SYSTEM: {

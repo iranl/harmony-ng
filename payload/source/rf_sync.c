@@ -74,7 +74,7 @@ void record_config_diff(int slot, const char *old_json_str, cJSON *norm) {
 }
 
 void save_remote_config_backup(uint8_t slot, const uint8_t *p) {
-    if (slot < 1 || slot > 2) slot = 1;
+    if (slot < 1 || slot > MAX_PAIRED_REMOTES) slot = 1;
     char path[64];
     snprintf(path, sizeof(path), "/data/harmony/remote_slot%d_config.json", slot);
     cJSON *root = cJSON_CreateObject();
@@ -85,7 +85,6 @@ void save_remote_config_backup(uint8_t slot, const uint8_t *p) {
     if (timeout <= 0) timeout = 10;
 
     int gyro = (p[11] != 0);
-    int gyro_rate = p[12] > 0 ? p[12] : 50;
     int btn_backlight = p[13];
     int night_start = p[14];
     int night_end = p[15];
@@ -104,7 +103,6 @@ void save_remote_config_backup(uint8_t slot, const uint8_t *p) {
     cJSON_AddNumberToObject(root, "touchSensitivity", ts);
     cJSON_AddNumberToObject(root, "remoteMode", 0);
     cJSON_AddBoolToObject(root, "gyroEnabled", gyro != 0);
-    cJSON_AddNumberToObject(root, "gyroRate", gyro_rate);
     cJSON_AddNumberToObject(root, "btnBacklight", btn_backlight);
     cJSON_AddNumberToObject(root, "nightStart", night_start);
     cJSON_AddNumberToObject(root, "nightEnd", night_end);
@@ -185,7 +183,7 @@ void save_remote_config_backup(uint8_t slot, const uint8_t *p) {
 
 void rf_build_settings_push(rf_frame_t *f, uint8_t slot, int bright, int timeout, int touch, int gyro,
                             int nav_key, int nav_mode, int confirm_act, int touch_sens,
-                            int remote_mode, int gyro_rate, int btn_backlight,
+                            int remote_mode, int btn_backlight,
                             int night_start, int night_end, int usbeth, int no_screen,
                             int cap_buttons, int power_debug, int language, int theme, int layout,
                             int physical_nav) {
@@ -201,7 +199,9 @@ void rf_build_settings_push(rf_frame_t *f, uint8_t slot, int bright, int timeout
     payload[8] = (uint8_t)(confirm_act ? 1 : 0);
     payload[9] = (uint8_t)(touch_sens >= 1 && touch_sens <= 3 ? touch_sens : 2);
     payload[10] = 0; /* remote_mode: always 0 (activity mode) */
-    payload[11] = (uint8_t)(gyro_rate > 0 ? gyro_rate : 50);
+    /* Older remotes take this byte as an accelerometer rate: 50 makes them write the stock
+     * data_rate. Newer remotes ignore it and always use the stock LIS3DH setup. */
+    payload[11] = 50;
     payload[12] = (uint8_t)(btn_backlight >= 0 && btn_backlight <= 2 ? btn_backlight : 2);
     payload[13] = (uint8_t)(night_start >= 0 && night_start <= 23 ? night_start : 22);
     payload[14] = (uint8_t)(night_end >= 0 && night_end <= 23 ? night_end : 7);
@@ -219,14 +219,14 @@ void rf_build_settings_push(rf_frame_t *f, uint8_t slot, int bright, int timeout
 
 int rf_send_settings_push_slot(uint8_t slot, int bright, int timeout, int touch, int gyro,
                                int nav_key, int nav_mode, int confirm_act, int touch_sens,
-                               int remote_mode, int gyro_rate, int btn_backlight,
+                               int remote_mode, int btn_backlight,
                                int night_start, int night_end, int usbeth, int no_screen,
                                int cap_buttons, int power_debug, int language, int theme, int layout,
                                int physical_nav) {
     if (g_rf_fd < 0 || !g_has_paired_device) return -1;
     rf_frame_t f;
     rf_build_settings_push(&f, slot, bright, timeout, touch, gyro, nav_key, nav_mode, confirm_act, touch_sens,
-                           remote_mode, gyro_rate, btn_backlight, night_start, night_end, usbeth, no_screen,
+                           remote_mode, btn_backlight, night_start, night_end, usbeth, no_screen,
                            cap_buttons, power_debug, language, theme, layout, physical_nav);
     return rf_send_frame_acked(&f, 300);
 }
@@ -317,7 +317,7 @@ static void get_cached_tz_prefix(uint32_t now, char *out_prefix, uint8_t *out_le
 
 uint8_t rf_check_update_flags(uint8_t slot) {
     uint8_t flags = 0;
-    int idx = (slot == 2) ? 1 : 0;
+    int idx = (slot >= 1 && slot <= MAX_PAIRED_REMOTES) ? slot - 1 : 0;
 
     /* 1. Config update check (pure in-memory): Hub config_version differs from remote */
     if (g_config_version > 0 && g_config_version != g_remote_versions[idx].config_version) {
@@ -389,8 +389,8 @@ void rf_notify_update_available(uint8_t target_slot) {
  * they change. */
 #define TIME_SYNC_REFRESH_S 300
 
-static uint32_t s_time_sync_last_epoch[3];
-static uint8_t s_time_sync_last_payload[3][TIME_SYNC_PAYLOAD_LEN];
+static uint32_t s_time_sync_last_epoch[MAX_PAIRED_REMOTES + 1];
+static uint8_t s_time_sync_last_payload[MAX_PAIRED_REMOTES + 1][TIME_SYNC_PAYLOAD_LEN];
 
 static void build_time_sync_payload(uint8_t slot, uint8_t *payload) {
     uint32_t now_epoch = (uint32_t)time(NULL);
@@ -427,7 +427,7 @@ static void send_time_sync_payload(uint8_t slot, const uint8_t *payload) {
     rf_build_frame(&f, slot ? slot : 0x01, RF_MSG_TIME_SYNC, ++g_tx_seq, 0, payload, TIME_SYNC_PAYLOAD_LEN);
     rf_send_frame(&f);
     printf("[*] TIME_SYNC -> slot %d (cfg=%d flags=0x%02X)\n", slot ? slot : 1, payload[20], payload[19]);
-    int idx = (slot >= 1 && slot <= 2) ? slot : 0;
+    int idx = (slot >= 1 && slot <= MAX_PAIRED_REMOTES) ? slot : 0;
     s_time_sync_last_epoch[idx] = (uint32_t)time(NULL);
     memcpy(s_time_sync_last_payload[idx], payload, TIME_SYNC_PAYLOAD_LEN);
 }
@@ -438,7 +438,7 @@ void rf_send_hub_time_sync_slot_if_due(uint8_t slot) {
 
     uint8_t payload[26] = {0};
     build_time_sync_payload(slot, payload);
-    int idx = (slot >= 1 && slot <= 2) ? slot : 0;
+    int idx = (slot >= 1 && slot <= MAX_PAIRED_REMOTES) ? slot : 0;
     uint32_t now = (uint32_t)time(NULL);
     bool due = s_time_sync_last_epoch[idx] == 0 ||
                now < s_time_sync_last_epoch[idx] ||
@@ -449,7 +449,7 @@ void rf_send_hub_time_sync_slot_if_due(uint8_t slot) {
 }
 
 static int icon_push_file_unlocked(int target_slot, const char *file_path, const char *id_str) {
-    if (target_slot < 1 || target_slot > 2) target_slot = 1;
+    if (target_slot < 1 || target_slot > MAX_PAIRED_REMOTES) target_slot = 1;
     if (!id_str || !id_str[0] || !file_path || !file_path[0]) return -1;
     if (!rf_icon_id_valid(id_str)) {
         printf("[-] Icon push: id refused (only A-Z a-z 0-9 _ -, 1..%d characters)\n", RF_ICON_ID_MAX);

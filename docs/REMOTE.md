@@ -135,7 +135,7 @@ and from then on 300 s before the next one.
   `/tmp/last_kmsg.log`; with Debug Logging on both go to `/data` instead. Everything in `/tmp` is
   lost at a reboot (see the flight recorder below).
 - **Files in `/data`**: `remote_settings.conf` (the settings, one `key=value` per line: `touch`,
-  `physical_nav`, `cap_buttons`, `touch_sens`, `gyro`, `gyro_rate`, `deep_standby` (`-1` at once,
+  `physical_nav`, `cap_buttons`, `touch_sens`, `gyro`, `deep_standby` (`-1` at once,
   `0` never, or 15, 30, 60, 120, 240 minutes), `btn_backlight`, `night_start`, `night_end`,
   `timeout`, `brightness`, `no_screen`, `log_level`, `debug_logging`, `confirm_act`, `slot`,
   `language`, `theme`, `layout` (`theme`, `list`, `grid`, `carousel`), `order` (`yours`, `used`),
@@ -229,7 +229,7 @@ The Harmony Elite remote features a **1,300 mAh (3.7V Li-ion, ~4.81 Wh)** batter
 
 | Standby Tier | Timeout Range | Hardware State | Wake Triggers |
 | :--- | :--- | :--- | :--- |
-| **Active** | While interacting | Screen ON (PWM 1-5), CPU @ 456 MHz, Clearpad touch active, gyro polling @ 10-100 Hz (setting) | N/A |
+| **Active** | While interacting | Screen ON (PWM 1-5), CPU @ 456 MHz, Clearpad touch active, LIS3DH at the stock 25 Hz with a motion interrupt (no polling) | N/A |
 | **Light Standby** | From the blank until deep standby is due (2 s with the default "at once"; for ever with "never" or while the remote is powered) | Screen OFF (`FB_BLANK_POWERDOWN`), Backlight 0, ClearPad touch in its own doze between touches, CPU in WFI, LIS3DH INT1 IRQ active (0 I2C reads) | • **Pickup / Motion** (LIS3DH INT1 hardware IRQ)<br>• **Any Physical Button**<br>• **Touch and the capacitive keys** (when enabled)<br>• **The Hub over RF** (wake request) |
 | **Deep Standby** | When the Deep standby setting is due (default: 2 s after the blank), on battery only | Kernel suspend to RAM: processor stopped, the MSP430 keeps the keys and the alarm | • **Any Physical Button** (Power, Activities, Devices, OK, Vol, D-pad, etc.)<br>• **The cradle**<br>• **The hourly MSP430 alarm** (reports, then sleeps again) |
 
@@ -371,8 +371,10 @@ Pages have no Back item: swipe left to right, or press `Back`, to return to the 
 - **`Physical Button Nav`**: `[ ON ]` or `[ OFF ]`: drive the screen with the physical keys (see "Physical Button Navigation").
 
 ### 4. `POWER`
-- **`Tilt / Pickup Wake`**: `[ ON ]` or `[ OFF ]`. LIS3DH lift-to-wake while the screen is off.
-- **`Gyroscope Rate`**: `[ 10Hz ]`, `[ 25Hz ]`, `[ 50Hz ]`, `[ 100Hz ]`.
+- **`Tilt / Pickup Wake`**: `[ ON ]` or `[ OFF ]`. LIS3DH lift-to-wake while the screen is off. The
+  sensor runs with the stock setup (`data_rate` 0x30 = 25 Hz, INT1 threshold 10, duration 3) and is
+  powered down when this is `OFF`. The rate is not a setting: `data_rate` takes a raw `CTRL_REG1`
+  byte, not Hz.
 - **`Deep Standby`**: `[ AT ONCE ]` (default), `[ 15m ]`, `[ 30m ]`, `[ 60m ]`, `[ 120m ]`, `[ 240m ]`, `[ NEVER ]`: when the suspend to RAM starts after the screen blanks, on battery (see "Sleep Behavior").
 - **`Battery Level`**: `[ XX% XXXXmV ]`.
   - The percentage (`remote_battery.c`): the voltage maps to a curve through the stock firmware's points for this remote (3.55 V shutdown = 0 %, 3.70 V = 30 %, 3.85 V = 75 %, 3.90 V = 90 %, 3.95 V and up = 100 %, linear between them).
@@ -417,7 +419,6 @@ Host: 192.168.1.20:8089
   "touchEnabled": true,
   "capButtonsEnabled": true,
   "gyroEnabled": true,
-  "gyroRate": 50,
   "navToggleKey": 139,
   "navToggleMode": 1,
   "confirmActivity": false,
@@ -443,7 +444,6 @@ Content-Type: application/json
   "touchEnabled": true,
   "capButtonsEnabled": true,
   "gyroEnabled": true,
-  "gyroRate": 50,
   "navToggleKey": 139,
   "navToggleMode": 1,
   "confirmActivity": true,
@@ -461,7 +461,7 @@ Content-Type: application/json
 }
 ```
 
-The POST replaces the stored settings; it does not merge. A field that is left out takes its default: `touchEnabled`, `confirmActivity`, `usbEth`, `debugLogging`, `noScreen` and `physicalNavEnabled` off, `gyroEnabled` and `capButtonsEnabled` on, `brightness` 2, `timeout` 10, `touchSensitivity` 2, `gyroRate` 50, `btnBacklight` 2, `nightStart` 22, `nightEnd` 7, `language` `en`. So send the whole object, as read with the GET. Besides the fields shown, the object carries `language` (`en`, `de`, `fr`, `nl`, `es`, `it`), `theme`, `layout`, `physicalNavEnabled`, `noScreen` and `debugLogging`, and each field also under a snake_case name (`touch`, `cap_buttons`, `gyro_rate`, ...), which the POST accepts as well. The answer is `saved_and_pushed` even when the remote did not acknowledge the push (asleep or out of range); the Hub then keeps a pending note and the remote gets the settings with its next config push.
+The POST replaces the stored settings; it does not merge. A field that is left out takes its default: `touchEnabled`, `confirmActivity`, `usbEth`, `debugLogging`, `noScreen` and `physicalNavEnabled` off, `gyroEnabled` and `capButtonsEnabled` on, `brightness` 2, `timeout` 10, `touchSensitivity` 2, `btnBacklight` 2, `nightStart` 22, `nightEnd` 7, `language` `en`. So send the whole object, as read with the GET. Besides the fields shown, the object carries `language` (`en`, `de`, `fr`, `nl`, `es`, `it`), `theme`, `layout`, `physicalNavEnabled`, `noScreen` and `debugLogging`, and each field also under a snake_case name (`touch`, `cap_buttons`, `gyro`, ...), which the POST accepts as well. The answer is `saved_and_pushed` even when the remote did not acknowledge the push (asleep or out of range); the Hub then keeps a pending note and the remote gets the settings with its next config push.
 
 ### Bidirectional RF Protocol Synchronization
 The Hub and the remote keep the settings in step with two frames (byte layouts in

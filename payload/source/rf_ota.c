@@ -285,7 +285,7 @@ bool rf_ota_verify_manifest(const uint8_t *digest, char *err_buf, size_t err_sz)
 
 void *rf_ota_sender_worker(void *arg) {
     uint8_t target_slot = (uint8_t)(uintptr_t)arg;
-    if (target_slot < 1 || target_slot > 2) target_slot = g_remote_slot ? g_remote_slot : 1;
+    if (target_slot < 1 || target_slot > MAX_PAIRED_REMOTES) target_slot = g_remote_slot ? g_remote_slot : 1;
 
     if (is_companion_slot(target_slot)) {
         printf("[-] Hub RF OTA rejected: slot %d is a Companion remote (no OTA support)\n", target_slot);

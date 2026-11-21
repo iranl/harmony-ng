@@ -18,7 +18,8 @@
 #endif
 #define CURRENT_ACT_FILE       "/data/harmony/current_activity"
 
-#define MAX_PAIRED_REMOTES 2
+#include "remote_slots.h"
+#define MAX_PAIRED_REMOTES REMOTE_SLOT_MAX
 
 #define LOG_LEVEL_ERR   0
 #define LOG_LEVEL_WARN  1
@@ -130,6 +131,8 @@ extern remote_battery_t g_remote_batteries[MAX_PAIRED_REMOTES];
 extern remote_version_t g_remote_versions[MAX_PAIRED_REMOTES];
 extern remote_link_stats_t g_remote_link[MAX_PAIRED_REMOTES];
 extern paired_remote_t g_paired_remotes[MAX_PAIRED_REMOTES];
+/* True while any slot holds a paired remote */
+bool rf_any_slot_active(void);
 extern rf_ota_state_t g_rf_ota;
 extern pthread_mutex_t g_ota_lock;
 extern int g_debug_logging;

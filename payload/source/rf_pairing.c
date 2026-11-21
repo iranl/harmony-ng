@@ -185,25 +185,23 @@ void unpair_device(int slot) {
     unpair_msg.msg_type = RF_MSG_UNPAIR_NOTIFY;
     unpair_msg.hdr_flag = 0x50 | (g_tx_seq & 0x0F);
     unpair_msg.seq = g_tx_seq++;
-    if (slot == 1 || slot == 0) {
-        unpair_msg.dev_slot = 0x01;
-        rf_send_frame(&unpair_msg);
-    }
-    if (slot == 2 || slot == 0) {
-        unpair_msg.dev_slot = 0x02;
+    for (int s = 1; s <= MAX_PAIRED_REMOTES; s++) {
+        if (slot != 0 && slot != s) continue;
+        unpair_msg.dev_slot = (uint8_t)s;
         rf_send_frame(&unpair_msg);
     }
     usleep(30000); /* Allow RF frame transmission before hardware lock reset */
 
-    uint8_t s = (slot == 2) ? 0x02 : ((slot == 1) ? 0x01 : 0x00);
+    uint8_t s = (slot >= 1 && slot <= MAX_PAIRED_REMOTES) ? (uint8_t)slot : 0x00;
     uint8_t unpair[] = { 0x10, 0xFF, 0x80, 0xB2, 0x03, s, 0x00 };
     RF_LOG(LOG_LEVEL_INFO, "[*] Unpairing remote (slot=%d, 10 FF 80 B2 03 %02X 00)...\n", slot, s);
     rf_write_cmd(unpair, sizeof(unpair));
     /* everything known about the remote goes with the pairing (the same cleanup as for an
      * unpair the remote asked for) */
-    if (slot == 1 || slot == 0) rf_slot_forget(1);
-    if (slot == 2 || slot == 0) rf_slot_forget(2);
-    if (!g_paired_remotes[0].active && !g_paired_remotes[1].active) {
+    for (int fs = 1; fs <= MAX_PAIRED_REMOTES; fs++) {
+        if (slot == 0 || slot == fs) rf_slot_forget((uint8_t)fs);
+    }
+    if (!rf_any_slot_active()) {
         g_has_paired_device = false;
         memset(g_paired_addr, 0, sizeof(g_paired_addr));
     }
