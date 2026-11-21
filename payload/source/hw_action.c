@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "hw_action.h"
+#include "cmd_range.h"
 #include "resource_cache.h"
 #include "ir_encoder.h"
 #include "ir_i2s.h"
@@ -570,7 +571,7 @@ static void check_and_trigger_bt_reconnect_for_command(const cJSON *devs, const 
     }
 }
 
-static int send_match_in(const cJSON *root, const char *target, int match_mode, const char *command, int action) {
+static int send_match_in(const cJSON *root, const char *target, int match_mode, const char *command, int action, int value) {
     int ret = -1;
 
     cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
@@ -713,6 +714,13 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
 
     if (strncmp(keycode_str, "G:MQTT", 6) == 0) is_mqtt = 1;
 
+    /* A command with "range": [min, max] takes only a value in that range */
+    if (target_cmd && !hw_command_value_in_range(target_cmd, value)) {
+        printf("[!] Command '%s' of device '%s' refused: value %d outside its range\n",
+               command, dev_name[0] ? dev_name : target, value);
+        return HW_ERR_VALUE_RANGE;
+    }
+
     uint8_t ir_ports = IR_PORT_ALL;
     cJSON *j_cp = cJSON_GetObjectItemCaseSensitive(target_dev, "controlPort");
     if (j_cp && cJSON_IsNumber(j_cp)) {
@@ -803,7 +811,7 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
 
     if (is_plugin && plugin_id[0]) {
         cJSON *j_cfg = cJSON_GetObjectItemCaseSensitive(target_dev, "config");
-        ret = hw_plugin_command_send(plugin_id, actual_dev_id, dev_name, plug_cmd, action, 0, j_cfg ? j_cfg : target_dev);
+        ret = hw_plugin_command_send(plugin_id, actual_dev_id, dev_name, plug_cmd, action, value, j_cfg ? j_cfg : target_dev);
     } else if (is_ble_adv) {
         /* One broadcast per press: the receiver acts on the packet, not on how long it is held */
         if (action == HW_BTN_ACTION_RELEASE || action == HW_BTN_ACTION_REPEAT) {
@@ -1024,7 +1032,13 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
     return ret;
 }
 
-static int hw_device_command_send_match(const char *target, int match_mode, const char *command, int action) {
+int hw_command_value_in_range(const cJSON *cmd, int value) {
+    const cJSON *r = cJSON_GetObjectItemCaseSensitive(cmd, "range");
+    if (!cmd_range_valid(r)) return 1;
+    return value >= cJSON_GetArrayItem(r, 0)->valueint && value <= cJSON_GetArrayItem(r, 1)->valueint;
+}
+
+static int hw_device_command_send_match(const char *target, int match_mode, const char *command, int action, int value) {
     if (!target || !command) return -1;
 
     /* The shared device list (no copy per key): a save meanwhile publishes a new one and leaves
@@ -1032,25 +1046,29 @@ static int hw_device_command_send_match(const char *target, int match_mode, cons
     struct cfg_snap *snap = NULL;
     const cJSON *root = get_device_list_acquire(&snap);
     if (!root) return -4;
-    int ret = send_match_in(root, target, match_mode, command, action);
+    int ret = send_match_in(root, target, match_mode, command, action, value);
     release_device_list(&snap);
     return ret;
 }
 
 int hw_device_command_send_action(const char *target, int match_mode, const char *command, int action) {
-    return hw_device_command_send_match(target, match_mode, command, action);
+    return hw_device_command_send_match(target, match_mode, command, action, 0);
+}
+
+int hw_device_command_send_value(const char *target, int match_mode, const char *command, int action, int value) {
+    return hw_device_command_send_match(target, match_mode, command, action, value);
 }
 
 int hw_device_command_send(const char *device_id, const char *command) {
-    return hw_device_command_send_match(device_id, 0, command, HW_BTN_ACTION_TAP);
+    return hw_device_command_send_match(device_id, 0, command, HW_BTN_ACTION_TAP, 0);
 }
 
 int hw_device_command_send_by_id(const char *device_id, const char *command) {
-    return hw_device_command_send_match(device_id, 1, command, HW_BTN_ACTION_TAP);
+    return hw_device_command_send_match(device_id, 1, command, HW_BTN_ACTION_TAP, 0);
 }
 
 int hw_device_command_send_by_name(const char *device_name, const char *command) {
-    return hw_device_command_send_match(device_name, 2, command, HW_BTN_ACTION_TAP);
+    return hw_device_command_send_match(device_name, 2, command, HW_BTN_ACTION_TAP, 0);
 }
 
 static int device_exists_in(const cJSON *root, const char *target, int match_mode) {

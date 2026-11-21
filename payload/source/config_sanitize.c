@@ -5,6 +5,7 @@
 #include "bt_common.h"
 #include "json_number.h"
 #include "plugin_mgr.h"
+#include "cmd_range.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -311,6 +312,7 @@ void sanitize_devices_json(cJSON *root) {
 
                 cJSON *cmacro = cJSON_GetObjectItemCaseSensitive(c, "isMacro");
                 if (cmacro && cJSON_IsTrue(cmacro)) cJSON_AddBoolToObject(ccmd, "isMacro", 1);
+                cmd_range_copy(ccmd, c);
 
                 cJSON_AddItemToArray(clean_cmds, ccmd);
             }

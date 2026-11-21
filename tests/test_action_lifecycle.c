@@ -35,7 +35,8 @@ const cJSON *get_device_list_acquire(struct cfg_snap **snap) {
             "{\"name\":\"LightOff\",\"keyCode\":\"BLEADV:02011A19054E6F720E0438064C2E561510D42DEB8C15D3B51804030201\"},"
             "{\"name\":\"Broken\",\"keyCode\":\"BLEADV:030106\"}]},"
             "{\"id\":\"plug_dev\",\"name\":\"PluginDevice\",\"interDeviceDelay\":0,\"interKeyDelay\":0,\"holdInterKeyDelay\":0,\"plugin\":\"roku-ecp\",\"config\":{\"ip\":\"192.168.1.50\"},\"commands\":["
-            "{\"name\":\"Home\",\"keyCode\":\"PLUGIN:roku-ecp:Home\"}]},"
+            "{\"name\":\"Home\",\"keyCode\":\"PLUGIN:roku-ecp:Home\"},"
+            "{\"name\":\"Level\",\"keyCode\":\"PLUGIN:roku-ecp:Level\",\"range\":[1,100]}]},"
             "{\"id\":\"plug_typed\",\"name\":\"AndroidTV\",\"type\":\"plugin:androidtv\",\"config\":{\"host\":\"192.168.1.60\"},\"commands\":["
             "{\"name\":\"Back\",\"keyCode\":\"Back\"}]},"
             "{\"id\":\"custom_dev\",\"name\":\"CustomDev\",\"commands\":["
@@ -326,6 +327,41 @@ int main(void) {
     assert(res == 0);
     assert(strstr(out, "cmd=DynamicArbitraryCommand") != NULL);
     printf("[+] Non-existent device (-5), missing IR command (-6), and dynamic plugin command dispatching verified.\n");
+
+    /* 11. A value reaches the plugin; a command's "range" refuses values outside it */
+    {
+        fflush(stdout);
+        int saved = dup(STDOUT_FILENO);
+        FILE *tf = tmpfile();
+        assert(saved >= 0 && tf);
+        dup2(fileno(tf), STDOUT_FILENO);
+        g_dry_run = 1;
+        int r_in = hw_device_command_send_value("plug_dev", 0, "Level", HW_BTN_ACTION_TAP, 42);
+        usleep(100000);
+        int r_lo = hw_device_command_send_value("plug_dev", 0, "Level", HW_BTN_ACTION_TAP, 0);
+        int r_hi = hw_device_command_send_value("plug_dev", 0, "Level", HW_BTN_ACTION_TAP, 101);
+        int r_free = hw_device_command_send_value("plug_dev", 0, "Free", HW_BTN_ACTION_TAP, -5);
+        g_dry_run = 0;
+        fflush(stdout);
+        dup2(saved, STDOUT_FILENO);
+        close(saved);
+        rewind(tf);
+        size_t n = fread(out, 1, sizeof(out) - 1, tf);
+        out[n] = '\0';
+        fclose(tf);
+        assert(r_in == 0 && strstr(out, "cmd=Level action=tap val=42") != NULL);
+        assert(r_lo == HW_ERR_VALUE_RANGE && r_hi == HW_ERR_VALUE_RANGE);
+        assert(r_free == 0 && strstr(out, "cmd=Free action=tap val=-5") != NULL);
+
+        cJSON *c = cJSON_Parse("{\"range\":[1,100]}");
+        assert(hw_command_value_in_range(c, 1) && hw_command_value_in_range(c, 100));
+        assert(!hw_command_value_in_range(c, 101));
+        cJSON_Delete(c);
+        c = cJSON_Parse("{\"range\":\"bad\"}");
+        assert(hw_command_value_in_range(c, 999)); /* a malformed range checks nothing */
+        cJSON_Delete(c);
+    }
+    printf("[+] Plugin value and command range verified.\n");
 
     assert(s_list_held == 0);
     printf("[+] every use of the shared device list was released.\n");

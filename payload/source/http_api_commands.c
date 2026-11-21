@@ -4,6 +4,7 @@
 #include "config_store.h"
 #include "ble_adv_payload.h"
 #include "plugin_mgr.h"
+#include "cmd_range.h"
 #include "cJSON.h"
 
 #include <stdio.h>
@@ -110,6 +111,7 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                         cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "isMacro");
                                         cJSON_AddBoolToObject(cmd_match, "isMacro", 1);
                                     }
+                                    cmd_range_copy(cmd_match, p);
                                     if (is_bt_cmd || is_mqtt_cmd || is_ble_cmd || is_plugin_cmd) {
                                         cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "repeats");
                                         cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "port");
@@ -130,6 +132,7 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                     if (is_macro) {
                                         cJSON_AddBoolToObject(new_cmd, "isMacro", 1);
                                     }
+                                    cmd_range_copy(new_cmd, p);
                                     if (!is_bt_cmd && !is_mqtt_cmd && !is_ble_cmd && !is_plugin_cmd) {
                                         cJSON_AddNumberToObject(new_cmd, "repeats", repeats);
                                         if (port > 0) cJSON_AddNumberToObject(new_cmd, "port", port);
@@ -240,6 +243,7 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                             cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "port");
                                             cJSON_AddNumberToObject(cmd_match, "port", port);
                                         }
+                                        cmd_range_copy(cmd_match, cmd_in);
                                     } else {
                                         cJSON *new_cmd = cJSON_CreateObject();
                                         cJSON_AddStringToObject(new_cmd, "name", name);
@@ -249,6 +253,7 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                             cJSON_AddNumberToObject(new_cmd, "repeats", repeats);
                                             if (port > 0) cJSON_AddNumberToObject(new_cmd, "port", port);
                                         }
+                                        cmd_range_copy(new_cmd, cmd_in);
                                         cJSON_AddItemToArray(cmds, new_cmd);
                                     }
                                     saved_count++;

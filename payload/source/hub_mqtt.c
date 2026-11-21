@@ -813,7 +813,13 @@ static void handle_command_topic(const char *topic, const char *payload) {
     const char *cmd = slash + 1;
     if (!dev[0] || !cmd[0]) return;
     printf("[*] MQTT command/%s/%s (payload %s)\n", dev, cmd, payload ? payload : "");
-    hw_device_command_send(dev, cmd);
+    /* A payload that is a plain integer is the command's value (a plugin slider, a level) */
+    char *end = NULL;
+    long v = (payload && payload[0]) ? strtol(payload, &end, 10) : 0;
+    if (end && end != payload && *end == '\0')
+        hw_device_command_send_value(dev, 0, cmd, HW_BTN_ACTION_TAP, (int)v);
+    else
+        hw_device_command_send(dev, cmd);
 }
 
 static void on_alias(const char *topic, const char *payload, size_t len, void *ud) {

@@ -85,6 +85,12 @@ int hw_ir_send_harmony_keycode(const char *keycode, uint8_t ports, uint8_t repea
  * encodes protocol waveform, and sends directly via I2S, BTstack FIFO, or MQTT.
  */
 int hw_device_command_send_action(const char *target, int match_mode, const char *command, int action);
+/* As _send_action, with a numeric argument for plugin commands (the datagram's "value"). A
+ * command with "range": [min, max] refuses a value outside it with HW_ERR_VALUE_RANGE. */
+int hw_device_command_send_value(const char *target, int match_mode, const char *command, int action, int value);
+#define HW_ERR_VALUE_RANGE (-7)
+/* 1 when value fits the command's "range" (or the command has none) */
+int hw_command_value_in_range(const cJSON *cmd, int value);
 int hw_device_command_send(const char *device_id, const char *command);
 int hw_device_command_send_by_id(const char *device_id, const char *command);
 int hw_device_command_send_by_name(const char *device_name, const char *command);

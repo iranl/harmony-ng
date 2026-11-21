@@ -166,6 +166,9 @@ int main(void) {
         { "{\"id\": \"ok\", \"version\": \"1\", \"entrypoint\": \"bin/missing\"}", "not in the plugin" },
         { "{\"id\": \"ok\", \"version\": \"1\", \"entrypoint\": \"bin/drv\", \"device_definition\": {\"config_fields\": 5}}", "array" },
         { "{\"id\": \"ok\", \"version\": \"1\", \"entrypoint\": \"bin/drv\", \"device_definition\": {\"config_fields\": [null]}}", "key" },
+        { "{\"id\": \"ok\", \"version\": \"1\", \"entrypoint\": \"bin/drv\", \"device_definition\": {\"default_commands\": [{\"name\": \"L\", \"range\": [100, 1]}]}}", "range" },
+        { "{\"id\": \"ok\", \"version\": \"1\", \"entrypoint\": \"bin/drv\", \"device_definition\": {\"default_commands\": [{\"name\": \"L\", \"range\": [1.5, 9]}]}}", "range" },
+        { "{\"id\": \"ok\", \"version\": \"1\", \"entrypoint\": \"bin/drv\", \"device_definition\": {\"default_commands\": [{\"name\": \"L\", \"range\": [1]}]}}", "range" },
     };
     for (size_t i = 0; i < sizeof(bad_manifests) / sizeof(bad_manifests[0]); i++) {
         make_src("ok", "1", "exec sleep 300");
@@ -179,7 +182,7 @@ int main(void) {
     }
     assert(access(ROOT "/plugins/ok", F_OK) != 0);
     unlink("/tmp/test_bad.tar.gz");
-    printf("[+] Bad manifests refused (id, version, entrypoint, config_fields).\n");
+    printf("[+] Bad manifests refused (id, version, entrypoint, config_fields, command range).\n");
 
     /* 3. Archives that write outside the unpack directory, or link, are refused before the
      * unpack. Python writes the entries: tar drops '../' when it packs. A hard link is

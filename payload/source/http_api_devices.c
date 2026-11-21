@@ -674,6 +674,7 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
         int port = 7;
         int repeats = 1;
         int btn_action = HW_BTN_ACTION_TAP;
+        int value = 0, has_value = 0; /* a plugin command's numeric argument */
         cJSON *req_j = body ? parse_request_params(body) : NULL;
         if (req_j) {
             cJSON *jid = cJSON_GetObjectItemCaseSensitive(req_j, "deviceId");
@@ -711,6 +712,19 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
             cJSON *jrep = cJSON_GetObjectItemCaseSensitive(req_j, "repeats");
             if (jrep && cJSON_IsNumber(jrep) && jrep->valueint > 0) repeats = jrep->valueint;
 
+            cJSON *jval = cJSON_GetObjectItemCaseSensitive(req_j, "value");
+            if (jval && cJSON_IsNumber(jval)) {
+                value = jval->valueint;
+                has_value = 1;
+            } else if (jval && cJSON_IsString(jval) && jval->valuestring && jval->valuestring[0]) {
+                char *end = NULL;
+                long v = strtol(jval->valuestring, &end, 10);
+                if (end && *end == '\0') {
+                    value = (int)v;
+                    has_value = 1;
+                }
+            }
+
             cJSON_Delete(req_j);
         }
 
@@ -724,7 +738,13 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
             }
             free(pronto_buf);
         } else if (dev_id[0] && cmd_name[0]) {
-            rc = hw_device_command_send_action(dev_id, 0, cmd_name, btn_action);
+            rc = has_value ? hw_device_command_send_value(dev_id, 0, cmd_name, btn_action, value)
+                           : hw_device_command_send_action(dev_id, 0, cmd_name, btn_action);
+            if (rc == HW_ERR_VALUE_RANGE) {
+                send_json_error(client_fd, 400, "value out of range");
+                close(client_fd);
+                return 1;
+            }
         } else {
             send_json_error(client_fd, 400, "Missing deviceId/command or pronto code");
             close(client_fd);

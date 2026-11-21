@@ -2,6 +2,7 @@
 #include "plugin_mgr.h"
 #include "http_util.h"
 #include "config_store.h"
+#include "cmd_range.h"
 #include "cJSON.h"
 #include "sha256.h"
 
@@ -1217,6 +1218,15 @@ static int validate_manifest(const cJSON *m, const char *src_dir, char *err_msg,
             }
         }
     }
+    const cJSON *dc = dd ? cJSON_GetObjectItemCaseSensitive(dd, "default_commands") : NULL;
+    const cJSON *c = NULL;
+    cJSON_ArrayForEach(c, cJSON_IsArray(dc) ? dc : NULL) {
+        const cJSON *r = cJSON_GetObjectItemCaseSensitive(c, "range");
+        if (r && !cmd_range_valid(r)) {
+            if (err_msg) snprintf(err_msg, err_msg_sz, "A default_commands range must be [min, max] (integers, min <= max)");
+            return -1;
+        }
+    }
     return 0;
 }
 
@@ -1601,7 +1611,11 @@ int plugin_mgr_pull(const char *plugin_id, char *err_msg, size_t err_msg_sz) {
 }
 
 cJSON *plugin_mgr_get_device_definition(const char *plugin_id) {
-    if (!plugin_id || !is_safe_plugin_id(plugin_id)) return NULL;
+    return plugin_mgr_get_manifest_item(plugin_id, "device_definition");
+}
+
+cJSON *plugin_mgr_get_manifest_item(const char *plugin_id, const char *key) {
+    if (!plugin_id || !is_safe_plugin_id(plugin_id) || !key) return NULL;
 
     char mpath[256];
     snprintf(mpath, sizeof(mpath), "%s/%s/manifest.json", HARMONY_PLUGINS_DIR, plugin_id);
@@ -1613,8 +1627,8 @@ cJSON *plugin_mgr_get_device_definition(const char *plugin_id) {
     free(mtxt);
     if (!manifest) return NULL;
 
-    cJSON *dev_def = cJSON_GetObjectItemCaseSensitive(manifest, "device_definition");
-    cJSON *copy = dev_def ? cJSON_Duplicate(dev_def, 1) : NULL;
+    cJSON *item = cJSON_GetObjectItemCaseSensitive(manifest, key);
+    cJSON *copy = item ? cJSON_Duplicate(item, 1) : NULL;
     cJSON_Delete(manifest);
     return copy;
 }
