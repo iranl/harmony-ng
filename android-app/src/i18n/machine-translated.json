@@ -712,7 +712,7 @@
     "stock_resources_used",
     "stock_resources_empty",
     "stock_resources_not_imported",
-    "stock_resources_not_saved"
+    "stock_resources_not_saved",
     "hub_update_restarting",
     "hub_update_reconnecting",
     "hub_update_complete_ver",
@@ -1435,7 +1435,7 @@
     "stock_resources_used",
     "stock_resources_empty",
     "stock_resources_not_imported",
-    "stock_resources_not_saved"
+    "stock_resources_not_saved",
     "hub_update_restarting",
     "hub_update_reconnecting",
     "hub_update_complete_ver",
@@ -2158,7 +2158,7 @@
     "stock_resources_used",
     "stock_resources_empty",
     "stock_resources_not_imported",
-    "stock_resources_not_saved"
+    "stock_resources_not_saved",
     "hub_update_restarting",
     "hub_update_reconnecting",
     "hub_update_complete_ver",
@@ -2881,7 +2881,7 @@
     "stock_resources_used",
     "stock_resources_empty",
     "stock_resources_not_imported",
-    "stock_resources_not_saved"
+    "stock_resources_not_saved",
     "hub_update_restarting",
     "hub_update_reconnecting",
     "hub_update_complete_ver",
@@ -3604,7 +3604,7 @@
     "stock_resources_used",
     "stock_resources_empty",
     "stock_resources_not_imported",
-    "stock_resources_not_saved"
+    "stock_resources_not_saved",
     "hub_update_restarting",
     "hub_update_reconnecting",
     "hub_update_complete_ver",
