@@ -853,7 +853,10 @@
     "plg_verify_code",
     "plg_verify_failed",
     "plg_verifying",
-    "plg_upload_too_large"
+    "plg_upload_too_large",
+    "plg_listen_running",
+    "plg_listen_done",
+    "plg_listen_failed"
   ],
   "fr": [
     "hold_repeat",
@@ -1708,7 +1711,10 @@
     "plg_verify_code",
     "plg_verify_failed",
     "plg_verifying",
-    "plg_upload_too_large"
+    "plg_upload_too_large",
+    "plg_listen_running",
+    "plg_listen_done",
+    "plg_listen_failed"
   ],
   "nl": [
     "hold_repeat",
@@ -2563,7 +2569,10 @@
     "plg_verify_code",
     "plg_verify_failed",
     "plg_verifying",
-    "plg_upload_too_large"
+    "plg_upload_too_large",
+    "plg_listen_running",
+    "plg_listen_done",
+    "plg_listen_failed"
   ],
   "es": [
     "hold_repeat",
@@ -3418,7 +3427,10 @@
     "plg_verify_code",
     "plg_verify_failed",
     "plg_verifying",
-    "plg_upload_too_large"
+    "plg_upload_too_large",
+    "plg_listen_running",
+    "plg_listen_done",
+    "plg_listen_failed"
   ],
   "it": [
     "hold_repeat",
@@ -4273,6 +4285,9 @@
     "plg_verify_code",
     "plg_verify_failed",
     "plg_verifying",
-    "plg_upload_too_large"
+    "plg_upload_too_large",
+    "plg_listen_running",
+    "plg_listen_done",
+    "plg_listen_failed"
   ]
 }

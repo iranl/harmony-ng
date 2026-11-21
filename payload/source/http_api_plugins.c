@@ -33,6 +33,51 @@ static int install_status(int rc) {
     return rc == PLUGIN_ERR_BUSY ? 409 : (rc == PLUGIN_ERR_DOWNLOAD ? 502 : 400);
 }
 
+/* A pairing status may carry "config": values the plugin learned (an address, an id) for the
+ * UI to put in the device's fields. Only the keys the manifest's config_fields declare stay. */
+static void plugin_pair_filter_config(cJSON *status, const cJSON *dev_def) {
+    cJSON *cfg = cJSON_GetObjectItemCaseSensitive(status, "config");
+    if (!cfg) return;
+    if (!cJSON_IsObject(cfg)) {
+        cJSON_DeleteItemFromObjectCaseSensitive(status, "config");
+        return;
+    }
+    const cJSON *fields = dev_def ? cJSON_GetObjectItemCaseSensitive(dev_def, "config_fields") : NULL;
+    cJSON *item = cfg->child;
+    while (item) {
+        cJSON *next = item->next;
+        int known = 0;
+        const cJSON *f = NULL;
+        cJSON_ArrayForEach(f, cJSON_IsArray(fields) ? fields : NULL) {
+            const cJSON *k = cJSON_GetObjectItemCaseSensitive(f, "key");
+            if (cJSON_IsString(k) && item->string && strcmp(k->valuestring, item->string) == 0) known = 1;
+        }
+        if (!known || !(cJSON_IsString(item) || cJSON_IsNumber(item) || cJSON_IsBool(item))) {
+            cJSON_Delete(cJSON_DetachItemViaPointer(cfg, item));
+        }
+        item = next;
+    }
+}
+
+/* The status the plugin wrote, when it answers this request (any action when want is NULL) */
+static cJSON *read_pair_status(const char *stat_path, const char *want, int is_pin) {
+    size_t slen = 0;
+    char *stxt = read_file_text_alloc(stat_path, 4096, &slen);
+    if (!stxt) return NULL;
+    cJSON *sj = cJSON_Parse(stxt);
+    free(stxt);
+    if (!sj || !want) return sj;
+    cJSON *sj_act = cJSON_GetObjectItemCaseSensitive(sj, "action");
+    const char *sa = (sj_act && cJSON_IsString(sj_act)) ? sj_act->valuestring : "";
+    if (!sa[0] || strcasecmp(sa, want) == 0 ||
+        (!is_pin && (strcasecmp(sa, "start") == 0 || strcasecmp(sa, "start_pair") == 0)) ||
+        (is_pin && (strcasecmp(sa, "pin") == 0 || strcasecmp(sa, "finish_pair") == 0))) {
+        return sj;
+    }
+    cJSON_Delete(sj);
+    return NULL;
+}
+
 int http_api_plugins_handle(int client_fd, const char *method, const char *path,
                             const char *query, const char *body, const char *req) {
     (void)req;
@@ -248,86 +293,108 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
         int port = (j_port && cJSON_IsNumber(j_port)) ? j_port->valueint : 0;
         cJSON_Delete(json);
 
-        if (!plugin_mgr_is_safe_id(id) || !host[0] || port < 0 || port > 65535) {
+        /* The manifest's pairing block: a "listen" pairing (the plugin hears its device, no
+         * address to give) needs no host and returns at once; the UI polls action "status" */
+        cJSON *pairing = plugin_mgr_is_safe_id(id) ? plugin_mgr_get_manifest_item(id, "pairing") : NULL;
+        const cJSON *j_ptype = pairing ? cJSON_GetObjectItemCaseSensitive(pairing, "type") : NULL;
+        int is_listen = cJSON_IsString(j_ptype) && strcmp(j_ptype->valuestring, "listen") == 0;
+        const cJSON *j_rh = pairing ? cJSON_GetObjectItemCaseSensitive(pairing, "requires_host") : NULL;
+        int needs_host = j_rh ? cJSON_IsTrue(j_rh) : !is_listen;
+        const cJSON *j_to = pairing ? cJSON_GetObjectItemCaseSensitive(pairing, "timeout_s") : NULL;
+        int timeout_s = cJSON_IsNumber(j_to) ? j_to->valueint : 15;
+        if (timeout_s < 1) timeout_s = 1;
+        if (timeout_s > 60) timeout_s = 60;
+        cJSON_Delete(pairing);
+
+        int is_status = strcasecmp(act, "status") == 0;
+        if (!plugin_mgr_is_safe_id(id) || (needs_host && !is_status && !host[0]) || port < 0 || port > 65535) {
             send_json_error(client_fd, 400, "Missing or invalid plugin id, host or port");
             close(client_fd);
             return 1;
         }
 
-        /* Ensure plugin daemon is running */
-        if (!plugin_mgr_is_running(id)) {
-            plugin_mgr_start(id);
-            usleep(200000);
-        }
-
-        int is_pin = (strcasecmp(act, "pin") == 0 || strcasecmp(act, "finish_pair") == 0);
-        const char *fwd_action = is_pin ? "finish_pair" : "start_pair";
-
-        /* Clear stale status file before new attempt */
         char stat_path[128];
         snprintf(stat_path, sizeof(stat_path), HARMONY_PLUGINS_RUN_DIR "/%s.status", id);
-        unlink(stat_path);
-
-        /* Forward pairing command to plugin unix socket */
-        char sock_path[128];
-        snprintf(sock_path, sizeof(sock_path), HARMONY_PLUGINS_RUN_DIR "/%s.sock", id);
-
-        int s = socket(AF_UNIX, SOCK_DGRAM, 0);
-        if (s >= 0) {
-            struct sockaddr_un sun;
-            memset(&sun, 0, sizeof(sun));
-            sun.sun_family = AF_UNIX;
-            strncpy(sun.sun_path, sock_path, sizeof(sun.sun_path) - 1);
-
-            cJSON *cmd_obj = cJSON_CreateObject();
-            cJSON_AddStringToObject(cmd_obj, "plugin_id", id);
-            cJSON_AddStringToObject(cmd_obj, "command", "pair");
-            cJSON_AddStringToObject(cmd_obj, "action", fwd_action);
-            cJSON_AddStringToObject(cmd_obj, "host", host);
-            if (port > 0) cJSON_AddNumberToObject(cmd_obj, "port", port);
-            if (pin[0]) cJSON_AddStringToObject(cmd_obj, "pin", pin);
-
-            char *cmd_str = cJSON_PrintUnformatted(cmd_obj);
-            if (cmd_str) {
-                /* A plugin with a full queue must not hold this request forever */
-                sendto(s, cmd_str, strlen(cmd_str), MSG_DONTWAIT, (struct sockaddr *)&sun, sizeof(sun));
-                free(cmd_str);
-            }
-            cJSON_Delete(cmd_obj);
-            close(s);
-        }
-
-        /* Wait up to 15 seconds for status file update: the start of a pairing is a connect
-         * (5 s timeout), a TLS handshake and three exchanges; 5 s reported a timeout while the
-         * pairing went on and succeeded */
+        int is_pin = (strcasecmp(act, "pin") == 0 || strcasecmp(act, "finish_pair") == 0);
         cJSON *res_obj = NULL;
-        for (int i = 0; i < 150; i++) {
-            usleep(100000); /* 100ms * 150 = 15s max */
-            size_t slen = 0;
-            char *stxt = read_file_text_alloc(stat_path, 4096, &slen);
-            if (stxt) {
-                cJSON *sj = cJSON_Parse(stxt);
-                free(stxt);
-                if (sj) {
-                    cJSON *sj_act = cJSON_GetObjectItemCaseSensitive(sj, "action");
-                    const char *sa = (sj_act && cJSON_IsString(sj_act)) ? sj_act->valuestring : "";
-                    if (!sa[0] || strcasecmp(sa, act) == 0 ||
-                        (!is_pin && (strcasecmp(sa, "start") == 0 || strcasecmp(sa, "start_pair") == 0)) ||
-                        (is_pin && (strcasecmp(sa, "pin") == 0 || strcasecmp(sa, "finish_pair") == 0))) {
-                        res_obj = sj;
-                        break;
-                    }
-                    cJSON_Delete(sj);
+
+        if (is_status) {
+            res_obj = read_pair_status(stat_path, NULL, 0);
+            if (!res_obj) {
+                res_obj = cJSON_CreateObject();
+                cJSON_AddBoolToObject(res_obj, "ok", 1);
+                cJSON_AddStringToObject(res_obj, "stage", "waiting");
+            }
+        } else {
+            /* Ensure plugin daemon is running */
+            if (!plugin_mgr_is_running(id)) {
+                plugin_mgr_start(id);
+                usleep(200000);
+            }
+
+            const char *fwd_action = is_pin ? "finish_pair" : "start_pair";
+
+            /* Clear stale status file before new attempt */
+            unlink(stat_path);
+
+            /* Forward pairing command to plugin unix socket */
+            char sock_path[128];
+            snprintf(sock_path, sizeof(sock_path), HARMONY_PLUGINS_RUN_DIR "/%s.sock", id);
+
+            int s = socket(AF_UNIX, SOCK_DGRAM, 0);
+            if (s >= 0) {
+                struct sockaddr_un sun;
+                memset(&sun, 0, sizeof(sun));
+                sun.sun_family = AF_UNIX;
+                strncpy(sun.sun_path, sock_path, sizeof(sun.sun_path) - 1);
+
+                cJSON *cmd_obj = cJSON_CreateObject();
+                cJSON_AddStringToObject(cmd_obj, "plugin_id", id);
+                cJSON_AddStringToObject(cmd_obj, "command", "pair");
+                cJSON_AddStringToObject(cmd_obj, "action", fwd_action);
+                if (host[0]) cJSON_AddStringToObject(cmd_obj, "host", host);
+                if (port > 0) cJSON_AddNumberToObject(cmd_obj, "port", port);
+                if (pin[0]) cJSON_AddStringToObject(cmd_obj, "pin", pin);
+                cJSON_AddNumberToObject(cmd_obj, "timeout_s", timeout_s);
+
+                char *cmd_str = cJSON_PrintUnformatted(cmd_obj);
+                if (cmd_str) {
+                    /* A plugin with a full queue must not hold this request forever */
+                    sendto(s, cmd_str, strlen(cmd_str), MSG_DONTWAIT, (struct sockaddr *)&sun, sizeof(sun));
+                    free(cmd_str);
                 }
+                cJSON_Delete(cmd_obj);
+                close(s);
+            }
+
+            /* Wait for the status file: up to timeout_s (default 15 s: the start of a pairing is
+             * a connect (5 s timeout), a TLS handshake and three exchanges; 5 s reported a timeout
+             * while the pairing went on and succeeded). A listen pairing waits 1 s at most: it
+             * runs for timeout_s and the UI polls. */
+            int polls = is_listen ? 10 : timeout_s * 10;
+            for (int i = 0; i < polls && !res_obj; i++) {
+                usleep(100000);
+                res_obj = read_pair_status(stat_path, act, is_pin);
+            }
+
+            if (!res_obj && is_listen) {
+                res_obj = cJSON_CreateObject();
+                cJSON_AddBoolToObject(res_obj, "ok", 1);
+                cJSON_AddStringToObject(res_obj, "stage", "listening");
+            } else if (!res_obj) {
+                res_obj = cJSON_CreateObject();
+                cJSON_AddBoolToObject(res_obj, "ok", 0);
+                cJSON_AddStringToObject(res_obj, "stage", "error");
+                cJSON_AddStringToObject(res_obj, "message", "Device did not respond or pairing timed out");
+            }
+            if (is_listen && !cJSON_GetObjectItemCaseSensitive(res_obj, "timeout_s")) {
+                cJSON_AddNumberToObject(res_obj, "timeout_s", timeout_s);
             }
         }
 
-        if (!res_obj) {
-            res_obj = cJSON_CreateObject();
-            cJSON_AddBoolToObject(res_obj, "ok", 0);
-            cJSON_AddStringToObject(res_obj, "stage", "error");
-            cJSON_AddStringToObject(res_obj, "message", "Device did not respond or pairing timed out");
-        }
+        cJSON *dev_def = plugin_mgr_get_device_definition(id);
+        plugin_pair_filter_config(res_obj, dev_def);
+        cJSON_Delete(dev_def);
 
         int resp_code = 200;
         cJSON *j_ok = cJSON_GetObjectItemCaseSensitive(res_obj, "ok");

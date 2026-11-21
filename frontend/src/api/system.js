@@ -303,6 +303,12 @@ export function createSystemApi(client) {
       return client.request('/api/plugins');
     },
 
+    // action: start, pin or status. A PIN pairing waits up to 15 s on the Hub; a listen pairing
+    // answers at once and is polled with "status".
+    async pairPlugin(id, action, host = '', pin = '') {
+      return client.postJson('/api/plugins/pair', { id, action, host, pin }, { timeout: 20000 });
+    },
+
     // The Hub fetches every repository (20 s each at most); refresh skips its 10 minute cache
     async getPluginMarketplace(forceReload = false) {
       return client.request(`/api/plugins/marketplace${forceReload ? '?refresh=1' : ''}`, { timeout: 60000 });
