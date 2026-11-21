@@ -23,3 +23,6 @@ tools/unbrick_recovery/*.py text eol=lf diff merge
 # raw IR receiver recordings (tests/test_ir_rx_decode.c)
 *.i2s binary
 tests/fixtures/ha/ssdp_response.txt -text
+
+# Signed driver files: the catalog hash covers exact bytes (CRLF). Never convert.
+drivers/windows/** -text

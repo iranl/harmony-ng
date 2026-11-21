@@ -55,27 +55,48 @@ def bump_semver(ver_str, part="patch"):
 FAILURES = []
 
 
+# The files are read and written as bytes: a checkout with CRLF line ends (Windows,
+# core.autocrlf) keeps them when the sync runs elsewhere (WSL), and a file whose version is
+# already right is not written at all, so a build leaves "git status" clean.
+def read_file(path: Path) -> str:
+    return path.read_bytes().decode("utf-8")
+
+
+def write_if_changed(path: Path, content: str) -> bool:
+    data = content.encode("utf-8")
+    if path.exists() and path.read_bytes() == data:
+        return False
+    path.write_bytes(data)
+    return True
+
+
 def update_file(path: Path, pattern: str, replacement: str, count_max: int = 0):
     if not path.exists():
         print(f"[-] Missing file: {path}")
         FAILURES.append(str(path))
         return False
-    content = path.read_text(encoding="utf-8")
+    content = read_file(path)
     new_content, count = re.subn(pattern, replacement, content, count=count_max)
     if count == 0:
         print(f"[-] Pattern '{pattern}' not matched in {path}")
         FAILURES.append(str(path))
         return False
-    path.write_text(new_content, encoding="utf-8")
-    print(f"[+] Updated {path.relative_to(REPO_ROOT)} ({count} match)")
+    if write_if_changed(path, new_content):
+        print(f"[+] Updated {path.relative_to(REPO_ROOT)} ({count} match)")
+    else:
+        print(f"[=] {path.relative_to(REPO_ROOT)} already up to date")
     return True
 
 def sync_all(new_version, increment_vc=False):
     print(f"[*] Synchronizing project version to {new_version}...")
 
-    # 1. Root VERSION
-    VERSION_FILE.write_text(new_version.strip() + "\n", encoding="utf-8")
-    print(f"[+] Updated VERSION -> {new_version}")
+    # 1. Root VERSION (its line end kept)
+    old = read_file(VERSION_FILE) if VERSION_FILE.exists() else ""
+    eol = "\r\n" if old.endswith("\r\n") else "\n"
+    if write_if_changed(VERSION_FILE, new_version.strip() + eol):
+        print(f"[+] Updated VERSION -> {new_version}")
+    else:
+        print("[=] VERSION already up to date")
 
     # 2. harmony_version.h
     update_file(
@@ -113,7 +134,7 @@ def sync_all(new_version, increment_vc=False):
     # 5. OpenAPI spec (info.version; tests/test_openapi.py checks it against the firmware version)
     update_file(
         OPENAPI_YAML,
-        r'(?m)^(  version: )\S+$',
+        r'(?m)^(  version: )\S+(?=\r?$)',
         rf'\g<1>{new_version}'
     )
 
@@ -122,7 +143,7 @@ def sync_all(new_version, increment_vc=False):
         print(f"[-] Missing file: {BUILD_GRADLE}")
         FAILURES.append(str(BUILD_GRADLE))
     else:
-        content = BUILD_GRADLE.read_text(encoding="utf-8")
+        content = read_file(BUILD_GRADLE)
         vc_match = re.search(r'versionCode\s+(\d+)', content)
         new_vc = 1
         if vc_match:
@@ -130,8 +151,10 @@ def sync_all(new_version, increment_vc=False):
             new_vc = cur_vc + 1 if increment_vc else cur_vc
         content = re.sub(r'versionCode\s+\d+', f'versionCode {new_vc}', content)
         content = re.sub(r'versionName\s+"[^"]+"', f'versionName "{new_version}"', content)
-        BUILD_GRADLE.write_text(content, encoding="utf-8")
-        print(f"[+] Updated {BUILD_GRADLE.relative_to(REPO_ROOT)} (versionName='{new_version}', versionCode={new_vc})")
+        if write_if_changed(BUILD_GRADLE, content):
+            print(f"[+] Updated {BUILD_GRADLE.relative_to(REPO_ROOT)} (versionName='{new_version}', versionCode={new_vc})")
+        else:
+            print(f"[=] {BUILD_GRADLE.relative_to(REPO_ROOT)} already up to date")
 
     if FAILURES:
         print(f"[-] Version NOT updated in: {', '.join(FAILURES)}")

@@ -22,6 +22,9 @@ PORT = 8993
 LEGACY_PORT = 18088
 REMOTE_ID = 1234567
 failed = 0
+# How long a check waits for a frame it expects. A wait ends as soon as the frame comes, so
+# this only has to cover a slow, loaded CI runner (a 3 s wait for the runactivity ack ran out there).
+WAIT = 15.0
 
 
 def check(cond, name, detail=""):
@@ -156,7 +159,7 @@ def main():
 
         print("[-] 6.3 WebSocket envelope and digest on connect")
         ws = legacy_ws(REMOTE_ID)
-        first, _ = recv_until(ws, lambda m: m.get("type") == "connect.stateDigest?notify", 3.0)
+        first, _ = recv_until(ws, lambda m: m.get("type") == "connect.stateDigest?notify", WAIT)
         check(first is not None, "digest notify right after the upgrade")
         dg = (first or {}).get("data", {})
         check(isinstance(dg.get("configVersion"), int) and dg.get("syncStatus") == 0 and dg.get("activityId") == "-1"
@@ -206,11 +209,11 @@ def main():
 
         print("[-] 6.7 runactivity sequencing")
         ws2 = legacy_ws(REMOTE_ID)
-        recv_until(ws2, lambda m: m.get("type") == "connect.stateDigest?notify", 3.0)
+        recv_until(ws2, lambda m: m.get("type") == "connect.stateDigest?notify", WAIT)
         plain = hub.ws()  # an 8089 client: must never see legacy frames
         plain.wait_for("snapshot", 5)
         rid = hbus(ws, "harmony.activityengine?runactivity", {"async": "true", "timestamp": 0, "activityId": "10"})
-        r, before = reply_for(ws, rid, 3.0)
+        r, before = reply_for(ws, rid, WAIT)
         check(r is not None and r.get("code") == 200 and r.get("cmd") == "harmony.activityengine?runactivity" and r.get("data") == {},
               "runactivity acknowledged with code 200", str(r))
         fin, frames = recv_until(ws, lambda m: m.get("type") == "harmony.engine?startActivityFinished", 15.0)
@@ -224,13 +227,13 @@ def main():
               "startActivity code 100 progress frames with the request id (%d)" % len(progress))
         done = [f for f in frames if f.get("cmd") == "harmony.engine?startActivity" and f.get("code") == 200]
         check(len(done) == 1 and done[0].get("id") == rid and done[0].get("data") == {}, "exactly one startActivity code 200 with the request id")
-        last, _ = recv_until(ws, lambda m: m.get("type") == "connect.stateDigest?notify" and m["data"].get("activityStatus") == 2, 3.0)
+        last, _ = recv_until(ws, lambda m: m.get("type") == "connect.stateDigest?notify" and m["data"].get("activityStatus") == 2, WAIT)
         check(last is not None and last["data"].get("activityId") == "10" and last["data"].get("runningActivityList") == "10",
               "final digest notify activityStatus 2", str(last))
         # the second client: notifies and finished, but no startActivity frames
         f2 = []
         while True:
-            m, before2 = recv_until(ws2, lambda m: m.get("type") == "connect.stateDigest?notify" and m["data"].get("activityStatus") == 2, 3.0)
+            m, before2 = recv_until(ws2, lambda m: m.get("type") == "connect.stateDigest?notify" and m["data"].get("activityStatus") == 2, WAIT)
             f2 += before2
             if m is not None:
                 f2.append(m)
@@ -252,15 +255,15 @@ def main():
               and dg.get("runningActivityList") == "10" and dg.get("configVersion") == cfg_version, "statedigest?get while running", str(dg)[:160])
 
         rid = hbus(ws, "harmony.activityengine?runactivity", {"async": "true", "timestamp": 0, "activityId": "999"})
-        r, _ = reply_for(ws, rid, 3.0)
+        r, _ = reply_for(ws, rid, WAIT)
         check(r is not None and r.get("code") == 500 and r.get("msg") == "Unknown activity", "unknown activity 500", str(r))
 
         # a request during a transition is acknowledged and queued (no "Busy" reply): 11 starts
         # (its start sequence has a delay), 10 is asked at once and runs after it
         rid11 = hbus(ws, "harmony.activityengine?runactivity", {"async": "true", "timestamp": 0, "activityId": "11"})
-        r11, _ = reply_for(ws, rid11, 3.0)
+        r11, _ = reply_for(ws, rid11, WAIT)
         rid10 = hbus(ws, "harmony.activityengine?runactivity", {"async": "true", "timestamp": 0, "activityId": "10"})
-        r10, _ = reply_for(ws, rid10, 3.0)
+        r10, _ = reply_for(ws, rid10, WAIT)
         check(r11 is not None and r11.get("code") == 200 and r10 is not None and r10.get("code") == 200,
               "runactivity during a transition acknowledged with code 200 (queued)", "%s / %s" % (r11, r10))
         fin11, _ = recv_until(ws, lambda m: m.get("type") == "harmony.engine?startActivityFinished" and m.get("data", {}).get("activityId") == "11", 15.0)
@@ -268,7 +271,7 @@ def main():
         check(fin11 is not None and fin10 is not None, "startActivityFinished for 11, then for the queued 10")
         check(any(f.get("cmd") == "harmony.engine?startActivity" and f.get("code") == 200 and f.get("id") == rid10 for f in frames10),
               "the queued request's startActivity code 200 carries its own request id")
-        recv_until(ws, lambda m: m.get("type") == "connect.stateDigest?notify" and m["data"].get("activityStatus") == 2, 3.0)
+        recv_until(ws, lambda m: m.get("type") == "connect.stateDigest?notify" and m["data"].get("activityStatus") == 2, WAIT)
         rid = hbus(ws, "vnd.logitech.harmony/vnd.logitech.harmony.engine?getCurrentActivity")
         r, _ = reply_for(ws, rid)
         check(r is not None and r.get("data", {}).get("result") == "10", "getCurrentActivity 10 after the queued start")
@@ -283,15 +286,15 @@ def main():
         check(m is None, "holdAction press and release: no reply", str(m))
         rid = hbus(ws, "vnd.logitech.harmony/vnd.logitech.harmony.engine?holdAction",
                    {"status": "press", "timestamp": "0", "verb": "render", "action": "not json"})
-        r, _ = reply_for(ws, rid, 1.0)
+        r, _ = reply_for(ws, rid, WAIT)
         check(r is not None and r.get("code") == 500, "holdAction with a bad action: code 500 reply", str(r))
         rid = hbus(ws, "harmony.engine?changeChannel", {"timestamp": 0, "channel": "12"})
-        r, _ = reply_for(ws, rid, 1.0)
+        r, _ = reply_for(ws, rid, WAIT)
         check(r is not None and r.get("code") == 500, "changeChannel without a channel device: 500", str(r))
 
         print("[-] power off")
         rid = hbus(ws, "harmony.activityengine?runactivity", {"async": "true", "timestamp": 0, "activityId": "-1"})
-        r, _ = reply_for(ws, rid, 3.0)
+        r, _ = reply_for(ws, rid, WAIT)
         check(r is not None and r.get("code") == 200, "runactivity -1 acknowledged")
         fin, frames = recv_until(ws, lambda m: m.get("type") == "harmony.engine?startActivityFinished", 15.0)
         check(fin is not None and fin["data"].get("activityId") == "-1", "startActivityFinished -1", str(fin))
@@ -299,7 +302,7 @@ def main():
                   for f in frames), "digest notify activityStatus 0 for power off")
         check(any(f.get("cmd") == "harmony.engine?startActivity" and f.get("code") == 200 and f.get("id") == rid for f in frames),
               "startActivity 200 completes the power off")
-        last, _ = recv_until(ws, lambda m: m.get("type") == "connect.stateDigest?notify" and m["data"].get("activityStatus") == 0, 3.0)
+        last, _ = recv_until(ws, lambda m: m.get("type") == "connect.stateDigest?notify" and m["data"].get("activityStatus") == 0, WAIT)
         check(last is not None, "final digest after power off")
 
         print("[-] a switch from the REST API: notifications only")
@@ -307,7 +310,7 @@ def main():
         fin, frames = recv_until(ws, lambda m: m.get("type") == "harmony.engine?startActivityFinished", 15.0)
         check(fin is not None and fin["data"].get("activityId") == "11", "finished for 11 after a REST switch")
         check(not any(f.get("cmd") for f in frames), "no startActivity frames without a legacy request", str([f.get("cmd") for f in frames if f.get("cmd")]))
-        recv_until(ws, lambda m: m.get("type") == "connect.stateDigest?notify" and m["data"].get("activityStatus") == 2, 3.0)
+        recv_until(ws, lambda m: m.get("type") == "connect.stateDigest?notify" and m["data"].get("activityStatus") == 2, WAIT)
         # The orchestrator publishes running again when the last command went out (sending true to
         # false). That is no new transition: no second "finished" for the legacy clients.
         again, _ = recv_until(ws, lambda m: m.get("type") == "harmony.engine?startActivityFinished", 6.0)
@@ -338,7 +341,7 @@ def main():
         time.sleep(0.3)
         check(port_open(LEGACY_PORT), "listener open again")
         ws3 = legacy_ws(REMOTE_ID)
-        first, _ = recv_until(ws3, lambda m: m.get("type") == "connect.stateDigest?notify", 3.0)
+        first, _ = recv_until(ws3, lambda m: m.get("type") == "connect.stateDigest?notify", WAIT)
         check(first is not None and first["data"].get("activityId") == "11", "new client after the toggle gets the digest", str(first)[:120])
         ws3.close()
         ws2.close()
@@ -370,9 +373,9 @@ def main():
         rid_derived = prov.get("data", {}).get("activeRemoteId", "")
         check(rid_derived.isdigit() and 0 < int(rid_derived) < 2 ** 31, "activeRemoteId derived from hub_id without the stock file", rid_derived)
         ws = legacy_ws(rid_derived)
-        recv_until(ws, lambda m: m.get("type") == "connect.stateDigest?notify", 3.0)
+        recv_until(ws, lambda m: m.get("type") == "connect.stateDigest?notify", WAIT)
         rid = hbus(ws, "vnd.logitech.harmony/vnd.logitech.harmony.engine?config", remote_id=rid_derived)
-        r, _ = reply_for(ws, rid, 10.0)
+        r, _ = reply_for(ws, rid, WAIT)
         cfg_len = len(json.dumps(r)) if r else 0
         dev1 = [d for d in (r or {}).get("data", {}).get("device", []) if d.get("label") == "Living Room TV"]
         check(r is not None and r.get("code") == 200 and cfg_len > 65535, "configuration object over 64 KB arrives in one frame (%d bytes)" % cfg_len)
@@ -384,14 +387,14 @@ def main():
         with open(log_path) as f:
             sent_before = f.read().count("[DRY-RUN] IR ")
         rid = hbus(ws, "harmony.engine?changeChannel", {"timestamp": 0, "channel": "12"}, remote_id=rid_derived)
-        r, _ = reply_for(ws, rid, 2.0)
+        r, _ = reply_for(ws, rid, WAIT)
         check(r is not None and r.get("code") == 200 and r.get("data") == {}, "changeChannel 12 with the channel device from deviceIds: 200", str(r))
         time.sleep(0.8)
         with open(log_path) as f:
             sent_after = f.read().count("[DRY-RUN] IR ")
         check(sent_after - sent_before == 2, "two digits sent 200 ms apart (daemon log)", "%d -> %d" % (sent_before, sent_after))
         rid = hbus(ws, "harmony.engine?changeChannel", {"timestamp": 0, "channel": "1a"}, remote_id=rid_derived)
-        r, _ = reply_for(ws, rid, 2.0)
+        r, _ = reply_for(ws, rid, WAIT)
         check(r is not None and r.get("code") == 500, "changeChannel with a non-digit: 500")
         ws.close()
 
