@@ -577,7 +577,72 @@ int main(void) {
     }
     assert(plugin_mgr_uninstall("loud") == 0);
     unlink("/tmp/test_loud.tar.gz");
-    printf("[+] Helper traps not cut, non-blocking restart sweep, SIGKILL after grace, busy disable unchanged, log cap at the tick.\n");
+    /* a log no running slot writes (a helper writing on while its leader is dead) is capped too */
+    {
+        char big[1024];
+        memset(big, 'x', sizeof(big));
+        FILE *f = fopen(RUN "/ghost.log", "w");
+        assert(f);
+        for (int i = 0; i < 400; i++) fwrite(big, 1, sizeof(big), f);
+        fclose(f);
+        struct stat lst;
+        plugin_mgr_tick();
+        assert(stat(RUN "/ghost.log", &lst) == 0 && lst.st_size == 0);
+        unlink(RUN "/ghost.log");
+    }
+
+    /* 15j. A leader that ignores SIGTERM gets the SIGKILL at 1 s, its helper does not: the
+     * helper's EXIT trap (ps5-wake: signal() keeps recv() blocking) still completes */
+    make_src("deaf", "1",
+             "( trap 'sleep 2; touch /tmp/test_trap_done; exit 0' TERM; while :; do sleep 1 & wait $!; done ) &\n"
+             "echo $! > /tmp/test_trap_child\ntrap '' TERM\nwhile :; do sleep 1; done");
+    pack("/tmp/test_deaf.tar.gz");
+    unlink("/tmp/test_trap_done");
+    unlink("/tmp/test_trap_child");
+    assert(plugin_mgr_install_archive("/tmp/test_deaf.tar.gz", NULL, err, sizeof(err)) == 0);
+    trap_child = read_pid("/tmp/test_trap_child");
+    assert(trap_child > 1);
+    usleep(200000);
+    int deaf_leader = installed_field("deaf", "pid");
+    assert(plugin_mgr_stop("deaf") == 0);
+    assert(pid_gone(deaf_leader));
+    for (int i = 0; i < 200 && access("/tmp/test_trap_done", F_OK) != 0; i++) {
+        plugin_mgr_tick();
+        usleep(20000);
+    }
+    assert(access("/tmp/test_trap_done", F_OK) == 0);
+    unlink("/tmp/test_trap_done");
+
+    /* 15k. hub_daemon start does not wait for a leftover that ignores SIGTERM (the HTTP
+     * sockets already listen): the tick sends the SIGKILL after the grace */
+    {
+        char *const env_deaf[] = { "HARMONY_PLUGIN_ID=deaf", "HARMONY_SOCKET=" RUN "/deaf.sock", "PATH=/usr/bin:/bin", NULL };
+        pid_t deaf = fork();
+        if (deaf == 0) {
+            execle("/bin/sh", "sh", "-c", "trap '' TERM; while :; do sleep 1; done", (char *)NULL, env_deaf);
+            _exit(1);
+        }
+        usleep(200000);
+        struct timespec t0, t1;
+        clock_gettime(CLOCK_MONOTONIC, &t0);
+        plugin_mgr_init();
+        clock_gettime(CLOCK_MONOTONIC, &t1);
+        long ms = (t1.tv_sec - t0.tv_sec) * 1000 + (t1.tv_nsec - t0.tv_nsec) / 1000000;
+        assert(ms < 500);
+        int dst;
+        assert(waitpid(deaf, &dst, WNOHANG) == 0); /* within the grace */
+        int gone = 0;
+        for (int i = 0; i < 250 && !gone; i++) {
+            plugin_mgr_tick();
+            usleep(20000);
+            gone = waitpid(deaf, &dst, WNOHANG) == deaf;
+        }
+        assert(gone && WIFSIGNALED(dst) && WTERMSIG(dst) == SIGKILL);
+    }
+    assert(plugin_mgr_uninstall("deaf") == 0);
+    unlink("/tmp/test_deaf.tar.gz");
+    unlink("/tmp/test_trap_child");
+    printf("[+] Helper traps not cut (also with a leader that ignores SIGTERM), non-blocking restart and init sweeps, SIGKILL after grace, busy disable unchanged, log cap at the tick for every log.\n");
 
     /* 16. In-use guard */
     write_file(ROOT "/config/devices.json",
