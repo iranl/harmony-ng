@@ -536,9 +536,13 @@ int main(int argc, char **argv) {
         static uint64_t last_progress_render_ms = 0;
         if (g_is_switching_activity) {
             /* g_switching_start_ms can be newer than now_ms: the RF thread starts the overlay */
-            if (ms_since(now_ms, g_switching_start_ms) > (uint64_t)g_switching_total_ms + 400) {
+            /* A switch the Hub announced ends with its end notice; this is the fallback when
+               that notice is lost. Without the announcement (older Hub) the estimate ends it. */
+            uint64_t switch_grace_ms = g_switch_hub_started ? 10000 : 400;
+            if (ms_since(now_ms, g_switching_start_ms) > (uint64_t)g_switching_total_ms + switch_grace_ms) {
                 printf("[*] Activity switch complete (elapsed %llums), unlocking screen\n", (unsigned long long)ms_since(now_ms, g_switching_start_ms));
                 g_is_switching_activity = false;
+                g_switch_hub_started = false;
                 g_last_switch_completed_ms = now_ms;
                 strncpy(g_last_switch_target_id, g_switching_target_id, sizeof(g_last_switch_target_id) - 1);
                 remote_show_switch_target();
@@ -797,6 +801,9 @@ int main(int argc, char **argv) {
                     if (rf_code != 0) {
                         activity_trigger_btn_t *matched_trig = NULL;
                         for (int t = 0; t < g_act_trigger_count; t++) {
+                            /* A Help key counts in its own activity; elsewhere the Hub maps the key */
+                            if (g_act_triggers[t].atype == 0x04 &&
+                                strcmp(g_act_triggers[t].target_act_id, g_active_activity_id) != 0) continue;
                             if ((g_act_triggers[t].rf_key_code != 0 && g_act_triggers[t].rf_key_code == rf_code) ||
                                 strcasecmp(g_act_triggers[t].button_name, rf_short_button_name(rf_code)) == 0) {
                                 matched_trig = &g_act_triggers[t];
@@ -805,7 +812,10 @@ int main(int argc, char **argv) {
                         }
 
                         if (matched_trig) {
-                            if (ev.value == 1) {
+                            if (ev.value == 1 && matched_trig->atype == 0x04) {
+                                ui_help_start();
+                                g_screen_dirty = true;
+                            } else if (ev.value == 1) {
                                 const char *target_id = matched_trig->target_act_id;
                                 if (matched_trig->atype == 0x03) target_id = "-1";
 
@@ -966,16 +976,8 @@ int main(int argc, char **argv) {
         }
     }
 
-    flush_activity_usage();  /* init.sh stop sends SIGTERM first, which ends the main loop */
     flightlog_event("EXIT", "clean=1");
-    printf("[+] Cleaning up hardware resources...\n");
-    remote_wdt_close();
-    if (g_touch_fd >= 0) { ioctl(g_touch_fd, EVIOCGRAB, 0); close(g_touch_fd); }
-    if (g_gyro_fd >= 0)  { ioctl(g_gyro_fd, EVIOCGRAB, 0);  close(g_gyro_fd); }
-    if (g_rf_fd >= 0)    close(g_rf_fd);
-    if (g_btn_fd >= 0)   close(g_btn_fd);
-    if (g_fb_mem)        munmap(g_fb_mem, g_fb_size);
-    if (g_fb_fd >= 0)    close(g_fb_fd);
+    remote_hardware_cleanup();  /* init.sh stop sends SIGTERM first, which ends the main loop */
 
     return 0;
 }

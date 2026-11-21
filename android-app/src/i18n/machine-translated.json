@@ -1,6 +1,7 @@
 {
   "about": "Texts in these lists were translated by machine and not yet checked by a person. When you have checked or corrected a text in a language, remove its key from that language's list. scripts/i18n-check.js reports what is left.",
   "de": [
+    "map_action_help",
     "hold_repeat",
     "user_name_required",
     "user_name_too_long",
@@ -708,6 +709,7 @@
     "usb_wifi_setup_desc"
   ],
   "fr": [
+    "map_action_help",
     "hold_repeat",
     "user_name_required",
     "user_name_too_long",
@@ -1415,6 +1417,7 @@
     "usb_wifi_setup_desc"
   ],
   "nl": [
+    "map_action_help",
     "hold_repeat",
     "user_name_required",
     "user_name_too_long",
@@ -2122,6 +2125,7 @@
     "usb_wifi_setup_desc"
   ],
   "es": [
+    "map_action_help",
     "hold_repeat",
     "user_name_required",
     "user_name_too_long",
@@ -2829,6 +2833,7 @@
     "usb_wifi_setup_desc"
   ],
   "it": [
+    "map_action_help",
     "hold_repeat",
     "user_name_required",
     "user_name_too_long",

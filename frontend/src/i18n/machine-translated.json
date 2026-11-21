@@ -1,6 +1,7 @@
 {
   "about": "Texts in these lists were translated by machine and not yet checked by a person. When you have checked or corrected a text in a language, remove its key from that language's list. scripts/i18n-check.js reports what is left.",
   "de": [
+    "map_action_help",
     "confirm_btn",
     "cancel_btn",
     "search_icons",
@@ -537,6 +538,7 @@
     "usb_wifi_setup_turned_off"
   ],
   "fr": [
+    "map_action_help",
     "confirm_btn",
     "cancel_btn",
     "search_icons",
@@ -1073,6 +1075,7 @@
     "usb_wifi_setup_turned_off"
   ],
   "nl": [
+    "map_action_help",
     "confirm_btn",
     "cancel_btn",
     "search_icons",
@@ -1609,6 +1612,7 @@
     "usb_wifi_setup_turned_off"
   ],
   "es": [
+    "map_action_help",
     "confirm_btn",
     "cancel_btn",
     "search_icons",
@@ -2145,6 +2149,7 @@
     "usb_wifi_setup_turned_off"
   ],
   "it": [
+    "map_action_help",
     "confirm_btn",
     "cancel_btn",
     "search_icons",

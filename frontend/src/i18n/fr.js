@@ -1112,6 +1112,7 @@ export default {
     "start_activity_name": "Démarrer {name}",
     "activity_n": "Activité {id}",
     "turn_everything_off": "Tout éteindre",
+    "map_action_help": "Aide de l'activité (Réparer)",
     "not_supported_action": "Non pris en charge ({action})",
     "mapping_default_suffix": "{mapping} (par défaut)",
     "not_mapped": "Non affecté",

@@ -578,7 +578,8 @@ void *api_server_worker(void *arg) {
                     rf_sync_cache_invalidate();
                     char cur[32] = "-1";
                     get_current_activity(cur, sizeof(cur));
-                    rf_send_hub_activity_sync(cur);
+                    /* Mid-switch this would end the remotes' switch screen: the end notice follows */
+                    if (!is_activity_transitioning()) rf_send_hub_activity_sync(cur);
                     const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"synced\"}";
                     write(cli, res, strlen(res));
                 }
