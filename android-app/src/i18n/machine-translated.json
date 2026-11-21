@@ -848,7 +848,7 @@
     "plg_verify_code",
     "plg_verify_failed",
     "plg_verifying",
-    "plg_upload_too_large"
+    "plg_upload_too_large",
     "hub_update_restarting",
     "hub_update_reconnecting",
     "hub_update_complete_ver",
@@ -1707,7 +1707,7 @@
     "plg_verify_code",
     "plg_verify_failed",
     "plg_verifying",
-    "plg_upload_too_large"
+    "plg_upload_too_large",
     "hub_update_restarting",
     "hub_update_reconnecting",
     "hub_update_complete_ver",
@@ -2566,7 +2566,7 @@
     "plg_verify_code",
     "plg_verify_failed",
     "plg_verifying",
-    "plg_upload_too_large"
+    "plg_upload_too_large",
     "hub_update_restarting",
     "hub_update_reconnecting",
     "hub_update_complete_ver",
@@ -3425,7 +3425,7 @@
     "plg_verify_code",
     "plg_verify_failed",
     "plg_verifying",
-    "plg_upload_too_large"
+    "plg_upload_too_large",
     "hub_update_restarting",
     "hub_update_reconnecting",
     "hub_update_complete_ver",
@@ -4284,7 +4284,7 @@
     "plg_verify_code",
     "plg_verify_failed",
     "plg_verifying",
-    "plg_upload_too_large"
+    "plg_upload_too_large",
     "hub_update_restarting",
     "hub_update_reconnecting",
     "hub_update_complete_ver",
