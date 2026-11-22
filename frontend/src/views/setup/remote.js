@@ -6,6 +6,8 @@ import { toast } from '../../components/toast.js';
 import { confirm } from '../../components/confirm.js';
 import { createButtonEditor } from './remote-buttons.js';
 
+const RF_SLOT_COUNT = 6; /* the Hub's remote slots (REMOTE_SLOT_MAX) */
+
 export function createView() {
   const container = h('div', { className: 'setup-subview-rfremote', style: { display: 'flex', flexDirection: 'column', gap: '16px' } });
 
@@ -34,10 +36,33 @@ export function createView() {
     h('p', { className: 'text-dim', style: { fontSize: '13px' }, text: t('card_remote_sub', 'Physical RF remote pairing, touchscreen layout & button mapping') }),
   ]);
 
+  // A button per slot: Pair below pairs the next remote into the selected slot
+  const slotBar = h('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } });
+  function renderSlotButtons(st) {
+    const paired = n => {
+      const s = st?.slots?.find(x => x.slot === n);
+      const addr = s?.address || s?.rf_address || '';
+      return Boolean(s?.active && addr && addr !== 'None' && addr !== '00000000');
+    };
+    const buttonsForSlots = [];
+    for (let n = 1; n <= RF_SLOT_COUNT; n++) {
+      const name = st?.slots?.find(x => x.slot === n)?.name;
+      let text = paired(n) ? t('slot_n', 'Slot {n}', { n }) + (name ? `: ${name}` : '') : t('slot_n_empty', 'Slot {n} (empty)', { n });
+      if (n === currentSlot) text = `✓ ${text}`;
+      buttonsForSlots.push(h('button', {
+        className: `btn btn-sm ${n === currentSlot ? 'btn-primary' : 'btn-secondary'}`,
+        text,
+        onclick: () => { currentSlot = n; loadSlot(); },
+      }));
+    }
+    slotBar.replaceChildren(...buttonsForSlots);
+  }
+
   // RF link counters for the selected slot
   const linkStatus = h('p', { style: { fontSize: '13px', marginBottom: '12px' }, text: '' });
   async function loadLinkStatus() {
     const st = await api.getRfStatus().catch(() => null);
+    renderSlotButtons(st);
     const link = st?.slots?.find(s => s.slot === currentSlot)?.link;
     if (!link) { linkStatus.textContent = ''; return; }
     const seen = link.last_seen_s < 0 ? t('rf_link_never', 'never') : t('seconds_ago', '{s} s ago', { s: link.last_seen_s });
@@ -62,19 +87,8 @@ export function createView() {
   const pairingCard = h('div', { className: 'card' }, [
     h('div', { className: 'card-header' }, [
       h('h4', { className: 'card-title', text: t('rf_pairing_status', 'RF Pairing & Status') }),
-      h('div', { style: { display: 'flex', gap: '6px' } }, [
-        h('button', {
-          className: 'btn btn-secondary btn-sm',
-          text: currentSlot === 1 ? t('slot_n_active', 'Slot {n} (Active)', { n: 1 }) : t('slot_n', 'Slot {n}', { n: 1 }),
-          onclick: () => { currentSlot = 1; loadSlot(); },
-        }),
-        h('button', {
-          className: 'btn btn-secondary btn-sm',
-          text: currentSlot === 2 ? t('slot_n_active', 'Slot {n} (Active)', { n: 2 }) : t('slot_n', 'Slot {n}', { n: 2 }),
-          onclick: () => { currentSlot = 2; loadSlot(); },
-        }),
-      ]),
     ]),
+    slotBar,
     linkStatus,
     h('p', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '12px' }, text: t('rf_pairing_note', 'Note: On touchscreen remotes with custom firmware, enable pairing via Settings > Pair Remote. On Companion remotes, use the physical pairing button combination.') }),
     h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } }, [
@@ -85,7 +99,7 @@ export function createView() {
           try {
             await api.pairRfRemote(currentSlot);
             isPairing = true;
-            toast.info(t('rf_pairing_active_note', 'Hub pairing active! On touchscreen remotes: Settings > Pair Remote. On Companion: press & hold pairing buttons.'));
+            toast.info(t('rf_pairing_into_slot', 'Pairing into slot {n}. On touchscreen remotes: Settings > Pair Remote. On Companion: press & hold pairing buttons.', { n: currentSlot }));
           } catch (e) {
             toast.error(e.message);
           }
@@ -117,6 +131,7 @@ export function createView() {
             try {
               await api.unpairRfRemote(currentSlot);
               toast.warn(t('unpaired_slot', 'Unpaired slot {slot}', { slot: currentSlot }));
+              loadLinkStatus();
             } catch (e) {
               toast.error(e.message);
             }

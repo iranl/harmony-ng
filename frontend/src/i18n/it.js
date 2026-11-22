@@ -1253,4 +1253,7 @@ export default {
     "devices_all_hidden": "Tutti i dispositivi sono nascosti in questa scheda. Deseleziona \"Nascondi nella scheda Dispositivi\" nelle impostazioni del dispositivo per mostrarne uno.",
     "device_visibility": "Visibilità",
     "hide_on_remote": "Nascondi sul telecomando (solo elenchi dispositivi; i tasti delle attività funzionano ancora)",
+    "slot_n_empty": "Slot {n} (vuoto)",
+    "rf_pairing_into_slot": "Associazione nello slot {n}. Telecomandi touch: Impostazioni > Associa telecomando. Companion: tieni premuti i tasti di associazione.",
+    "copy_from": "Copia da",
 };

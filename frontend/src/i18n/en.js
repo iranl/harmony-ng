@@ -1253,4 +1253,7 @@ export default {
     "devices_all_hidden": "All devices are hidden from this tab. Clear \"Hide in Devices tab\" in the device settings to show one.",
     "device_visibility": "Visibility",
     "hide_on_remote": "Hide on remote (device lists only; activity buttons and keys still work)",
+    "slot_n_empty": "Slot {n} (empty)",
+    "rf_pairing_into_slot": "Pairing into slot {n}. On touchscreen remotes: Settings > Pair Remote. On Companion: press & hold pairing buttons.",
+    "copy_from": "Copy from",
 };

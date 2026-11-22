@@ -1253,4 +1253,7 @@ export default {
     "devices_all_hidden": "Todos los dispositivos están ocultos en esta pestaña. Desmarque \"Ocultar en la pestaña Dispositivos\" en los ajustes del dispositivo para mostrar uno.",
     "device_visibility": "Visibilidad",
     "hide_on_remote": "Ocultar en el mando (solo listas de dispositivos; los botones de actividad siguen funcionando)",
+    "slot_n_empty": "Ranura {n} (vacía)",
+    "rf_pairing_into_slot": "Emparejando en la ranura {n}. Mandos táctiles: Ajustes > Emparejar mando. Companion: mantenga pulsados los botones de emparejamiento.",
+    "copy_from": "Copiar de",
 };

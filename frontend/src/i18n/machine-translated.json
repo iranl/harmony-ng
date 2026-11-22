@@ -538,7 +538,10 @@
     "hide_in_devices_tab",
     "devices_all_hidden",
     "device_visibility",
-    "hide_on_remote"
+    "hide_on_remote",
+    "slot_n_empty",
+    "rf_pairing_into_slot",
+    "copy_from"
   ],
   "fr": [
     "confirm_btn",
@@ -1078,7 +1081,10 @@
     "hide_in_devices_tab",
     "devices_all_hidden",
     "device_visibility",
-    "hide_on_remote"
+    "hide_on_remote",
+    "slot_n_empty",
+    "rf_pairing_into_slot",
+    "copy_from"
   ],
   "nl": [
     "confirm_btn",
@@ -1618,7 +1624,10 @@
     "hide_in_devices_tab",
     "devices_all_hidden",
     "device_visibility",
-    "hide_on_remote"
+    "hide_on_remote",
+    "slot_n_empty",
+    "rf_pairing_into_slot",
+    "copy_from"
   ],
   "es": [
     "confirm_btn",
@@ -2158,7 +2167,10 @@
     "hide_in_devices_tab",
     "devices_all_hidden",
     "device_visibility",
-    "hide_on_remote"
+    "hide_on_remote",
+    "slot_n_empty",
+    "rf_pairing_into_slot",
+    "copy_from"
   ],
   "it": [
     "confirm_btn",
@@ -2698,6 +2710,9 @@
     "hide_in_devices_tab",
     "devices_all_hidden",
     "device_visibility",
-    "hide_on_remote"
+    "hide_on_remote",
+    "slot_n_empty",
+    "rf_pairing_into_slot",
+    "copy_from"
   ]
 }

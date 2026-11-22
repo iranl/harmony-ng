@@ -1253,4 +1253,7 @@ export default {
     "devices_all_hidden": "Tous les appareils sont masqués dans cet onglet. Décochez « Masquer dans l'onglet Appareils » dans les réglages de l'appareil pour en afficher un.",
     "device_visibility": "Visibilité",
     "hide_on_remote": "Masquer sur la télécommande (listes d'appareils uniquement ; les touches d'activité fonctionnent toujours)",
+    "slot_n_empty": "Emplacement {n} (vide)",
+    "rf_pairing_into_slot": "Appairage dans l'emplacement {n}. Télécommandes tactiles : Réglages > Appairer la télécommande. Companion : maintenez les touches d'appairage.",
+    "copy_from": "Copier depuis",
 };

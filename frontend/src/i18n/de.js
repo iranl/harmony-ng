@@ -1253,4 +1253,7 @@ export default {
     "devices_all_hidden": "Alle Geräte sind in diesem Tab ausgeblendet. Deaktivieren Sie \"Im Tab Geräte ausblenden\" in den Geräteeinstellungen, um eines anzuzeigen.",
     "device_visibility": "Sichtbarkeit",
     "hide_on_remote": "Auf der Fernbedienung ausblenden (nur Gerätelisten; Aktionstasten funktionieren weiter)",
+    "slot_n_empty": "Slot {n} (leer)",
+    "rf_pairing_into_slot": "Kopplung in Slot {n}. Touchscreen-Fernbedienungen: Einstellungen > Fernbedienung koppeln. Companion: Kopplungstasten gedrückt halten.",
+    "copy_from": "Kopieren von",
 };

@@ -1253,4 +1253,7 @@ export default {
     "devices_all_hidden": "Alle apparaten zijn verborgen in dit tabblad. Zet \"Verbergen in tabblad Apparaten\" uit in de apparaatinstellingen om er een te tonen.",
     "device_visibility": "Zichtbaarheid",
     "hide_on_remote": "Verbergen op afstandsbediening (alleen apparatenlijsten; activiteitknoppen werken nog)",
+    "slot_n_empty": "Slot {n} (leeg)",
+    "rf_pairing_into_slot": "Koppelen in slot {n}. Touchscreen-afstandsbedieningen: Instellingen > Afstandsbediening koppelen. Companion: houd de koppelknoppen ingedrukt.",
+    "copy_from": "Kopiëren van",
 };
