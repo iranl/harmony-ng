@@ -5,7 +5,8 @@
 # when an older build, which ships no file of this name, is deployed over this one).
 #
 # Key logins only: -s refuses password logins, -g also refuses them for root. -K 300 sends a
-# keepalive every 5 minutes.
+# keepalive every 5 minutes. -R creates a missing host key at the first login (the current
+# dropbearmulti loads only an Ed25519 one; a Hub can have only the stock RSA key).
 #
 # The server binary is the first of: a separate dropbear in /data/harmony/bin (older installs),
 # the multi-call binary of an update package, the multi-call binary of the USB root tool, the
@@ -25,8 +26,8 @@ for _b in /data/harmony/bin/dropbear /data/harmony/bin/dropbearmulti /data/dropb
     fi
     export PATH=/data/harmony/bin:/cache/bin:$PATH
     case "$_b" in
-        *dropbearmulti) exec "$_b" dropbear -s -g -K 300 "$@" ;;
-        *) exec "$_b" -s -g -K 300 "$@" ;;
+        *dropbearmulti) exec "$_b" dropbear -s -g -K 300 -R "$@" ;;
+        *) exec "$_b" -s -g -K 300 -R "$@" ;;
     esac
 done
 echo "dropbear: no SSH server binary found" >&2

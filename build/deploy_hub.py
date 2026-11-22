@@ -47,7 +47,7 @@ def find_default_ssh_key() -> str | None:
         if owner_keys:
             return str(owner_keys[0])
 
-        for std in ("id_rsa", "id_ed25519"):
+        for std in ("id_ed25519",):  # the Hub server takes Ed25519 keys only
             cand = ssh_dir / std
             if cand.is_file():
                 return str(cand)

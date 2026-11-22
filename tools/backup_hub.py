@@ -5,7 +5,7 @@ Creates golden and rolling tar backups of Harmony Hub configuration over SSH.
 Based on build/backup_hub.sh.
 
 Features:
-- Auto-detects SSH keys (~/.ssh/harmony_owner_*, id_rsa, id_ed25519)
+- Auto-detects SSH keys (~/.ssh/harmony_owner_*, id_ed25519)
 - Automatically stages RAM BusyBox (/tmp/busybox) if Hub stock BusyBox lacks tar
 - Creates an initial GOLDEN backup per Hub (never overwritten)
 - Creates timestamped rolling backups of /data/harmony, configs, and system files
@@ -50,7 +50,7 @@ def find_default_ssh_key() -> str | None:
         if owner_keys:
             return str(owner_keys[0])
 
-        for std in ("id_rsa", "id_ed25519"):
+        for std in ("id_ed25519",):  # the Hub server takes Ed25519 keys only
             cand = ssh_dir / std
             if cand.is_file():
                 return str(cand)

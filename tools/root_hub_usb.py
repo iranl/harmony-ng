@@ -86,9 +86,9 @@ ln -sf /data/dropbearmulti /usr/sbin/dropbearkey
 ln -sf /data/dropbearmulti /usr/sbin/dbclient
 ln -sf /data/dropbearmulti /usr/sbin/scp
 
-# Phase 5: Ensure RSA host key exists
-if [ ! -r /etc/dropbear/dropbear_rsa_host_key ]; then
-    /data/dropbearmulti dropbearkey -t rsa -f /etc/dropbear/dropbear_rsa_host_key
+# Phase 5: Ensure the Ed25519 host key exists (the only host key type the server loads)
+if [ ! -r /etc/dropbear/dropbear_ed25519_host_key ]; then
+    /data/dropbearmulti dropbearkey -t ed25519 -f /etc/dropbear/dropbear_ed25519_host_key
 fi
 
 # Phase 6: Start Dropbear SSH daemon in background and let rcS continue (key logins only)

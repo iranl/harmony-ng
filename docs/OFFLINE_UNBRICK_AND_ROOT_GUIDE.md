@@ -273,16 +273,16 @@ printf '#!/bin/sh\nexec /usr/sbin/dropbearmulti dropbear -s -g "$@"\n' > /usr/sb
 chmod 755 /usr/sbin/dropbear
 ln -sf /usr/sbin/dropbearmulti /usr/sbin/dropbearkey
 
-# 2. Generate RSA host key
+# 2. Generate the Ed25519 host key (the only host key type this dropbearmulti loads)
 mkdir -p /etc/dropbear /root/.ssh
-/usr/sbin/dropbearkey -t rsa -f /etc/dropbear/dropbear_rsa_host_key
+/usr/sbin/dropbearkey -t ed25519 -f /etc/dropbear/dropbear_ed25519_host_key
 
 # 3. Create the boot trigger file
 # Stock /etc/init.d/rcS checks: if [ -r /etc/tdeenable -a -x /usr/sbin/dropbear ]; then dropbear; fi
 touch /etc/tdeenable
 
 # 4. Install your SSH public key
-# Dropbearmulti supports both ED25519 and RSA keys:
+# Dropbearmulti takes ED25519 keys only (ssh-keygen -t ed25519):
 echo "<YOUR_SSH_PUBLIC_KEY>" > /etc/dropbear/authorized_keys
 cp /etc/dropbear/authorized_keys /root/.ssh/authorized_keys
 
