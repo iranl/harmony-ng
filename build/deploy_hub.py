@@ -351,6 +351,10 @@ class HubDeployer:
             print(f"[-] {self.hub_host} is not a Harmony Hub (uname -m: {machine or 'no answer'}). Nothing was changed. "
                   "For the remote use remote/deploy_remote.py.", file=sys.stderr)
             return False
+        if not self.webui_only and not (self.bin_dir / "hub_rf").is_file():
+            print(f"[-] Required Hub RF daemon is missing: {self.bin_dir / 'hub_rf'}. Nothing was changed. "
+                  "Build the Hub binaries with ./build/compile_all.sh before deploying.", file=sys.stderr)
+            return False
         wrong = [] if self.webui_only else self.wrong_arch_binaries()
         if wrong:
             print(f"[-] Not built for the Hub (MIPS) in {self.bin_dir}: {', '.join(wrong)}. Nothing was changed.",
