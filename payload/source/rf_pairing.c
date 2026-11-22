@@ -106,7 +106,7 @@ static void *pairing_timeout_worker(void *arg) {
 
 void start_pairing_mode(int slot) {
     if (g_pairing_mode) return;
-    (void)slot;
+    rf_slot_map_set_pair_target((uint8_t)(slot > 0 ? slot : 0));
     uint8_t duration_sec = 0x1E; /* 30 seconds lock duration (matches stock hal_hub libhal_rf_host_open_lock) */
     uint8_t open_lock[7] = {0x10, 0xFF, 0x80, 0xB2, 0x01, 0x00, duration_sec};
     printf("[*] Opening pairing lock (duration=%ds, 10 FF 80 B2 01 00 %02X)...\n", duration_sec, duration_sec);
@@ -163,7 +163,10 @@ void *hub_button_worker(void *arg) {
                     stop_pairing_mode();
                 } else {
                     printf("[*] Starting pairing mode from Hub Pair Button\n");
-                    int target_slot = (g_paired_remotes[0].active && !g_paired_remotes[1].active) ? 2 : 0;
+                    /* the lowest slot without a remote */
+                    int target_slot = 0;
+                    for (int s = 1; s <= MAX_PAIRED_REMOTES && !target_slot; s++)
+                        if (!g_paired_remotes[s - 1].active) target_slot = s;
                     start_pairing_mode(target_slot);
                 }
             }
@@ -192,9 +195,9 @@ void unpair_device(int slot) {
     }
     usleep(30000); /* Allow RF frame transmission before hardware lock reset */
 
-    uint8_t s = (slot >= 1 && slot <= MAX_PAIRED_REMOTES) ? (uint8_t)slot : 0x00;
+    uint8_t s = (slot >= 1 && slot <= MAX_PAIRED_REMOTES) ? rf_slot_to_pipe((uint8_t)slot) : 0x00;
     uint8_t unpair[] = { 0x10, 0xFF, 0x80, 0xB2, 0x03, s, 0x00 };
-    RF_LOG(LOG_LEVEL_INFO, "[*] Unpairing remote (slot=%d, 10 FF 80 B2 03 %02X 00)...\n", slot, s);
+    RF_LOG(LOG_LEVEL_INFO, "[*] Unpairing remote (slot=%d, pipe 10 FF 80 B2 03 %02X 00)...\n", slot, s);
     rf_write_cmd(unpair, sizeof(unpair));
     /* everything known about the remote goes with the pairing (the same cleanup as for an
      * unpair the remote asked for) */

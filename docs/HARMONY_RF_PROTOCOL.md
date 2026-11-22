@@ -168,6 +168,10 @@ Query command: `10 FF 83 B5 <pipe> 00 00`:
 
 ### 4.4 Pairing State Machine
 - **Open Pairing Lock (Hub)**: `10 FF 80 B2 01 00 <duration>` (e.g. `0x1E` = 30 seconds). Opens pairing window on Hub.
+  The command has no slot: the CC2544 picks the pipe of the new remote. For a pairing into a
+  chosen slot (`POST /api/rf/pair?slot=N`) `hub_rf` maps that pipe to the slot afterwards
+  (`rf_slot_map_claim_pipe()`, table in `/data/harmony/rf_slot_map.txt`). Byte 1 of every frame,
+  link status, NAK and pipe-table reply names the pipe; `rf_spi.c` turns it into the slot and back.
 - **Request Pairing (Remote)**: `10 FF 80 B2 01 01 00`. Initiates bidirectional handshake from Remote.
 - **Close Pairing Lock (Hub)**: `10 FF 80 B2 02 00 00`. Closes pairing window.
 - **Unpair Slot**: `10 FF 80 B2 03 <slot> 00` (`0x01` = Slot 1, `0x02` = Slot 2, `0x00` = All).

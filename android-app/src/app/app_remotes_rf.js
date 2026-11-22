@@ -159,8 +159,8 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
           otaWrap1.style.display = needsOta ? 'block' : 'none';
         }
 
-        // Slots 2 and up; the cards of slots 3 to 6 are made from the slot 2 card while a
-        // remote is paired there
+        // Slots 2 and up; the cards of slots 3 to 6 are made from the slot 2 card. Every slot has
+        // its card: its Pair button pairs the next remote into that slot
         this.syncRfExtraSlotCards(st);
         for (let n = 2; n <= RF_SLOT_MAX; n++) this.renderRfSlotCard(st, n);
 
@@ -314,19 +314,13 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
       }
   }
 
-  /* Cards for slots 3 to RF_SLOT_MAX: made from the slot 2 card while hub_rf lists a remote
-   * there (it lists slots above 2 only then), removed when it no longer does */
+  /* Cards for slots 3 to RF_SLOT_MAX, made from the slot 2 card: every slot has one, paired
+   * or not (hub_rf lists slots above 2 only while a remote is paired there) */
   syncRfExtraSlotCards(st) {
     const tpl = document.getElementById('rfSlotCard2');
     if (!tpl) return;
-    const listed = new Set((st.slots || []).map(s => s.slot).filter(n => n >= 3 && n <= RF_SLOT_MAX));
     for (let n = 3; n <= RF_SLOT_MAX; n++) {
-      const card = document.getElementById(`rfSlotCard${n}`);
-      if (!listed.has(n)) {
-        if (card) card.remove();
-        continue;
-      }
-      if (card) continue;
+      if (document.getElementById(`rfSlotCard${n}`)) continue;
       const c = tpl.cloneNode(true);
       c.id = `rfSlotCard${n}`;
       c.querySelectorAll('[id]').forEach(el => { el.id = el.id.replace('Slot2', `Slot${n}`); });

@@ -1940,4 +1940,5 @@ export default {
     "harmony_no_codeset": "Nessun set di codici indicato",
     "hide_in_devices_tab": "Nascondi nella scheda Dispositivi (solo interfaccia web; il telecomando non cambia)",
     "devices_all_hidden": "Tutti i dispositivi sono nascosti in questa scheda. Deseleziona \"Nascondi nella scheda Dispositivi\" nelle impostazioni del dispositivo per mostrarne uno.",
+    "slot_n_empty": "Slot {slot} (vuoto)",
 };

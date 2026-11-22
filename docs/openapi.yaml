@@ -2726,7 +2726,7 @@ paths:
       tags:
         - RF & Remote
       summary: Start RF pairing beacon
-      description: Opens the radio's pairing lock for 30 s. The slot has no effect; the radio gives the remote a free slot itself.
+      description: Opens the radio's pairing lock for 30 s. With slot 1 to 6 the remote that pairs goes to that slot (hub_rf maps the radio pipe it lands on to the slot); without it, it takes the slot of the pipe the radio picks.
       parameters:
         - name: slot
           in: query
@@ -2734,7 +2734,7 @@ paths:
           schema:
             type: integer
             enum: [0, 1, 2, 3, 4, 5, 6]
-          description: Accepted (0, all, 1 to 6) but not used
+          description: The slot the remote pairs into (0 or all, or none, for the radio's choice)
       responses:
         '200':
           description: Pairing started
@@ -2745,7 +2745,7 @@ paths:
         '400':
           description: slot is not 0, all or 1 to 6
         '409':
-          description: RF OTA update in progress
+          description: RF OTA update in progress, or the slot holds a remote (unpair it first)
     post:
       tags:
         - RF & Remote
@@ -2758,7 +2758,7 @@ paths:
           schema:
             type: integer
             enum: [0, 1, 2, 3, 4, 5, 6]
-          description: Accepted (0, all, 1 to 6) but not used
+          description: The slot the remote pairs into (0 or all, or none, for the radio's choice)
       responses:
         '200':
           description: Pairing started
@@ -2769,7 +2769,7 @@ paths:
         '400':
           description: slot is not 0, all or 1 to 6
         '409':
-          description: RF OTA update in progress
+          description: RF OTA update in progress, or the slot holds a remote (unpair it first)
 
   /api/rf/sleep:
     get:

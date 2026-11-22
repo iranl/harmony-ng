@@ -714,7 +714,8 @@
     "hub_update_ended_ver",
     "hub_updating_desc",
     "hide_in_devices_tab",
-    "devices_all_hidden"
+    "devices_all_hidden",
+    "slot_n_empty"
   ],
   "fr": [
     "hold_repeat",
@@ -1430,7 +1431,8 @@
     "hub_update_ended_ver",
     "hub_updating_desc",
     "hide_in_devices_tab",
-    "devices_all_hidden"
+    "devices_all_hidden",
+    "slot_n_empty"
   ],
   "nl": [
     "hold_repeat",
@@ -2146,7 +2148,8 @@
     "hub_update_ended_ver",
     "hub_updating_desc",
     "hide_in_devices_tab",
-    "devices_all_hidden"
+    "devices_all_hidden",
+    "slot_n_empty"
   ],
   "es": [
     "hold_repeat",
@@ -2862,7 +2865,8 @@
     "hub_update_ended_ver",
     "hub_updating_desc",
     "hide_in_devices_tab",
-    "devices_all_hidden"
+    "devices_all_hidden",
+    "slot_n_empty"
   ],
   "it": [
     "hold_repeat",
@@ -3578,6 +3582,7 @@
     "hub_update_ended_ver",
     "hub_updating_desc",
     "hide_in_devices_tab",
-    "devices_all_hidden"
+    "devices_all_hidden",
+    "slot_n_empty"
   ]
 }

@@ -370,6 +370,10 @@ void *api_server_worker(void *arg) {
                 if (is_ota_busy()) {
                     const char *res = "HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"RF OTA in progress\",\"ok\":false}";
                     write(cli, res, strlen(res));
+                } else if (qslot > 0 && g_paired_remotes[qslot - 1].active) {
+                    const char *res = "HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n"
+                                      "{\"error\":\"The slot holds a remote: unpair it first\",\"ok\":false}";
+                    write(cli, res, strlen(res));
                 } else {
                     int slot = qslot > 0 ? qslot : 0;
                     start_pairing_mode(slot);

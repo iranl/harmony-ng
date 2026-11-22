@@ -170,6 +170,27 @@ void rf_slot_forget(uint8_t slot);
 /* Gives a report made before the clock was set its reported_at; returns 1 when it changed one */
 int rf_battery_fix_times(void);
 void mark_remote_slot_active(uint8_t slot);
+
+/* Slots and CC2544 pipes. The radio picks the pipe of a new remote by itself; the slot is the
+ * number the user picked (POST /api/rf/pair?slot=N) and the one every map, setting, file, API
+ * route and log of hub_rf uses. Only rf_spi.c (frames in and out, pipe-table replies) and the
+ * unpair command translate. The table is a permutation of 1..MAX_PAIRED_REMOTES, the same
+ * numbers until a pairing into a chosen slot changes it, kept in g_rf_slot_map_path as the pipe of
+ * slots 1 to MAX_PAIRED_REMOTES ("1 2 3 4 5 6"). Numbers outside 1..MAX_PAIRED_REMOTES pass
+ * unchanged. */
+extern const char *g_rf_slot_map_path;
+uint8_t rf_slot_to_pipe(uint8_t slot);
+uint8_t rf_pipe_to_slot(uint8_t pipe);
+void rf_slot_map_load(void);
+/* The next remote that pairs goes to this slot (0: the slot of the pipe the radio picks) */
+void rf_slot_map_set_pair_target(uint8_t slot);
+/* The CC2544 reported a completed pairing: the first frame from a pipe without a remote is the
+ * new remote's */
+void rf_slot_map_note_pair_success(void);
+/* A pipe shows a remote (from_pipe_table: its EquadID reply; else a frame from it). While a
+ * pairing into a chosen slot is pending and the pipe's slot has no remote yet, the pipe moves to
+ * the chosen slot. Returns the pipe's slot. */
+uint8_t rf_slot_map_claim_pipe(uint8_t pipe, bool from_pipe_table);
 bool is_ota_busy(void);
 /* POST json_body to 127.0.0.1:port; returns the HTTP status, -1 when nothing came back */
 int http_post_local(int port, const char *endpoint, const char *json_body);

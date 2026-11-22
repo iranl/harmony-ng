@@ -360,7 +360,7 @@ void handle_rf_frame(const rf_frame_t *f) {
             rf_build_ack(&ack, slot, f->seq, 0x00);
             rf_send_frame(&ack);
             usleep(30000);
-            uint8_t unpair[7] = {0x10, 0xFF, 0x80, 0xB2, 0x03, slot, 0x00};
+            uint8_t unpair[7] = {0x10, 0xFF, 0x80, 0xB2, 0x03, rf_slot_to_pipe(slot), 0x00};
             rf_write_cmd(unpair, sizeof(unpair));
             rf_slot_forget(slot); /* the same cleanup as an unpair from the Hub */
             if (!rf_any_slot_active()) {
@@ -507,6 +507,7 @@ int main(int argc, char **argv) {
     rf_write_cmd(pkt_ver, sizeof(pkt_ver));
     usleep(50000);
 
+    rf_slot_map_load();
     query_paired_devices();
 
     /* Start local REST API thread and Hub button listener */

@@ -1635,28 +1635,36 @@ WebSocket event (10.12). Accepted from loopback only (`403` otherwise); the body
 object (`400` otherwise). Reply: `{"ok": true, "changed": true|false}`.
 
 ### 7.2 RF Pairing
-#### `GET /api/rf/pair?slot={1|2}` or `POST /api/rf/pair`
-Opens the Hub's pairing window for Harmony touchscreen remotes (Elite, Ultimate), Harmony Companion, or Harmony Smart Control remotes. The window closes by itself after 30 s (or with `stop-pair`). `slot` is accepted (`1`, `2`, `0` or `all`) but not used: the radio gives the remote the free slot.
+#### `GET /api/rf/pair?slot={1..6}` or `POST /api/rf/pair`
+Opens the Hub's pairing window for Harmony touchscreen remotes (Elite, Ultimate), Harmony Companion, or Harmony Smart Control remotes. The window closes by itself after 30 s (or with `stop-pair`).
+- **`slot` 1 to 6**: the remote that pairs goes to that slot. The CC2544 puts a new remote on a
+  radio pipe of its own choice; `hub_rf` then gives that pipe the chosen slot, and the slot that
+  pipe had takes the chosen slot's empty pipe. Maps, settings, the API and the logs use the slot;
+  only the radio frames name the pipe. The table is kept in `/data/harmony/rf_slot_map.txt` (the
+  pipe of slots 1 to 6, `1 2 3 4 5 6` until a pairing changes it; a broken file counts as that).
+  The choice holds for 45 s, or 15 s after the radio reports the pairing.
+- **Without `slot`** (or `0` / `all`): the remote takes the slot of the pipe the radio picks. The
+  Hub's pairing button pairs into the lowest slot without a remote.
 - **Response `200 OK`**: `{"status": "pairing_started"}` (also when the window is already open)
-- **Error `409`**: during an RF OTA.
+- **Error `409`**: during an RF OTA, or when the slot holds a remote (`"The slot holds a remote: unpair it first"`).
 
-#### `POST /api/rf/wake?slot={1|2}`
+#### `POST /api/rf/wake?slot={1..6}`
 Turns the remote's screen on over RF (`RF_MSG_WAKE`), as a key press would; with the screen already on it restarts the idle timeout. Returns `202` `{"status":"waking","slot":1,"ok":true}` at once and tries for about 10 s in the background; `hub_rf` logs whether the remote acknowledged it. One wake runs at a time (`202` `already_waking` while one runs); `409` during an RF OTA, `400` for a Companion slot. Remotes without this message do not answer. A remote in deep standby (suspended to RAM on battery) does not receive it either: it reports again at its next hourly alarm or key press. An RF OTA start (`/api/rf/ota-start`) sends the same request first (4 attempts). Over USB/SSH the same is `touch /tmp/trigger_wake` on the remote.
 
 #### `GET /api/rf/stop-pair` or `POST /api/rf/stop-pair`
 Stops active pairing mode.
 - **Response `200 OK`**: `{"status": "pairing_stopped"}`
 
-#### `GET /api/rf/unpair?slot={1|2}` or `POST /api/rf/unpair`
+#### `GET /api/rf/unpair?slot={1..6}` or `POST /api/rf/unpair`
 Unpairs target remote slot; without a slot (or with `slot=0` / `slot=all`) every remote.
 - **Response `200 OK`**: `{"status": "unpaired", "ok": true}`
 - **Error `409`**: during an RF OTA.
 
 The RF routes read `slot` from the query, or from a JSON body (`"slot": 1`) when the query has
-none. A value other than `1` or `2` is answered with `400`; `0` and `all` ("every remote") are
+none. A value other than `1` to `6` is answered with `400`; `0` and `all` ("every remote") are
 accepted by pair, unpair, sleep and push-icon only. Routes match the path exactly
 (`/api/rf/pairing-state` is not `/api/rf/pair`). For `POST /api/rf/remote-config`
-a `"slot"` of `1` or `2` in the body wins over the query, and for the `POST` of
+a `"slot"` of `1` to `6` in the body wins over the query, and for the `POST` of
 remote-direct-buttons a `"slot": 2` in the body does.
 
 ### 7.3 Raw RF Frame Transmit

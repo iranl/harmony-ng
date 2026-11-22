@@ -86,7 +86,7 @@ int rf_send_frame(rf_frame_t *frame) {
     memset(out, 0, sizeof(out));
     out[0] = 0x12; /* Hub Report 0x12 (Host/Dongle mode) */
     uint8_t slot = frame->dev_slot ? (frame->dev_slot & 0x0F) : (g_remote_slot ? (g_remote_slot & 0x0F) : 0x01);
-    out[1] = slot; /* Slot 0x01 or 0x02 */
+    out[1] = rf_slot_to_pipe(slot); /* the CC2544 pipe of the slot */
     out[2] = frame->hdr_flag ? frame->hdr_flag : (0x50 | (frame->seq & 0x0F));
     out[3] = frame->msg_type;
     out[4] = frame->flags;
@@ -98,7 +98,7 @@ int rf_send_ota_data(uint8_t slot, uint32_t idx, bool ack_req, const uint8_t *da
     uint8_t out[30];
     memset(out, 0, sizeof(out));
     out[0] = 0x12;
-    out[1] = slot ? (slot & 0x0F) : (g_remote_slot ? (g_remote_slot & 0x0F) : 0x01);
+    out[1] = rf_slot_to_pipe(slot ? (slot & 0x0F) : (g_remote_slot ? (g_remote_slot & 0x0F) : 0x01));
     out[2] = (uint8_t)(RF_OTA_HDR_DATA | (idx & 0x0F) | (ack_req ? RF_OTA_HDR_ACK : 0));
     out[3] = (uint8_t)((idx >> 4) & 0xFF);
     if (len > RF_OTA_DATA_BYTES) len = RF_OTA_DATA_BYTES;
@@ -267,8 +267,24 @@ void query_paired_devices(void) {
     }
 }
 
-static void handle_rf_packet(const uint8_t *pkt, size_t len) {
+static void handle_rf_packet(const uint8_t *raw, size_t len) {
     if (len < 7) return;
+    /* Byte 1 names the CC2544 pipe; everything after this sees the slot instead (rf_state.h) */
+    uint8_t pkt[64];
+    if (len > sizeof(pkt)) len = sizeof(pkt);
+    memcpy(pkt, raw, len);
+    if (pkt[0] == 0x20) {
+        /* a TX completion report (42) answers the Hub's own send: it does not show a remote */
+        uint8_t pipe = pkt[1] & 0x0F;
+        uint8_t slot = pkt[2] == 0x42 ? rf_pipe_to_slot(pipe) : rf_slot_map_claim_pipe(pipe, false);
+        pkt[1] = (uint8_t)((pkt[1] & 0xF0) | slot);
+    } else if (pkt[0] == 0x12) {
+        pkt[1] = rf_slot_map_claim_pipe(pkt[1], false);
+    } else if (pkt[0] == 0x10 && pkt[2] == 0x41) {
+        pkt[1] = rf_slot_map_claim_pipe(pkt[1], false);
+    } else if (pkt[0] == 0x10 && pkt[2] != 0x4A) {
+        pkt[1] = rf_pipe_to_slot(pkt[1]);
+    }
 
     if (pkt[0] == 0x20 && (pkt[1] & 0x0F) > 0 && (pkt[1] & 0x0F) <= MAX_PAIRED_REMOTES) {
         mark_remote_slot_active(pkt[1] & 0x0F);
@@ -406,6 +422,7 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
                    pair_code, pair_status, pkt[0], pkt[1], pkt[2], pkt[3], pkt[4], pkt[5], pkt[6]);
             if (pair_code == 0x00 && pair_status == 0x00) {
                 printf("[+] CC2544 Pairing SUCCESS! Remote paired to Hub!\n");
+                rf_slot_map_note_pair_success();
                 query_paired_devices();
                 stop_pairing_mode();
             } else if (pair_code >= 0x01 && pair_status == 0x00) {
@@ -442,8 +459,9 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
                 return;
             }
             if (pipe >= 0x20 && pipe <= 0x25) {
-                int sidx = pipe - 0x20;
                 uint16_t equad_id = ((uint16_t)pkt[7] << 8) | pkt[8];
+                int sidx = (equad_id != 0 ? rf_slot_map_claim_pipe((uint8_t)(pipe - 0x20 + 1), true)
+                                          : rf_pipe_to_slot((uint8_t)(pipe - 0x20 + 1))) - 1;
                 if (sidx < MAX_PAIRED_REMOTES && equad_id != 0) {
                     g_paired_remotes[sidx].active = true;
                     g_has_paired_device = true;
@@ -462,7 +480,7 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
                 return;
             }
             if (pipe >= 0x30 && pipe <= 0x35) {
-                int sidx = pipe - 0x30;
+                int sidx = rf_pipe_to_slot((uint8_t)(pipe - 0x30 + 1)) - 1;
                 if (sidx < MAX_PAIRED_REMOTES) {
                     memcpy(g_paired_remotes[sidx].rf_addr, &pkt[5], 4);
                     bool has_addr = (pkt[5] != 0 || pkt[6] != 0 || pkt[7] != 0 || pkt[8] != 0);
@@ -475,7 +493,7 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
                 return;
             }
             if (pipe >= 0x40 && pipe <= 0x45) {
-                int sidx = pipe - 0x40;
+                int sidx = rf_pipe_to_slot((uint8_t)(pipe - 0x40 + 1)) - 1;
                 uint8_t nlen = pkt[5];
                 if (sidx < MAX_PAIRED_REMOTES && nlen > 0) {
                     if (nlen > 15) nlen = 15;

@@ -217,7 +217,7 @@ int rf_battery_fix_times(void) {
 }
 
 void mark_remote_slot_active(uint8_t slot) {
-    if (slot == 0x01 || slot == 0x02) {
+    if (slot >= 1 && slot <= MAX_PAIRED_REMOTES) {
         int idx = slot - 1;
         g_paired_remotes[idx].active = true;
         g_paired_remotes[idx].link_lost = false;
@@ -225,6 +225,121 @@ void mark_remote_slot_active(uint8_t slot) {
         g_remote_slot = slot;
         g_has_paired_device = true;
     }
+}
+
+const char *g_rf_slot_map_path = "/data/harmony/rf_slot_map.txt";
+static uint8_t s_pipe_of_slot[MAX_PAIRED_REMOTES + 1]; /* [slot] = pipe; all 0 until first use */
+static uint8_t s_slot_of_pipe[MAX_PAIRED_REMOTES + 1]; /* [pipe] = slot */
+static pthread_mutex_t s_slot_map_lock = PTHREAD_MUTEX_INITIALIZER;
+static uint8_t s_pair_target;            /* 0: no chosen slot */
+static uint64_t s_pair_target_until_ms;  /* the chosen slot is dropped after this */
+static bool s_pair_succeeded;
+
+/* s_slot_map_lock held */
+static void slot_map_set_locked(const uint8_t *pipes) {
+    for (int s = 1; s <= MAX_PAIRED_REMOTES; s++) {
+        s_pipe_of_slot[s] = pipes[s - 1];
+        s_slot_of_pipe[pipes[s - 1]] = (uint8_t)s;
+    }
+}
+
+/* s_slot_map_lock held */
+static void slot_map_ensure_locked(void) {
+    if (s_pipe_of_slot[1] != 0) return;
+    uint8_t same[MAX_PAIRED_REMOTES];
+    for (int i = 0; i < MAX_PAIRED_REMOTES; i++) same[i] = (uint8_t)(i + 1);
+    slot_map_set_locked(same);
+}
+
+uint8_t rf_slot_to_pipe(uint8_t slot) {
+    if (slot < 1 || slot > MAX_PAIRED_REMOTES) return slot;
+    pthread_mutex_lock(&s_slot_map_lock);
+    slot_map_ensure_locked();
+    uint8_t pipe = s_pipe_of_slot[slot];
+    pthread_mutex_unlock(&s_slot_map_lock);
+    return pipe;
+}
+
+uint8_t rf_pipe_to_slot(uint8_t pipe) {
+    if (pipe < 1 || pipe > MAX_PAIRED_REMOTES) return pipe;
+    pthread_mutex_lock(&s_slot_map_lock);
+    slot_map_ensure_locked();
+    uint8_t slot = s_slot_of_pipe[pipe];
+    pthread_mutex_unlock(&s_slot_map_lock);
+    return slot;
+}
+
+void rf_slot_map_load(void) {
+    uint8_t pipes[MAX_PAIRED_REMOTES];
+    bool ok = false;
+    FILE *f = fopen(g_rf_slot_map_path, "r");
+    if (f) {
+        unsigned seen = 0;
+        ok = true;
+        for (int i = 0; i < MAX_PAIRED_REMOTES && ok; i++) {
+            int v = 0;
+            if (fscanf(f, "%d", &v) != 1 || v < 1 || v > MAX_PAIRED_REMOTES || (seen & (1u << v))) ok = false;
+            else { seen |= 1u << v; pipes[i] = (uint8_t)v; }
+        }
+        fclose(f);
+        if (!ok) printf("[-] %s is not a slot table, slots and pipes are the same\n", g_rf_slot_map_path);
+    }
+    if (!ok)
+        for (int i = 0; i < MAX_PAIRED_REMOTES; i++) pipes[i] = (uint8_t)(i + 1);
+    pthread_mutex_lock(&s_slot_map_lock);
+    slot_map_set_locked(pipes);
+    pthread_mutex_unlock(&s_slot_map_lock);
+    for (int s = 1; s <= MAX_PAIRED_REMOTES; s++)
+        if (pipes[s - 1] != s) printf("[*] Slot %d is CC2544 pipe %d\n", s, pipes[s - 1]);
+}
+
+void rf_slot_map_set_pair_target(uint8_t slot) {
+    pthread_mutex_lock(&s_slot_map_lock);
+    s_pair_target = (slot >= 1 && slot <= MAX_PAIRED_REMOTES) ? slot : 0;
+    s_pair_target_until_ms = get_monotonic_ms() + 45000; /* the 30 s window and the first frames */
+    s_pair_succeeded = false;
+    pthread_mutex_unlock(&s_slot_map_lock);
+}
+
+void rf_slot_map_note_pair_success(void) {
+    pthread_mutex_lock(&s_slot_map_lock);
+    if (s_pair_target) {
+        s_pair_succeeded = true;
+        s_pair_target_until_ms = get_monotonic_ms() + 15000;
+    }
+    pthread_mutex_unlock(&s_slot_map_lock);
+}
+
+uint8_t rf_slot_map_claim_pipe(uint8_t pipe, bool from_pipe_table) {
+    if (pipe < 1 || pipe > MAX_PAIRED_REMOTES) return pipe;
+    pthread_mutex_lock(&s_slot_map_lock);
+    slot_map_ensure_locked();
+    uint8_t slot = s_slot_of_pipe[pipe];
+    uint8_t target = s_pair_target;
+    if (target && get_monotonic_ms() > s_pair_target_until_ms) target = s_pair_target = 0;
+    if (target && (from_pipe_table || s_pair_succeeded) && !g_paired_remotes[slot - 1].active) {
+        s_pair_target = 0;
+        if (target != slot && !g_paired_remotes[target - 1].active) {
+            /* the pipe goes to the chosen slot; the chosen slot's pipe (no remote) to the old one */
+            uint8_t other = s_pipe_of_slot[target];
+            s_pipe_of_slot[target] = pipe;
+            s_slot_of_pipe[pipe] = target;
+            s_pipe_of_slot[slot] = other;
+            s_slot_of_pipe[other] = slot;
+            char text[4 * MAX_PAIRED_REMOTES + 2];
+            size_t n = 0;
+            for (int s = 1; s <= MAX_PAIRED_REMOTES; s++)
+                n += (size_t)snprintf(text + n, sizeof(text) - n, s > 1 ? " %d" : "%d", s_pipe_of_slot[s]);
+            snprintf(text + n, sizeof(text) - n, "\n");
+            if (atomic_file_write_str(g_rf_slot_map_path, text) != 0)
+                printf("[-] Slot table not saved to %s: slot %d holds pipe %d until hub_rf restarts\n",
+                       g_rf_slot_map_path, target, pipe);
+            printf("[+] Paired remote on CC2544 pipe %d goes to the chosen slot %d\n", pipe, target);
+            slot = target;
+        }
+    }
+    pthread_mutex_unlock(&s_slot_map_lock);
+    return slot;
 }
 
 bool rf_any_slot_active(void) {

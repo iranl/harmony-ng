@@ -1940,4 +1940,5 @@ export default {
     "harmony_no_codeset": "Geen codeset opgegeven",
     "hide_in_devices_tab": "Verbergen in tabblad Apparaten (alleen webinterface; de afstandsbediening verandert niet)",
     "devices_all_hidden": "Alle apparaten zijn verborgen in dit tabblad. Zet \"Verbergen in tabblad Apparaten\" uit in de apparaatinstellingen om er een te tonen.",
+    "slot_n_empty": "Slot {slot} (leeg)",
 };

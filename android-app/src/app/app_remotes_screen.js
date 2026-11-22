@@ -53,6 +53,8 @@ import {
 } from './app_icons_ui.js';
 import { HarmonyAppRemotesB25 } from './app_remotes_b25.js';
 
+const RF_SLOT_COUNT = 6; /* the Hub's remote slots (REMOTE_SLOT_MAX) */
+
 export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
   async loadRemoteView() {
     // Check RF enabled status from backend
@@ -104,53 +106,40 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
     const noRemotesMsg = document.getElementById('rfNoRemotesPairedMsg');
     const mappingContainer = document.getElementById('rfRemoteMappingContainer');
 
-    if (activeSlots.length === 0) {
-      if (slotBar) slotBar.style.display = 'none';
-      if (mappingContainer) mappingContainer.style.display = 'none';
-      if (noRemotesMsg) noRemotesMsg.style.display = 'block';
-      return;
-    }
-
-    if (noRemotesMsg) noRemotesMsg.style.display = 'none';
+    // Every slot can be set up, also before a remote is paired there (pairing picks the slot)
+    if (noRemotesMsg) noRemotesMsg.style.display = activeSlots.length === 0 ? 'block' : 'none';
     if (mappingContainer) mappingContainer.style.display = 'block';
 
-    // Manage active slot selection
-    if (!activeSlots.includes(this.selectedRemoteSlot)) this.selectedRemoteSlot = activeSlots[0];
+    const pick = this.selectedRemoteSlot;
+    if (!Number.isInteger(pick) || pick < 1 || pick > RF_SLOT_COUNT) this.selectedRemoteSlot = activeSlots[0] || 1;
 
-    // Show the slot selector when more than one remote is paired: tabs 1 and 2 are in the page,
-    // the tabs of slots 3 and up are made here
+    // A tab per slot: tabs 1 and 2 are in the page, the tabs of slots 3 and up are made here
     if (slotBar) {
-      if (activeSlots.length > 1) {
-        slotBar.style.display = 'flex';
-        slotBar.querySelectorAll('.rf-extra-slot-tab').forEach(el => el.remove());
-        for (const n of activeSlots) {
-          let tab = document.getElementById(`rfSlotSelect${n}Btn`);
-          if (!tab) {
-            tab = document.createElement('button');
-            tab.type = 'button';
-            tab.className = 'segmented-btn rf-extra-slot-tab';
-            tab.id = `rfSlotSelect${n}Btn`;
-            tab.dataset.slot = String(n);
-            const lbl = document.createElement('span');
-            lbl.id = `rfSlotSelect${n}Label`;
-            tab.appendChild(lbl);
-            tab.addEventListener('click', () => this.switchRemoteSlot(n));
-            slotBar.appendChild(tab);
-          }
-          const lbl = document.getElementById(`rfSlotSelect${n}Label`);
-          const fallback = n === 1 ? t('slot_1_remote_1') : (n === 2 ? t('slot_2_remote_2') : tf('slot_n', { slot: n }));
-          if (lbl) lbl.textContent = slotInfo(n)?.name || fallback;
+      slotBar.style.display = 'flex';
+      slotBar.querySelectorAll('.rf-extra-slot-tab').forEach(el => el.remove());
+      for (let n = 1; n <= RF_SLOT_COUNT; n++) {
+        let tab = document.getElementById(`rfSlotSelect${n}Btn`);
+        if (!tab) {
+          tab = document.createElement('button');
+          tab.type = 'button';
+          tab.className = 'segmented-btn rf-extra-slot-tab';
+          tab.id = `rfSlotSelect${n}Btn`;
+          tab.dataset.slot = String(n);
+          const lbl = document.createElement('span');
+          lbl.id = `rfSlotSelect${n}Label`;
+          tab.appendChild(lbl);
+          tab.addEventListener('click', () => this.switchRemoteSlot(n));
+          slotBar.appendChild(tab);
         }
-        for (let n = 1; n <= 2; n++) {
-          const tab = document.getElementById(`rfSlotSelect${n}Btn`);
-          if (tab) tab.style.display = activeSlots.includes(n) ? '' : 'none';
-        }
-        slotBar.querySelectorAll('.segmented-btn').forEach(tab => {
-          tab.classList.toggle('active', Number(tab.dataset.slot) === this.selectedRemoteSlot);
-        });
-      } else {
-        slotBar.style.display = 'none';
+        const lbl = document.getElementById(`rfSlotSelect${n}Label`);
+        const fallback = n === 1 ? t('slot_1_remote_1') : (n === 2 ? t('slot_2_remote_2') : tf('slot_n', { slot: n }));
+        const name = activeSlots.includes(n) ? (slotInfo(n)?.name || fallback) : tf('slot_n_empty', { slot: n });
+        if (lbl) lbl.textContent = name;
+        tab.style.display = '';
       }
+      slotBar.querySelectorAll('.segmented-btn').forEach(tab => {
+        tab.classList.toggle('active', Number(tab.dataset.slot) === this.selectedRemoteSlot);
+      });
     }
 
     const curSlot = this.selectedRemoteSlot;
@@ -256,7 +245,7 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
   }
 
   async switchRemoteSlot(slot) {
-    if (!Number.isInteger(slot) || slot < 1 || slot > 6) return;
+    if (!Number.isInteger(slot) || slot < 1 || slot > RF_SLOT_COUNT) return;
     this.selectedRemoteSlot = slot;
     await this.loadRemoteView();
   }
