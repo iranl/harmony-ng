@@ -170,7 +170,10 @@ Query command: `10 FF 83 B5 <pipe> 00 00`:
 - **Open Pairing Lock (Hub)**: `10 FF 80 B2 01 00 <duration>` (e.g. `0x1E` = 30 seconds). Opens pairing window on Hub.
 - **Request Pairing (Remote)**: `10 FF 80 B2 01 01 00`. Initiates bidirectional handshake from Remote.
 - **Close Pairing Lock (Hub)**: `10 FF 80 B2 02 00 00`. Closes pairing window.
-- **Unpair Slot**: `10 FF 80 B2 03 <slot> 00` (`0x01` = Slot 1, `0x02` = Slot 2, `0x00` = All).
+- **Unpair Slot**: `10 FF 80 B2 03 <slot> 00` (`0x01` = Slot 1, `0x02` = Slot 2,
+  `0x00` = All). The CC2544 exposes six physical slots (`0x20..0x25`); `hub_rf`
+  expands an all-slots request into individual unpair commands for slots 1 through
+  6 because some Hub firmware NAKs slot 0.
 - **Clear Bonding (Remote)**: when it is unpaired, `remote_ui` writes `10 FF 80 D0 01 00 00`, then the 20-byte reports `11 FF 82 B5 20 00 ...` and `11 FF 82 B5 30 00 ...` (zeroed pipe entries), then `10 FF 80 D0 00 00 00`, 50 ms apart (`cc2544_clear_bonding()`).
 
 ### 4.5 Hardware Link Events & Notifications

@@ -177,28 +177,35 @@ void *hub_button_worker(void *arg) {
 }
 
 void unpair_device(int slot) {
-    /* Send RF notification to remote before unpairing so remote clears bonding */
-    rf_frame_t unpair_msg;
-    memset(&unpair_msg, 0, sizeof(unpair_msg));
-    unpair_msg.report_id = 0x20;
-    unpair_msg.sub_id = 0x12;
-    unpair_msg.msg_type = RF_MSG_UNPAIR_NOTIFY;
-    unpair_msg.hdr_flag = 0x50 | (g_tx_seq & 0x0F);
-    unpair_msg.seq = g_tx_seq++;
-    if (slot == 1 || slot == 0) {
-        unpair_msg.dev_slot = 0x01;
-        rf_send_frame(&unpair_msg);
+    /* The CC2544 table has six physical slots. Its slot-0 "unpair all" request is NAKed on
+       some Hub firmware, so clear all entries one at a time instead. Notify each remote first
+       so its own CC2544 clears the Hub bond before the Hub drops the link. */
+    if (slot < 0 || slot > 6) {
+        RF_LOG(LOG_LEVEL_WARN, "[-] Refusing invalid RF unpair slot %d\n", slot);
+        return;
     }
-    if (slot == 2 || slot == 0) {
-        unpair_msg.dev_slot = 0x02;
-        rf_send_frame(&unpair_msg);
-    }
-    usleep(30000); /* Allow RF frame transmission before hardware lock reset */
 
-    uint8_t s = (slot == 2) ? 0x02 : ((slot == 1) ? 0x01 : 0x00);
-    uint8_t unpair[] = { 0x10, 0xFF, 0x80, 0xB2, 0x03, s, 0x00 };
-    RF_LOG(LOG_LEVEL_INFO, "[*] Unpairing remote (slot=%d, 10 FF 80 B2 03 %02X 00)...\n", slot, s);
-    rf_write_cmd(unpair, sizeof(unpair));
+    int first_slot = slot == 0 ? 1 : slot;
+    int last_slot = slot == 0 ? 6 : slot;
+    for (int target = first_slot; target <= last_slot; target++) {
+        rf_frame_t unpair_msg;
+        memset(&unpair_msg, 0, sizeof(unpair_msg));
+        unpair_msg.report_id = 0x20;
+        unpair_msg.sub_id = 0x12;
+        unpair_msg.dev_slot = (uint8_t)target;
+        unpair_msg.msg_type = RF_MSG_UNPAIR_NOTIFY;
+        unpair_msg.hdr_flag = 0x50 | (g_tx_seq & 0x0F);
+        unpair_msg.seq = g_tx_seq++;
+        rf_send_frame(&unpair_msg);
+        usleep(30000);
+
+        uint8_t unpair[] = { 0x10, 0xFF, 0x80, 0xB2, 0x03, (uint8_t)target, 0x00 };
+        RF_LOG(LOG_LEVEL_INFO, "[*] Unpairing remote (slot=%d, 10 FF 80 B2 03 %02X 00)...\n",
+               target, (unsigned)target);
+        rf_write_cmd(unpair, sizeof(unpair));
+        usleep(30000);
+    }
+
     /* everything known about the remote goes with the pairing (the same cleanup as for an
      * unpair the remote asked for) */
     if (slot == 1 || slot == 0) rf_slot_forget(1);

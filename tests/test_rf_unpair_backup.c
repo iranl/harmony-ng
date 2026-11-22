@@ -14,6 +14,7 @@
 #include <sys/socket.h>
 #include "rf_state.h"
 #include "rf_spi.h"
+#include "rf_pairing.h"
 #include "cJSON.h"
 
 static int s_failures;
@@ -32,6 +33,19 @@ int main(void) {
     int sv[2];
     if (socketpair(AF_UNIX, SOCK_SEQPACKET, 0, sv) != 0) return 1;
     g_rf_fd = sv[0];
+
+    /* "Unpair all" must clear each physical CC2544 slot, not send the NAKed slot-0 request. */
+    unpair_device(0);
+    for (uint8_t slot = 1; slot <= 6; slot++) {
+        uint8_t out[64];
+        ssize_t n = recv(sv[1], out, sizeof(out), 0);
+        CHECK(n == 30 && out[0] == 0x12 && out[1] == slot && out[3] == RF_MSG_UNPAIR_NOTIFY,
+              "slot %u unpair notification was not sent (%zd bytes)", slot, n);
+        n = recv(sv[1], out, sizeof(out), 0);
+        CHECK(n == 7 && out[0] == 0x10 && out[1] == 0xFF && out[2] == 0x80 &&
+              out[3] == 0xB2 && out[4] == 0x03 && out[5] == slot && out[6] == 0x00,
+              "slot %u hardware unpair command was not sent (%zd bytes)", slot, n);
+    }
 
     /* 1. The remote in slot 1 unpairs itself */
     for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {
