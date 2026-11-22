@@ -286,12 +286,34 @@ int __xstat(int ver, const char *pathname, struct stat *st) {
     return mock_stat_impl(pathname, st, ver);
 }
 
+/* lstat() of virtualized /data or /cache paths: the real lstat, so a link is seen as a link (the
+ * stock resources delete refuses a link at /data/resources). glibc >= 2.33 exports lstat as a
+ * real symbol; older ones use __lxstat. */
+static int mock_lstat_impl(const char *pathname, struct stat *st, int ver) {
+    static int (*real_lstat)(const char *, struct stat *) = NULL;
+    static int (*real_lxstat)(int, const char *, struct stat *) = NULL;
+    if (!real_lstat && !real_lxstat) {
+        real_lstat = dlsym(RTLD_NEXT, "lstat");
+        real_lxstat = dlsym(RTLD_NEXT, "__lxstat");
+    }
+    char resolved[512];
+    int special_type = 0;
+    const char *target = pathname;
+    if (pathname && (strncmp(pathname, "/data/", 6) == 0 || strncmp(pathname, "/cache/", 7) == 0)) {
+        target = resolve_mock_path(pathname, resolved, sizeof(resolved), &special_type);
+    }
+    if (real_lstat) return real_lstat(target, st);
+    if (real_lxstat) return real_lxstat(ver, target, st);
+    errno = ENOSYS;
+    return -1;
+}
+
 int lstat(const char *pathname, struct stat *st) {
-    return mock_stat_impl(pathname, st, 1);
+    return mock_lstat_impl(pathname, st, 1);
 }
 
 int __lxstat(int ver, const char *pathname, struct stat *st) {
-    return mock_stat_impl(pathname, st, ver);
+    return mock_lstat_impl(pathname, st, ver);
 }
 
 int unlink(const char *pathname) {
@@ -327,7 +349,6 @@ int rmdir(const char *pathname) {
     if (!real_rmdir) real_rmdir = dlsym(RTLD_NEXT, "rmdir");
     return real_rmdir ? real_rmdir(target) : -1;
 }
-
 
 
 int access(const char *pathname, int mode) {
