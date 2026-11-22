@@ -9,26 +9,18 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DB_DIR="$SCRIPT_DIR/tmp/dropbear"
-BUILD_DIR="$DB_DIR/dropbear-2024.86"
+# https://matt.ucc.asn.au/dropbear/releases/ (SHA-256 from its SHA256SUM.asc)
+DB_VERSION="2026.94"
+DB_SHA256="e098034a843699200c8c977a991fff73159735bf795d5f72ef672c41a6b1ae81"
+BUILD_DIR="$DB_DIR/dropbear-$DB_VERSION"
 
 cd "$DB_DIR"
 if [ ! -d "$BUILD_DIR" ]; then
-    tar -xjf dropbear-2024.86.tar.bz2
+    echo "$DB_SHA256  dropbear-$DB_VERSION.tar.bz2" | sha256sum -c -
+    tar -xjf "dropbear-$DB_VERSION.tar.bz2"
 fi
 
 cd "$BUILD_DIR"
-
-# Without password auth dropbear rejects -s and -g, which every start script passes (older
-# binaries need them). Accept them as no-ops here: there is no password login to refuse.
-if ! grep -q 'no password login to refuse' src/svr-runopts.c; then
-    sed -i "/^[[:space:]]*case 'h':/i\\
-#if !(DROPBEAR_SVR_PASSWORD_AUTH || DROPBEAR_SVR_PAM_AUTH)\\
-\t\t\t\tcase 's':\\
-\t\t\t\tcase 'g':\\
-\t\t\t\t\t/* no password login to refuse */\\
-\t\t\t\t\tbreak;\\
-#endif" src/svr-runopts.c
-fi
 
 for t in "$REPO_ROOT/build/toolchains"/mips32--uclibc--stable*; do
     if [ -d "$t/bin" ]; then
@@ -50,6 +42,8 @@ cat << 'EOF' > localoptions.h
 #define DROPBEAR_DH_GROUP16 0
 #define DROPBEAR_ECDH 0
 #define DROPBEAR_CURVE25519 1
+#define DROPBEAR_SNTRUP761 0
+#define DROPBEAR_MLKEM768 0
 #define DROPBEAR_AES128 0
 #define DROPBEAR_AES256 0
 #define DROPBEAR_3DES 0
@@ -80,8 +74,8 @@ STRIP="mips-buildroot-linux-uclibc-strip"
 export AR="mips-buildroot-linux-uclibc-gcc-ar" RANLIB="mips-buildroot-linux-uclibc-gcc-ranlib"
 
 # --disable-harden below drops PIE and relro (size); its other flags are kept here.
-# -mno-abicalls -fno-pic: static code needs no GOT loads or call stubs (ld adds stubs into libc)
-CFLAGS="-D_FORTIFY_SOURCE=2 -fno-strict-overflow -Wno-pointer-sign -Os -flto -fno-unwind-tables -fno-asynchronous-unwind-tables -ffunction-sections -fdata-sections -mno-abicalls -fno-pic"
+# No -mno-abicalls: mixed with the PIC static libc, scp -t segfaults on the Hub (-13 KB only).
+CFLAGS="-D_FORTIFY_SOURCE=2 -fno-strict-overflow -Wno-pointer-sign -Os -flto -fno-unwind-tables -fno-asynchronous-unwind-tables -ffunction-sections -fdata-sections"
 LDFLAGS="-Os -flto -static -Wl,--gc-sections -Wl,-z,norelro -Wl,--build-id=none -Wl,--hash-style=sysv"
 
 ./configure --host=mips-buildroot-linux-uclibc \
