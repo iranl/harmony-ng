@@ -1248,6 +1248,7 @@ paths:
                 powerOnDelay: {type: integer}
                 isPowerAlwaysOn: {type: boolean}
                 hideOnRemote: {type: boolean, description: "left out of the remote's device lists at the next config push; activity buttons and keys still send its commands"}
+                hideInDevicesTab: {type: boolean, description: "left out of the Devices tab of the web UIs; the remote and the device editor still list it"}
                 powerOnSequence: {type: array, items: {type: object}}
                 powerOffSequence: {type: array, items: {type: object}}
                 bdaddr: {type: string, description: "Bluetooth host address of a Bluetooth device (older name btHost)"}

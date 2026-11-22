@@ -1249,4 +1249,8 @@ export default {
     "harmony_detail_http_error": "No se pudieron cargar los detalles del dispositivo: HTTP {status}",
     "harmony_codeset_http_error": "No se pudo cargar el conjunto de códigos: HTTP {status}",
     "harmony_no_codeset": "No se indicó ningún conjunto de códigos",
+    "hide_in_devices_tab": "Ocultar en la pestaña Dispositivos (solo interfaz web; el mando no cambia)",
+    "devices_all_hidden": "Todos los dispositivos están ocultos en esta pestaña. Desmarque \"Ocultar en la pestaña Dispositivos\" en los ajustes del dispositivo para mostrar uno.",
+    "device_visibility": "Visibilidad",
+    "hide_on_remote": "Ocultar en el mando (solo listas de dispositivos; los botones de actividad siguen funcionando)",
 };

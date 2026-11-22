@@ -1938,4 +1938,6 @@ export default {
     "harmony_detail_http_error": "Impossible de charger les détails de l'appareil : HTTP {status}",
     "harmony_codeset_http_error": "Impossible de charger le jeu de codes : HTTP {status}",
     "harmony_no_codeset": "Aucun jeu de codes indiqué",
+    "hide_in_devices_tab": "Masquer dans l'onglet Appareils (interface web uniquement ; la télécommande ne change pas)",
+    "devices_all_hidden": "Tous les appareils sont masqués dans cet onglet. Décochez « Masquer dans l'onglet Appareils » dans les réglages de l'appareil pour en afficher un.",
 };

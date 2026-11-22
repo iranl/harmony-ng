@@ -1113,6 +1113,13 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                     if (val) cJSON_AddTrueToObject(found_dev, "hideOnRemote");
                 }
 
+                cJSON *j_htab = cJSON_GetObjectItemCaseSensitive(p, "hideInDevicesTab");
+                if (j_htab) {
+                    int val = cJSON_IsTrue(j_htab) || (cJSON_IsNumber(j_htab) && j_htab->valuedouble > 0) || (cJSON_IsString(j_htab) && (strcmp(j_htab->valuestring, "1") == 0 || strcasecmp(j_htab->valuestring, "true") == 0));
+                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "hideInDevicesTab");
+                    if (val) cJSON_AddTrueToObject(found_dev, "hideInDevicesTab");
+                }
+
                 cJSON *j_bthost = cJSON_GetObjectItemCaseSensitive(p, "bdaddr");
                 if (!j_bthost) j_bthost = cJSON_GetObjectItemCaseSensitive(p, "btHost");
                 if (j_bthost && cJSON_IsString(j_bthost)) {

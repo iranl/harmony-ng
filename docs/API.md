@@ -650,7 +650,8 @@ Creates or updates a device definition. A field that is left out keeps its store
 with another name than those below is ignored without an error. Also read: `icon`, `powerOnDelay`,
 `isPowerAlwaysOn`, `hideOnRemote` (true leaves the device out of the Elite's device pages and
 activity cards at the next config push; its commands still work from activity screen buttons
-and keys), `powerOnSequence`, `powerOffSequence`, and for a Bluetooth device `bdaddr`
+and keys), `hideInDevicesTab` (true leaves the device out of the Devices tab of both web UIs;
+the remote and the device editor still list it), `powerOnSequence`, `powerOffSequence`, and for a Bluetooth device `bdaddr`
 (older name `btHost`), `btAutoReconnect` (default on), `btReconnectDurationSec`,
 `btReconnectDelaySec`, `btTriggerDeviceId` and `btTriggerCommandName`. The MQTT pulse length is
 `mqttPulseMs` (milliseconds, default 1000); only `POST /api/device-mqtt-test` also takes `mqttPulse`.

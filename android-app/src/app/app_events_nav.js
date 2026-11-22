@@ -455,6 +455,7 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
       const pod = parseInt(document.getElementById('devPowerOnDelay')?.value, 10);
       const pao = document.getElementById('devIsPowerAlwaysOn')?.checked ? 1 : 0;
       const hideOnRemote = Boolean(document.getElementById('devHideOnRemote')?.checked);
+      const hideInDevicesTab = Boolean(document.getElementById('devHideInDevicesTab')?.checked);
       const btHost = document.getElementById('curDevBtHost')?.value.trim();
       const btAutoRecVal = parseInt(document.getElementById('curDevBtAutoReconnect')?.value, 10);
       const btAutoRec = isNaN(btAutoRecVal) ? 1 : (btAutoRecVal === 0 ? 0 : 1);
@@ -491,6 +492,7 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
           powerOnDelay: isNaN(pod) ? 1500 : pod,
           isPowerAlwaysOn: pao,
           hideOnRemote,
+          hideInDevicesTab,
           bdaddr: btHost || undefined,
           btAutoReconnect: btAutoRec,
           btReconnectDurationSec: isNaN(btDur) ? 0 : btDur,

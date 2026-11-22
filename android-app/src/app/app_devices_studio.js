@@ -133,9 +133,14 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     const cont = document.getElementById('controlDeviceWorkspace');
     if (!cont) return;
 
-    const devs = this.inventory.devices || [];
-    if (!devs.length) {
+    const allDevs = this.inventory.devices || [];
+    if (!allDevs.length) {
       cont.innerHTML = `<div class="card"><div class="muted">${t('studio_no_devices_stored')}</div></div>`;
+      return;
+    }
+    const devs = allDevs.filter(d => !d.hideInDevicesTab);
+    if (!devs.length) {
+      cont.innerHTML = `<div class="card"><div class="muted">${t('devices_all_hidden')}</div></div>`;
       return;
     }
 
@@ -386,6 +391,8 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     if (pwrAlwaysCheck) pwrAlwaysCheck.checked = Boolean(dev.is_power_always_on || dev.isPowerAlwaysOn);
     const hideCheck = document.getElementById('devHideOnRemote');
     if (hideCheck) hideCheck.checked = Boolean(dev.hideOnRemote);
+    const hideTabCheck = document.getElementById('devHideInDevicesTab');
+    if (hideTabCheck) hideTabCheck.checked = Boolean(dev.hideInDevicesTab);
 
     const editName = document.getElementById('editDevName');
     const editType = document.getElementById('editDevType');

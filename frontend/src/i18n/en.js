@@ -1249,4 +1249,8 @@ export default {
     "harmony_detail_http_error": "Failed to load device details: HTTP {status}",
     "harmony_codeset_http_error": "Failed to load codeset: HTTP {status}",
     "harmony_no_codeset": "No codeset specified",
+    "hide_in_devices_tab": "Hide in Devices tab (web UI only; the remote is not changed)",
+    "devices_all_hidden": "All devices are hidden from this tab. Clear \"Hide in Devices tab\" in the device settings to show one.",
+    "device_visibility": "Visibility",
+    "hide_on_remote": "Hide on remote (device lists only; activity buttons and keys still work)",
 };

@@ -55,6 +55,7 @@ export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
         powerOnDelay: dev.powerOnDelay !== undefined ? Number(dev.powerOnDelay) : 1500,
         isPowerAlwaysOn: Boolean(dev.isPowerAlwaysOn),
         hideOnRemote: Boolean(dev.hideOnRemote),
+        hideInDevicesTab: Boolean(dev.hideInDevicesTab),
         bdaddr: hostAddr,
         btHost: hostAddr,
         btAutoReconnect: dev.btAutoReconnect !== undefined ? Number(dev.btAutoReconnect) : 1,

@@ -19,7 +19,8 @@ export function createDevicesView(options = {}) {
   function renderList() {
     container.innerHTML = '';
 
-    const devices = store.get('devices') || [];
+    const allDevices = store.get('devices') || [];
+    const devices = allDevices.filter(d => !d.hideInDevicesTab);
     const header = h('div', { className: 'card-header' }, [
       h('h2', { className: 'card-title', text: t('tab_devices', 'Devices') }),
       h('span', { className: 'badge badge-accent', text: t('devices_count', '{count} devices', { count: devices.length }) }),
@@ -28,7 +29,9 @@ export function createDevicesView(options = {}) {
     const devGrid = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px' } });
 
     if (devices.length === 0) {
-      devGrid.appendChild(h('div', { className: 'card text-dim', text: t('no_devices_on_hub', 'No devices found on hub.') }));
+      devGrid.appendChild(h('div', { className: 'card text-dim', text: allDevices.length
+        ? t('devices_all_hidden', 'All devices are hidden from this tab. Clear "Hide in Devices tab" in the device settings to show one.')
+        : t('no_devices_on_hub', 'No devices found on hub.') }));
     } else {
       devices.forEach(dev => {
         const typeBadgeClass = dev.type === 'BT' ? 'badge-accent' : (dev.type === 'MQTT' ? 'badge-warning' : 'badge');

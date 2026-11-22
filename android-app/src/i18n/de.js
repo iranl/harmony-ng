@@ -1938,4 +1938,6 @@ export default {
     "harmony_detail_http_error": "Gerätedetails konnten nicht geladen werden: HTTP {status}",
     "harmony_codeset_http_error": "Codesatz konnte nicht geladen werden: HTTP {status}",
     "harmony_no_codeset": "Kein Codesatz angegeben",
+    "hide_in_devices_tab": "Im Tab Geräte ausblenden (nur Weboberfläche; die Fernbedienung bleibt unverändert)",
+    "devices_all_hidden": "Alle Geräte sind in diesem Tab ausgeblendet. Deaktivieren Sie \"Im Tab Geräte ausblenden\" in den Geräteeinstellungen, um eines anzuzeigen.",
 };

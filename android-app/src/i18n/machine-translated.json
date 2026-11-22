@@ -712,7 +712,9 @@
     "hub_update_no_restart",
     "hub_update_login_again",
     "hub_update_ended_ver",
-    "hub_updating_desc"
+    "hub_updating_desc",
+    "hide_in_devices_tab",
+    "devices_all_hidden"
   ],
   "fr": [
     "hold_repeat",
@@ -1426,7 +1428,9 @@
     "hub_update_no_restart",
     "hub_update_login_again",
     "hub_update_ended_ver",
-    "hub_updating_desc"
+    "hub_updating_desc",
+    "hide_in_devices_tab",
+    "devices_all_hidden"
   ],
   "nl": [
     "hold_repeat",
@@ -2140,7 +2144,9 @@
     "hub_update_no_restart",
     "hub_update_login_again",
     "hub_update_ended_ver",
-    "hub_updating_desc"
+    "hub_updating_desc",
+    "hide_in_devices_tab",
+    "devices_all_hidden"
   ],
   "es": [
     "hold_repeat",
@@ -2854,7 +2860,9 @@
     "hub_update_no_restart",
     "hub_update_login_again",
     "hub_update_ended_ver",
-    "hub_updating_desc"
+    "hub_updating_desc",
+    "hide_in_devices_tab",
+    "devices_all_hidden"
   ],
   "it": [
     "hold_repeat",
@@ -3568,6 +3576,8 @@
     "hub_update_no_restart",
     "hub_update_login_again",
     "hub_update_ended_ver",
-    "hub_updating_desc"
+    "hub_updating_desc",
+    "hide_in_devices_tab",
+    "devices_all_hidden"
   ]
 }

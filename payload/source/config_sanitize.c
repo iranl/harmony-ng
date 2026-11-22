@@ -160,6 +160,11 @@ void sanitize_devices_json(cJSON *root) {
         if (cJSON_IsTrue(jhide) || (cJSON_IsNumber(jhide) && jhide->valuedouble > 0))
             cJSON_AddTrueToObject(cdev, "hideOnRemote");
 
+        /* Left out of the web UIs' Devices tab only (not the remote) */
+        cJSON *jhtab = cJSON_GetObjectItemCaseSensitive(src_d, "hideInDevicesTab");
+        if (cJSON_IsTrue(jhtab) || (cJSON_IsNumber(jhtab) && jhtab->valuedouble > 0))
+            cJSON_AddTrueToObject(cdev, "hideInDevicesTab");
+
         /* The device's Bluetooth host: bdaddr, else the older btHost key. The rebuilt object
          * keeps only bdaddr, so a btHost-only device would otherwise lose its host on save. */
         const char *host_addr = NULL;

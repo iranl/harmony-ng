@@ -1249,4 +1249,8 @@ export default {
     "harmony_detail_http_error": "Apparaatgegevens laden mislukt: HTTP {status}",
     "harmony_codeset_http_error": "Codeset laden mislukt: HTTP {status}",
     "harmony_no_codeset": "Geen codeset opgegeven",
+    "hide_in_devices_tab": "Verbergen in tabblad Apparaten (alleen webinterface; de afstandsbediening verandert niet)",
+    "devices_all_hidden": "Alle apparaten zijn verborgen in dit tabblad. Zet \"Verbergen in tabblad Apparaten\" uit in de apparaatinstellingen om er een te tonen.",
+    "device_visibility": "Zichtbaarheid",
+    "hide_on_remote": "Verbergen op afstandsbediening (alleen apparatenlijsten; activiteitknoppen werken nog)",
 };
