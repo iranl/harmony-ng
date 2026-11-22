@@ -404,6 +404,7 @@ static int tcp_connect(const char *host, int port, int timeout_ms, char *err, si
     }
     freeaddrinfo(res);
     if (fd < 0) return -1;
+    err[0] = '\0'; /* a failed earlier address left its message: the connection is up */
     struct timeval tv;
     tv.tv_sec = timeout_ms / 1000;
     tv.tv_usec = (timeout_ms % 1000) * 1000;
