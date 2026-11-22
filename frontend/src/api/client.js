@@ -214,7 +214,9 @@ export class HarmonyClientCore {
     } catch (err) {
       clearTimeout(timeout);
       if (err.name === 'AbortError') {
-        throw new Error(t('connection_timed_out', 'Connection timed out. Check IP and network.'));
+        const toErr = new Error(t('connection_timed_out', 'Connection timed out. Check IP and network.'));
+        toErr.timeout = true;
+        throw toErr;
       }
       throw err;
     }

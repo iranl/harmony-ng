@@ -1,4 +1,5 @@
 AGENTS.md
+.claude/
 # agent working files; the shared rules in .agents/rules/ are tracked
 .agents/*
 !.agents/rules/

@@ -264,8 +264,11 @@ The remote sets no ACK request flag on `RF_MSG_BATTERY_STATUS`, `RF_MSG_REMOTE_C
   - `0x04` `RF_CAP_UNIT_ID`: sends `RF_MSG_UNIT_ID` after every version report
   - `0x08` `RF_CAP_DEVICE_CMDS`: stores and ACKs `RF_MSG_DEVICE_CMD_CHUNK` (device browsing); for
     such a remote a device command frame without an ACK fails the config push like any other frame
+  - `0x10` `RF_CAP_SWITCH_START`: understands the switch start notice of `RF_MSG_ACTIVITY_SYNC`
+    (`payload[24]` `0x02`)
+  - `0x20` `RF_CAP_HELP_KEY`: understands Help keys in `RF_MSG_BUTTON_LIST_CHUNK` (`payload[24]` `0x04`)
 
-The remote sends this report when its link first comes up, every 24 hours, and before each full config request, so a Hub that restarted learns the capabilities before it builds the push. The Hub keeps them in `/data/harmony/remote_slot<N>_version.json` (`caps`). A remote drops frame types it doesn't know without an ACK, so the Hub must not send newer frame types to a remote that doesn't report them.
+The remote sends this report when its link first comes up, every 24 hours, and before each full config request, so a Hub that restarted learns the capabilities before it builds the push. The Hub keeps them in `/data/harmony/remote_slot<N>_version.json` (`caps`). A remote drops frame types it doesn't know without an ACK, so the Hub must not send newer frame types to a remote that doesn't report them. The config push depends on the capabilities (Warmup steps, Help keys): when a known remote reports other capabilities with the current config version (an update, or `init.sh` falling back to `remote_ui.bak`), the Hub raises its config version, so the remote asks for a new push.
 
 #### `RF_MSG_UNIT_ID` (`0x31`)
 - `payload[0]`: Length `n` of the id, at most 24 (`RF_UNIT_ID_MAX`); 0 when the remote has no id
@@ -381,8 +384,10 @@ while the link is up, also one applied from a settings push, and when the Hub as
 - Hub broadcasts upon activity change or sync query:
   - ID of 1 or 2 characters, or `"-1"` for PowerOff: `payload[0..2]` ID, `payload[3..23]` name (21 bytes).
   - Longer ID (e.g. `"12345678"`): `payload[0..9]` ID (10 bytes), `payload[10..23]` name (14 bytes).
-  - `payload[24]`: `1` = answer to a `RF_MSG_SYNC_REQUEST` (catch-up, no switch overlay), `0` = the activity just changed.
+  - `payload[24]`: `0x00` `RF_ACT_SYNC_COMPLETE` = the activity runs (a switch ended), `0x01` `RF_ACT_SYNC_QUERY` = answer to a `RF_MSG_SYNC_REQUEST` (catch-up, no switch overlay), `0x02` `RF_ACT_SYNC_STARTING` = the Hub started a switch to this activity, `0x03` `RF_ACT_SYNC_QUERY_SWITCHING` = answer to a `RF_MSG_SYNC_REQUEST` while a switch to this activity runs.
+- hub_rf polls the activity state every 200 ms. When a switch starts it sends `0x02` with the target (from `/tmp/activity_target`), only to remotes that report `RF_CAP_SWITCH_START`: an older remote would take it for the end. When the switch ends it sends `0x00` with the running activity, also when that is the old one (the switch failed). It answers a sync query during a switch with `0x03` and the target, again only to remotes that report `RF_CAP_SWITCH_START`; older remotes get `0x01` with the running activity. `GET /api/rf/sync` sends nothing during a switch (its end notice follows).
 - The remote opens the activity's screen (or home for `"-1"`) only while it shows home or an activity screen. In Settings, pairing or the device browser it records the new activity and keeps the page; the activity is there when the user goes back. A switch started on the remote itself always ends on its target screen.
+- Switch screen: `0x02` opens it on home and activity screens (or keeps the one the remote opened for its own switch). `0x03` does the same (a remote that woke or restarted during the switch). After a `0x02`, the next `0x00` or `0x01` closes it, whatever activity it names: the Hub answers `0x03` while the switch runs, so a `0x01` means it is over, also when the end notice was lost (the remote asks every 800 ms while the screen is on). The remote's own estimate closes it only 10 s after the estimated end, and not while the last `0x02` or `0x03` is less than 10 s old. The Hub reads its state and then sends the answer, so a notice can go out in between: the remote ignores a `0x01` or `0x03` that answers a query sent before the last `0x00` or `0x02` arrived. A `0x03` received with the screen off (a wake for an alarm) opens no switch screen; the first query with the screen on does. Without a `0x02` (older Hub) the screen closes on the `0x00` of its target or 400 ms after the estimate, as before. Once a Hub sent `0x02`, a `0x00` for a switch the remote did not show opens no switch screen (that switch is over).
 
 #### `RF_MSG_TIME_SYNC` (`0x10`)
 - Hub transmits time and timezone configuration:
@@ -453,19 +458,22 @@ while the link is up, also one applied from a settings push, and when the Hub as
   - `payload[0]`: Entry index in this push.
   - `payload[1]`: Position of the button in its activity's on-screen list (or of the key in the activity's key map).
   - `payload[2]`: `0x01` on-screen button, `0x00` hard key.
-  - `payload[3..11]`: Activity ID (9 bytes): the activity the on-screen button belongs to (`"-1"` = nothing running), or the activity a hard key starts (`"-1"` for a stop key).
+  - `payload[3..11]`: Activity ID (9 bytes): the activity the on-screen button belongs to (`"-1"` = nothing running), the activity a hard key starts (`"-1"` for a stop key), or the activity a Help key belongs to.
   - `payload[12..23]`: Label (12 bytes); for a hard key, the button name.
-  - `payload[24]`: `0x01` device command, `0x02` activity start, `0x03` activity stop.
-- Only two kinds of entries are sent: the hard keys that start or stop an activity (the remote plays the switch by itself) and the on-screen buttons. Every other hard-key mapping stays on the Hub, which maps the raw key. The start and stop keys come first, at most 15, plus a `PwrOff` stop key when no activity maps one; then the on-screen buttons of every activity, up to 255 entries in all.
+  - `payload[24]`: `0x01` device command, `0x02` activity start, `0x03` activity stop, `0x04` Help.
+- Only these entries are sent: the hard keys that start or stop an activity (the remote plays the switch by itself), the hard keys mapped to Help (`"type": "help"`) for a remote that reports `RF_CAP_HELP_KEY`, and the on-screen buttons. Every other hard-key mapping stays on the Hub, which maps the raw key. The start, stop and Help keys come first, at most 15, plus a `PwrOff` stop key when no activity maps one; then the on-screen buttons of every activity, up to 255 entries in all.
+- A Help key opens the remote's Help screen while its activity runs (`RF_MSG_HELP_REQUEST`); in another activity the key goes to the Hub as a raw key. An older remote never gets Help keys: the Hub maps the raw key and calls `POST /api/activity/help`, which re-sends the running activity's commands without the power questions.
 
 #### `RF_MSG_STEP_LIST_CHUNK` (`0x11`)
 - Hub sends the steps the remote shows while an activity starts or stops, one per frame (ACK'd):
   - `payload[0]`: Chunk index in this push (at most 64 steps).
   - `payload[1]`: Step index within its sequence; bit 7 (`0x80`) marks a step of the activity's stop sequence.
-  - `payload[2]`: Number of steps in the start sequence (at most 8 per activity, ending at its `Switched` step); `1` on every stop step.
+  - `payload[2]`: Number of steps in the start sequence (at most 16 per activity, ending at its `Switched` step); `1` on every stop step (at most 16 per activity).
   - `payload[3..11]`: Activity ID (9 bytes), `"-1"` for power off.
-  - `payload[12..13]`: Step delay in ms (16-bit little-endian; 250 when the step has none, capped at 20000; the delay of a `Delay` step that follows is added).
+  - `payload[12..13]`: Step delay in ms (16-bit little-endian; 250 when the step has none, capped at 20000; the delay of a `Delay` step that follows is added, up to 60000, and a `Delay` before the first command is a step named `Delay`).
   - `payload[14..24]`: Step name (11 bytes).
+  - `payload[21]`, only in a step named `Warmup`: 1 + the device's index in the device list.
+- Warmup: before the start sequence the Hub waits the longest `powerOnDelay` (1500 ms when a device has none) of the devices it powers on: devices of the new activity that the leaving activity does not use, that are not `isPowerAlwaysOn` and that the start sequence does not power on (`PowerOn`, `PowerToggle` or `Power`). Only the leaving activity is unknown at push time, so a start sequence begins with one `Warmup` step per such device (at most 4, longest first, capped at 60000 ms), and the remote keeps the longest one whose device the leaving activity does not use (`RF_MSG_ACT_DEVICES_CHUNK`). Only remotes that report `RF_CAP_SWITCH_START` get these steps; an older remote gets the list without them, its step numbers counted without them. They fill only the room the other steps leave of the remote's 64: an activity gets all its Warmup steps or none, the first activities first.
 
 #### `RF_MSG_ACTIVITY_REQUEST` (`0x15`)
 - Remote transmits to start an activity or power off (no ACK flag):

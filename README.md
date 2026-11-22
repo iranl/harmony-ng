@@ -33,6 +33,7 @@ Setting up HarmonyNG takes just a few minutes. Pre-built release bundles contain
 | **Android Companion App** | [Download APK from Releases](https://github.com/iranl/harmony-ng/releases) | Android phone or tablet (Android 6 or newer); with authentication on, the app keeps an access token, never your password ([details](docs/FIRST_INSTALL_HUB.md#5-accessing-the-web-console--android-app)) |
 | **Web UI** | Pre-installed on Hub at `http://<hub-ip>:8089` | Modern web browser |
 | **Ethernet Setup** | [**Ethernet & Network Guide**](docs/ETHERNET_AND_NETWORK_SETUP.md) | Native onboard RJ45/PoE (Pro 2400) or OTG Micro-USB Ethernet Adapter (Standard Hub) |
+| **Plugins & Marketplace** | [**Plugin Architecture & Guide**](docs/PLUGINS.md) | Community drivers (Roku ECP, PS5 Wake, Android TV) via 1-click marketplace |
 
 > [!IMPORTANT]
 > **Authentication is off after install**: every device on your network is admin on the Hub until you turn it on (web UI, **System** page, **User Accounts & Access Control**). See [API.md, section 11](docs/API.md#11-authentication--security-architecture).
@@ -93,6 +94,7 @@ The table below details every major functional component for both the **Harmony 
 | **Activity Orchestration** | **Rigid Cloud Sequences**: Static power macros compiled in the cloud. Out-of-sync devices require stepping through the mobile "Fix It" wizard. | **Stateful C Orchestrator**: `orchestrator.c` builds each switch from the leaving and the entering activity (devices that are in only one of them are powered off or on), runs one switch at a time with a step queue and delays, and sends live WebSocket and MQTT progress feeds. |
 | **Smart Home & Automation** | **Cloud Skill & Deprecated XMPP**: Local XMPP blocked in firmware v4.15.206. Cloud skills face deprecation. | **Native Bidirectional MQTT**: Built-in MQTT client with Home Assistant MQTT Auto-Discovery (activity `select`, plus `sensor` and `button` entities; Home Assistant's MQTT integration has no `remote` platform). Full REST & WebSocket API. mDNS discovery (`_harmony-ng._tcp`), and an optional Logitech protocol layer (port 8088 with SSDP, off by default) for stock clients such as Home Assistant's core Harmony integration. |
 | **Flash & Safe Recovery** | **Flash Wear & Brick Risk**: Unmonitored writes to JFFS2 flash. Bricked units require factory wipe. | **RAM-Isolated & Panic Protected**: All runtime logs/PIDs in tmpfs (`/tmp`). A boot counter starts the Hub in an emergency recovery mode (Wi-Fi and SSH only) after more than 5 boots in a row that did not stay up for 5 minutes. Downloaded OTA updates of Hub and remote are checked against a signed manifest (Ed25519) before they are installed. |
+| **Extensibility & Plugins** | **Zero / Closed**: No plugin or custom driver support. Restricted to stock cloud code sets. | **Plugin System & Marketplace**: Supervised community micro-daemons with zero flash wear (sockets/logs in RAM tmpfs), non-blocking UNIX domain socket IPC, 1-click marketplace catalog, and custom repository support. See [Plugin Guide](docs/PLUGINS.md). |
 
 ### Harmony Touchscreen Remotes
 
@@ -118,6 +120,17 @@ HarmonyNG supports all major Logitech Harmony physical remotes:
    - Remote settings backup to Hub and over-the-air (OTA) firmware updating.
    - *Harmony Ultimate, Ultimate Home and Harmony Touch share this architecture and are supported by the same binaries (tested on a Harmony Ultimate, 2013).*
 
+   <div align="center">
+     <table>
+       <tr>
+         <td align="center"><b>Activities</b><br><br><img src="docs/images/remote_activities.png" alt="Activities Screen" width="160px"></td>
+         <td align="center"><b>Devices</b><br><br><img src="docs/images/remote_devices.png" alt="Devices Screen" width="160px"></td>
+         <td align="center"><b>Commands</b><br><br><img src="docs/images/remote_commands.png" alt="Commands Screen" width="160px"></td>
+         <td align="center"><b>Settings</b><br><br><img src="docs/images/remote_settings.png" alt="Settings Screen" width="160px"></td>
+       </tr>
+     </table>
+   </div>
+
 2. **Harmony Companion & Harmony Smart Control (Screenless Remotes)**:
    - **Native zero-rooting RF support**: Communicate directly with the Hub via CC2544 2.4 GHz eQuad protocol. No USB connection, rooting, or custom firmware installation required on the remote.
    - Simply put the remote in pairing mode to register it to Hub Remote Slot 1 or Slot 2.
@@ -137,8 +150,8 @@ HarmonyNG supports all major Logitech Harmony physical remotes:
 While HarmonyNG restores complete local independence and dramatically reduces memory and CPU usage, note the following architectural difference from stock Logitech firmware:
 
 1. **No Direct Local Network / IP Control (e.g. Roku ECP, Hue Direct, Sony IP)**:
-   - Stock Logitech software relied on closed-source Lua plugins to control local IP devices. HarmonyNG focuses purely on IR (sent through the Hub's I2S driver), Bluetooth HID, and 2.4 GHz RF remotes.
-   - **Mitigation via Home Assistant / MQTT**: This is easily handled by connecting HarmonyNG to **Home Assistant via the built-in bidirectional MQTT bridge**. Home Assistant natively supports thousands of IP-controlled devices (Roku, Apple TV, Philips Hue, Android TV) and can be triggered seamlessly by Harmony activities and remote button presses.
+   - **Community Plugins & Add-ons**: HarmonyNG includes a dedicated **Plugin Architecture & Community Marketplace** for direct local control of IP and Bluetooth devices without cloud mediation. Lightweight community micro-daemons (e.g. **Roku ECP**, **PlayStation 5 BT Wake**, **Android TV**) run directly on the Hub with zero flash wear. See [Plugin Architecture & Guide](docs/PLUGINS.md) and the [harmony-ng-plugins repository](https://github.com/iranl/harmony-ng-plugins).
+   - **Home Assistant & MQTT Integration**: For thousands of other smart home devices (Hue, Sonos, custom lights), connect HarmonyNG to **Home Assistant via the built-in bidirectional MQTT bridge**.
 
 ---
 
@@ -157,6 +170,7 @@ While HarmonyNG restores complete local independence and dramatically reduces me
 │   └── deploy_hub.py       # Hub deployment script (cross-platform Python)
 ├── docs/                   # Technical documentation
 │   ├── API.md              # Complete REST & WebSocket API specification
+│   ├── PLUGINS.md          # Plugin architecture, marketplace, and developer guide
 │   ├── BLUETOOTH_HID_CODES.md # Bluetooth HID keycodes and mappings
 │   ├── REMOTE.md            # Remote hardware, RF protocol, and display specs
 │   ├── REMOTE_BATTERY_OPTIMIZATION.md # Power management & battery life guide

@@ -5,6 +5,8 @@
 #include <string.h>
 #include <assert.h>
 
+/* No plugins installed: the sanitizer only asks which device types belong to a plugin */
+
 int main(void) {
     printf("[*] Testing sanitize_activity_steps (canonical single 'delay' key, no duplicates)...\n");
 

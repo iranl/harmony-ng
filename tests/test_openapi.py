@@ -351,7 +351,9 @@ class TestOpenApiCompliance(unittest.TestCase):
             "/api/remote-unpair",
             "/api/update-status",
             "/api/update-check",
-            "/api/custom-icons"
+            "/api/custom-icons",
+            "/api/plugins",
+            "/api/plugins/install"
         ]
         for ep in required_endpoints:
             self.assertIn(ep, paths, f"Critical endpoint {ep} must be defined in docs/openapi.yaml")

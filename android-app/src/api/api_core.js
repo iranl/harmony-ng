@@ -186,7 +186,9 @@ export class HarmonyClientCore {
     } catch (err) {
       clearTimeout(timeout);
       if (err.name === 'AbortError') {
-        throw new Error(t('conn_timed_out_check_ip'));
+        const toErr = new Error(t('conn_timed_out_check_ip'));
+        toErr.timeout = true;
+        throw toErr;
       }
       throw err;
     }

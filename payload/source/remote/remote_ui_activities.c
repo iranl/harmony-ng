@@ -41,6 +41,7 @@ void trigger_activity_switch(const char *id, const char *name) {
         return;
     }
     s_switch_from_hub = false;
+    g_switch_hub_started = false;
     g_is_switching_activity = true;
     strncpy(g_switching_target_id, id ? id : "-1", sizeof(g_switching_target_id) - 1);
     strncpy(g_switching_target_name, name ? name : "Activity", sizeof(g_switching_target_name) - 1);
@@ -61,6 +62,7 @@ void trigger_activity_switch(const char *id, const char *name) {
 
 void trigger_activity_switch_external(const char *id, const char *name) {
     s_switch_from_hub = true;
+    g_switch_hub_started = false;
     g_is_switching_activity = true;
     strncpy(g_switching_target_id, id ? id : "-1", sizeof(g_switching_target_id) - 1);
     strncpy(g_switching_target_name, name ? name : "Activity", sizeof(g_switching_target_name) - 1);
@@ -402,8 +404,15 @@ void render_switching_view(void) {
     char time_str[32];
     double cur_sec = (double)elapsed / 1000.0;
     double tot_sec = (double)total_ms / 1000.0;
-    if (cur_sec > tot_sec) cur_sec = tot_sec;
-    snprintf(time_str, sizeof(time_str), "Timing: %.1fs / %.1fs", cur_sec, tot_sec);
+    /* The times are the remote's estimate; the Hub's end notice closes the screen */
+    if (cur_sec >= tot_sec) {
+        snprintf(time_str, sizeof(time_str), "Timing: ~%.1fs (completing...)", tot_sec);
+        /* the line is 232 px: a long time drops the word */
+        if (fb_text_width_aa(time_str, &g_font_main) > FB_WIDTH - 16)
+            snprintf(time_str, sizeof(time_str), "Timing: ~%.1fs ...", tot_sec);
+    } else {
+        snprintf(time_str, sizeof(time_str), "Timing: ~%.1fs / ~%.1fs", cur_sec, tot_sec);
+    }
     fb_draw_text_aa(8, card_y + 126, time_str, RGB_TEXT_MUTED, &g_font_main);
 
     int bar_x = 8;
