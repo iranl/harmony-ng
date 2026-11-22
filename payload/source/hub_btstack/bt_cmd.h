@@ -19,6 +19,8 @@ void cmd_poll_timeout(btstack_timer_source_t *ts);
 #define PAIRING_TIMEOUT_MS (180 * 1000)
 void pairing_mode_off(const char *reason);
 void pairing_timeout_cancel(void);
+/* Generic Classic BT page: called from HCI_EVENT_CONNECTION_COMPLETE */
+void bt_page_on_complete(const bd_addr_t addr, uint8_t status, hci_con_handle_t handle);
 
 #ifdef __cplusplus
 }

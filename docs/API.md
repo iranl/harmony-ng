@@ -6,7 +6,7 @@
 
 **Requests from web pages.** Port 8089 refuses requests and WebSocket upgrades that a browser sends on behalf of another web site: an `Origin` header that is not the Hub's own clients answers `403`, and so does a request without `Origin` that the browser marks `Sec-Fetch-Site: cross-site` or `same-site`. A WebSocket upgrade refused this way gets no answer: the connection is closed. Allowed origins: the Hub itself (the `Origin` host matches the request's `Host`, or `X-Forwarded-Host` behind a reverse proxy), `http://` and `https://` with `localhost`, `127.0.0.1` or `[::1]` on any port (the Android app, local development servers), `capacitor://localhost` and `ionic://localhost`. Clients outside a browser (the Home Assistant integration, scripts, `curl`) send neither header and are not affected. A CORS preflight (`OPTIONS`) from any other origin is answered `403`. On port 8088 (Logitech protocol) only the WebSocket upgrade is checked: one with an `Origin` other than the request's own `Host` is answered `403`; its two HTTP routes (1.12) are not checked.
 
-**Request size.** A request body may be at most 64 KB, except `POST /api/rf-mapping-save`, `POST /api/remote-mapping-save` and `POST /api/ui-remote-layout` (a whole button map or the web remote layouts, up to 256 KB), and `POST /import` and `POST /api/custom-icons` (up to 2 MB; the icon image itself may be at most 16 KB, see 1.8). A larger `Content-Length` is answered `413` before the body is read.
+**Request size.** A request body may be at most 64 KB, except `POST /api/rf-mapping-save`, `POST /api/remote-mapping-save` and `POST /api/ui-remote-layout` (a whole button map or the web remote layouts, up to 256 KB), and `POST /import`, `POST /api/custom-icons` and `POST /api/plugins/install` (up to 2 MB; the icon image itself may be at most 16 KB, see 1.8). A larger `Content-Length` is answered `413` before the body is read.
 
 **Request bodies.** Most `POST` routes take a JSON object, or a form-encoded body (`a=1&b=2`; every value is then a string). JSON only: activity start, power off, Help and its answer, `activity-progress`, `pronto-blast`, `ir-raw`, `ir-capture`, `button-press` and `custom-icons`.
 
@@ -664,6 +664,15 @@ gets `"Generic"`, and without `name` is named after its id. `powerOnDelay` is 0 
 `controlPort`, its commands are stored without `port` and `repeats`, and they go out as MQTT pulses
 on `mqttTopic` (default `{base_topic}/button/{device}/{command}`). Leave the MQTT fields out for an
 infrared or Bluetooth device.
+
+`"plugin": "<id>"` (or `type` `plugin:<id>`) makes the device a plugin device (docs/PLUGINS.md): no
+`controlPort`, its commands go to the plugin, and `config` (an object, or that object as a JSON
+string) holds the values of the plugin's `config_fields`. The id must be a safe plugin id (letters,
+digits, `-`, `_`), or the save is refused with `400`. A device's `type` text never makes it a
+plugin device, even when it matches a plugin's name. A top-level key is copied into `config` only
+for a plugin device and only when the plugin's `config_fields` declare it. The plugin choice comes
+before the MQTT and Bluetooth guesses from `type` and `manufacturer`. A save without `plugin` keeps
+the stored one; `"plugin": ""` makes the device a non-plugin device again.
 - **Request Body**:
   ```json
   {

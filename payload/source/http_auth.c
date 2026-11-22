@@ -604,6 +604,13 @@ enum http_role http_auth_check_request(const char *req, const char *client_ip,
     return ROLE_NONE;
 }
 
+int http_auth_is_enabled(void) {
+    struct user_account users[MAX_HTTP_USERS];
+    int auth_enabled = 0;
+    load_user_accounts(users, MAX_HTTP_USERS, &auth_enabled);
+    return auth_enabled;
+}
+
 enum http_role http_auth_check_ws_upgrade(const char *req, const char *client_ip,
                                           char *out_user, size_t out_user_len) {
     if (!req) return ROLE_NONE;
