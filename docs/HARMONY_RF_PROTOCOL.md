@@ -174,7 +174,10 @@ Query command: `10 FF 83 B5 <pipe> 00 00`:
   link status, NAK and pipe-table reply names the pipe; `rf_spi.c` turns it into the slot and back.
 - **Request Pairing (Remote)**: `10 FF 80 B2 01 01 00`. Initiates bidirectional handshake from Remote.
 - **Close Pairing Lock (Hub)**: `10 FF 80 B2 02 00 00`. Closes pairing window.
-- **Unpair Slot**: `10 FF 80 B2 03 <slot> 00` (`0x01` = Slot 1, `0x02` = Slot 2, `0x00` = All).
+- **Unpair Slot**: `10 FF 80 B2 03 <pipe> 00` (`0x01` to `0x06`; `0x00` = All). The CC2544
+  has six pipes (pipe table `0x20..0x25`). `hub_rf` sends the pipe of the slot, and for "every
+  remote" one command per slot (after an `RF_MSG_UNPAIR_NOTIFY` to it), never `0x00`: some Hub
+  firmware NAKs it.
 - **Clear Bonding (Remote)**: when it is unpaired, `remote_ui` writes `10 FF 80 D0 01 00 00`, then the 20-byte reports `11 FF 82 B5 20 00 ...` and `11 FF 82 B5 30 00 ...` (zeroed pipe entries), then `10 FF 80 D0 00 00 00`, 50 ms apart (`cc2544_clear_bonding()`).
 
 ### 4.5 Hardware Link Events & Notifications
