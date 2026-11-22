@@ -670,6 +670,27 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
     }
 }
 
+void rf_handle_pairing_event(const uint8_t pkt[7]) {
+    uint8_t pair_status = pkt[4];
+    printf("[*] Remote RF CC2544 Pairing Event: status=0x%02X slot=%d\n", pair_status, pkt[1]);
+    if (pkt[1] >= 1 && pkt[1] <= 15) {
+        g_remote_slot = pkt[1];
+    }
+    if (pair_status == 0x00) {
+        printf("[+] Remote RF Pairing SUCCESS! Paired to Hub on Slot %d\n", g_remote_slot);
+        g_rf_link_connected = true;
+        g_pairing_state = 2;
+        if (g_current_view == VIEW_PAIRING || g_current_view == VIEW_NOT_PAIRED) g_current_view = VIEW_ACTIVITIES;
+        rf_send_full_sync_request();
+    } else if (pair_status == 0x01) {
+        printf("[*] Remote RF Pairing still in progress on Slot %d\n", g_remote_slot);
+    } else {
+        printf("[-] Remote RF Pairing failed / closed (status=0x%02X)\n", pair_status);
+        g_pairing_state = 3;
+    }
+    render_screen();
+}
+
 void *rf_rx_worker(void *arg) {
     (void)arg;
     uint8_t pkt[64];
@@ -745,22 +766,7 @@ void *rf_rx_worker(void *arg) {
         }
 
         if (n >= 5 && pkt[0] == 0x10 && pkt[2] == 0x4A) {
-            uint8_t pair_status = pkt[4];
-            printf("[*] Remote RF CC2544 Pairing Event: status=0x%02X slot=%d\n", pair_status, pkt[1]);
-            if (pkt[1] >= 1 && pkt[1] <= 15) {
-                g_remote_slot = pkt[1];
-            }
-            if (pair_status == 0x01 || pair_status == 0x00) {
-                printf("[+] Remote RF Pairing SUCCESS! Paired to Hub on Slot %d\n", g_remote_slot);
-                g_rf_link_connected = true;
-                g_pairing_state = 2;
-                if (g_current_view == VIEW_PAIRING || g_current_view == VIEW_NOT_PAIRED) g_current_view = VIEW_ACTIVITIES;
-                rf_send_full_sync_request();
-            } else {
-                printf("[-] Remote RF Pairing failed / closed (status=0x%02X)\n", pair_status);
-                g_pairing_state = 3;
-            }
-            render_screen();
+            rf_handle_pairing_event(pkt);
             continue;
         }
 

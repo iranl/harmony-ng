@@ -118,6 +118,17 @@ int main(void) {
     g_has_hub_config = true;
     g_running = true;
 
+        /* A pairing notification with status 1 is still in progress; only status 0 completes it. */
+        g_pairing_state = 1;
+        g_rf_link_connected = false;
+        uint8_t pairing_event[7] = {0x10, 0x01, 0x4A, 0x00, 0x01, 0x00, 0x00};
+        rf_handle_pairing_event(pairing_event);
+        CHECK(g_pairing_state == 1 && !g_rf_link_connected,
+            "pairing status 1 prematurely completed pairing (state %d, connected %d)",
+            g_pairing_state, g_rf_link_connected);
+            g_pairing_state = 2;
+            g_rf_link_connected = true;
+
     /* 1. The Hub's config version wrapped to 1 while the remote has 255 */
     g_config_version = 255;
     uint8_t ts[25] = {0};
@@ -245,6 +256,17 @@ int main(void) {
     send_version_report_rf();
     uint8_t caps = 0;
     CHECK(sent_type(RF_MSG_VERSION_REPORT, &caps) && (caps & RF_CAP_DEVICE_CMDS), "version report caps 0x%02X", caps);
+
+        /* A status 0 event completes pairing and requests the Hub configuration. */
+        g_pairing_state = 1;
+        g_rf_link_connected = false;
+        pairing_event[4] = 0x00;
+        rf_handle_pairing_event(pairing_event);
+        CHECK(g_pairing_state == 2 && g_rf_link_connected,
+            "pairing status 0 did not complete pairing (state %d, connected %d)",
+            g_pairing_state, g_rf_link_connected);
+        uint8_t discard[64];
+        while (recv(s_hub, discard, sizeof(discard), MSG_DONTWAIT) > 0) {}
 
     g_running = false;
     if (s_failures) {
