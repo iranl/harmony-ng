@@ -1,6 +1,7 @@
 {
   "about": "Texts in these lists were translated by machine and not yet checked by a person. When you have checked or corrected a text in a language, remove its key from that language's list. scripts/i18n-check.js reports what is left.",
   "de": [
+    "map_action_help",
     "confirm_btn",
     "cancel_btn",
     "search_icons",
@@ -620,6 +621,7 @@
     "plg_repo_add_failed"
   ],
   "fr": [
+    "map_action_help",
     "confirm_btn",
     "cancel_btn",
     "search_icons",
@@ -1239,6 +1241,7 @@
     "plg_repo_add_failed"
   ],
   "nl": [
+    "map_action_help",
     "confirm_btn",
     "cancel_btn",
     "search_icons",
@@ -1858,6 +1861,7 @@
     "plg_repo_add_failed"
   ],
   "es": [
+    "map_action_help",
     "confirm_btn",
     "cancel_btn",
     "search_icons",
@@ -2477,6 +2481,7 @@
     "plg_repo_add_failed"
   ],
   "it": [
+    "map_action_help",
     "confirm_btn",
     "cancel_btn",
     "search_icons",

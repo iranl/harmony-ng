@@ -1123,6 +1123,7 @@ export default {
     "step_type_switched": "Switched",
     "stop": "Stop",
     "stop_activity_power_off": "Stop Activity (Power Off)",
+    "map_action_help": "Activity Help (Repair)",
     "stop_seq_desc": "Commands sent when leaving activity.",
     "stopwatch": "Stopwatch",
     "studio_sub": "Learn • Database • Pronto",

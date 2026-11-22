@@ -1123,6 +1123,7 @@ export default {
     "step_type_switched": "Basculé",
     "stop": "Arrêt",
     "stop_activity_power_off": "Arrêter l'activité (Éteindre)",
+    "map_action_help": "Aide de l'activité (Réparer)",
     "stop_seq_desc": "Commandes envoyées lors de la désactivation.",
     "stopwatch": "Chronomètre",
     "studio_sub": "Apprentissage • Base de données • Pronto",

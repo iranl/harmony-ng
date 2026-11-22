@@ -1123,6 +1123,7 @@ export default {
     "step_type_switched": "Omgeschakeld",
     "stop": "Stop",
     "stop_activity_power_off": "Activiteit stoppen (Uitschakelen)",
+    "map_action_help": "Activiteithulp (Herstellen)",
     "stop_seq_desc": "Opdrachten verzonden bij het verlaten van de activiteit.",
     "stopwatch": "Stopwatch",
     "studio_sub": "Leren • Database • Pronto",

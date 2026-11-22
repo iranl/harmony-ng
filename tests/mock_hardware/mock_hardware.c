@@ -160,6 +160,13 @@ static const char *resolve_mock_path(const char *pathname, char *resolved, size_
         snprintf(resolved, max_len, "%s/bthid_input", md);
         return resolved;
     }
+    /* 4c. The orchestrator's switch state files, only for a test that asks: the daemon tests
+     * read the real ones */
+    if (getenv("HARMONY_MOCK_ACTIVITY_FILES") != NULL &&
+        (strcmp(pathname, "/tmp/activity_state") == 0 || strcmp(pathname, "/tmp/activity_target") == 0)) {
+        snprintf(resolved, max_len, "%s/%s", md, pathname + 5);
+        return resolved;
+    }
     /* and hub_daemon's Bluetooth send log (debug logging) */
     if (strcmp(pathname, "/tmp/bt_sent.log") == 0 && getenv("HARMONY_MOCK_DIR") != NULL) {
         snprintf(resolved, max_len, "%s/bt_sent.log", md);

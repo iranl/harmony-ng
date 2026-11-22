@@ -1123,6 +1123,7 @@ export default {
     "step_type_switched": "Cambiado",
     "stop": "Detener",
     "stop_activity_power_off": "Detener actividad (Apagar)",
+    "map_action_help": "Ayuda de la actividad (Reparar)",
     "stop_seq_desc": "Comandos enviados al salir de la actividad.",
     "stopwatch": "Cronómetro",
     "studio_sub": "Aprender • Base de datos • Pronto",
