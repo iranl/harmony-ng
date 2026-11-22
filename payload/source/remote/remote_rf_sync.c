@@ -671,7 +671,7 @@ static void handle_hub_frame_body(const rf_frame_t *f) {
             /* Not in the middle of a config sync or an update (the transfer would be lost), a
              * pairing or an activity switch: the same gates as every other suspend */
             if (remote_suspend_blocked()) {
-                printf("[*] Remote: SLEEP_REQ from Hub ignored: a sync, update, pairing or switch is running\n");
+                printf("[*] Remote: SLEEP_REQ from Hub ignored: a sync, update, pairing or switch is running, or a key is held\n");
                 break;
             }
             printf("[*] Remote: received SLEEP_REQ from Hub. Suspending to RAM...\n");

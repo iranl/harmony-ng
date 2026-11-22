@@ -88,6 +88,32 @@ bool remote_release_held_rf_key(int code) {
     return held;
 }
 
+#define KEY_HELD_AWAKE_MAX_MS (5 * 60 * 1000)
+
+static bool fd_keys_down(int fd, int only_a, int only_b) {
+    if (fd < 0) return false;
+    unsigned char bits[KEY_MAX / 8 + 1];
+    memset(bits, 0, sizeof(bits));
+    if (ioctl(fd, EVIOCGKEY(sizeof(bits)), bits) < 0) return false;
+    if (only_a >= 0) return (bits[only_a / 8] & (1 << (only_a % 8))) || (bits[only_b / 8] & (1 << (only_b % 8)));
+    for (size_t i = 0; i < sizeof(bits); i++)
+        if (bits[i]) return true;
+    return false;
+}
+
+bool remote_key_held(void) {
+    static uint64_t s_held_since_ms; /* 0: no key down at the last look */
+    /* The touch device also reports BTN_TOUCH: only its two capacitive keys count */
+    bool down = fd_keys_down(g_btn_fd, -1, -1) || fd_keys_down(g_touch_fd, 102, 364);
+    uint64_t now = get_monotonic_ms();
+    if (!down) {
+        s_held_since_ms = 0;
+        return false;
+    }
+    if (s_held_since_ms == 0) s_held_since_ms = now;
+    return now - s_held_since_ms <= KEY_HELD_AWAKE_MAX_MS;
+}
+
 void *key_repeat_thread(void *arg) {
     (void)arg;
     while (g_running) {

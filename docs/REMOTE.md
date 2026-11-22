@@ -242,6 +242,11 @@ the remote stays up until it has linked and reported its battery (at most 8 s), 
 again, so a sleeping remote reports once an hour. **Powered (cradle, USB or charging) it never
 suspends**: the Hub can wake it, push config and update it over RF at any time.
 
+**A held key keeps the remote awake.** While a hard key or a capacitive key is down (the kernel's
+key state, `EVIOCGKEY`), the screen does not blank at the idle timeout and no suspend starts, also
+not from a Hub sleep request or `SIGUSR2`; the timeout counts from the release. A key down for more
+than 5 minutes no longer counts, so a key pressed in a sofa cushion does not empty the battery.
+
 `CLOCK_MONOTONIC` stops during suspend and the remote's kernel (2.6.37) has no `CLOCK_BOOTTIME`,
 so `remote_ui` measures each suspend on the wall clock (restored from the MSP430 RTC on resume)
 and adds it in `get_boot_ms()`. The battery's timing (rested reading, slow drop, reports) and the

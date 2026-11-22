@@ -23,6 +23,11 @@ void *key_repeat_thread(void *arg);
 /* Release of a key whose press went out over RF: clears the held key and sends the release.
  * Returns false (and does nothing) when the key is not the held one. */
 bool remote_release_held_rf_key(int code);
+/* A hard key, or the capacitive Activities / Devices key, is down now (asked from the kernel, so
+ * a release that was never read cannot leave it set). A key down for more than
+ * KEY_HELD_AWAKE_MAX_MS no longer counts: a key pressed in a sofa cushion must not drain the
+ * battery. */
+bool remote_key_held(void);
 
 #ifdef __cplusplus
 }

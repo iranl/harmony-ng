@@ -1,4 +1,5 @@
 #include "remote_power.h"
+#include "remote_input.h"
 #include "remote_transition.h"
 #include "remote_fb.h"
 #include "remote_rf.h"
@@ -338,7 +339,8 @@ bool remote_deep_standby_due(uint64_t standby_s) {
 /* The stock firmware also holds the screen on while pairing is open or an activity starts: a
  * remote that sleeps stops its pairing requests, and wakes into a locked switch overlay */
 bool remote_suspend_blocked(void) {
-    return g_pairing_state == 1 || g_is_switching_activity || g_is_syncing_config || g_is_ota_updating;
+    return g_pairing_state == 1 || g_is_switching_activity || g_is_syncing_config || g_is_ota_updating ||
+           remote_key_held();
 }
 
 bool remote_should_suspend(uint64_t standby_s, uint64_t now_ms) {
@@ -498,7 +500,7 @@ void sig_deep_sleep_handler(int sig) {
 
 static void forced_deep_standby(void) {
     if (remote_suspend_blocked()) {
-        printf("[*] Deep standby (SIGUSR2) not started: a pairing, switch, sync or update is running\n");
+        printf("[*] Deep standby (SIGUSR2) not started: a pairing, switch, sync or update is running, or a key is held\n");
         return;
     }
     fb_set_blank(true);
@@ -624,7 +626,7 @@ void *power_manager(void *arg) {
             time_t now = time(NULL);
             if (now - g_last_activity_time > g_timeout_seconds) {
                 /* Blanking suspends a battery-powered remote, which would kill the transfer, stop
-                 * the pairing requests or hide the switch overlay */
+                 * the pairing requests, hide the switch overlay or cut a held key's repeats */
                 if (remote_suspend_blocked()) {
                     reset_idle_timer();
                 } else {
