@@ -17,6 +17,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 
@@ -779,6 +780,19 @@ class HubDeployer:
                 print("[!] No icon archive: Hub icons left as-is.")
 
         if self.icons_tar.is_file():
+            # The Hub reads single icons from a packed archive (tools/icon_pack.py) instead of
+            # unpacking about 6 MB of them into RAM; it is still a plain tar.gz for every reader
+            import icon_pack
+            if not icon_pack.is_packed(self.icons_tar):
+                if self.dry_run:
+                    print(f"    [dry-run] would repack {self.icons_tar.name} so the Hub reads icons from flash")
+                else:
+                    print(f"[*] Repacking {self.icons_tar.name} so the Hub reads icons from flash (not RAM)...")
+                    try:
+                        icon_pack.pack(self.icons_tar, self.icons_tar)
+                    except (OSError, ValueError, tarfile.TarError) as e:
+                        print(f"    [!] Could not repack {self.icons_tar.name} ({e}): deployed as it is, "
+                              "the Hub unpacks it into RAM as before")
             self.deploy_file_if_changed(self.icons_tar, "/cache/icons.tar.gz", "644")
             if not self.dry_run:
                 self.run_ssh(

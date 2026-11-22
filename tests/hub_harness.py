@@ -38,7 +38,7 @@ SAMPLE_CONFIG = os.path.join(TESTS_DIR, "fixtures", "ha", "sample_config")
 HUB_DAEMON_SOURCES = [
     "hub_daemon.c", "http_server.c", "http_util.c", "http_auth.c", "http_api_auth.c",
     "http_api_activities.c", "http_api_devices.c", "http_api_commands.c",
-    "http_api_custom_icons.c", "http_api_network.c", "hub_network_util.c", "wifi_config.c",
+    "http_api_custom_icons.c", "icon_pack.c", "http_api_network.c", "hub_network_util.c", "wifi_config.c",
     "http_api_remotes.c", "http_api_ota.c", "http_api_backup.c", "http_api_system.c",
     "http_api_plugins.c", "plugin_mgr.c",
     "config_store.c", "bt_migrate.c", "config_sanitize.c", "orchestrator.c",

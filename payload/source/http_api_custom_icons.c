@@ -3,6 +3,7 @@
 #include "http_server.h"
 #include "http_util.h"
 #include "cJSON.h"
+#include "icon_pack.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -107,6 +108,20 @@ static void *extract_icons_thread(void *arg) {
 }
 
 void http_ensure_icons_extracted(void) {
+    if (icon_pack_available()) {
+        /* Icons are read from the packed archive on flash. A copy unpacked into /tmp (RAM) by
+         * this or an older firmware before the packed archive was deployed is removed once;
+         * uploaded icons there are copies of /data/harmony/custom_icons, which is served too. */
+        static int s_tmp_copy_removed;
+        if (!s_tmp_copy_removed && !g_icons_extracting) {
+            s_tmp_copy_removed = 1;
+            if (access("/tmp/www/assets/icons", F_OK) == 0) {
+                system("rm -rf /tmp/www/assets/icons");
+                printf("[+] Unpacked icon copy in /tmp removed: icons are read from the packed archive\n");
+            }
+        }
+        return;
+    }
     if (access("/tmp/www/assets/icons", F_OK) == 0) return;
     if (g_icons_extracting) return;
 
@@ -139,6 +154,13 @@ void http_ensure_icons_extracted(void) {
 #define PROXY_FETCH_MAX_MS 20000 /* the whole download */
 #endif
 
+static void add_icon_name(const char *name, void *ctx) {
+    size_t n = strlen(name);
+    if (name[0] != '.' && n > 4 && strcmp(name + n - 4, ".png") == 0) {
+        cJSON_AddItemToArray((cJSON *)ctx, cJSON_CreateString(name));
+    }
+}
+
 int http_api_custom_icons_handle(int client_fd, const char *method, const char *clean_path,
                                  const char *query, const char *body, const char *req) {
     (void)req;
@@ -147,6 +169,8 @@ int http_api_custom_icons_handle(int client_fd, const char *method, const char *
     if (strcmp(clean_path, "/api/icons") == 0 && strcmp(method, "GET") == 0) {
         http_ensure_icons_extracted();
         cJSON *arr = cJSON_CreateArray();
+        int packed = icon_pack_available();
+        if (packed) icon_pack_list(add_icon_name, arr);
         const char *base_dir = "/tmp/www/assets/icons";
         if (access(base_dir, F_OK) != 0) {
             base_dir = "/cache/www/assets/icons";
@@ -154,7 +178,8 @@ int http_api_custom_icons_handle(int client_fd, const char *method, const char *
                 base_dir = "/data/harmony/www/assets/icons";
             }
         }
-        DIR *d = opendir(base_dir);
+        /* packed: the folders hold only copies of the uploaded icons, listed below */
+        DIR *d = packed ? NULL : opendir(base_dir);
         if (d) {
             struct dirent *de;
             while ((de = readdir(d)) != NULL) {

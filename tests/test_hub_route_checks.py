@@ -16,6 +16,8 @@ Route checks of hub_daemon (port 9101, own mock root, clients bound to 127.0.0.2
  8  the stock resources delete needs a confirmation, the stock import and a mark whose fingerprint
     matches the files (a saved copy of them as they are), never
     follows a link at /data/resources, and reports a file it could not remove
+ 9  a packed icon archive (tools/icon_pack.py): icons are served from it, listed from its index,
+    and the copy an older firmware unpacked into /tmp is removed
 """
 
 import base64
@@ -45,13 +47,14 @@ def check(cond, name, detail=""):
         print("  FAIL %s %s" % (name, detail))
 
 
-def raw(method, path, body=b""):
+def raw(method, path, body=b"", binary=False):
+    """binary: the body as bytes, and Connection: close (a static file keeps the connection open)"""
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.bind((HOST, 0))
     s.settimeout(8)
     s.connect((HOST, PORT))
-    s.sendall(("%s %s HTTP/1.1\r\nHost: %s:%d\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n"
-               % (method, path, HOST, PORT, len(body))).encode() + body)
+    s.sendall(("%s %s HTTP/1.1\r\nHost: %s:%d\r\nContent-Type: application/json\r\nContent-Length: %d\r\n%s\r\n"
+               % (method, path, HOST, PORT, len(body), "Connection: close\r\n" if binary else "")).encode() + body)
     out = b""
     try:
         while True:
@@ -67,6 +70,8 @@ def raw(method, path, body=b""):
     except (IndexError, ValueError):
         st = 0
     b = out.partition(b"\r\n\r\n")[2]
+    if binary:
+        return st, b
     try:
         return st, json.loads(b)
     except ValueError:
@@ -177,6 +182,37 @@ def test_icons():
             os.unlink(os.path.join(tmp_icons, n))
         except OSError:
             pass
+
+
+def test_packed_icons():
+    print("[-] 9  stock icons read from the packed icon archive")
+    import icon_pack
+    import test_icon_pack
+    tag = "p%d" % os.getpid()
+    tmp_icons = "/tmp/www/assets/icons"
+    os.makedirs(tmp_icons, exist_ok=True)
+    with open(os.path.join(tmp_icons, "stale%s.png" % tag), "wb") as f:
+        f.write(PNG_SIG)
+    files = test_icon_pack.make_files()
+    with HubHarness(port=PORT, host=HOST) as hub:
+        os.makedirs(os.path.join(hub.mock_dir, "cache"), exist_ok=True)
+        archive = os.path.join(hub.mock_dir, "cache", "icons.tar.gz")
+        test_icon_pack.make_archive(archive, files)
+        icon_pack.pack(archive, archive)
+        st, b = raw("GET", "/assets/icons/shared.png", binary=True)
+        check(st == 200 and b == b"from-b", "folder icon by file name (later folder)", "%s %r" % (st, b[:20]))
+        st, b = raw("GET", "/assets/icons/a/shared.png", binary=True)
+        check(st == 200 and b == b"from-a", "icon by its folder path", "%s %r" % (st, b[:20]))
+        st, b = raw("GET", "/assets/icons/big.png", binary=True)
+        check(st == 200 and b == files["icons/big.png"], "icon larger than a part, byte for byte", str(st))
+        st, r = raw("GET", "/api/icons")
+        check(st == 200 and isinstance(r, list) and "top02.png" in r and "shared.png" in r
+              and not any("/" in n for n in r), "icon list from the index", repr(r)[:80])
+        st, r = raw("GET", "/api/status")
+        check(isinstance(r, dict) and r.get("has_icons") is True, "has_icons", repr(r)[:80])
+        st, b = raw("GET", "/api/icons/archive", binary=True)
+        check(st == 200 and b == read(archive), "archive route sends the packed archive as it is", str(st))
+        check(not os.path.exists(tmp_icons), "unpacked copy in /tmp removed")
 
 
 def test_query_params():
@@ -309,6 +345,7 @@ def test_stock_resources():
 def main():
     test_map_saves()
     test_icons()
+    test_packed_icons()
     test_query_params()
     test_stock_resources()
     if failed:
