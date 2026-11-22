@@ -187,7 +187,7 @@ Query command: `10 FF 83 B5 <pipe> 00 00`:
   - `status != 0x00`: TX failure / drop (`0x01` while the link is lost).
 - **Pairing Notification** (`10 <slot> 4A <code> <status> ...`):
   - Hub: `code == 0x00` and `status == 0x00` means a remote was paired (`hub_rf` then reads the pipe table and closes the pairing lock); `code >= 0x01` with `status == 0x00` means the pairing lock is open.
-  - Remote: `status` `0x00` or `0x01` means paired, on the slot in byte 1; the remote then asks for a full config. Any other status ends the pairing attempt as failed.
+  - Remote: `status == 0x00` completes pairing on the slot in byte 1; the remote then asks for a full config. `status == 0x01` is still in progress and must not stop pairing retries. Any other status ends the pairing attempt as failed.
 - **Error / NAK** (`10 <slot> 8F <sub-id of the refused send> .. <err> ..`, error code in byte 5): the CC2544 refused a write. `hub_rf` counts them per slot (`naks` in `slots[].link` of `GET /api/rf/status`).
 
 ### 4.6 Readable Registers (no RSSI)
