@@ -126,6 +126,7 @@ class HubDeployer:
         dry_run: bool = False,
         no_backup: bool = False,
         stage_remote_ota: bool = False,
+        dev_btstack: bool = False,
     ):
         self.hub_host = hub_host
         self.hub_user = hub_user
@@ -136,6 +137,7 @@ class HubDeployer:
         self.dry_run = dry_run
         self.no_backup = no_backup
         self.stage_remote_ota = stage_remote_ota
+        self.dev_btstack = dev_btstack
 
         self.deploy_failures: list[str] = []
         self.remote_hashes: dict[str, str] = {}
@@ -147,6 +149,8 @@ class HubDeployer:
         self.script_dir = pathlib.Path(__file__).resolve().parent
         self.repo_root = self.script_dir.parent
         self.bundle_layout = (self.script_dir / "bin").is_dir()
+        # Dev BTstack build with info logs (build/build_btstack.sh), only in the repository layout
+        self.dev_btstack_bin = self.script_dir / "output" / "hub_btstack_dev"
 
         if self.bundle_layout:
             # Release bundle layout
@@ -335,6 +339,12 @@ class HubDeployer:
         print(f"Target Hub: {self.hub_host}")
         print(f"SSH key: {self.ssh_key or '(ssh defaults)'}")
         print("Mode: Extended BusyBox & Harmony Runtime")
+        if self.dev_btstack:
+            if not self.dev_btstack_bin.is_file() or elf_machine(self.dev_btstack_bin) != ELF_MACHINE_MIPS:
+                print(f"[-] --dev-btstack: {self.dev_btstack_bin} is missing or not a MIPS binary. "
+                      "Run build/compile_all.sh btstack first.", file=sys.stderr)
+                return False
+            print(f"hub_btstack: dev build with info logs ({self.dev_btstack_bin})")
 
         # Connection check
         if self.dry_run:
@@ -552,6 +562,8 @@ class HubDeployer:
                 ]
             for b in core_bins:
                 src = self.bin_dir / b
+                if b == "hub_btstack" and self.dev_btstack:
+                    src = self.dev_btstack_bin
                 if src.is_file():
                     self.deploy_file_if_changed(src, f"/data/harmony/bin/{b}", "755")
 
@@ -794,6 +806,7 @@ def main() -> None:
     parser.add_argument("--dry-run", "-n", action="store_true", help="Read Hub state and report changes without modifying Hub")
     parser.add_argument("--no-backup", action="store_true", help="Skip pre-deployment backup")
     parser.add_argument("--stage-remote-ota", action="store_true", help="Stage local remote_ui.ota.gz into Hub /tmp/remote_ui.ota.gz (RAM tmpfs) for offline testing")
+    parser.add_argument("--dev-btstack", action="store_true", help="Install the hub_btstack dev build with BTstack info logs (build/output/hub_btstack_dev) instead of the release build")
     ssh_hostkeys.add_reset_option(parser, "the Hub")
 
     args = parser.parse_args()
@@ -823,6 +836,7 @@ def main() -> None:
         dry_run=args.dry_run,
         no_backup=args.no_backup,
         stage_remote_ota=args.stage_remote_ota,
+        dev_btstack=args.dev_btstack,
     )
     success = deployer.deploy()
     sys.exit(0 if success else 1)
