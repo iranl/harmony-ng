@@ -201,11 +201,20 @@ jobs:
           [ -f tools/bin/dropbearmulti_mips ] && cp -f tools/bin/dropbearmulti_mips build/output/hub/dropbearmulti || true
           (cd build/output/hub && gzip -c -9 hub_daemon > hub_daemon.gz)
           ls -lh build/output/hub
+          # BTstack dev build (info logs) and the two .debug files: a release asset of their own,
+          # never in the bundle or the OTA package
+          mkdir -p build/output/hub_btstack_dev
+          cp -f build/output/hub_btstack_dev build/output/hub_btstack_dev.debug build/output/hub_btstack.debug build/output/hub_btstack_dev/
       - name: Archive Hub Binaries
         uses: actions/upload-artifact@v7
         with:
           name: hub-binaries
           path: build/output/hub/
+      - name: Archive BTstack Dev Build
+        uses: actions/upload-artifact@v7
+        with:
+          name: hub-btstack-dev
+          path: build/output/hub_btstack_dev/
 
   build-android:
     name: Build Android APK
@@ -309,6 +318,9 @@ jobs:
             (cd staging_hub && zip -r "${RELEASE_DIR}/harmony-hub-v${VERSION}.zip" .)
             tar -czvf "${RELEASE_DIR}/harmony-hub-v${VERSION}.tar.gz" -C staging_hub .
             cp -f artifacts/hub-binaries/hub_daemon.gz "${RELEASE_DIR}/hub_daemon_v${VERSION}.gz"
+          fi
+          if [ -d artifacts/hub-btstack-dev ]; then
+            tar -czf "${RELEASE_DIR}/hub_btstack_dev_v${VERSION}.tar.gz" -C artifacts/hub-btstack-dev .
           fi
 
           # 2. Package Complete Remote Release Bundle
