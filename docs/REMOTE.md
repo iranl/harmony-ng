@@ -567,4 +567,4 @@ The Elite firmware SquashFS filesystem contains about 1,350 official UI icons (a
 ```bash
 python tools/harmony_firmware.py extract-icons --archive build/icons.tar.gz
 ```
-The resulting `build/icons.tar.gz` (1.55 MB compressed) is automatically staged to `/cache/icons.tar.gz` during `deploy_hub.py`.
+The resulting `build/icons.tar.gz` (about 2.1 MB, packed by `tools/icon_pack.py` so the Hub reads single icons from flash) is automatically staged to `/cache/icons.tar.gz` during `deploy_hub.py`.

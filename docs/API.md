@@ -79,7 +79,7 @@ Returns high-level hub status, firmware, identity, active activity, flash space,
   - `auth_enabled`: whether authentication is on. `role` (`"admin"` or `"user"`) and `user` are the
     caller's own: the account name, `pat:<token name>` for a personal access token, `"admin"` when
     authentication is off or the request comes from the Hub itself.
-  - `has_icons`: the stock icon set is unpacked and can be served.
+  - `has_icons`: the stock icon set can be served (read from the packed archive, or unpacked into `/tmp`).
   - `mqtt.broker` is `""` while MQTT is disabled.
   - `hub_id`: the factory unit id from the `mfg` partition (unique per unit, survives reflashes); the
     identifier for device registries and unique ids. Falls back to the Wi-Fi MAC (12 lowercase hex

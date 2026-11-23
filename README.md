@@ -320,7 +320,7 @@ Without `--firmware` the tool uses the newest remote `.hfw2` bundle in `firmware
 1. Downloads official Elite firmware bundle (`remote_111_4.15.330.hfw2`) from Logitech update servers (or uses cached copy).
 2. Unpacks the internal SquashFS root filesystem with 7-Zip.
 3. Indexes and extracts the PNG assets (about 1,350) across `footer`, `hopsactivity`, `juniperactivity`, `commands`, `devices`, and `settings`.
-4. Packages them into `build/icons.tar.gz`. On the Hub, the web daemon unpacks the icons into `/tmp/www/assets/icons` when it starts (and again on a request if they are missing).
+4. Packages them into `build/icons.tar.gz`. `deploy_hub.py` repacks this archive (`tools/icon_pack.py`) before it installs it as `/cache/icons.tar.gz`. The result is still a plain `tar.gz`, but the Hub can now read one icon at a time from flash instead of unpacking about 6 MB of icons into RAM (`/tmp`). An archive installed by an older deploy or by an OTA update has no pack index. The web daemon still unpacks such an archive into `/tmp/www/assets/icons` until the next `deploy_hub.py` run.
 
 ---
 
