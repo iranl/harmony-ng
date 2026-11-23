@@ -254,7 +254,8 @@ the Python tools in `tools/`) need Python 3.13 or newer and stop with a message 
 and builds and copies the web UI. Options:
 `--ui legacy|new` (default `legacy`), `--webui-only`, `--reboot` (default is a hot restart),
 `--dry-run` / `-n` (reports what would change), `--no-backup`, `--stage-remote-ota`,
-`--key <private key>` and `--user`.
+`--dev-btstack` (installs `build/output/hub_btstack_dev`, the Bluetooth daemon with BTstack info logs;
+from a git checkout only), `--key <private key>` and `--user`.
 
 ### Running the tests
 

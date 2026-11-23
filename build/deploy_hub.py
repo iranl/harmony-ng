@@ -341,8 +341,11 @@ class HubDeployer:
         print("Mode: Extended BusyBox & Harmony Runtime")
         if self.dev_btstack:
             if not self.dev_btstack_bin.is_file() or elf_machine(self.dev_btstack_bin) != ELF_MACHINE_MIPS:
-                print(f"[-] --dev-btstack: {self.dev_btstack_bin} is missing or not a MIPS binary. "
-                      "Run build/compile_all.sh btstack first.", file=sys.stderr)
+                hint = ("a release bundle has no dev build: take hub_btstack_dev from the release's "
+                        "hub_btstack_dev_v<version>.tar.gz into output/" if self.bundle_layout
+                        else "Run build/compile_all.sh btstack first.")
+                print(f"[-] --dev-btstack: {self.dev_btstack_bin} is missing or not a MIPS binary. {hint}",
+                      file=sys.stderr)
                 return False
             print(f"hub_btstack: dev build with info logs ({self.dev_btstack_bin})")
 
@@ -813,6 +816,8 @@ def main() -> None:
     target_host = args.flag_host or args.host
     if not target_host:
         parser.error("HUB_ADDRESS is required (pass as first argument or --host=IP)")
+    if args.dev_btstack and args.webui_only:
+        parser.error("--dev-btstack installs a binary: it cannot be combined with --webui-only")
     # Before any USB or device work: a stop here leaves the device untouched
     ssh_hostkeys.require_known_hosts()
     if args.reset_host_key:

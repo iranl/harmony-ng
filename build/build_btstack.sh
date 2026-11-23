@@ -142,6 +142,8 @@ cp -f "$BIN/hub_btstack" "$OUT/hub_btstack"
 # Dev build with BTstack info logs, for debugging only. It stays in build/output
 # (never in payload/bin, so no release or OTA ships it); deploy_hub.py --dev-btstack installs it.
 $CC $CFLAGS -DHUB_BT_DEBUG_LOGS $INCLUDES -o "$OUT/hub_btstack_dev" $BTSTACK_SRCS $HUB_BT_SRCS -lm
+# its addresses differ from the release build: a dev CRASH: line needs this .debug file
+cp -f "$OUT/hub_btstack_dev" "$OUT/hub_btstack_dev.debug"
 $STRIP "$OUT/hub_btstack_dev"
 
 echo "Binary built successfully:"
