@@ -53,10 +53,9 @@ def known_hosts_file() -> pathlib.Path:
 def known_hosts_value() -> str:
     """The known_hosts file as the value of an ssh -o option or an ssh_config line: forward
     slashes on Windows (Windows OpenSSH reads them, and a backslash pair would be read as an
-    escape) in double quotes (a path with a space would otherwise be read as two files)."""
+    escape)."""
     path = known_hosts_file()
-    text = path.as_posix() if sys.platform == "win32" else str(path)
-    return '"' + text + '"'
+    return path.as_posix() if sys.platform == "win32" else str(path)
 
 
 _checked_files: set[str] = set()

@@ -697,13 +697,16 @@ def update_ssh_config(key_path: pathlib.Path, write: bool = False) -> None:
     gets a new host key when it is rooted; setup_remote.py forgets the old key when it
     installs SSH, and the tools' --reset-host-key does it by hand."""
     config_path = pathlib.Path.home() / ".ssh" / "config"
+    kh_val = ssh_hostkeys.known_hosts_value()
+    if " " in kh_val:
+        kh_val = f'"{kh_val}"'
     config_entry = (
         f"\nHost {REMOTE_IP} harmony-remote\n"
         f"    HostName {REMOTE_IP}\n"
         f"    User root\n"
         f"    IdentityFile {key_path}\n"
         f"    StrictHostKeyChecking accept-new\n"
-        f"    UserKnownHostsFile {ssh_hostkeys.known_hosts_value()}\n"
+        f"    UserKnownHostsFile {kh_val}\n"
         f"    HostKeyAlias {ssh_hostkeys.entry_name(REMOTE_IP)}\n"
         f"    CheckHostIP no\n"
     )
