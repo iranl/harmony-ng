@@ -193,6 +193,30 @@ def forget_host(host: str, port: int = 22, path: pathlib.Path | None = None) -> 
     return removed
 
 
+def record_host_key(host: str, key_line: str, path: pathlib.Path | None = None) -> bool:
+    """Record a host key read over a connection already checked against this file (e.g. the
+    Ed25519 key of a Hub whose RSA key is the recorded one). Only when no key of that type is
+    recorded for host: a different key of the same type is never replaced. True when added."""
+    fields = key_line.split()
+    if len(fields) < 2:
+        return False
+    key_type = fields[0].encode()
+    path = path or known_hosts_file()
+    name = entry_name(host)
+    try:
+        data = path.read_bytes()
+    except FileNotFoundError:
+        data = b""
+    for line in data.split(b"\n"):
+        if _line_matches(line, {name}) and len(line.split()) > 1 and line.split()[1] == key_type:
+            return False
+    with open(path, "ab") as f:
+        if data and not data.endswith(b"\n"):
+            f.write(b"\n")
+        f.write(f"{name} {fields[0]} {fields[1]}\n".encode())
+    return True
+
+
 def reset_host(host: str, port: int = 22) -> None:
     """--reset-host-key: forget the recorded key and say so."""
     require_known_hosts()
@@ -218,7 +242,8 @@ def is_host_key_failure(stderr: str | bytes | None) -> bool:
 def host_key_help(host: str, hint: str | None = None) -> str:
     hint = hint or f"run this tool again with {RESET_OPTION} to record it."
     return (f"[-] The SSH host key of {host} is not the one recorded in {known_hosts_file()}.\n"
-            f"    A device that was rooted again, factory reset or replaced has a new key:\n"
+            f"    A device that was rooted again, factory reset, replaced or updated from v2.5.3 or older\n"
+            f"    (its SSH server now loads only an Ed25519 host key) has a new key:\n"
             f"    {hint}\n"
             f"    Otherwise another device may be answering at {host}: check that before you reset the key.")
 

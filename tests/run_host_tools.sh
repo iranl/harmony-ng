@@ -18,6 +18,7 @@ python3 "$SCRIPT_DIR/test_python_minimum.py"
 
 # build/deploy_hub.py: services started again after an early end (ssh and npm replaced), free space
 python3 "$SCRIPT_DIR/test_deploy_hub_restart.py"
+python3 "$SCRIPT_DIR/test_deploy_hub_ssh_guard.py"
 python3 "$SCRIPT_DIR/test_deploy_hub_space.py"
 # build/deploy_hub.py: the files of the removed recovery access point go from older Hubs
 python3 "$SCRIPT_DIR/test_deploy_hub_recovery_ap.py"

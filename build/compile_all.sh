@@ -279,7 +279,8 @@ case "$TARGET" in
 esac
 
 echo "Copying binaries to build/output..."
-if [ -f "$REPO_ROOT/tools/bin/dropbearmulti_mips" ] && [ ! -f "$BIN/dropbearmulti" ]; then
+# copied when it differs: a tree built before kept shipping its older server
+if [ -f "$REPO_ROOT/tools/bin/dropbearmulti_mips" ] && ! cmp -s "$REPO_ROOT/tools/bin/dropbearmulti_mips" "$BIN/dropbearmulti"; then
     cp -f "$REPO_ROOT/tools/bin/dropbearmulti_mips" "$BIN/dropbearmulti"
 fi
 # Only what this run built (plus the dropbear blob, which is never built here): a binary that

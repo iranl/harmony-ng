@@ -108,7 +108,7 @@ What the root tool needs, and when it stops:
 - It stops without rooting when the PC cannot reach the Hub's address on port 8088 or 22, so the PC and the Hub must be on the same network.
 - The stock backup of step 8 is taken only when SSH answers within 60 seconds after the reboot. If the tool prints a timeout instead, no backup was taken.
 
-Other options of `tools/root_hub_usb.py`: `--pubkey <file.pub>` (authorize this key; default: the newest `~/.ssh/harmony_owner_*.pub`, created as `harmony_owner_ed25519` when there is none), `--wifi-pass <password>` or the environment variable `HARMONY_WIFI_PASS` (instead of the password prompt), `--wifi-enc` (default `WPA2-PSK`; `NONE` or `OPEN` for a network without a password), `--wifi-only` (set up Wi-Fi and reboot, without SSH), `--no-reboot` and `--no-backup`.
+Other options of `tools/root_hub_usb.py`: `--pubkey <file.pub>` (authorize this key, an Ed25519 key only: the Hub's SSH server takes no RSA or ECDSA key; default: the newest `~/.ssh/harmony_owner_*.pub`, created as `harmony_owner_ed25519` when there is none), `--wifi-pass <password>` or the environment variable `HARMONY_WIFI_PASS` (instead of the password prompt), `--wifi-enc` (default `WPA2-PSK`; `NONE` or `OPEN` for a network without a password), `--wifi-only` (set up Wi-Fi and reboot, without SSH), `--no-reboot` and `--no-backup`.
 
 ### Step 2.3: Verify SSH Access
 Test SSH connectivity over your local network:
@@ -227,6 +227,7 @@ The host tools (`deploy_hub.py`, `backup_hub.py`, `root_hub_usb.py`, `restore_st
 - If the file cannot be written (for example a `~/.ssh` owned by root after a run with `sudo`), the tools stop at their start, before any USB or device work, and name the file; fix its owner or set `$HARMONY_KNOWN_HOSTS`.
 - `accept-new` needs OpenSSH 7.6 or newer (Windows 10 and 11 ship a newer one). An older client refuses the option, and the tools report that they cannot reach the device.
 - An entry for the remote that an older `setup_remote.py` wrote to `~/.ssh/config` is not changed; only `ssh` by hand uses it.
+- The Hub's SSH server loads only an Ed25519 host key. A Hub that had only the stock RSA key gets an Ed25519 one when the server is installed; `deploy_hub.py` reads it over the connection it just checked and records it next to the RSA one. A Hub updated by OTA from v2.5.3 or older gets the key without that step: a client that recorded only its RSA key then reports a changed key, and `--reset-host-key` records the new one.
 - If `root_hub_usb.py` meets a changed key after rooting, the Hub is rooted and only the stock backup is missing: `python tools/backup_hub.py <YOUR_HUB_IP> --reset-host-key` records the new key.
 
 ---
