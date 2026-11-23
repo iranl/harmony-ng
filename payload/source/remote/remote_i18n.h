@@ -122,7 +122,6 @@ typedef enum {
 
     /* Settings POWER subview */
     STR_TILT_WAKE,
-    STR_GYRO_RATE,
     STR_DEEP_STANDBY,
     STR_BATTERY_LEVEL,
     STR_BATTERY_VOLTAGE,

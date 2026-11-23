@@ -1,7 +1,7 @@
-/* config_push_worker() picks the remotes to push to. With both touchscreen remotes asleep it falls
- * back to the last slot the radio reported plus slots 1 and 2; that slot could be 3 or higher (a
- * link report for another CC2544 slot), and the fallback then wrote three entries into two-element
- * arrays. Runs the real hub_rf sources (main renamed) with /dev/rfspi replaced by a socket pair and
+/* config_push_worker() picks the remotes to push to. With the touchscreen remotes asleep it falls
+ * back to the last slot the radio reported plus the paired slots; that slot may hold no remote (a
+ * link report for another CC2544 slot) and must then get nothing. (With two slots the fallback
+ * once wrote three entries into two-element arrays.) Runs the real hub_rf sources (main renamed) with /dev/rfspi replaced by a socket pair and
  * a radio thread that ACKs every frame; built with AddressSanitizer by run_mock_suite.sh. */
 #undef main
 #include <stdio.h>
@@ -44,7 +44,7 @@ int main(void) {
     /* Two touchscreen remotes, paired and asleep (link lost), and a link report from slot 3 */
     for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {
         g_paired_remotes[i].slot = (uint8_t)(i + 1);
-        g_paired_remotes[i].active = true;
+        g_paired_remotes[i].active = i < 2; /* remotes in slots 1 and 2 only */
         g_paired_remotes[i].link_lost = true;
         g_paired_remotes[i].model = REMOTE_MODEL_JUNIPER;
         g_paired_remotes[i].equad_id = RF_EQUAD_JUNIPER;

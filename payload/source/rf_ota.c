@@ -285,7 +285,7 @@ bool rf_ota_verify_manifest(const uint8_t *digest, char *err_buf, size_t err_sz)
 
 void *rf_ota_sender_worker(void *arg) {
     uint8_t target_slot = (uint8_t)(uintptr_t)arg;
-    if (target_slot < 1 || target_slot > 2) target_slot = g_remote_slot ? g_remote_slot : 1;
+    if (target_slot < 1 || target_slot > MAX_PAIRED_REMOTES) target_slot = g_remote_slot ? g_remote_slot : 1;
 
     if (is_companion_slot(target_slot)) {
         printf("[-] Hub RF OTA rejected: slot %d is a Companion remote (no OTA support)\n", target_slot);
@@ -407,6 +407,14 @@ void *rf_ota_sender_worker(void *arg) {
         }
     }
 
+    /* a config push that runs (or started while this downloaded) ends first: both use the radio
+     * and its power mode. 60 s at most; a push gives up after 10 s without progress. */
+    for (int w = 0; w < 600 && g_config_push_running && g_running; w++) usleep(100000);
+    if (g_config_push_running) {
+        fclose(f);
+        ota_set_status(-1, false, "A config push did not end: start the update again");
+        return NULL;
+    }
     pthread_mutex_lock(&g_ota_lock);
     g_rf_ota.in_progress = true;
     g_rf_ota.status_code = 1;

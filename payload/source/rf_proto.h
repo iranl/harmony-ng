@@ -56,6 +56,8 @@
  * 26-byte chunks it has in payload[2..3], and the OTA_START ACK the chunk to resume from in
  * payload[6..7] (payload[2..3] stays the 22-byte chunk count for the stop-and-wait transfer). */
 #define RF_OTA_WINDOWED            0xF1
+/* ACK payload[4] of a streamed config push; payload[2..3] = frames received in order */
+#define RF_PUSH_STREAMED           0xF2
 /* OTA data frame, Hub -> Remote, windowed transfer only. It has no message type: like Logitech's
  * own HOT continuation packets it uses the header byte 0x60 and carries 26 data bytes in the
  * 30-byte Hub frame: 12 <slot> <0x60 | idx[3:0] | ack> <idx[11:4]> <data[26]>, where ack = 0x10
@@ -135,6 +137,7 @@
 #define RF_CAP_DEVICE_CMDS         0x08  /* stores and ACKs RF_MSG_DEVICE_CMD_CHUNK (device browsing) */
 #define RF_CAP_SWITCH_START        0x10  /* RF_ACT_SYNC_STARTING (older remotes take it for the end) */
 #define RF_CAP_HELP_KEY            0x20  /* button list atype 0x04, a hard key mapped to Help */
+#define RF_CAP_STREAM_PUSH         0x40  /* takes a streamed config push (RF_FLAG_STREAM) */
 #define RF_WARMUP_STEPS_MAX        4     /* Warmup steps per start sequence (one per device, longest first) */
 
 /* Screen timeout of the remote settings, in seconds: 0 kept the screen on (and the remote awake)
@@ -151,6 +154,8 @@ static inline int rf_clamp_screen_timeout(int s) {
 /* Flags */
 #define RF_FLAG_ACK_REQ  0x01
 #define RF_FLAG_IS_ACK   0x02
+/* A frame of a streamed config push: the low nibble of hdr_flag is its index in the push (mod 16) */
+#define RF_FLAG_STREAM   0x04
 
 typedef struct {
     uint8_t report_id;   /* Always 0x20 (CC2544 Very Long Report) */

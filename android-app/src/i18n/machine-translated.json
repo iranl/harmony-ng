@@ -702,6 +702,9 @@
     "harmony_no_codeset",
     "usb_wifi_setup_lbl",
     "usb_wifi_setup_desc",
+    "hide_on_remote",
+    "pair_slot_n",
+    "unpair_slot_n",
     "stock_resources_title",
     "stock_resources_desc",
     "empty_stock_resources",
@@ -870,7 +873,10 @@
     "hub_update_no_restart",
     "hub_update_login_again",
     "hub_update_ended_ver",
-    "hub_updating_desc"
+    "hub_updating_desc",
+    "hide_in_devices_tab",
+    "devices_all_hidden",
+    "slot_n_empty"
   ],
   "fr": [
     "map_action_help",
@@ -1574,6 +1580,9 @@
     "harmony_no_codeset",
     "usb_wifi_setup_lbl",
     "usb_wifi_setup_desc",
+    "hide_on_remote",
+    "pair_slot_n",
+    "unpair_slot_n",
     "stock_resources_title",
     "stock_resources_desc",
     "empty_stock_resources",
@@ -1742,7 +1751,10 @@
     "hub_update_no_restart",
     "hub_update_login_again",
     "hub_update_ended_ver",
-    "hub_updating_desc"
+    "hub_updating_desc",
+    "hide_in_devices_tab",
+    "devices_all_hidden",
+    "slot_n_empty"
   ],
   "nl": [
     "map_action_help",
@@ -2446,6 +2458,9 @@
     "harmony_no_codeset",
     "usb_wifi_setup_lbl",
     "usb_wifi_setup_desc",
+    "hide_on_remote",
+    "pair_slot_n",
+    "unpair_slot_n",
     "stock_resources_title",
     "stock_resources_desc",
     "empty_stock_resources",
@@ -2614,7 +2629,10 @@
     "hub_update_no_restart",
     "hub_update_login_again",
     "hub_update_ended_ver",
-    "hub_updating_desc"
+    "hub_updating_desc",
+    "hide_in_devices_tab",
+    "devices_all_hidden",
+    "slot_n_empty"
   ],
   "es": [
     "map_action_help",
@@ -3318,6 +3336,9 @@
     "harmony_no_codeset",
     "usb_wifi_setup_lbl",
     "usb_wifi_setup_desc",
+    "hide_on_remote",
+    "pair_slot_n",
+    "unpair_slot_n",
     "stock_resources_title",
     "stock_resources_desc",
     "empty_stock_resources",
@@ -3486,7 +3507,10 @@
     "hub_update_no_restart",
     "hub_update_login_again",
     "hub_update_ended_ver",
-    "hub_updating_desc"
+    "hub_updating_desc",
+    "hide_in_devices_tab",
+    "devices_all_hidden",
+    "slot_n_empty"
   ],
   "it": [
     "map_action_help",
@@ -4190,6 +4214,9 @@
     "harmony_no_codeset",
     "usb_wifi_setup_lbl",
     "usb_wifi_setup_desc",
+    "hide_on_remote",
+    "pair_slot_n",
+    "unpair_slot_n",
     "stock_resources_title",
     "stock_resources_desc",
     "empty_stock_resources",
@@ -4358,6 +4385,9 @@
     "hub_update_no_restart",
     "hub_update_login_again",
     "hub_update_ended_ver",
-    "hub_updating_desc"
+    "hub_updating_desc",
+    "hide_in_devices_tab",
+    "devices_all_hidden",
+    "slot_n_empty"
   ]
 }

@@ -26,6 +26,7 @@
 #include "hub_info.h"
 #include "hw_action.h"
 #include "cJSON.h"
+#include "remote_slots.h"
 #include <stdint.h>
 
 #include <stdio.h>
@@ -847,10 +848,11 @@ static void on_alias(const char *topic, const char *payload, size_t len, void *u
         publish_last(HUB_EV_RF_STATUS, "rf");
         publish_inventory(1);
         publish_discovery();
-    } else if (strcmp(sub, "remote/1/sleep") == 0 || strcmp(sub, "remote/sleep") == 0) {
+    } else if (strcmp(sub, "remote/sleep") == 0) {
         run_simple_action("rf_sleep", NULL, NULL, 1);
-    } else if (strcmp(sub, "remote/2/sleep") == 0) {
-        run_simple_action("rf_sleep", NULL, NULL, 2);
+    } else if (strncmp(sub, "remote/", 7) == 0 && sub[7] >= '1' && sub[7] <= '0' + REMOTE_SLOT_MAX &&
+               strcmp(sub + 8, "/sleep") == 0) {
+        run_simple_action("rf_sleep", NULL, NULL, sub[7] - '0');
     } else if (strncmp(sub, "command/", 8) == 0) {
         handle_command_topic(topic, payload);
     }

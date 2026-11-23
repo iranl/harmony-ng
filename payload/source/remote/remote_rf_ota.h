@@ -12,6 +12,8 @@ bool handle_ota_frame(const rf_frame_t *f);
 void handle_ota_data_frame(const uint8_t *pkt);
 /* Enter or leave OTA mode: sets g_is_ota_updating and the CC2544 power mode */
 void ota_set_updating(bool on);
+/* CC2544 power mode (RF_PM_ACTIVE / RF_PM_TRANSFER), also used by the streamed config push */
+void remote_rf_set_power_mode(uint8_t mode);
 /* The main loop's check: a transfer without a chunk for 60 s leaves OTA mode (the progress stays
  * saved for a resume). Tested again under g_ota_lock, and skipped while the RF thread holds it. */
 void ota_check_timeout(void);

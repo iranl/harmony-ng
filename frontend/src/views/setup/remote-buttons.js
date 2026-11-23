@@ -368,7 +368,13 @@ export function createButtonEditor() {
     text: t('revert', 'Revert'),
     onclick: () => load(slot),
   });
-  const otherSlot = () => (slot === 1 ? 2 : 1);
+  const copyFrom = h('select', {
+    className: 'form-select',
+    'aria-label': t('copy_from', 'Copy from'),
+    style: { width: 'auto' },
+    onchange: () => refresh(),
+  });
+  const otherSlot = () => Number(copyFrom.value) || (slot === 1 ? 2 : 1);
   const copyBtn = h('button', {
     className: 'btn btn-secondary btn-sm',
     onclick: async () => {
@@ -670,6 +676,10 @@ export function createButtonEditor() {
 
   function refresh() {
     title.textContent = t('buttons_slot_title', 'Buttons (Slot {slot})', { slot });
+    const keep = Number(copyFrom.value);
+    copyFrom.replaceChildren(...[1, 2, 3, 4, 5, 6].filter(n => n !== slot)
+      .map(n => h('option', { value: String(n), text: t('slot_n', 'Slot {n}', { n }) })));
+    if (keep && keep !== slot) copyFrom.value = String(keep);
     const copyLabel = t('copy_from_slot', 'Copy from Slot {slot}', { slot: otherSlot() });
     copyBtn.textContent = `📋 ${copyLabel}`;
     dirtyBadge.style.display = dirty ? '' : 'none';
@@ -767,7 +777,7 @@ export function createButtonEditor() {
   const element = h('div', { className: 'card' }, [
     h('div', { className: 'card-header' }, [
       title,
-      h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' } }, [dirtyBadge, copyBtn, revertBtn, saveBtn]),
+      h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' } }, [dirtyBadge, copyFrom, copyBtn, revertBtn, saveBtn]),
     ]),
     h('label', { className: 'eb-field eb-ctx' }, [h('span', { text: t('bindings_for', 'Bindings for') }), ctxSelect]),
     h('div', { className: 'eb-layout' }, [

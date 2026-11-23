@@ -57,6 +57,9 @@ def find_default_ssh_key() -> str | None:
 
 ELF_MACHINE_MIPS = 8
 
+# The core binaries a deploy needs (a deploy without hub_rf left the Hub without its RF daemon)
+REQUIRED_HUB_BINARIES = ("hub_daemon", "hub_rf", "hub_btstack", "hub_util")
+
 
 def elf_machine(path: pathlib.Path) -> int | None:
     """The ELF e_machine of a file, or None when it is not an ELF file."""
@@ -407,6 +410,14 @@ class HubDeployer:
         if not machine.startswith("mips"):
             print(f"[-] {self.hub_host} is not a Harmony Hub (uname -m: {machine or 'no answer'}). Nothing was changed. "
                   "For the remote use remote/deploy_remote.py.", file=sys.stderr)
+            return False
+        # A deploy without one of them reported success and left the Hub without it
+        missing = [] if self.webui_only else [b for b in REQUIRED_HUB_BINARIES if not (self.bin_dir / b).is_file()]
+        if missing:
+            how = ("The release bundle is incomplete: download it again." if self.bundle_layout
+                   else "Build the Hub binaries with ./build/compile_all.sh first.")
+            print(f"[-] Hub binaries missing in {self.bin_dir}: {', '.join(missing)}. Nothing was changed. {how}",
+                  file=sys.stderr)
             return False
         wrong = [] if self.webui_only else self.wrong_arch_binaries()
         if wrong:

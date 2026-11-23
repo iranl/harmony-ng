@@ -11,6 +11,8 @@ build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_api_bo
     -lpthread -lm && "$BUILD_DIR/test_rf_api_body"
 echo "[-] Hub server: route checks (map saves, custom icons, query parameters, logs)..."
 python3 "$SCRIPT_DIR/test_hub_route_checks.py"
+# backup bundle with every section (six slot maps, slot table, keys) under AddressSanitizer
+python3 "$SCRIPT_DIR/test_backup_bundle_all.py"
 build_test -Wall -O2 -fsanitize=float-cast-overflow -fno-sanitize-recover=all -I"$REPO_ROOT/payload/source" \
     -o "$BUILD_DIR/test_config_values" "$SCRIPT_DIR/test_config_values.c" "$REPO_ROOT/payload/source/config_sanitize.c" \
     "$REPO_ROOT/payload/source/timezone_db.c" "$REPO_ROOT/payload/source/cJSON.c" -lm && "$BUILD_DIR/test_config_values"

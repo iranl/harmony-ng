@@ -152,7 +152,7 @@ void render_ota_overlay(void) {
     }
 }
 
-static void ota_write_power_mode(uint8_t mode) {
+void remote_rf_set_power_mode(uint8_t mode) {
     if (g_rf_fd < 0) return;
     uint8_t cmd[7] = {0x20, mode, 0x00, 0x00, 0x00, 0x00, 0x00};
     pthread_mutex_lock(&g_rf_write_mutex);
@@ -167,7 +167,7 @@ static void ota_write_power_mode(uint8_t mode) {
  * Ultimate), while in RF_PM_ACTIVE it gets one only in the acknowledgement of a frame it sent. */
 void ota_set_updating(bool on) {
     g_is_ota_updating = on;
-    ota_write_power_mode(on ? RF_PM_TRANSFER : RF_PM_ACTIVE);
+    remote_rf_set_power_mode(on ? RF_PM_TRANSFER : RF_PM_ACTIVE);
 }
 
 /* First data frame of a transfer: settle the chunk size. A checkpoint made with the other kind of

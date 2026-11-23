@@ -80,6 +80,17 @@ int main(void) {
           "valid port and repeats kept");
     cJSON_Delete(root);
 
+    printf("[-] hideOnRemote / hideInDevicesTab\n");
+    root = cJSON_Parse("{\"devices\":[{\"id\":\"1\",\"name\":\"TV\",\"hideOnRemote\":true},"
+                       "{\"id\":\"2\",\"name\":\"AVR\",\"hideOnRemote\":false,\"hideInDevicesTab\":true}]}");
+    sanitize_devices_json(root);
+    CHECK(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dev_of(root, 0), "hideOnRemote")), "hideOnRemote true kept");
+    CHECK(cJSON_GetObjectItemCaseSensitive(dev_of(root, 1), "hideOnRemote") == NULL, "hideOnRemote false not stored");
+    CHECK(cJSON_GetObjectItemCaseSensitive(dev_of(root, 0), "hideInDevicesTab") == NULL, "hideInDevicesTab absent not added");
+    CHECK(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dev_of(root, 1), "hideInDevicesTab")),
+          "hideInDevicesTab kept apart from hideOnRemote");
+    cJSON_Delete(root);
+
     printf("[-] timezones\n");
     CHECK(timezone_is_known("Europe/Rome"), "Europe/Rome known");
     CHECK(timezone_is_known("CET-1CEST,M3.5.0,M10.5.0/3"), "POSIX string known");
