@@ -22,6 +22,8 @@ extern "C" {
 void sanitize_devices_json(cJSON *root);
 void sanitize_activity_steps(cJSON *steps);
 void sanitize_activities_json(cJSON *root);
+/* The same; returns 1 when the list was put in Display Order or an activity got an order */
+int sanitize_activities_json_changed(cJSON *root);
 
 #ifdef __cplusplus
 }

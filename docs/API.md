@@ -647,7 +647,10 @@ Returns all registered devices and basic commands from `/data/harmony/config/dev
   The object is `devices.json` as the Hub stores it. Every device has the fields above, and `icon`
   when one was set. By kind of device:
   - infrared (every `type` that is not Bluetooth or MQTT): `controlPort` (the IR port mask, 0 to 7),
-    and `port` and `repeats` in each command;
+    and `repeats` in each command. A command has `port` (1 to 7) only when it has its own Emitter
+    Port, which a send uses instead of `controlPort`. `"commandPorts": 1` at the top marks a file
+    whose command ports were set that way: in a file without it, every command's `port` is a copy
+    of its device's port that no send used, and the Hub drops those once at load;
   - Bluetooth (`type` `BT`, `BTHID` or a type that contains `Bluetooth`): no `controlPort`,
     commands without `port` and `repeats`; instead `bdaddr`, `btAutoReconnect`,
     `btReconnectDurationSec`, `btReconnectDelaySec`, and `btTriggerDeviceId` and
@@ -807,9 +810,13 @@ Adds or updates a single command for a device.
   - `oldName`: the present name of a command to rename (to `name`).
   - `script`: a Bluetooth macro; it is stored as `BT:SCRIPT:<script>` with `"isMacro": true` and
     replaces `raw`.
-  - `repeats` defaults to 3; `port` is stored only when above 0 (else the device's `controlPort`
-    applies). For a Bluetooth or MQTT device, and for a Bluetooth (`HID:`, `G:HID`) or MQTT
-    (`G:MQTT`) code, `port` and `repeats` are not stored.
+  - `repeats` (1 to 20, higher is 20) and `port` are numbers or, from a form post, numeric text.
+    `repeats` left out keeps the stored value (3 for a new command).
+  - `port`: the command's own IR port mask, 1 to 7, used by a send instead of the device's
+    `controlPort`. `0` (Default (Device Setting)) removes it, so the device's port applies; left
+    out, the stored one is kept. For a Bluetooth or MQTT device, and for a Bluetooth (`HID:`,
+    `G:HID`) or MQTT (`G:MQTT`) code, `port` and `repeats` are not stored. 3.6 treats both fields
+    the same way.
 - **Response `200 OK`**: `{"ok": true}`; `{"ok": false}` (also `200`) when the device does not
   exist or `deviceId` or `name` is missing.
 - **Response `500`**: `{"ok": false, "error": "..."}` when `devices.json` could not be written (flash
@@ -869,7 +876,10 @@ Publishes the MQTT pulse of a device once, the way a command to an MQTT-type dev
 
 ### 4.1 List Activities
 #### `GET /api/activities`
-Returns all configured activities, active activity ID, and state enum.
+Returns all configured activities, active activity ID, and state enum. The list is in Display
+Order (`order`, lowest first; equal orders keep their place). The Hub keeps `activities.json` in
+that order (written back once at load when it was not), so the remotes and MQTT list the
+activities the same way; an activity without `order` gets one after the highest (99 at most).
 - **Response `200 OK`**:
   ```json
   {
@@ -1008,7 +1018,8 @@ Saves activity configuration with start and stop sequence steps.
     the lowest free number from 1 to 99 as id. The answer does not carry the new id: read
     `GET /api/activities` again.
   - Defaults of a new activity: `name` `"Custom Activity"`, `type` `"Custom"`, `icon` `"Default"`,
-    `order` 1.
+    `order` after the highest one (99 at most), so it is listed last.
+  - `order` left out (or empty) keeps the stored Display Order of an existing activity.
   - `deviceIds` (also `devices`): the devices of the activity, as a list or as text separated by
     commas. When left out, the list is built from the devices named in the two sequences.
   - Steps are stored in one form, each with `type`, `command` and `deviceId`. Types: `Command` (a

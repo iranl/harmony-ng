@@ -490,8 +490,12 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
             const char *icon_str = (p_icon && cJSON_IsString(p_icon)) ? p_icon->valuestring : "Default";
 
             cJSON *p_order = cJSON_GetObjectItemCaseSensitive(params, "order");
-            int order_val = (p_order && cJSON_IsNumber(p_order)) ? p_order->valueint :
-                            (p_order && cJSON_IsString(p_order) ? atoi(p_order->valuestring) : 1);
+            /* absent (the new web UI, API clients): an activity keeps its order, a new one is
+             * put last by the sanitizer */
+            int has_order = cJSON_IsNumber(p_order) ||
+                            (cJSON_IsString(p_order) && p_order->valuestring && p_order->valuestring[0]);
+            int order_val = cJSON_IsNumber(p_order) ? p_order->valueint :
+                            (has_order ? atoi(p_order->valuestring) : 0);
 
             cJSON *p_enter = cJSON_GetObjectItemCaseSensitive(params, "startSequence");
             cJSON *p_leave = cJSON_GetObjectItemCaseSensitive(params, "stopSequence");
@@ -604,8 +608,10 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
                             cJSON_DeleteItemFromObject(matched, "icon");
                             cJSON_AddStringToObject(matched, "icon", icon_str);
                         }
-                        cJSON_DeleteItemFromObject(matched, "order");
-                        cJSON_AddNumberToObject(matched, "order", order_val);
+                        if (has_order) {
+                            cJSON_DeleteItemFromObject(matched, "order");
+                            cJSON_AddNumberToObject(matched, "order", order_val);
+                        }
 
                         cJSON_DeleteItemFromObject(matched, "deviceIds");
                         cJSON_AddItemToObject(matched, "deviceIds", dev_ids_arr);
@@ -642,7 +648,7 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
                         cJSON_AddStringToObject(matched, "name", name_str[0] ? name_str : "Custom Activity");
                         cJSON_AddStringToObject(matched, "type", type_str);
                         cJSON_AddStringToObject(matched, "icon", icon_str);
-                        cJSON_AddNumberToObject(matched, "order", order_val);
+                        if (has_order) cJSON_AddNumberToObject(matched, "order", order_val);
                         cJSON_AddItemToObject(matched, "deviceIds", dev_ids_arr);
                         cJSON_AddItemToObject(matched, "startSequence", enter_steps);
                         cJSON_AddItemToObject(matched, "stopSequence", leave_steps);

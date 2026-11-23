@@ -1009,7 +1009,13 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
             if (j_rep && cJSON_IsNumber(j_rep) && j_rep->valuedouble > 0 && j_rep->valuedouble <= 20) {
                 repeats = (uint8_t)j_rep->valuedouble;
             }
-            ret = ir_send_keycode(keycode_str, ir_ports, repeats, action == HW_BTN_ACTION_PRESS ? held_key : NULL);
+            /* a command's own port (Emitter Port of the saved command) before the device's */
+            uint8_t cmd_ports = ir_ports;
+            cJSON *j_cport = cJSON_GetObjectItemCaseSensitive(target_cmd, "port");
+            if (cJSON_IsNumber(j_cport) && j_cport->valuedouble >= 1 && j_cport->valuedouble <= 7) {
+                cmd_ports = (uint8_t)j_cport->valuedouble;
+            }
+            ret = ir_send_keycode(keycode_str, cmd_ports, repeats, action == HW_BTN_ACTION_PRESS ? held_key : NULL);
         }
     }
 

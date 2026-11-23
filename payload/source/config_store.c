@@ -118,8 +118,13 @@ int config_store_init(void) {
     if (act_raw) {
         activities = cJSON_Parse(act_raw);
         free(act_raw);
-        if (activities) {
-            sanitize_activities_json(activities);
+        /* sorted by Display Order here: written back once, because hub_rf (the remotes' list)
+         * and MQTT read the file, not this copy */
+        if (activities && sanitize_activities_json_changed(activities)) {
+            char *out = cJSON_Print(activities);
+            if (!out || write_file_atomic(act_path, out) != 0)
+                fprintf(stderr, "[-] Could not save %s in Display Order (flash full?)\n", act_path);
+            free(out);
         }
     }
     if (!activities) {

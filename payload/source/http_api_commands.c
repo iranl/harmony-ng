@@ -5,12 +5,50 @@
 #include "ble_adv_payload.h"
 #include "plugin_mgr.h"
 #include "cJSON.h"
+#include "json_number.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <strings.h>
+
+/* port or repeats of a saved command: a JSON number, or the numeric text of a form post (both
+ * web UIs post this dialog as a form, where every value is text). -1 when absent or not a whole
+ * number 0..1000 */
+static int cmd_int_field(const cJSON *j) {
+    if (cJSON_IsNumber(j)) {
+        int v = json_number_int(j, -1, 1001, -1);
+        return v > 1000 ? -1 : v;
+    }
+    if (cJSON_IsString(j) && j->valuestring && j->valuestring[0]) {
+        char *end = NULL;
+        long v = strtol(j->valuestring, &end, 10);
+        if (end && *end == '\0' && v >= 0 && v <= 1000) return (int)v;
+    }
+    return -1;
+}
+
+/* Sets a command's repeats and IR port from a save. repeats: 1..20 (the sender's range), absent
+ * keeps the stored value, a new command gets 3. port: 1..7 is the command's own port mask, used
+ * instead of the device's controlPort; 0 is "Default (Device Setting)" and removes it; absent
+ * keeps the stored one. */
+static void cmd_set_ir_fields(cJSON *cmd, const cJSON *j_rep, const cJSON *j_port, int is_new) {
+    int rep = cmd_int_field(j_rep);
+    if (rep > 20) rep = 20;
+    if (rep < 1 && (is_new || !cJSON_GetObjectItemCaseSensitive(cmd, "repeats"))) rep = 3;
+    if (rep >= 1) {
+        cJSON_DeleteItemFromObjectCaseSensitive(cmd, "repeats");
+        cJSON_AddNumberToObject(cmd, "repeats", rep);
+    }
+    int port = cmd_int_field(j_port);
+    if (port == 0) {
+        cJSON_DeleteItemFromObjectCaseSensitive(cmd, "port");
+    } else if (port >= 1 && port <= 7) {
+        cJSON_DeleteItemFromObjectCaseSensitive(cmd, "port");
+        cJSON_AddNumberToObject(cmd, "port", port);
+    }
+}
 
 int http_api_commands_handle(int client_fd, const char *method, const char *clean_path,
                              const char *query, const char *body, const char *req) {
@@ -50,8 +88,6 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                 raw_data = macro_buf;
                 is_macro = 1;
             }
-            int repeats = (j_rep && cJSON_IsNumber(j_rep)) ? (int)j_rep->valuedouble : 3;
-            int port = (j_port && cJSON_IsNumber(j_port)) ? (int)j_port->valuedouble : 0;
 
             if (dev_id[0] && name[0]) {
                 config_store_lock();
@@ -114,13 +150,7 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                         cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "repeats");
                                         cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "port");
                                     } else {
-                                        cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "repeats");
-                                        cJSON_AddNumberToObject(cmd_match, "repeats", repeats);
-
-                                        if (port > 0) {
-                                            cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "port");
-                                            cJSON_AddNumberToObject(cmd_match, "port", port);
-                                        }
+                                        cmd_set_ir_fields(cmd_match, j_rep, j_port, 0);
                                     }
                                 } else {
                                     cJSON *new_cmd = cJSON_CreateObject();
@@ -131,8 +161,7 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                         cJSON_AddBoolToObject(new_cmd, "isMacro", 1);
                                     }
                                     if (!is_bt_cmd && !is_mqtt_cmd && !is_ble_cmd && !is_plugin_cmd) {
-                                        cJSON_AddNumberToObject(new_cmd, "repeats", repeats);
-                                        if (port > 0) cJSON_AddNumberToObject(new_cmd, "port", port);
+                                        cmd_set_ir_fields(new_cmd, j_rep, j_port, 1);
                                     }
                                     cJSON_AddItemToArray(cmds, new_cmd);
                                 }
@@ -207,8 +236,6 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                     cJSON *jport = cJSON_GetObjectItemCaseSensitive(cmd_in, "port");
                                     const char *name = (jn && cJSON_IsString(jn)) ? jn->valuestring : "";
                                     const char *raw_data = (jr && cJSON_IsString(jr)) ? jr->valuestring : "";
-                                    int repeats = (jrep && cJSON_IsNumber(jrep)) ? (int)jrep->valuedouble : 3;
-                                    int port = (jport && cJSON_IsNumber(jport)) ? (int)jport->valuedouble : 0;
                                     if (!name[0] || !raw_data[0]) continue;
                                     int is_ble_cmd = (strncmp(raw_data, BLE_ADV_KEYCODE_PREFIX, BLE_ADV_KEYCODE_PREFIX_LEN) == 0);
                                     int is_plugin_cmd = dev_is_plugin || (strncmp(raw_data, "PLUGIN:", 7) == 0 || strncmp(raw_data, "plugin:", 7) == 0);
@@ -229,16 +256,11 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                         cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "raw");
                                         cJSON_AddStringToObject(cmd_match, "raw", raw_data);
 
-                                        cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "repeats");
                                         if (is_ble_cmd || is_plugin_cmd) {
+                                            cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "repeats");
                                             cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "port");
                                         } else {
-                                            cJSON_AddNumberToObject(cmd_match, "repeats", repeats);
-                                        }
-
-                                        if (port > 0 && !is_ble_cmd && !is_plugin_cmd) {
-                                            cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "port");
-                                            cJSON_AddNumberToObject(cmd_match, "port", port);
+                                            cmd_set_ir_fields(cmd_match, jrep, jport, 0);
                                         }
                                     } else {
                                         cJSON *new_cmd = cJSON_CreateObject();
@@ -246,8 +268,7 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                         cJSON_AddStringToObject(new_cmd, "keyCode", raw_data);
                                         cJSON_AddStringToObject(new_cmd, "raw", raw_data);
                                         if (!is_ble_cmd && !is_plugin_cmd) {
-                                            cJSON_AddNumberToObject(new_cmd, "repeats", repeats);
-                                            if (port > 0) cJSON_AddNumberToObject(new_cmd, "port", port);
+                                            cmd_set_ir_fields(new_cmd, jrep, jport, 1);
                                         }
                                         cJSON_AddItemToArray(cmds, new_cmd);
                                     }
