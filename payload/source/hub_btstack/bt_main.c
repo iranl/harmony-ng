@@ -749,7 +749,8 @@ static void sig_handler(int sig) {
 /* A crash used to leave only "Segmentation fault" in the init log (the binary is stripped, no
  * core). Log the signal, the faulting address and the program counter / return address to the
  * Bluetooth log, then die as before; resolve them with
- * mips-linux-addr2line -f -e build/output/hub_btstack.debug <pc> <ra> from the same build. */
+ * mips-linux-addr2line -f -e build/output/hub_btstack.debug <pc> <ra> from the same build
+ * (build/output/hub_btstack_dev.debug for the dev build, which logs "dev build" at start). */
 static char g_crash_stack[16384];
 
 static void crash_handler(int sig, siginfo_t *si, void *ctx) {
@@ -809,6 +810,9 @@ int main(int argc, const char *argv[]) {
     if (pf) { fprintf(pf, "%d\n", (int)getpid()); fclose(pf); }
 
     log_msg("=== Starting Hub BTstack Daemon ===");
+#ifdef HUB_BT_DEBUG_LOGS
+    log_msg("dev build: BTstack info logs on (crash addresses: hub_btstack_dev.debug)");
+#endif
     bt_hosts_load_before_restart(); /* before the status writes below update the file */
     update_status("starting");
     update_bthid_status();
