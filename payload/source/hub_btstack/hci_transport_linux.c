@@ -93,6 +93,10 @@ static void hci_transport_linux_process_read(btstack_data_source_t * ds) {
     if (bytes_read < 0) {
         if (errno != EAGAIN && errno != EWOULDBLOCK) {
             fprintf(stderr, "[hci_transport_linux] Read error: %s (errno=%d)\n", strerror(errno), errno);
+            if (errno == EBADFD || errno == ENODEV || errno == EBADF) {
+                fprintf(stderr, "[hci_transport_linux] Fatal HCI device loss, exiting\n");
+                exit(1);
+            }
         }
         return;
     }
@@ -226,6 +230,10 @@ static int hci_transport_linux_send_packet(uint8_t packet_type, uint8_t * packet
     if (written < 0) {
         fprintf(stderr, "[hci_transport_linux] Write failed (type=%u, len=%d): %s\n",
                 packet_type, size, strerror(errno));
+        if (errno == EBADFD || errno == ENODEV || errno == EBADF) {
+            fprintf(stderr, "[hci_transport_linux] Fatal HCI device loss on write, exiting\n");
+            exit(1);
+        }
         return -1;
     }
     return 0;
