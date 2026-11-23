@@ -42,6 +42,11 @@ static void queue_name_tail(push_queue_t *q, uint8_t slot, uint8_t kind, int idx
     }
 }
 
+void rf_request_config_push(void) {
+    pthread_t th;
+    if (pthread_create(&th, NULL, config_push_worker, NULL) == 0) pthread_detach(th);
+}
+
 void *config_push_worker(void *arg) {
     (void)arg;
     static pthread_mutex_t push_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -49,7 +54,7 @@ void *config_push_worker(void *arg) {
         printf("[-] Config push already in progress\n");
         return NULL;
     }
-    if (is_ota_busy()) {
+    if (is_ota_busy() || g_rf_ota.status_code == 3) {
         printf("[-] Config push skipped: RF OTA in progress on slot %d\n", g_rf_ota.target_slot);
         pthread_mutex_unlock(&push_lock);
         return NULL;

@@ -192,13 +192,20 @@ void rf_slot_map_load(void);
 void rf_slot_map_set_pair_target(uint8_t slot, bool new_window);
 /* A pipe-table reply: whether the pipe holds a remote (EquadID), or an unpair emptied it */
 void rf_slot_map_note_table(uint8_t pipe, bool has_remote);
-/* The CC2544 reported a completed pairing: the first frame from a pipe without a remote is the
- * new remote's */
+/* The CC2544 reported a completed pairing: the chosen slot is kept 15 s more for the pipe-table
+ * reply that decides (a frame never moves a pipe) */
 void rf_slot_map_note_pair_success(void);
 /* A pipe shows a remote (from_pipe_table: its EquadID reply; else a frame from it). While a
- * pairing into a chosen slot is pending and the pipe's slot has no remote yet, the pipe moves to
- * the chosen slot. Returns the pipe's slot. */
+ * pairing into a chosen slot is pending, a pipe-table reply for a pipe that held no remote when
+ * the window opened moves that pipe to the chosen slot; a frame only maps. Returns the slot. */
 uint8_t rf_slot_map_claim_pipe(uint8_t pipe, bool from_pipe_table);
+/* Moves what is known of the remote in slot from to slot to (a pipe moved to a chosen slot) */
+void rf_slot_move_state(uint8_t from, uint8_t to);
+/* Starts a config push in its own thread (a push already running ends this one at once) */
+void rf_request_config_push(void);
+/* What rf_slot_move_state() calls to start that push: set by main() (NULL: none, as in tests that
+ * link the state code without the push code) */
+extern void (*g_rf_push_starter)(void);
 bool is_ota_busy(void);
 /* A config push is running (config_push_worker): an OTA start waits for it to end */
 extern volatile bool g_config_push_running;

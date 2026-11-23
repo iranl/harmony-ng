@@ -78,9 +78,9 @@ static void enqueue_browsed_device_cmd(const uint8_t *payload) {
 }
 
 void handle_rf_frame(const rf_frame_t *f) {
-    /* hub_rf keeps state for slots 1 and 2 only; the handlers below map any other slot to 1, so
-       a frame from a device in another CC2544 slot (a third paired device) would be applied to
-       the remote in slot 1: its version, battery, keys, and an unpair notice that unpairs it */
+    /* hub_rf keeps state for slots 1 to MAX_PAIRED_REMOTES; a frame from any other slot number
+       is refused here, so it is never applied to the remote of another slot (its version,
+       battery, keys, or an unpair notice that would unpair it) */
     uint8_t fslot = f->dev_slot & 0x0F;
     if (fslot > MAX_PAIRED_REMOTES) {
         static uint16_t s_logged; /* one line per slot */
@@ -372,6 +372,7 @@ void handle_rf_frame(const rf_frame_t *f) {
             rf_send_frame(&ack);
             usleep(30000);
             uint8_t unpair[7] = {0x10, 0xFF, 0x80, 0xB2, 0x03, rf_slot_to_pipe(slot), 0x00};
+            rf_slot_map_note_table(rf_slot_to_pipe(slot), false); /* a pairing on this pipe is then a new one */
             rf_write_cmd(unpair, sizeof(unpair));
             rf_slot_forget(slot); /* the same cleanup as an unpair from the Hub */
             if (!rf_any_slot_active()) {
@@ -519,6 +520,7 @@ int main(int argc, char **argv) {
     usleep(50000);
 
     rf_slot_map_load();
+    g_rf_push_starter = rf_request_config_push; /* a pipe moved to a chosen slot pushes again */
     query_paired_devices();
 
     /* Start local REST API thread and Hub button listener */

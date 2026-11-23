@@ -309,7 +309,13 @@ void rf_slot_map_set_pair_target(uint8_t slot, bool new_window) {
     pthread_mutex_lock(&s_slot_map_lock);
     s_pair_target = (slot >= 1 && slot <= MAX_PAIRED_REMOTES) ? slot : 0;
     s_pair_target_until_ms = get_monotonic_ms() + 45000; /* the 30 s window and the table reply */
-    if (new_window) memcpy(s_pipe_had_remote, s_pipe_has_remote, sizeof(s_pipe_had_remote));
+    if (new_window) {
+        /* a pipe whose slot holds a remote counts too: the choice must not depend on a complete
+         * table read (a missed reply made an existing remote look new) */
+        slot_map_ensure_locked();
+        for (int p = 1; p <= MAX_PAIRED_REMOTES; p++)
+            s_pipe_had_remote[p] = s_pipe_has_remote[p] || g_paired_remotes[s_slot_of_pipe[p] - 1].active;
+    }
     pthread_mutex_unlock(&s_slot_map_lock);
 }
 
@@ -328,6 +334,7 @@ uint8_t rf_slot_map_claim_pipe(uint8_t pipe, bool from_pipe_table) {
     pthread_mutex_lock(&s_slot_map_lock);
     slot_map_ensure_locked();
     uint8_t slot = s_slot_of_pipe[pipe];
+    uint8_t old_slot = slot;
     uint8_t target = s_pair_target;
     if (target && get_monotonic_ms() > s_pair_target_until_ms) target = s_pair_target = 0;
     /* Only the pipe table decides, not the order of the radio events: the remote that paired is
@@ -343,8 +350,8 @@ uint8_t rf_slot_map_claim_pipe(uint8_t pipe, bool from_pipe_table) {
             s_slot_of_pipe[pipe] = target;
             s_pipe_of_slot[slot] = other;
             s_slot_of_pipe[other] = slot;
-            /* the old slot held no remote (its pipe was empty): only the new one's frames marked it */
-            g_paired_remotes[slot - 1].active = false;
+            /* the old slot held no remote (its pipe was empty): what the new remote's first frames
+             * put there (version, caps, unit id, battery, link counters) moves with it below */
             size_t n = 0;
             for (int s = 1; s <= MAX_PAIRED_REMOTES; s++)
                 n += (size_t)snprintf(text + n, sizeof(text) - n, s > 1 ? " %d" : "%d", s_pipe_of_slot[s]);
@@ -357,6 +364,7 @@ uint8_t rf_slot_map_claim_pipe(uint8_t pipe, bool from_pipe_table) {
     /* the flash write after the unlock: every frame in and out takes this lock, and a waiter
      * spins (no futex on the Hub) */
     if (moved_to) {
+        rf_slot_move_state(old_slot, moved_to);
         if (atomic_file_write_str(g_rf_slot_map_path, text) != 0)
             printf("[-] Slot table not saved to %s: slot %d holds pipe %d until hub_rf restarts\n",
                    g_rf_slot_map_path, moved_to, pipe);
@@ -364,6 +372,27 @@ uint8_t rf_slot_map_claim_pipe(uint8_t pipe, bool from_pipe_table) {
     }
     return slot;
 }
+
+/* The new remote's first frames were handled under the old slot of its pipe (it sends a version
+ * report, its unit id and a sync request right after pairing, before the table reply that moves
+ * the pipe): its state moves to the new slot, the old one is forgotten, and the config push it
+ * asked for is started again for the new slot. */
+void rf_slot_move_state(uint8_t from, uint8_t to) {
+    if (from < 1 || from > MAX_PAIRED_REMOTES || to < 1 || to > MAX_PAIRED_REMOTES || from == to) return;
+    paired_remote_t p = g_paired_remotes[from - 1];
+    p.slot = to;
+    p.active = true;
+    g_paired_remotes[to - 1] = p;
+    g_remote_versions[to - 1] = g_remote_versions[from - 1];
+    g_remote_batteries[to - 1] = g_remote_batteries[from - 1];
+    g_remote_link[to - 1] = g_remote_link[from - 1];
+    rf_slot_forget(from);
+    memset(&g_remote_link[from - 1], 0, sizeof(g_remote_link[from - 1]));
+    rf_state_save_version_file(to);
+    if (g_rf_push_starter) g_rf_push_starter();
+}
+
+void (*g_rf_push_starter)(void) = NULL;
 
 bool rf_any_slot_active(void) {
     for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {

@@ -365,7 +365,10 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
         /* Every section is checked and turned into its file's text before anything is written:
          * a cut or wrong file used to replace the live configuration and the Hub still answered
          * "Restored successfully" */
-        struct import_file files[16];
+        /* every file section of the bundle plus the two Bluetooth key files, with room; a section
+         * is refused rather than written past the end (it was 16 for 21 possible files) */
+        struct import_file files[28];
+        const int files_max = (int)(sizeof(files) / sizeof(files[0]));
         int nfiles = 0;
         const char *refused = NULL; /* the section that is not valid */
         int write_failed = 0;
@@ -436,6 +439,10 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
                                     }
                                 }
                             }
+                            if (nfiles >= files_max - 2) { refused = b_files[i].key; break; }
+                            /* a bundle exported before text sections stayed text has hub_id as a
+                             * number, cut to its first digits: skipped, not restored cut */
+                            if (strcmp(b_files[i].key, "hub_id") == 0 && !cJSON_IsString(sec)) continue;
                             int pr = import_prepare(b_files[i].key, b_files[i].path, sec, &files[nfiles]);
                             if (pr < 0) refused = b_files[i].key;
                             else if (pr > 0) nfiles++;

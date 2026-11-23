@@ -1792,8 +1792,8 @@ paths:
         - Activities
       summary: Delete activity
       description: >-
-        Also removes the activity's sections (activities/<id>) from remote_slot1_map.json,
-        remote_slot2_map.json and bt_remote_map.json.
+        Also removes the activity's sections (activities/<id>) from remote_slot1_map.json to
+        remote_slot6_map.json and bt_remote_map.json.
       requestBody:
         required: true
         content:
@@ -3431,7 +3431,7 @@ paths:
                 error: Companion remotes do not support OTA
                 ok: false
         '409':
-          description: Update or download already in progress
+          description: Update or download already in progress, or a config push is running (status config_push_running)
           content:
             application/json:
               example:
@@ -3988,7 +3988,7 @@ paths:
         A single target returns the stored file: JSON, except network (ethernet), wifi and auth,
         which are text/plain. bundle returns one JSON object with version, timestamp and a
         section per stored file: devices, activities, settings, mqtt, network, wifi, bluetooth,
-        bt_remote_map, remote_slot1_map, remote_slot2_map, ui_remote_layout, auth, users, hub_id,
+        bt_remote_map, remote_slot1_map to remote_slot6_map, rf_slot_map, ui_remote_layout, auth, users, hub_id,
         plus btstack_keys (the Bluetooth key store, base64). The bundle holds secrets: the MQTT
         broker password (mqtt), the Wi-Fi password (wifi), the account password hashes (users)
         and the Bluetooth link keys (btstack_keys). Its reply carries the header
@@ -3999,7 +3999,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [bundle, devices, activities, settings, mqtt, network, ethernet, wifi, bluetooth, bt_remote_map, remote-mapping, remote_slot1_map, remote_slot2_map, ui_remote_layout, ui-remote-layout, auth, users]
+            enum: [bundle, devices, activities, settings, mqtt, network, ethernet, wifi, bluetooth, bt_remote_map, remote-mapping, remote_slot1_map, remote_slot2_map, remote_slot3_map, remote_slot4_map, remote_slot5_map, remote_slot6_map, ui_remote_layout, ui-remote-layout, auth, users]
           description: Any other target answers 404. hub_id is only a section of bundle.
           example: bundle
       responses:
@@ -4026,7 +4026,7 @@ paths:
       description: |
         target is required (there is no default): bundle, or one of devices, activities,
         settings, mqtt, network (ethernet), wifi, bluetooth, bt_remote_map (remote-mapping),
-        remote_slot1_map, remote_slot2_map, ui_remote_layout (ui-remote-layout), auth, users.
+        remote_slot1_map to remote_slot6_map, ui_remote_layout (ui-remote-layout), auth, users.
         For bundle the payload may be the bundle object, the bundle as a JSON string, or left
         out: the body itself is then taken as the bundle. Every section is checked first; when
         one is not valid nothing is changed. The body may be up to 2 MB.

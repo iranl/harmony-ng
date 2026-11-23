@@ -726,8 +726,8 @@ the stored one; `"plugin": ""` makes the device a non-plugin device again.
 #### `POST /api/device-delete` or `POST /ir/delete-device`
 Deletes a device that nothing uses any more. References are not removed: while an activity (its
 `startSequence`, `stopSequence`, `deviceIds` or any other step), another device's
-`btTriggerDeviceId`, or a key binding of a remote map (`remote_slot1_map.json`,
-`remote_slot2_map.json`, `bt_remote_map.json`) names the device, the delete is refused and nothing
+`btTriggerDeviceId`, or a key binding of a remote map (`remote_slot1_map.json` to
+`remote_slot6_map.json`, `bt_remote_map.json`) names the device, the delete is refused and nothing
 changes. Not counted, so a device never becomes impossible to delete: the map's own page for the
 device (`devices/<id>`, removed from the maps together with the device, so a new device given the
 same id starts without it), map sections of activities and pages of devices that no longer exist,
@@ -1800,7 +1800,7 @@ Returns remote firmware chunk update progress.
   }
   ```
 
-#### `POST /api/rf/ota-start?slot={1|2}`
+#### `POST /api/rf/ota-start?slot={1..6}`
 Starts background remote firmware update (touchscreen remotes only).
 - **Storage & Download Policy**:
   The Hub does not store remote OTA images on flash storage. If `/tmp/remote_ui.ota.gz` is not already present in RAM, the Hub downloads `manifest.json`, `manifest.json.sig` and the remote OTA image on-demand from the update repository into `/tmp`, and sends the image only when the manifest carries a valid release signature and the image matches its SHA-256 (see `POST /api/update-apply`). An image staged by hand without a manifest is sent as is.
@@ -1811,6 +1811,7 @@ Starts background remote firmware update (touchscreen remotes only).
   - `200 OK`: `{"status":"started","slot":1,"ok":true}` — OTA worker thread started.
   - `400 Bad Request`: `{"status":"unsupported","slot":1,"error":"Companion remotes do not support OTA","ok":false}` — slot holds a Companion remote (no screen/firmware OTA).
   - `409 Conflict`: `{"status":"already_in_progress","slot":1,"error":"RF OTA already in progress on slot 1","ok":false}` — an update or download is already running.
+  - `409 Conflict`: `{"status":"config_push_running","error":"A config push is running: start the update when it ends","ok":false}` — a config push is running. An update the remote asks for itself, or one started during a push, waits up to 60 s for the push before its transfer starts.
 - **Status reporting (`GET /api/rf/ota-status`)**:
   - `status: 0`: Idle.
   - `status: 3`: Downloading and verifying OTA image into `/tmp` (RF sync and ACKs remain unblocked).
@@ -1832,7 +1833,7 @@ Starts background remote firmware update (touchscreen remotes only).
 #### `GET /api/rf-mapping?slot={1|2}`
 Returns physical button and screen mappings for the remote in Slot 1 or Slot 2.
 - **Query Parameter**: `slot` (`1` or `2`, defaults to `1`).
-- **File Persistence**: Slot 1 uses `/data/harmony/remote_slot1_map.json`, slot 2 `/data/harmony/remote_slot2_map.json`. Only `POST /api/rf-mapping-copy` falls back to the old name `/data/harmony/elite_remote_map.json` when slot 1's file is missing.
+- **File Persistence**: Slot N (1 to 6) uses `/data/harmony/remote_slot<N>_map.json`. Only `POST /api/rf-mapping-copy` falls back to the old name `/data/harmony/elite_remote_map.json` when slot 1's file is missing.
 - **Remote Model Awareness**: Mappings apply to any paired remote in that slot: a Harmony touchscreen remote (Elite, Ultimate), Harmony Companion, or Harmony Smart Control.
 - **Which mapping a key uses**: the running activity's entry under `activities`. A key that activity does not map, or any key while nothing runs, uses the `"-1"` entry, then `"default"`, then the map's only activity when the map has exactly one. With several activities and neither `"-1"` nor `"default"`, the key is not sent. The "only activity" counts the non-empty entries in the map. A `"-1"` or `"default"` entry, or a key binding, that is not an object (`null` in a hand-edited map) binds nothing and ends the search. This also covers `activity_start` bindings: a Companion or Smart Control activity key bound in one activity's entry starts nothing from Off or from the other activities; put keys meant for every activity and for Off under `"-1"`. `PowerOffActivity` is handled before the map and always works. A key pressed while the remote browses a device uses that device's entry under `devices`, then the device command with the button's name.
 
@@ -2163,7 +2164,11 @@ Exports complete hub configuration bundle or individual configuration elements.
   - `wifi`
   - `bluetooth`
   - `bt_remote_map` (also `remote-mapping`)
-  - `remote_slot1_map`, `remote_slot2_map`
+  - `remote_slot1_map` to `remote_slot6_map`
+  - `rf_slot_map` (text: which radio pipe each slot is). `hub_rf` reads it at its start, so a
+    restored table applies from the next start (reboot or `init.sh restart`). It names the pipes
+    of this Hub's radio: on another Hub, or after remotes were paired again, it puts the maps on
+    other remotes.
   - `users` (the web UI accounts)
   - `ui_remote_layout` (also `ui-remote-layout`)
   - `auth`
@@ -2197,8 +2202,8 @@ as the new web UI calls it). An import of the accounts that turns authentication
   or of `users` ends every session.
 - Every section is checked before anything is written: `devices` must be an object with a `devices`
   array, `activities` an object with an `activities` array, and `settings`, `mqtt`, `bluetooth`,
-  `bt_remote_map`, `remote_slot1_map`, `remote_slot2_map`, `ui_remote_layout` and `users` JSON objects
-  (sent as objects, or as strings that parse completely). `network`, `wifi`, `auth` and `hub_id` are
+  `bt_remote_map`, `remote_slot1_map` to `remote_slot6_map`, `ui_remote_layout` and `users` JSON objects
+  (sent as objects, or as strings that parse completely). `network`, `wifi`, `auth`, `rf_slot_map` and `hub_id` are
   text files and are written as sent. An empty `devices` or `activities` list in a bundle (what an
   export holds when the file could not be read) is skipped.
 - The new files are written under temporary names first and then renamed into place.
