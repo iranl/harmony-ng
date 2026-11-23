@@ -162,8 +162,20 @@ static int device_net_fields_valid(const cJSON *p) {
 }
 
 /* A body field of the connection (netHost, netPort, netTls) differs from the stored one */
+/* The port used: 0 or none means the default of the scheme (443 with TLS, else 80) */
+static int net_effective_port(const cJSON *port, int tls) {
+    int v = cJSON_IsNumber(port) ? port->valueint : 0;
+    return v > 0 ? v : (tls ? 443 : 80);
+}
+
 static int net_address_changes(const cJSON *p, const cJSON *dev) {
-    static const char *const keys[] = { "netHost", "netPort", "netTls" };
+    const cJSON *nt = cJSON_GetObjectItemCaseSensitive(p, "netTls");
+    int old_tls = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dev, "netTls"));
+    int new_tls = nt ? cJSON_IsTrue(nt) : old_tls;
+    const cJSON *np = cJSON_GetObjectItemCaseSensitive(p, "netPort");
+    if (np && net_effective_port(np, new_tls) != net_effective_port(cJSON_GetObjectItemCaseSensitive(dev, "netPort"), old_tls))
+        return 1;
+    static const char *const keys[] = { "netHost", "netTls" };
     for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
         const cJSON *n = cJSON_GetObjectItemCaseSensitive(p, keys[i]);
         const cJSON *o = cJSON_GetObjectItemCaseSensitive(dev, keys[i]);

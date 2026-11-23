@@ -9,9 +9,11 @@
  * no BearSSL: libbearssl.so.0 is on the Hub once, shared by hub_fetch and the plugins). */
 
 /* Queues the command of dev and returns at once: 0 queued (or logged in dry run), -2 when the
- * device or command cannot be sent (no host or port), -3 when the queue is full. */
+ * device or command cannot be sent (no host or port), -3 when the queue is full. live_key: a key
+ * pressed on a remote now; only such a send is dropped when it is late or its device just timed
+ * out (an activity step, an API or MQTT send always goes out, in order). */
 int net_action_send(const cJSON *dev, const cJSON *cmd, const char *dev_id, const char *dev_name,
-                    const char *command);
+                    const char *command, int live_key);
 
 /* POST /api/device-net-test: runs cmd (NULL: connect and TLS handshake only) and waits.
  * Returns {ok, status?, error?, response?, tlsFingerprint?, pinned?}. */

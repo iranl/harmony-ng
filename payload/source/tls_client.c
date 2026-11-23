@@ -343,7 +343,8 @@ static void set_tls_error(net_conn *c)
     case BR_ERR_X509_BAD_SERVER_NAME: m = "certificate does not match the host name"; break;
     case BR_ERR_X509_EXPIRED: m = "certificate expired or not yet valid"; break;
     case BR_ERR_X509_FORBIDDEN_KEY_USAGE: m = "certificate key usage forbids TLS"; break;
-    case BR_ERR_BAD_VERSION: m = "server needs an unsupported TLS version"; break;
+    case BR_ERR_BAD_VERSION:
+    case BR_ERR_UNSUPPORTED_VERSION: m = "server needs an unsupported TLS version (TLS 1.2 is needed to check its certificate)"; break;
     case BR_ERR_BAD_CIPHER_SUITE: m = "no common cipher suite"; break;
     case BR_ERR_IO: m = c->eof ? "connection closed by the server" : "network error"; break;
     default: break;

@@ -901,7 +901,10 @@ Runs a command of an HTTP or TCP device now and waits for it (up to about 4 time
   certificate, not the SubjectPublicKeyInfo, so not what `openssl x509 -pubkey` hashes to);
   `pinned` is set when this run pinned it. A command from a remote key is sent once per press (a
   held key sends no repeats), and one still queued after 2 s, or for a device that timed out in
-  the last 10 s, is dropped (`dropped:` in the log).
+  the last 10 s, is dropped (`dropped:` in the log). Only a live key from a remote is dropped:
+  activity steps, `ir-send`, MQTT and WebSocket sends wait in the queue and go out in order. A
+  send answers `ok` when it is queued, also one that is dropped later; a lone `hold` or `repeat`
+  answers `ok` and sends nothing. A host that resolves to the Hub itself (loopback) is refused.
 - **Response `400`**: not an HTTP or TCP device. **`404`**: no device with that id, or no
   command of that name.
 

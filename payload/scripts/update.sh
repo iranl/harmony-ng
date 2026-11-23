@@ -46,7 +46,7 @@ else
 fi
 
 DEFAULT_OTA="https://raw.githubusercontent.com/iranl/harmony-ng/ota"
-if [ "$CMD" = "remote" -o "$CMD" = "elite" -o "$CMD" = "fetch-remote" -o "$CMD" = "fetch-remote-ota" ] && [ -z "$REPO_ARG" ] && [ -f /data/harmony/update_state.conf ]; then
+if [ "$CMD" = "remote" -o "$CMD" = "elite" -o "$CMD" = "fetch-remote" -o "$CMD" = "fetch-remote-ota" -o "$CMD" = "repair-tls" ] && [ -z "$REPO_ARG" ] && [ -f /data/harmony/update_state.conf ]; then
   CONF_REPO=$(grep '^source=' /data/harmony/update_state.conf 2>/dev/null | cut -d= -f2- | tr -d '\r\n ')
   [ -n "$CONF_REPO" ] && REPO_ARG="$CONF_REPO"
 fi
@@ -104,8 +104,10 @@ download_retry() {
     # the header is one argument: unquoted, the token was passed to wget as extra URLs
     if [ "$USE_FETCH" = 1 ]; then
       fetch_once "$url" "$dst" "$timeout" --ca "$CA_BUNDLE"
-      if [ ! -s "$dst" ] && grep -q 'TLS: cert' "$FETCH_ERR" 2>/dev/null; then
-        echo "[!] ${url%%\?*}: $(sed -n 's/.*TLS: //p' "$FETCH_ERR" | sed -n 1p). Fetched without the certificate check: the release signature decides." >&2
+      # any TLS failure (a certificate, an unsupported signature, "TLS error N"): for update
+      # files the release signature decides, not TLS. The token goes along, as with busybox wget.
+      if [ ! -s "$dst" ] && grep -q 'TLS' "$FETCH_ERR" 2>/dev/null; then
+        echo "[!] ${url%%\?*}: $(sed -n 's/.*\(TLS.*\)/\1/p' "$FETCH_ERR" | sed -n 1p). Fetched without the certificate check: the release signature decides." >&2
         fetch_once "$url" "$dst" "$timeout" --insecure
       fi
     elif [ -n "$TOKEN_ARG" ]; then
@@ -577,7 +579,7 @@ do_apply() {
     fi
     FB_BINS=""
     FB_MISSING=""
-    for b in hub_util hub_daemon hub_rf hub_btstack register_ehci eth_fix hub_sync; do
+    for b in hub_util hub_daemon hub_fetch hub_rf hub_btstack register_ehci eth_fix hub_sync; do
       if download_retry "${REPO}/bin/mips/${b}?_=${TIMESTAMP}" "$TMPDIR/$b" 30 3; then
         FB_FILES="$FB_FILES bin/mips/$b=$TMPDIR/$b"
         FB_BINS="$FB_BINS $b"
@@ -585,6 +587,15 @@ do_apply() {
         FB_MISSING="$FB_MISSING $b"
       fi
     done
+    FB_LIB=""
+    if grep -q '"lib/libbearssl.so.0"' "$TMPDIR/manifest.json" 2>/dev/null; then
+      if download_retry "${REPO}/lib/libbearssl.so.0?_=${TIMESTAMP}" "$TMPDIR/libbearssl.so.0" 30 3; then
+        FB_FILES="$FB_FILES lib/libbearssl.so.0=$TMPDIR/libbearssl.so.0"
+        FB_LIB=1
+      else
+        FB_MISSING="$FB_MISSING libbearssl.so.0"
+      fi
+    fi
     # Every downloaded file must match the signed manifest before any of them is installed
     # shellcheck disable=SC2086
     if [ -z "$FB_FILES" ] || ! verify_files $FB_FILES; then
@@ -610,6 +621,14 @@ do_apply() {
         return 1
       fi
     done
+    if [ -n "$FB_LIB" ]; then
+      mkdir -p "$HUB_LIB" 2>/dev/null
+      if ! install_file "$TMPDIR/libbearssl.so.0" "$HUB_LIB/libbearssl.so.0" 755; then
+        rm -rf "$TMPDIR" 2>/dev/null
+        echo "[-] Software update stopped: a file could not be written to flash. Every file is whole, but some are new and some old. Version not changed: free space and run the update again."
+        return 1
+      fi
+    fi
     INSTALL_OK=1
     for b in $FB_BINS; do
       rm -f "/cache/bin/$b" 2>/dev/null || true
@@ -800,6 +819,11 @@ do_repair_tls() {
     fi
   done
   rm -rf "$TMPDIR"
+  # done only when both are there: hub_fetch without the library does no TLS either
+  if [ ! -x "$HUB_FETCH" ] || [ ! -s "$HUB_LIB/libbearssl.so.0" ]; then
+    echo "[-] TLS files still missing after the repair: tried again later."
+    _rc=1
+  fi
   return $_rc
 }
 
@@ -863,17 +887,25 @@ case "$CMD" in
     do_fetch_remote_ota
     ;;
   repair-tls)
-    # not while an update runs (it installs these files itself)
-    if mkdir "$APPLY_LOCK" 2>/dev/null; then
-      echo "$$" > "$APPLY_LOCK/pid"
-      proc_start $$ > "$APPLY_LOCK/start"
-      do_repair_tls
-      _rc=$?
+    # not while an update runs (it installs these files itself); a lock left by a killed run is
+    # taken over as apply_locked does
+    if ! mkdir "$APPLY_LOCK" 2>/dev/null; then
+      if apply_lock_owner_runs; then
+        echo "[-] A software update is running: TLS files not repaired now."
+        exit 1
+      fi
       rm -rf "$APPLY_LOCK" 2>/dev/null
-      exit $_rc
+      if ! mkdir "$APPLY_LOCK" 2>/dev/null; then
+        echo "[-] A software update is starting: TLS files not repaired now."
+        exit 1
+      fi
     fi
-    echo "[-] A software update is running: TLS files not repaired now."
-    exit 1
+    echo "$$" > "$APPLY_LOCK/pid"
+    proc_start $$ > "$APPLY_LOCK/start"
+    do_repair_tls
+    _rc=$?
+    rm -rf "$APPLY_LOCK" 2>/dev/null
+    exit $_rc
     ;;
   elite|remote)
     do_remote_ota "$SLOT_ARG"

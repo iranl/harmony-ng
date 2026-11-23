@@ -135,6 +135,11 @@ def package_ota(output_dir: Path, version: str):
             shutil.copy2(src, dst)
             md5, sha = get_file_hashes(dst)
             manifest_files[f"lib/{lname}"] = {"size": dst.stat().st_size, "md5": md5, "sha256": sha}
+        else:
+            # without it a Hub updated from v2.5.3 or older can never repair its TLS (repair-tls)
+            print(f"[-] {lname} not found: this release has no TLS library for repair-tls or the update")
+            if "--require-signature" in sys.argv:
+                sys.exit(1)
 
     # 3. ARM binaries (remote)
     arm_target = output_dir / "bin" / "arm"
