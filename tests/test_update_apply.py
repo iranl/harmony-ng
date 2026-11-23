@@ -359,5 +359,51 @@ class UpdateApply(unittest.TestCase):
         self.assertEqual(self.version(), NEW_VER)
 
 
+    def run_repair(self) -> subprocess.CompletedProcess[str]:
+        env = {"PATH": f"{self.root / 'fakebin'}:/usr/bin:/bin", "UPD_SERVE": str(self.root / "serve")}
+        return subprocess.run(["sh", str(self.script), "repair-tls", REPO], capture_output=True, text=True,
+                              timeout=60, env=env)
+
+    def serve_repair(self, lib: bool = True, listed: bool = True) -> None:
+        """The installed release (OLD_VER) with hub_fetch and the library as files of their own"""
+        files = '"bin/mips/hub_fetch": {}' + (', "lib/libbearssl.so.0": {}' if listed else "")
+        self.write(self.root / "serve" / "manifest.json", f'{{"version": "{OLD_VER}", "files": {{{files}}}}}\n')
+        self.write(self.root / "serve" / "bin" / "mips" / "hub_fetch", "fetch\n")
+        if lib:
+            self.write(self.root / "serve" / "lib" / "libbearssl.so.0", "lib\n")
+
+    def test_repair_tls_installs_both(self):
+        self.serve_repair()
+        r = self.run_repair()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual((self.data / "bin" / "hub_fetch").read_text(), "fetch\n")
+        self.assertEqual((self.data / "lib" / "libbearssl.so.0").read_text(), "lib\n")
+
+    def test_repair_tls_not_done_with_a_file_missing(self):
+        """hub_fetch without the library does no TLS: the repair is tried again"""
+        for lib, listed in ((False, True), (True, False)):
+            with self.subTest(lib=lib, listed=listed):
+                self.tearDown()
+                self.setUp()
+                self.serve_repair(lib=lib, listed=listed)
+                r = self.run_repair()
+                self.assertNotEqual(r.returncode, 0, r.stdout)
+                self.assertIn("still missing", r.stdout)
+
+    def test_repair_tls_takes_over_a_stale_lock(self):
+        lock = self.root / "tmp" / "ota_update.lock"
+        lock.mkdir()
+        (lock / "pid").write_text("999999\n")
+        self.serve_repair()
+        r = self.run_repair()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertFalse(lock.exists())
+
+    def test_repair_tls_newer_release_installs_nothing(self):
+        self.serve_repair()
+        self.write(self.root / "serve" / "manifest.json", f'{{"version": "{NEW_VER}", "files": {{}}}}\n')
+        r = self.run_repair()
+        self.assertFalse((self.data / "bin" / "hub_fetch").exists())
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -13,7 +13,7 @@
 # links, binary, authorized keys, the host keys the installers made). A file the stock image also
 # has (its RSA host key, for example) gets the stock copy back; when the stock file system cannot
 # be read, such a file is left as it is.
-# Kept: the stock firmware's own data (/data/resources, the account ids in /data/luaworks), the
+# Kept: the stock firmware's own data (/data/resources unless it was emptied, the account ids in /data/luaworks), the
 # BusyBox in /cache/bin, /cache/modules, /etc/TZ, /etc/ntp.conf, /etc/tdeenable and
 # /data/stock_backup. The hardware reset (docs/FIRST_INSTALL_HUB.md) wipes everything.
 # Save a backup first (tools/backup_hub.py) to keep any of it.

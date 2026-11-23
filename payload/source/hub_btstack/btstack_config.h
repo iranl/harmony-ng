@@ -24,7 +24,12 @@
 
 // Logging
 #define ENABLE_LOG_ERROR
+// Info logs only in the dev build (build_btstack.sh, -DHUB_BT_DEBUG_LOGS): their text costs
+// flash. All logs reach stdout only while /data/harmony/bt_packet_dump.conf exists.
+#ifdef HUB_BT_DEBUG_LOGS
 #define ENABLE_LOG_INFO
+#endif
+// Needed by hci_dump_posix_stdout.c (the packet dump)
 #define ENABLE_PRINTF_HEXDUMP
 
 // Memory buffers

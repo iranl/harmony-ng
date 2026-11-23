@@ -311,6 +311,9 @@ paths:
                 cache_free_kb: 1824
                 cache_used_kb: 3296
                 cache_percent_free: 35
+                stock_resources_kb: 251
+                stock_resources_saved: true
+                can_empty_stock_resources: true
 
   /api/network-status:
     get:
@@ -1104,10 +1107,10 @@ paths:
               properties:
                 action:
                   type: string
-                  enum: [reboot, factory_reset, mqtt_publish, auth]
+                  enum: [reboot, factory_reset, clean_stock_resources, mqtt_publish, auth]
                 confirm:
                   type: string
-                  description: Required confirmation string ('RESET') for factory_reset
+                  description: Required confirmation string ('RESET') for factory_reset, ('EMPTY') for clean_stock_resources
                 topic:
                   type: string
                   description: MQTT topic for mqtt_publish action
@@ -1129,6 +1132,8 @@ paths:
                 value: {action: reboot}
               factoryReset:
                 value: {action: factory_reset, confirm: RESET}
+              cleanStockResources:
+                value: {action: clean_stock_resources, confirm: EMPTY}
               mqttPublish:
                 value: {action: mqtt_publish, topic: harmony/hub/notify, payload: "{\"event\":\"ready\"}"}
               auth:
@@ -1145,11 +1150,11 @@ paths:
                 ok: true
                 message: Rebooting hub now
         '400':
-          description: "factory_reset without confirm RESET; auth: a name of 32 bytes or more or with ':' or a line break, a password over 128 bytes, renaming the admin without the password, or turning authentication on with no admin account and no password"
+          description: "factory_reset without confirm RESET; clean_stock_resources without confirm EMPTY; auth: a name of 32 bytes or more or with ':' or a line break, a password over 128 bytes, renaming the admin without the password, or turning authentication on with no admin account and no password"
         '409':
-          description: "reboot while a software update runs (Software update in progress. Manual reboot blocked.); auth: the admin name is taken by another account"
+          description: "reboot while a software update runs (Software update in progress. Manual reboot blocked.); clean_stock_resources: the stock configuration is not imported yet (no or an empty /data/harmony/config/devices.json), no saved copy of the stock files as they are now (the fingerprint in /data/harmony/stock_resources_saved, written by tools/backup_hub.py, does not match), or /data/resources is a link; auth: the admin name is taken by another account"
         '500':
-          description: "factory_reset: the reset script is not installed on this Hub; auth: the accounts could not be saved, or the admin name has access tokens left by a deleted account and the token file cannot be changed"
+          description: "factory_reset: the reset script is not installed on this Hub; clean_stock_resources: some files in /data/resources could not be removed, or it could not be read; auth: the accounts could not be saved, or the admin name has access tokens left by a deleted account and the token file cannot be changed"
         '503':
           description: "auth: the token list is busy, try again"
 
@@ -3644,6 +3649,54 @@ paths:
         '500':
           description: The settings could not be saved
 
+  /api/device-net-test:
+    post:
+      tags:
+        - Devices & Commands
+      summary: Run a command of an HTTP or TCP device now (admin)
+      description: |
+        Waits for the result, up to about 4 times netTimeoutMs. Without command only the
+        connection and the TLS handshake are tested (docs/API.md 3.x).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id: {type: string, description: "Also accepted as deviceId"}
+                command: {type: string}
+            example: {id: "50", command: Power}
+      responses:
+        '200':
+          description: The result (ok false with error when the request failed or answered 400 or more)
+          content:
+            application/json:
+              example: {ok: true, status: 200, response: '{"done":true}', tlsFingerprint: 9f86d081884c7d65, pinned: true}
+        '400':
+          description: Not an HTTP or TCP device
+        '404':
+          description: No device with that id, or no command of that name
+  /api/device-net-pin-forget:
+    post:
+      tags:
+        - Devices & Commands
+      summary: Forget the pinned TLS key of an HTTP or TCP device (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id: {type: string, description: "Also accepted as deviceId"}
+            example: {id: "50"}
+      responses:
+        '200':
+          description: removed is false when no key was pinned for the device's host and port
+          content:
+            application/json:
+              example: {ok: true, removed: true}
   /api/device-mqtt-test:
     post:
       tags:

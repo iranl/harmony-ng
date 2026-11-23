@@ -11,6 +11,8 @@
 #include "ir_i2s.h"
 #include "config_sanitize.h"
 #include "plugin_mgr.h"
+#include "net_device.h"
+#include "net_action.h"
 #include "cJSON.h"
 #include "bt_common.h"
 #include "state_watch.h"
@@ -93,7 +95,9 @@ static int device_key_reserved(const char *key) {
         "commands", "controlPort", "interDeviceDelay", "interKeyDelay", "holdInterKeyDelay",
         "defaultInterDeviceDelay", "powerOnDelay", "isPowerAlwaysOn", "mqttEnabled", "mqttTopic", "mqttPulseMs",
         "bdaddr", "btHost", "btAutoReconnect", "btReconnectDurationSec", "btReconnectDelaySec",
-        "btTriggerDeviceId", "btTriggerCommandName", "powerOnSequence", "powerOffSequence", NULL
+        "btTriggerDeviceId", "btTriggerCommandName", "powerOnSequence", "powerOffSequence",
+        "netHost", "netPort", "netTls", "netTlsVerify", "netTimeoutMs", "httpHeaders",
+        "httpAuthType", "httpUser", "httpPassword", "httpToken", NULL
     };
     for (int k = 0; reserved_dev_keys[k]; k++) {
         if (strcasecmp(key, reserved_dev_keys[k]) == 0) return 1;
@@ -114,6 +118,105 @@ static int device_plugin_field_valid(const cJSON *p) {
     if (cJSON_IsString(j_type) && strncasecmp(j_type->valuestring, "plugin:", 7) == 0 &&
         !plugin_mgr_is_safe_id(j_type->valuestring + 7)) return 0;
     return 1;
+}
+
+/* The HTTP/TCP fields present in the body (net_device.h) have usable values: a bad host,
+ * port or header is refused (400) instead of being dropped by the sanitizer */
+static int device_net_fields_valid(const cJSON *p) {
+    const cJSON *j = cJSON_GetObjectItemCaseSensitive(p, "netHost");
+    if (j && (!cJSON_IsString(j) || (j->valuestring[0] && !net_host_valid(j->valuestring)))) return 0;
+    j = cJSON_GetObjectItemCaseSensitive(p, "netPort");
+    if (j && (!cJSON_IsNumber(j) || j->valuedouble < 0 || j->valuedouble > 65535 ||
+              j->valuedouble != (double)(int)j->valuedouble)) return 0;
+    j = cJSON_GetObjectItemCaseSensitive(p, "netTimeoutMs");
+    if (j && (!cJSON_IsNumber(j) || j->valuedouble < 0 || j->valuedouble > NET_TIMEOUT_MAX_MS)) return 0;
+    j = cJSON_GetObjectItemCaseSensitive(p, "netTlsVerify");
+    if (j && (!cJSON_IsString(j) || (strcmp(j->valuestring, "verify") != 0 &&
+              strcmp(j->valuestring, "pin") != 0 && strcmp(j->valuestring, "insecure") != 0))) return 0;
+    j = cJSON_GetObjectItemCaseSensitive(p, "httpAuthType");
+    if (j && (!cJSON_IsString(j) || (strcmp(j->valuestring, "none") != 0 &&
+              strcmp(j->valuestring, "basic") != 0 && strcmp(j->valuestring, "bearer") != 0))) return 0;
+    static const char *const texts[] = { "httpUser", "httpPassword", "httpToken" };
+    for (size_t i = 0; i < sizeof(texts) / sizeof(texts[0]); i++) {
+        j = cJSON_GetObjectItemCaseSensitive(p, texts[i]);
+        if (j && (!cJSON_IsString(j) || strlen(j->valuestring) > 1024)) return 0;
+        for (const unsigned char *c = j ? (const unsigned char *)j->valuestring : NULL; c && *c; c++) {
+            if (*c < 0x20 || *c == 0x7f) return 0;
+        }
+    }
+    j = cJSON_GetObjectItemCaseSensitive(p, "httpHeaders");
+    if (j) {
+        if (!cJSON_IsArray(j) || cJSON_GetArraySize(j) > NET_MAX_HEADERS) return 0;
+        const cJSON *h = NULL;
+        cJSON_ArrayForEach(h, j) {
+            const cJSON *hn = cJSON_GetObjectItemCaseSensitive(h, "name");
+            const cJSON *hv = cJSON_GetObjectItemCaseSensitive(h, "value");
+            if (!cJSON_IsString(hn) || !net_header_name_ok(hn->valuestring)) return 0;
+            if (hv && !cJSON_IsString(hv)) return 0;
+            for (const unsigned char *c = hv ? (const unsigned char *)hv->valuestring : NULL; c && *c; c++) {
+                if ((*c < 0x20 && *c != '\t') || *c == 0x7f) return 0;
+            }
+        }
+    }
+    return 1;
+}
+
+/* A body field of the connection (netHost, netPort, netTls) differs from the stored one */
+/* The port used: 0 or none means the default of the scheme (443 with TLS, else 80) */
+static int net_effective_port(const cJSON *port, int tls) {
+    int v = cJSON_IsNumber(port) ? port->valueint : 0;
+    return v > 0 ? v : (tls ? 443 : 80);
+}
+
+static int net_address_changes(const cJSON *p, const cJSON *dev) {
+    const cJSON *nt = cJSON_GetObjectItemCaseSensitive(p, "netTls");
+    int old_tls = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dev, "netTls"));
+    int new_tls = nt ? cJSON_IsTrue(nt) : old_tls;
+    const cJSON *np = cJSON_GetObjectItemCaseSensitive(p, "netPort");
+    if (np && net_effective_port(np, new_tls) != net_effective_port(cJSON_GetObjectItemCaseSensitive(dev, "netPort"), old_tls))
+        return 1;
+    static const char *const keys[] = { "netHost", "netTls" };
+    for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
+        const cJSON *n = cJSON_GetObjectItemCaseSensitive(p, keys[i]);
+        const cJSON *o = cJSON_GetObjectItemCaseSensitive(dev, keys[i]);
+        if (!n) continue;
+        if (cJSON_IsString(n)) {
+            if (!cJSON_IsString(o) || strcasecmp(n->valuestring, o->valuestring) != 0) return 1;
+        } else if (cJSON_IsNumber(n)) {
+            if (!cJSON_IsNumber(o) || n->valuedouble != o->valuedouble) return 1;
+        } else if (cJSON_IsTrue(n) != cJSON_IsTrue(o)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Copies the HTTP/TCP fields of the body onto the stored device. An empty or missing
+ * httpPassword / httpToken keeps the stored one (GET never returns them), but only for the same
+ * host, port and TLS setting: a secret GET hides must not follow the device to another address,
+ * so a change drops it and the UI asks again. Choosing another auth type drops it too
+ * (config_sanitize.c keeps only the credentials of the chosen type). */
+static void apply_net_fields(const cJSON *p, cJSON *dev) {
+    if (net_address_changes(p, dev)) {
+        cJSON_DeleteItemFromObjectCaseSensitive(dev, "httpPassword");
+        cJSON_DeleteItemFromObjectCaseSensitive(dev, "httpToken");
+    }
+    static const char *const keys[] = { "netHost", "netPort", "netTls", "netTlsVerify", "netTimeoutMs",
+                                         "httpHeaders", "httpAuthType", "httpUser" };
+    for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
+        const cJSON *j = cJSON_GetObjectItemCaseSensitive(p, keys[i]);
+        if (!j) continue;
+        cJSON_DeleteItemFromObjectCaseSensitive(dev, keys[i]);
+        cJSON_AddItemToObject(dev, keys[i], cJSON_Duplicate(j, 1));
+    }
+    static const char *const secrets[] = { "httpPassword", "httpToken" };
+    for (size_t i = 0; i < sizeof(secrets) / sizeof(secrets[0]); i++) {
+        const cJSON *j = cJSON_GetObjectItemCaseSensitive(p, secrets[i]);
+        if (!cJSON_IsString(j) || !j->valuestring[0]) continue;
+        cJSON_DeleteItemFromObjectCaseSensitive(dev, secrets[i]);
+        cJSON_AddStringToObject(dev, secrets[i], j->valuestring);
+    }
+    if (net_device_kind(dev)) cJSON_DeleteItemFromObjectCaseSensitive(dev, "controlPort");
 }
 
 static int device_int_fields_valid(const cJSON *p) {
@@ -557,6 +660,22 @@ int remote_maps_drop_section(const char *section, const char *id) {
 
 static pthread_mutex_t s_capture_lock = PTHREAD_MUTEX_INITIALIZER;
 
+/* The device list without the credentials of HTTP devices (net_device.h) */
+static void send_devices_masked(int client_fd, const cJSON *root) {
+    if (!config_devices_have_secrets(root)) {
+        send_cjson_resp(client_fd, 200, (cJSON *)root); /* printed only */
+        return;
+    }
+    cJSON *copy = cJSON_Duplicate(root, 1);
+    if (!copy) {
+        send_json_error(client_fd, 500, "Out of memory");
+        return;
+    }
+    config_mask_device_secrets(copy);
+    send_cjson_resp(client_fd, 200, copy);
+    cJSON_Delete(copy);
+}
+
 int http_api_devices_handle(int client_fd, const char *method, const char *clean_path,
                             const char *query, const char *body, const char *req) {
     (void)query;
@@ -567,7 +686,7 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
         cfg_snap_t *snap = NULL;
         const cJSON *devs = config_store_devices_acquire(&snap);
         if (devs) {
-            send_cjson_resp(client_fd, 200, (cJSON *)devs); /* printed only */
+            send_devices_masked(client_fd, devs);
             config_store_release(&snap);
         } else {
             send_json_error(client_fd, 404, "DeviceList not found");
@@ -581,7 +700,7 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
         cfg_snap_t *snap = NULL;
         const cJSON *root = config_store_devices_acquire(&snap);
         if (root) {
-            send_cjson_resp(client_fd, 200, (cJSON *)root); /* printed only */
+            send_devices_masked(client_fd, root);
             config_store_release(&snap);
         } else {
             send_json_error(client_fd, 404, "Devices not found");
@@ -898,6 +1017,70 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
         return 1;
     }
 
+    /* Route: POST /api/device-net-test {id, command?}: runs one command of an HTTP or TCP
+     * device now and answers with its result (without command: connection and TLS handshake
+     * only, with the server key fingerprint). POST /api/device-net-pin-forget {id}: removes
+     * the pinned key of the device's host and port. */
+    if ((strcmp(clean_path, "/api/device-net-test") == 0 || strcmp(clean_path, "/api/device-net-pin-forget") == 0) &&
+        strcmp(method, "POST") == 0) {
+        int forget = strcmp(clean_path, "/api/device-net-pin-forget") == 0;
+        char dev_id[64] = {0}, cmd_name[128] = {0};
+        cJSON *req_j = body ? parse_request_params(body) : NULL;
+        cJSON *jid = req_j ? cJSON_GetObjectItemCaseSensitive(req_j, "deviceId") : NULL;
+        if (!jid && req_j) jid = cJSON_GetObjectItemCaseSensitive(req_j, "id");
+        if (cJSON_IsString(jid)) snprintf(dev_id, sizeof(dev_id), "%s", jid->valuestring);
+        else if (cJSON_IsNumber(jid)) snprintf(dev_id, sizeof(dev_id), "%ld", (long)jid->valuedouble);
+        cJSON *jcmd = req_j ? cJSON_GetObjectItemCaseSensitive(req_j, "command") : NULL;
+        if (cJSON_IsString(jcmd)) snprintf(cmd_name, sizeof(cmd_name), "%s", jcmd->valuestring);
+        cJSON_Delete(req_j);
+
+        /* copies of the device and command: the list is not held while the request runs */
+        cJSON *dev = NULL, *cmd = NULL;
+        cfg_snap_t *snap = NULL;
+        const cJSON *root = config_store_devices_acquire(&snap);
+        const cJSON *d = NULL;
+        const cJSON *dlist = root ? cJSON_GetObjectItemCaseSensitive(root, "devices") : NULL;
+        cJSON_ArrayForEach(d, dlist) {
+            const cJSON *did = cJSON_GetObjectItemCaseSensitive(d, "id");
+            if (!dev_id[0] || !cJSON_IsString(did) || strcmp(did->valuestring, dev_id) != 0) continue;
+            dev = cJSON_Duplicate(d, 1);
+            const cJSON *c = NULL;
+            cJSON_ArrayForEach(c, cJSON_GetObjectItemCaseSensitive(d, "commands")) {
+                const cJSON *cn = cJSON_GetObjectItemCaseSensitive(c, "name");
+                if (cmd_name[0] && cJSON_IsString(cn) && strcasecmp(cn->valuestring, cmd_name) == 0) {
+                    cmd = cJSON_Duplicate(c, 1);
+                    break;
+                }
+            }
+            break;
+        }
+        config_store_release(&snap);
+
+        if (!dev) {
+            send_json_error(client_fd, 404, "No device with that id");
+        } else if (!net_device_kind(dev)) {
+            send_json_error(client_fd, 400, "Not an HTTP or TCP device");
+        } else if (cmd_name[0] && !cmd && !forget) {
+            send_json_error(client_fd, 404, "The device has no command of that name");
+        } else if (forget) {
+            int rc = net_action_forget_pin(dev);
+            cJSON *resp_j = cJSON_CreateObject();
+            cJSON_AddBoolToObject(resp_j, "ok", rc >= 0);
+            cJSON_AddBoolToObject(resp_j, "removed", rc == 0);
+            send_cjson_resp(client_fd, rc >= 0 ? 200 : 500, resp_j);
+            cJSON_Delete(resp_j);
+        } else {
+            const cJSON *dn = cJSON_GetObjectItemCaseSensitive(dev, "name");
+            cJSON *resp_j = net_action_test(dev, cmd, dev_id, cJSON_IsString(dn) ? dn->valuestring : dev_id);
+            send_cjson_resp(client_fd, 200, resp_j);
+            cJSON_Delete(resp_j);
+        }
+        cJSON_Delete(dev);
+        cJSON_Delete(cmd);
+        close(client_fd);
+        return 1;
+    }
+
     /* Route: POST /api/device-mqtt-test: publish the device's MQTT pulse once (the topic
      * template and pulse of the request, else the device's) */
     if (strcmp(clean_path, "/api/device-mqtt-test") == 0 && strcmp(method, "POST") == 0) {
@@ -960,6 +1143,11 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
         cJSON *p = parse_request_params(body);
         if (p && (!device_int_fields_valid(p) || !device_delay_fields_in_range(p))) {
             /* A timing field of the wrong type, or a send delay out of range: refuse the whole save (400) */
+            cJSON_Delete(p);
+            p = NULL;
+        }
+        if (p && !device_net_fields_valid(p)) {
+            /* an HTTP/TCP host, port, header or credential that cannot be used (400) */
             cJSON_Delete(p);
             p = NULL;
         }
@@ -1062,7 +1250,7 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                     cJSON_AddStringToObject(found_dev, "manufacturer", (j_mfg && cJSON_IsString(j_mfg)) ? j_mfg->valuestring : "");
                     cJSON_AddStringToObject(found_dev, "model", (j_model && cJSON_IsString(j_model)) ? j_model->valuestring : "");
                     int init_is_plugin = plugin_mgr_device_plugin_id(p, NULL, 0);
-                    if (!init_is_plugin) {
+                    if (!init_is_plugin && !net_device_kind(p)) {
                         cJSON_AddNumberToObject(found_dev, "controlPort", cp_val > 0 ? cp_val : 7);
                     }
                     cJSON_AddItemToObject(found_dev, "commands", cJSON_CreateArray());
@@ -1211,6 +1399,8 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                     sanitize_activity_steps(pf_copy);
                     cJSON_AddItemToObject(found_dev, "powerOffSequence", pf_copy);
                 }
+
+                apply_net_fields(p, found_dev);
 
                 /* Plugin identification and settings persistence */
                 cJSON *j_config = cJSON_GetObjectItemCaseSensitive(p, "config");

@@ -20,7 +20,8 @@ typedef struct {
 
 void link_note_status(bool established, uint64_t now_ms);
 void link_note_query(uint8_t seq, uint64_t now_ms);
-void link_note_reply(uint8_t seq, uint64_t now_ms);
+/* Returns when the answered query was sent, 0 when no query in the last second matches */
+uint64_t link_note_reply(uint8_t seq, uint64_t now_ms);
 void link_quality(uint64_t now_ms, link_quality_t *q);
 void link_reset(void);
 

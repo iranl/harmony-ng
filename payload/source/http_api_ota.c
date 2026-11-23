@@ -262,7 +262,7 @@ cJSON *ota_update_check(const cJSON *params) {
             snprintf(cmd, sizeof(cmd), "/data/harmony/update.sh check '%s' '%s' >/tmp/update_check.log 2>&1", repo, token);
         } else {
             snprintf(cmd, sizeof(cmd),
-                "/cache/bin/busybox wget --no-check-certificate -q -T 6 -O /data/harmony/latest_version 'https://raw.githubusercontent.com/iranl/harmony-ng/ota/v2/VERSION' 2>/dev/null");
+                "LD_LIBRARY_PATH=/data/harmony/lib /data/harmony/bin/hub_fetch -T 6 -o /data/harmony/latest_version 'https://raw.githubusercontent.com/iranl/harmony-ng/ota/v2/VERSION' 2>/dev/null");
         }
 #ifndef TEST_HARNESS
         system(cmd);

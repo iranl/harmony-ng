@@ -46,7 +46,8 @@ if [ -n "$PYTHON" ] && [ -f "$REPO_ROOT/scripts/bump_version.py" ]; then
     "$PYTHON" "$REPO_ROOT/scripts/bump_version.py" --sync
 fi
 
-CFLAGS="-Wall -Os -static -s -DNDEBUG"
+# Section GC: each function and object in its own section, the unreferenced ones dropped at link
+CFLAGS="-Wall -Os -static -s -DNDEBUG -ffunction-sections -fdata-sections -Wl,--gc-sections"
 # The commit the Hub reports (/api/status and the OTA status said "dev" for every release)
 GIT_COMMIT=$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo dev)
 CFLAGS="$CFLAGS -DHARMONY_COMMIT=\"$GIT_COMMIT\""
@@ -61,10 +62,70 @@ CFLAGS="$CFLAGS -DHUB_BUILD_DATE_UTC=$(date -u +%Y%m%d)"
 
 TARGET="${1:-all}"
 
+# BearSSL (build/fetch_bearssl.sh pins the commit) is on the Hub once: payload/lib/libbearssl.so.0,
+# trimmed to the functions in build/bearssl_exports.txt. hub_fetch (the Hub's only TLS client) and
+# the plugins link it (-l:libbearssl.so.0, started with LD_LIBRARY_PATH=/data/harmony/lib: the
+# stock ld-uClibc ignores rpath). The static core binaries carry no TLS (hub_daemon runs hub_fetch).
+BEARSSL_DIR="${BEARSSL_DIR:-$SCRIPT_DIR/tmp/bearssl}"
+BEARSSL_OUT="$SCRIPT_DIR/tmp/bearssl_mips"
+BEARSSL_SONAME="libbearssl.so.0"
+BEARSSL_EXPORTS="$SCRIPT_DIR/bearssl_exports.txt"
+LIB="$REPO_ROOT/payload/lib"
+READELF="${CC%gcc}readelf"
+
+# fails when a dynamic binary or library imports what the Hub's stock uClibc 0.9.30 lacks
+check_stock_libc() {
+    if "$READELF" --dyn-syms -W "$1" | grep -q '__ctype_'; then
+        echo "[!] $1 imports __ctype_* symbols the Hub's uClibc lacks" >&2
+        exit 1
+    fi
+    needed=$("$READELF" -d "$1" | grep NEEDED | sed 's/.*\[\(.*\)\]/\1/' | tr '\n' ' ')
+    if [ "$needed" != "$2" ]; then
+        echo "[!] $1 needs '$needed', not '$2'" >&2
+        exit 1
+    fi
+}
+
+build_bearssl() {
+    BEARSSL_DIR="$BEARSSL_DIR" sh "$SCRIPT_DIR/fetch_bearssl.sh"
+    stamp="$(git -C "$BEARSSL_DIR" rev-parse HEAD) $CC $BEARSSL_SONAME $(md5sum < "$BEARSSL_EXPORTS" | cut -c1-32) 2"
+    if [ -f "$LIB/$BEARSSL_SONAME" ] && [ "$(cat "$BEARSSL_OUT/stamp" 2>/dev/null)" = "$stamp" ]; then
+        return 0
+    fi
+    echo "[-] Building BearSSL..."
+    mkdir -p "$BEARSSL_OUT/pic" "$LIB"
+    # the objects only depend on the commit and compiler (one gcc call: far faster than one per file)
+    if [ "$(cat "$BEARSSL_OUT/pic/stamp" 2>/dev/null)" != "$(git -C "$BEARSSL_DIR" rev-parse HEAD) $CC" ]; then
+        rm -f "$BEARSSL_OUT"/pic/*
+        C_FILES=$(cd "$BEARSSL_DIR" && find src -name '*.c' ! -name 'brssl.c' ! -name 'test_*.c' | sort | sed "s|^|$BEARSSL_DIR/|")
+        (cd "$BEARSSL_OUT/pic" && "$CC" -Os -Wall -fPIC -ffunction-sections -fdata-sections \
+            -I"$BEARSSL_DIR/inc" -I"$BEARSSL_DIR/src" -c $C_FILES)
+        echo "$(git -C "$BEARSSL_DIR" rev-parse HEAD) $CC" > "$BEARSSL_OUT/pic/stamp"
+    fi
+    # only the listed names are exported; what they do not reach is dropped
+    { echo "{ global:"; grep -v '^#' "$BEARSSL_EXPORTS" | sed '/^$/d; s/$/;/'; echo "local: *; };"; } > "$BEARSSL_OUT/exports.map"
+    "$CC" -shared -s -Wl,--gc-sections -Wl,--version-script="$BEARSSL_OUT/exports.map" \
+        -Wl,-soname,"$BEARSSL_SONAME" -o "$LIB/$BEARSSL_SONAME" "$BEARSSL_OUT"/pic/*.o
+    check_stock_libc "$LIB/$BEARSSL_SONAME" "libc.so.0 "
+    echo "$stamp" > "$BEARSSL_OUT/stamp"
+    echo "[+] $BEARSSL_SONAME: $(wc -c < "$LIB/$BEARSSL_SONAME") bytes"
+}
+
+# hub_fetch: dynamic (stock libc + libbearssl.so.0), not -static like the core binaries
+build_fetch() {
+    build_bearssl
+    echo "[-] Building hub_fetch..."
+    "$CC" -Wall -Os -s -DNDEBUG -DHUB_BUILD_DATE_UTC=$(date -u +%Y%m%d) -ffunction-sections -fdata-sections \
+        -Wl,--gc-sections -Ipayload/source -I"$BEARSSL_DIR/inc" -o "$BIN/hub_fetch" \
+        payload/source/hub_fetch.c payload/source/tls_client.c payload/source/http_client.c \
+        -L"$LIB" -l:"$BEARSSL_SONAME"
+    check_stock_libc "$BIN/hub_fetch" "$BEARSSL_SONAME libc.so.0 "
+}
+
 build_util() {
     echo "[-] Building hub_util..."
     # unused functions are left out (the Wi-Fi code shares http_util.c with hub_daemon)
-    "$CC" $CFLAGS $OTA_KEY_CFLAGS -ffunction-sections -fdata-sections -Wl,--gc-sections -Ipayload/source -o "$BIN/hub_util" payload/source/hub_util.c payload/source/hub_ntp.c payload/source/ota_verify.c payload/source/tweetnacl.c payload/source/sha256.c payload/source/cJSON.c payload/source/usb_wifi.c payload/source/wifi_config.c payload/source/http_util.c $COMPAT_SRC -lm
+    "$CC" $CFLAGS $OTA_KEY_CFLAGS -Ipayload/source -o "$BIN/hub_util" payload/source/hub_util.c payload/source/hub_ntp.c payload/source/ota_verify.c payload/source/tweetnacl.c payload/source/sha256.c payload/source/cJSON.c payload/source/usb_wifi.c payload/source/wifi_config.c payload/source/http_util.c $COMPAT_SRC -lm
     for app in hub_sync sync mknod register_ehci eth_fix hub_sntp hub_usbwifi; do
         ln -sf hub_util "$BIN/$app"
     done
@@ -76,7 +137,8 @@ build_sntp() {
 
 build_daemon() {
     echo "[-] Building hub_daemon..."
-    "$CC" $CFLAGS -Ipayload/source -o "$BIN/hub_daemon" \
+    # -DNET_NO_TLS: plain HTTP/TCP in process, TLS through hub_fetch (no BearSSL in here)
+    "$CC" $CFLAGS -DNET_NO_TLS -Ipayload/source -o "$BIN/hub_daemon" \
         payload/source/hub_daemon.c \
         payload/source/http_server.c \
         payload/source/http_util.c \
@@ -123,6 +185,9 @@ build_daemon() {
         payload/source/sha256.c \
         payload/source/timezone_db.c \
         payload/source/uclibc_static_locks.c \
+        payload/source/tls_client.c \
+        payload/source/http_client.c \
+        payload/source/net_action.c \
         $COMPAT_SRC -lpthread -lm
 }
 
@@ -223,6 +288,12 @@ case "$TARGET" in
     daemon)
         build_daemon
         ;;
+    bearssl)
+        build_bearssl
+        ;;
+    fetch|hub_fetch)
+        build_fetch
+        ;;
     util|hub_util)
         build_util
         ;;
@@ -262,17 +333,19 @@ case "$TARGET" in
     hub)
         build_util
         build_daemon
+        build_fetch
         build_rf
         ;;
     all)
         build_util
         build_daemon
+        build_fetch
         build_rf
         build_btstack
         ;;
     *)
         echo "Unknown target: $TARGET"
-        echo "Usage: $0 [all|hub|daemon|util|sntp|btstack|register_ehci|eth_fix|mknod|rf|remote|apk] (elite = remote)"
+        echo "Usage: $0 [all|hub|daemon|util|fetch|bearssl|sntp|btstack|register_ehci|eth_fix|mknod|rf|remote|apk] (elite = remote)"
         exit 1
         ;;
 esac
@@ -285,7 +358,7 @@ fi
 # an earlier build left in payload/bin is not copied, and its old copy in build/output goes,
 # so build/output and MANIFEST.txt describe one build
 BUILT=""
-for f in hub_util hub_btstack hub_daemon hub_sntp hub_rf hub_sync sync register_ehci eth_fix mknod hub_usbwifi dropbearmulti; do
+for f in hub_util hub_fetch hub_btstack hub_daemon hub_sntp hub_rf hub_sync sync register_ehci eth_fix mknod hub_usbwifi dropbearmulti; do
     if [ -e "$BIN/$f" ] && { [ "$f" = dropbearmulti ] || [ "$BIN/$f" -nt "$BUILD_STAMP" ] || \
             { [ -L "$BIN/$f" ] && [ "$BIN/$(readlink "$BIN/$f")" -nt "$BUILD_STAMP" ]; }; }; then
         cp -a "$BIN/$f" "$OUT/" 2>/dev/null || cp -f "$BIN/$f" "$OUT/"
