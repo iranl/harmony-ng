@@ -827,10 +827,11 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
         cJSON *j_cfg = cJSON_GetObjectItemCaseSensitive(target_dev, "config");
         ret = hw_plugin_command_send(plugin_id, actual_dev_id, dev_name, plug_cmd, action, value, j_cfg ? j_cfg : target_dev);
     } else if (net_kind) {
-        /* One request per press, and again for each repeat of a held key; queued for the
-         * net_action worker, so a slow device never holds this lock */
-        ret = action == HW_BTN_ACTION_RELEASE ? 0 :
-              net_action_send(target_dev, target_cmd, actual_dev_id, dev_name, command);
+        /* One request per press, like a BLE broadcast: the remote sends a hold every 300 ms, so
+         * a repeat would send a toggle (Power) twice. Queued for the net_action worker, so a slow
+         * device never holds this lock. */
+        ret = (action == HW_BTN_ACTION_RELEASE || action == HW_BTN_ACTION_REPEAT) ? 0 :
+              net_action_send(target_dev, target_cmd, actual_dev_id, dev_name, command, g_live_remote_key);
     } else if (is_ble_adv) {
         /* One broadcast per press: the receiver acts on the packet, not on how long it is held */
         if (action == HW_BTN_ACTION_RELEASE || action == HW_BTN_ACTION_REPEAT) {

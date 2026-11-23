@@ -163,10 +163,46 @@ static int device_net_fields_valid(const cJSON *p) {
     return 1;
 }
 
+/* A body field of the connection (netHost, netPort, netTls) differs from the stored one */
+/* The port used: 0 or none means the default of the scheme (443 with TLS, else 80) */
+static int net_effective_port(const cJSON *port, int tls) {
+    int v = cJSON_IsNumber(port) ? port->valueint : 0;
+    return v > 0 ? v : (tls ? 443 : 80);
+}
+
+static int net_address_changes(const cJSON *p, const cJSON *dev) {
+    const cJSON *nt = cJSON_GetObjectItemCaseSensitive(p, "netTls");
+    int old_tls = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dev, "netTls"));
+    int new_tls = nt ? cJSON_IsTrue(nt) : old_tls;
+    const cJSON *np = cJSON_GetObjectItemCaseSensitive(p, "netPort");
+    if (np && net_effective_port(np, new_tls) != net_effective_port(cJSON_GetObjectItemCaseSensitive(dev, "netPort"), old_tls))
+        return 1;
+    static const char *const keys[] = { "netHost", "netTls" };
+    for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
+        const cJSON *n = cJSON_GetObjectItemCaseSensitive(p, keys[i]);
+        const cJSON *o = cJSON_GetObjectItemCaseSensitive(dev, keys[i]);
+        if (!n) continue;
+        if (cJSON_IsString(n)) {
+            if (!cJSON_IsString(o) || strcasecmp(n->valuestring, o->valuestring) != 0) return 1;
+        } else if (cJSON_IsNumber(n)) {
+            if (!cJSON_IsNumber(o) || n->valuedouble != o->valuedouble) return 1;
+        } else if (cJSON_IsTrue(n) != cJSON_IsTrue(o)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* Copies the HTTP/TCP fields of the body onto the stored device. An empty or missing
- * httpPassword / httpToken keeps the stored one (GET never returns them); choosing another
- * auth type drops it (config_sanitize.c keeps only the credentials of the chosen type). */
+ * httpPassword / httpToken keeps the stored one (GET never returns them), but only for the same
+ * host, port and TLS setting: a secret GET hides must not follow the device to another address,
+ * so a change drops it and the UI asks again. Choosing another auth type drops it too
+ * (config_sanitize.c keeps only the credentials of the chosen type). */
 static void apply_net_fields(const cJSON *p, cJSON *dev) {
+    if (net_address_changes(p, dev)) {
+        cJSON_DeleteItemFromObjectCaseSensitive(dev, "httpPassword");
+        cJSON_DeleteItemFromObjectCaseSensitive(dev, "httpToken");
+    }
     static const char *const keys[] = { "netHost", "netPort", "netTls", "netTlsVerify", "netTimeoutMs",
                                          "httpHeaders", "httpAuthType", "httpUser" };
     for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {

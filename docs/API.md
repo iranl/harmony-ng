@@ -709,8 +709,13 @@ without one uses 80, or 443 with TLS), `netTls` (bool), `netTlsVerify` (`verify`
 `pin` or `insecure`), `netTimeoutMs` (500 to 15000, default 3000), and for HTTP `httpHeaders`
 (at most 8 `{"name", "value"}`; not `Host`, `Connection`, `Content-Length`,
 `Transfer-Encoding`), `httpAuthType` (`none`, `basic` or `bearer`), `httpUser`, `httpPassword`,
-`httpToken`. An empty or missing `httpPassword` / `httpToken` keeps the stored one; only the
-credentials of the chosen `httpAuthType` are kept. A host, port, timeout, verify mode, auth type
+`httpToken`. An empty or missing `httpPassword` / `httpToken` keeps the stored one, but only while
+`netHost`, `netPort` and `netTls` stay the same: a save that changes one of them drops the stored
+secret (send it again). Only the credentials of the chosen `httpAuthType` are kept. Header values
+and `httpPath` (with its query) are not secret: `GET` returns them as stored, so put a key in
+`httpToken` or `httpPassword`, not in a header or the path. `netHost` cannot be the Hub itself
+(`localhost`, `127.x`, `::1`) or start with `-`. With `netTlsVerify` `verify` the device must
+speak TLS 1.2; `pin` and `insecure` also accept TLS 1.0 and 1.1. A host, port, timeout, verify mode, auth type
 or header that cannot be used (a header name with a space, a value with CR or LF) is refused with
 `400`. The HTTP/TCP choice comes before the MQTT and Bluetooth guesses (only a plugin wins over
 it). The command fields are saved with `POST /api/command-save` (3.5) or a `commands` list.
@@ -914,7 +919,14 @@ Runs a command of an HTTP or TCP device now and waits for it (up to about 4 time
 - **Response `200 OK`**: `{"ok": true, "status": 200, "response": "{\"done\":true}", "tlsFingerprint": "9f86...", "pinned": true}`.
   `ok` is false with an `error` when the request failed or answered 400 or more. `response` is
   the start of the answer (512 bytes at most; for TCP the first data the device sent back).
-  `tlsFingerprint` is the SHA-256 of the server key; `pinned` is set when this run pinned it.
+  `tlsFingerprint` is the SHA-256 of the server's raw public key (the key bytes of the
+  certificate, not the SubjectPublicKeyInfo, so not what `openssl x509 -pubkey` hashes to);
+  `pinned` is set when this run pinned it. A command from a remote key is sent once per press (a
+  held key sends no repeats), and one still queued after 2 s, or for a device that timed out in
+  the last 10 s, is dropped (`dropped:` in the log). Only a live key from a remote is dropped:
+  activity steps, `ir-send`, MQTT and WebSocket sends wait in the queue and go out in order. A
+  send answers `ok` when it is queued, also one that is dropped later; a lone `hold` or `repeat`
+  answers `ok` and sends nothing. A host that resolves to the Hub itself (loopback) is refused.
 - **Response `400`**: not an HTTP or TCP device. **`404`**: no device with that id, or no
   command of that name.
 

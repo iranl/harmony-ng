@@ -45,10 +45,16 @@ static int net_text_ok(const char *s, size_t max, int multiline) {
     return 1;
 }
 
-/* Host name, IPv4 or IPv6 address: letters, digits, '.', '-', '_', ':' */
+/* Host name, IPv4 or IPv6 address: letters, digits, '.', '-', '_', ':'. Not the Hub itself
+ * (loopback: a device there would let a device test call the Hub's own API as admin), and not
+ * starting with '-' (hub_fetch would read it as an option). */
 int net_host_valid(const char *h) {
     size_t n = h ? strlen(h) : 0;
-    if (n == 0 || n > 253) return 0;
+    if (n == 0 || n > 253 || h[0] == '-') return 0;
+#ifndef TEST_HARNESS /* the host tests run their devices on 127.0.0.1 */
+    if (strcasecmp(h, "localhost") == 0 || strcasecmp(h, "localhost.") == 0 || strncmp(h, "127.", 4) == 0 ||
+            strcmp(h, "::1") == 0 || strcmp(h, "0.0.0.0") == 0 || strcmp(h, "::") == 0) return 0;
+#endif
     for (const char *p = h; *p; p++) {
         if (!isalnum((unsigned char)*p) && *p != '.' && *p != '-' && *p != '_' && *p != ':') return 0;
     }

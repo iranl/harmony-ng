@@ -20,10 +20,21 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <stdint.h>
 #include <time.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 #define NET_QUEUE_LEN 16
 #define NET_RESPONSE_HEAD 512
+/* A key press still queued after this is dropped: sent late, it acts long after the user
+ * pressed (and a toggle may then undo a later press) */
+#define NET_QUEUE_MAX_AGE_MS 2000
+/* After a device timed out, its queued presses are dropped for this long instead of each
+ * waiting out the timeout again in front of the other devices */
+#define NET_SLOW_HOLD_MS 10000
+#define NET_SLOW_SLOTS 4
 
 typedef struct {
     int kind;
@@ -44,6 +55,8 @@ typedef struct {
     int done;
     int abandoned;
     cJSON *result;
+    uint64_t queued_ms;                     /* monotonic, set by enqueue() */
+    int live_key;                           /* a remote key press: dropped when late */
 } net_job;
 
 /* No condition variables: the Hub's kernel has no futex, so pthread_cond_wait() returns at
@@ -57,6 +70,39 @@ static net_job *s_queue[NET_QUEUE_LEN];
 static int s_head, s_count;
 static int s_started;
 static int s_wake[2] = { -1, -1 };
+/* Devices that timed out recently (worker thread only) */
+static struct { char host[256]; int port; uint64_t until_ms; } s_slow[NET_SLOW_SLOTS];
+
+static uint64_t mono_ms(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000u + (uint64_t)ts.tv_nsec / 1000000u;
+}
+
+static int slow_slot(const net_job *j)
+{
+    for (int i = 0; i < NET_SLOW_SLOTS; i++)
+        if (s_slow[i].port == j->port && strcasecmp(s_slow[i].host, j->host) == 0) return i;
+    return -1;
+}
+
+static void slow_note(const net_job *j, int timed_out, uint64_t now)
+{
+    int i = slow_slot(j);
+    if (!timed_out) {
+        if (i >= 0) s_slow[i].until_ms = 0;
+        return;
+    }
+    if (i < 0) {
+        i = 0; /* the slot that expires first */
+        for (int k = 1; k < NET_SLOW_SLOTS; k++)
+            if (s_slow[k].until_ms < s_slow[i].until_ms) i = k;
+        snprintf(s_slow[i].host, sizeof s_slow[i].host, "%s", j->host);
+        s_slow[i].port = j->port;
+    }
+    s_slow[i].until_ms = now + NET_SLOW_HOLD_MS;
+}
 
 static void job_free(net_job *j)
 {
@@ -418,15 +464,19 @@ static int run_fetch(net_job *j, const char *pin_expect, int *status, char *err,
     snprintf(opath, sizeof opath, "%s/o", dir);
     snprintf(spath, sizeof spath, "%s/s", dir);
 
-    char hdrs[4096];
+    char hdrs[8192]; /* what hub_fetch --header-file reads at most */
     size_t hl = 0;
     hdrs[0] = '\0';
+    int rc = -1;
     for (int i = 0; j->headers[i]; i++) {
         int n = snprintf(hdrs + hl, sizeof hdrs - hl, "%s\n", j->headers[i]);
-        if (n < 0 || (size_t)n >= sizeof hdrs - hl) break;
+        if (n < 0 || (size_t)n >= sizeof hdrs - hl) {
+            /* Authorization comes last: never send the request without it */
+            snprintf(err, err_sz, "headers too long");
+            goto out;
+        }
         hl += (size_t)n;
     }
-    int rc = -1;
     if (write_text_file(hpath, hdrs, hl) != 0 ||
             write_text_file(dpath, j->payload ? j->payload : "", j->connect_only ? 0 : j->payload_len) != 0) {
         snprintf(err, err_sz, "no room in /tmp");
@@ -513,8 +563,44 @@ out:
     return rc;
 }
 
-static void job_run(net_job *j)
+/* The host resolves to the Hub itself (loopback or unspecified, also as 2130706433, 0x7f000001,
+ * ::ffff:127.0.0.1 or a DNS name that points there): a device there could call the Hub's own API */
+static int host_is_local(const char *host)
 {
+#ifdef TEST_HARNESS
+    (void)host;
+    return 0; /* the host tests run their devices on 127.0.0.1 */
+#else
+    struct addrinfo hints, *res = NULL, *ai;
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    if (getaddrinfo(host, NULL, &hints, &res) != 0 || !res) return 0; /* the connect reports it */
+    int local = 0;
+    for (ai = res; ai && !local; ai = ai->ai_next) {
+        if (ai->ai_family == AF_INET) {
+            uint32_t a = ntohl(((const struct sockaddr_in *)ai->ai_addr)->sin_addr.s_addr);
+            local = (a >> 24) == 127 || a == 0;
+        } else if (ai->ai_family == AF_INET6) {
+            const struct in6_addr *a6 = &((const struct sockaddr_in6 *)ai->ai_addr)->sin6_addr;
+            local = IN6_IS_ADDR_LOOPBACK(a6) || IN6_IS_ADDR_UNSPECIFIED(a6) ||
+                    (IN6_IS_ADDR_V4MAPPED(a6) && (a6->s6_addr[12] == 127 ||
+                     (a6->s6_addr[12] | a6->s6_addr[13] | a6->s6_addr[14] | a6->s6_addr[15]) == 0));
+        }
+    }
+    freeaddrinfo(res);
+    return local;
+#endif
+}
+
+/* Returns 1 when the device did not answer in time (connect, handshake or reply) */
+static int job_run(net_job *j)
+{
+    if (host_is_local(j->host)) {
+        printf("[!] %s refused: %s is the Hub itself\n", j->label, j->host);
+        result_set(j, 0, 0, "the host is the Hub itself (loopback): not a device", NULL, NULL, 0);
+        return 0;
+    }
     char pin_expect[NET_PIN_HEX_LEN + 1] = "";
     char key[300];
     pin_key(j->host, j->port, key, sizeof key);
@@ -609,6 +695,7 @@ static void job_run(net_job *j)
         pthread_mutex_unlock(&s_pins_lock);
     }
     result_set(j, ok, status, err, (j->sync && !j->connect_only) ? head : NULL, pin, pinned);
+    return !ok && strstr(err, "timed out") != NULL;
 }
 
 static void *worker(void *arg)
@@ -633,7 +720,20 @@ static void *worker(void *arg)
             continue;
         }
 
-        job_run(j);
+        uint64_t now = mono_ms();
+        if (!j->sync && j->live_key) {
+            /* a live key press: late or behind a device that just timed out, it is dropped */
+            int si = slow_slot(j);
+            const char *why = now - j->queued_ms > NET_QUEUE_MAX_AGE_MS ? "waited too long in the queue" :
+                              (si >= 0 && now < s_slow[si].until_ms) ? "the device timed out just before" : NULL;
+            if (why) {
+                printf("[!] %s dropped: %s\n", j->label, why);
+                fflush(stdout);
+                job_free(j);
+                continue;
+            }
+        }
+        slow_note(j, job_run(j), mono_ms());
         fflush(stdout);
 
         if (!j->sync) {
@@ -679,6 +779,7 @@ static int enqueue(net_job *j)
         pthread_mutex_unlock(&s_lock);
         return -3;
     }
+    j->queued_ms = mono_ms();
     s_queue[(s_head + s_count) % NET_QUEUE_LEN] = j;
     s_count++;
     pthread_mutex_unlock(&s_lock);
@@ -688,7 +789,7 @@ static int enqueue(net_job *j)
 }
 
 int net_action_send(const cJSON *dev, const cJSON *cmd, const char *dev_id, const char *dev_name,
-                    const char *command)
+                    const char *command, int live_key)
 {
     char err[160];
     net_job *j = job_build(dev, cmd, dev_id, dev_name, command, err, sizeof err);
@@ -710,6 +811,7 @@ int net_action_send(const cJSON *dev, const cJSON *cmd, const char *dev_id, cons
         job_free(j);
         return 0;
     }
+    j->live_key = live_key;
     int rc = enqueue(j);
     if (rc != 0) {
         printf("[!] %s: send queue full, command dropped\n", j->label);

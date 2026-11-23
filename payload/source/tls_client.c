@@ -343,7 +343,8 @@ static void set_tls_error(net_conn *c)
     case BR_ERR_X509_BAD_SERVER_NAME: m = "certificate does not match the host name"; break;
     case BR_ERR_X509_EXPIRED: m = "certificate expired or not yet valid"; break;
     case BR_ERR_X509_FORBIDDEN_KEY_USAGE: m = "certificate key usage forbids TLS"; break;
-    case BR_ERR_BAD_VERSION: m = "server needs an unsupported TLS version"; break;
+    case BR_ERR_BAD_VERSION:
+    case BR_ERR_UNSUPPORTED_VERSION: m = "server needs an unsupported TLS version (TLS 1.2 is needed to check its certificate)"; break;
     case BR_ERR_BAD_CIPHER_SUITE: m = "no common cipher suite"; break;
     case BR_ERR_IO: m = c->eof ? "connection closed by the server" : "network error"; break;
     default: break;
@@ -404,6 +405,7 @@ static int tcp_connect(const char *host, int port, int timeout_ms, char *err, si
     }
     freeaddrinfo(res);
     if (fd < 0) return -1;
+    err[0] = '\0'; /* a failed earlier address left its message: the connection is up */
     struct timeval tv;
     tv.tv_sec = timeout_ms / 1000;
     tv.tv_usec = (timeout_ms % 1000) * 1000;
@@ -474,7 +476,8 @@ static void engine_setup(br_ssl_client_context *sc)
         BR_TLS_RSA_WITH_AES_256_CBC_SHA
     };
     br_ssl_client_zero(sc);
-    /* TLS 1.0 and 1.1 only for old LAN devices: the handshake is authenticated either way */
+    /* TLS 1.0 and 1.1 only for old LAN devices (pin and insecure modes; verify mode raises the
+     * minimum to 1.2 in net_conn_open) */
     br_ssl_engine_set_versions(&sc->eng, BR_TLS10, BR_TLS12);
     br_ssl_engine_set_suites(&sc->eng, suites, sizeof suites / sizeof suites[0]);
     br_ssl_client_set_default_rsapub(sc);
@@ -572,6 +575,9 @@ net_conn *net_conn_open(const char *host, int port, const net_conn_opts *opts,
     c->xc.mode = mode;
     c->xc.expect = opts->pin;
     if (mode == NET_TLS_VERIFY) {
+        /* a checked certificate means a current server: no TLS 1.0 / 1.1 (pin and insecure
+         * modes are for old LAN devices) */
+        br_ssl_engine_set_versions(&c->sc.eng, BR_TLS12, BR_TLS12);
         br_x509_minimal_init_full(&c->xc.mini, g_tas, g_ta_count);
         set_validation_time(&c->xc.mini);
     }

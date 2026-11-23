@@ -59,6 +59,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Location", "http://localhost:%d/plain" % self.server.server_address[1])
             self.send_header("Content-Length", "0")
             self.end_headers()
+        elif p == "/redir-long":
+            self.send_response(302)
+            self.send_header("Location", "/plain?" + "a" * 5000)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
         elif p == "/redir-same":
             self.send_response(301)
             self.send_header("Location", "/plain")
@@ -181,6 +186,14 @@ class Fetch(unittest.TestCase):
         self.assertEqual(SEEN[0][2], "token s3cret")
         self.assertIsNone(SEEN[-1][2], "no credentials for another host")
         self.assertTrue(SEEN[-1][0].startswith("localhost"))
+        # a redirect target longer than the client takes is an error, never cut
+        rc, body, err = self.fetch("http://127.0.0.1:%d/redir-long" % p)
+        self.assertEqual((rc, body), (1, None))
+        self.assertIn("redirect too long", err)
+        # from https down to http: refused
+        rc, body, err = self.fetch("https://127.0.0.1:%d/redir-other" % self.good.server_address[1], "--insecure")
+        self.assertEqual((rc, body), (1, None))
+        self.assertIn("https to http", err)
 
     def test_bad_header(self):
         rc, _, err = self.fetch("http://127.0.0.1:%d/plain" % self.plain.server_address[1], "-H", "X-A: a\r\nB: c")
