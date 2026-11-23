@@ -2600,7 +2600,7 @@ paths:
         {"ok": true, "running": false, "state": "stopped", "connected": false,
         "pairing_active": false, "paired": false, "rf_address": "None", "hub_rf_address": "None",
         "slots": [{"slot": 1, "active": false, "address": "None", "rf_address": "None"},
-        {"slot": 2, ...}]}: check running before reading the reply of any /api/rf/* call.
+        ... slots 2 to 6]}: check running before reading the reply of any /api/rf/* call.
       responses:
         '200':
           description: RF status
@@ -2799,7 +2799,7 @@ paths:
             type: integer
             enum: [0, 1, 2, 3, 4, 5, 6]
             default: 0
-          description: Remote slot (0 for all active remotes, 1 for slot 1, 2 for slot 2)
+          description: Remote slot (0 for all active remotes, else 1 to 6)
       responses:
         '200':
           description: Sleep command dispatched

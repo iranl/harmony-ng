@@ -96,8 +96,7 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
     const slotActive = n => {
       const s = slotInfo(n);
       const addr = s?.address || s?.rf_address || '';
-      const active = n === 1 ? (s?.active || rfStatus?.paired) : s?.active;
-      return Boolean(active && addr && addr !== 'None' && addr !== '00000000');
+      return Boolean(s?.active && addr && addr !== 'None' && addr !== '00000000');
     };
     const activeSlots = (rfStatus?.slots || []).map(s => s.slot).filter(n => n >= 1 && slotActive(n)).sort((a, b) => a - b);
     this.rfActiveSlots = activeSlots;
@@ -113,16 +112,15 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
     const pick = this.selectedRemoteSlot;
     if (!Number.isInteger(pick) || pick < 1 || pick > RF_SLOT_COUNT) this.selectedRemoteSlot = activeSlots[0] || 1;
 
-    // A tab per slot: tabs 1 and 2 are in the page, the tabs of slots 3 and up are made here
+    // A tab per slot, made here the first time
     if (slotBar) {
       slotBar.style.display = 'flex';
-      slotBar.querySelectorAll('.rf-extra-slot-tab').forEach(el => el.remove());
       for (let n = 1; n <= RF_SLOT_COUNT; n++) {
         let tab = document.getElementById(`rfSlotSelect${n}Btn`);
         if (!tab) {
           tab = document.createElement('button');
           tab.type = 'button';
-          tab.className = 'segmented-btn rf-extra-slot-tab';
+          tab.className = 'segmented-btn';
           tab.id = `rfSlotSelect${n}Btn`;
           tab.dataset.slot = String(n);
           const lbl = document.createElement('span');
@@ -132,8 +130,7 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
           slotBar.appendChild(tab);
         }
         const lbl = document.getElementById(`rfSlotSelect${n}Label`);
-        const fallback = n === 1 ? t('slot_1_remote_1') : (n === 2 ? t('slot_2_remote_2') : tf('slot_n', { slot: n }));
-        const name = activeSlots.includes(n) ? (slotInfo(n)?.name || fallback) : tf('slot_n_empty', { slot: n });
+        const name = activeSlots.includes(n) ? (slotInfo(n)?.name || tf('slot_n', { slot: n })) : tf('slot_n_empty', { slot: n });
         if (lbl) lbl.textContent = name;
         tab.style.display = '';
       }
@@ -171,6 +168,18 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
     // Hide/show push to remote button (touchscreen remotes only)
     const pushBtn = document.getElementById('remotePushRemoteBtn');
     if (pushBtn) pushBtn.style.display = isScreenless ? 'none' : 'inline-block';
+
+    // A remote without a screen cannot pick a device: its keys use the activity maps only
+    const ctxSel = document.getElementById('remoteContextModeSelect');
+    if (ctxSel?.parentNode) ctxSel.parentNode.style.display = isScreenless ? 'none' : '';
+    if (isScreenless && this.remoteContextMode === 'device') {
+      this.remoteContextMode = 'activity';
+      if (ctxSel) ctxSel.value = 'activity';
+      const aW = document.getElementById('remoteActivitySelectWrap');
+      const dW = document.getElementById('remoteDeviceSelectWrap');
+      if (aW) aW.style.display = 'block';
+      if (dW) dW.style.display = 'none';
+    }
 
     // Copy mappings button when another paired remote is of the same type (the first such slot)
     const copyBtn = document.getElementById('rfCopySlotMappingBtn');
@@ -254,8 +263,8 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
     const curSlot = this.selectedRemoteSlot || 1;
     /* the slot the copy button names: the first other paired remote of the same type */
     const others = (this.rfActiveSlots || []).filter(n => n !== curSlot);
-    const otherSlot = others.includes(this.rfCopySourceSlot) ? this.rfCopySourceSlot
-      : (others.length ? others[0] : (curSlot === 1 ? 2 : 1));
+    if (!others.length) return;
+    const otherSlot = others.includes(this.rfCopySourceSlot) ? this.rfCopySourceSlot : others[0];
     const confirmed = await showConfirm(
       tf('copy_mappings_confirm', { other: otherSlot, cur: curSlot }),
       { title: t('copy_button_mappings'), okText: t('copy_mappings') }
@@ -590,8 +599,9 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
     if (!dev || !dev.commands) return alert(t('dev_has_no_cmds', 'Device has no commands.'));
 
     const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    // Each key takes the first alias the device has (in this order). PowerOffActivity is not
+    // here: hub_rf ends the activity on that key itself and never reads its mapping.
     const aliases = {
-      PowerOffActivity: ['poweroff', 'power off', 'standby', 'power'],
       DirectionUp: ['up', 'directionup'],
       DirectionDown: ['down', 'directiondown'],
       DirectionLeft: ['left', 'directionleft'],
@@ -607,7 +617,7 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
       Rewind: ['rewind', 'rev'],
       Play: ['play', 'playpause'],
       FastForward: ['fastforward', 'forward', 'ffwd'],
-      Pause: ['pause'],
+      Pause: ['pause', 'playpause'],
       Stop: ['stop'],
       Record: ['record', 'rec'],
       Menu: ['menu', 'topmenu', 'homemenu'],
@@ -615,24 +625,28 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
       Guide: ['guide', 'epg']
     };
 
-    if (!this.remoteMapData.activities) this.remoteMapData.activities = {};
-    if (!this.remoteMapData.activities[actId]) this.remoteMapData.activities[actId] = {};
+    // The map the editor shows: the device's own one in device scope, else the activity's
+    const scope = this.remoteContextMode === 'device' ? 'devices' : 'activities';
+    const key = scope === 'devices' ? String(this.remoteSelectedDeviceId || document.getElementById('remoteDeviceSelect')?.value || devId) : actId;
+    if (!this.remoteMapData[scope]) this.remoteMapData[scope] = {};
+    if (!this.remoteMapData[scope][key]) this.remoteMapData[scope][key] = {};
+    const target = this.remoteMapData[scope][key];
 
     let mapped = 0;
     Object.entries(aliases).forEach(([btn, list]) => {
-      const cmd = dev.commands.find(c => list.some(a => norm(c.name) === norm(a)));
-      if (cmd) {
-        this.remoteMapData.activities[actId][btn] = {
-          type: 'command',
-          deviceId: devId,
-          command: cmd.name
-        };
-        mapped++;
+      for (const a of list) {
+        const cmd = dev.commands.find(c => norm(c.name) === norm(a));
+        if (cmd) {
+          target[btn] = { type: 'command', action: 'device_cmd', deviceId: devId, command: cmd.name };
+          mapped++;
+          break;
+        }
       }
     });
 
     this.updateRemoteButtonStates();
-    alert(tf("auto_mapped_remote", { count: mapped }));
+    this.selectRemoteButton(this.remoteSelectedBtn || 'Select', false);
+    showToast(tf('auto_mapped_remote', { count: mapped }), mapped ? 'success' : 'warning');
   }
 
   renderRemoteScreenButtons() {

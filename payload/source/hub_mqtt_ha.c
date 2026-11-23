@@ -5,6 +5,7 @@
 #include "harmony_version.h"
 #include "hub_info.h"
 #include "cJSON.h"
+#include "remote_slots.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -487,8 +488,8 @@ void publish_ha_discovery(const char *cid, const char *name, const char *hub_id,
         }
     }
 
-    /* 9. button/<ident>_remote_1_sleep/config & button/<ident>_remote_2_sleep/config */
-    for (int s = 1; s <= 2; s++) {
+    /* 9. button/<ident>_remote_<slot>_sleep/config for every remote slot */
+    for (int s = 1; s <= REMOTE_SLOT_MAX; s++) {
         char sleep_top[160];
         snprintf(sleep_top, sizeof(sleep_top), "%s/remote/%d/sleep", base_topic, s);
         snprintf(top, sizeof(top), "%s/button/%s_remote_%d_sleep/config", discovery_prefix, ident, s);

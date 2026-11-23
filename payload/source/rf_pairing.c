@@ -207,7 +207,9 @@ void unpair_device(int slot) {
     for (int fs = 1; fs <= MAX_PAIRED_REMOTES; fs++)
         held[fs] = slot == fs || (slot == 0 && g_paired_remotes[fs - 1].active);
     for (int target = first_slot; target <= last_slot; target++) {
-        if (held[target]) {
+        /* the notice only for a touchscreen remote: a Companion or Smart Control does not
+         * handle it */
+        if (held[target] && !is_companion_slot((uint8_t)target)) {
             rf_frame_t unpair_msg;
             memset(&unpair_msg, 0, sizeof(unpair_msg));
             unpair_msg.report_id = 0x20;
@@ -231,6 +233,13 @@ void unpair_device(int slot) {
      * unpair the remote asked for) */
     for (int fs = 1; fs <= MAX_PAIRED_REMOTES; fs++) {
         if (held[fs]) rf_slot_forget((uint8_t)fs);
+    }
+    /* a push waiting for an unpaired remote has no remote left to go to; the status only hid it
+     * while the slot was still known as a Companion */
+    int pending = rf_sync_pending_slot(NULL, 0);
+    if (pending >= 1 && pending <= MAX_PAIRED_REMOTES && held[pending]) {
+        unlink("/data/harmony/rf_sync_pending.flag");
+        unlink("/data/harmony/rf_sync_pending_details.json");
     }
     if (!rf_any_slot_active()) {
         g_has_paired_device = false;

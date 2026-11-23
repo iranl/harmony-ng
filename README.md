@@ -133,11 +133,11 @@ HarmonyNG supports all major Logitech Harmony physical remotes:
 
 2. **Harmony Companion & Harmony Smart Control (Screenless Remotes)**:
    - **Native zero-rooting RF support**: Communicate directly with the Hub via CC2544 2.4 GHz eQuad protocol. No USB connection, rooting, or custom firmware installation required on the remote.
-   - Simply put the remote in pairing mode to register it to Hub Remote Slot 1 or Slot 2.
+   - Simply put the remote in pairing mode to register it to one of the Hub's 6 remote slots.
    - Real-time decoding of eQuad HID Keyboard (Sub-ID `0x01`) and Consumer Control (Sub-ID `0x03`) frames directly in `hub_rf`.
    - Dispatches mapped IR commands, Bluetooth HID keys, activity switches, and MQTT button events instantly with zero lag.
    - Full per-activity physical button mapping in the Web UI with custom visual skins (including home automation buttons for Companion).
-   - Independent per-slot configuration (`/data/harmony/remote_slot1_map.json` and `remote_slot2_map.json`), one-click mapping copy between slots, and slot-specific MQTT event topics.
+   - Independent per-slot configuration (`/data/harmony/remote_slot<N>_map.json`, N = 1 to 6), one-click mapping copy between slots, and slot-specific MQTT event topics.
 
 3. **Physical Bluetooth BLE Remotes (e.g. Homatics B25)**:
    - Fully supported via the Hub Bluetooth stack with per-activity button mapping in the Web UI.

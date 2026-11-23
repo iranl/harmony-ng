@@ -2778,84 +2778,43 @@
             settings changes are locked.</div>
         </div>
 
-        <!-- 2 Remote Slots Grid -->
-        <div class="rf-slots-grid">
-          <!-- Slot 1: touchscreen remote / Smart Control / Companion -->
+        <!-- Remote slot cards: one per slot, made from the template by syncRfSlotCards -->
+        <div id="rfSlotsGrid" class="rf-slots-grid"></div>
+        <template id="rfSlotCardTpl">
           <div
             style="background: var(--bg-dark); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; display: flex; flex-direction: column; justify-content: space-between;">
             <div>
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                <strong id="rfSlot1Title" style="font-size: 14px;" data-i18n="rf_slot1_title">Slot 1: Remote 1 (Elite /
-                  Ultimate / Companion)</strong>
-                <span id="rfSlot1Badge" class="badge"><span data-i18n="badge_empty">EMPTY</span></span>
+                <strong id="rfSlotNTitle" style="font-size: 14px;"></strong>
+                <span id="rfSlotNBadge" class="badge"><span data-i18n="badge_empty">EMPTY</span></span>
               </div>
-              <div id="rfSlot1FwRow" class="muted mini" style="margin-bottom: 4px;"><span data-i18n="firmware_lbl">Firmware:</span> <strong id="rfSlot1Ver"
-                  style="color:var(--text-bright);">--</strong> • <span data-i18n="config_version_lbl">Config:</span> <strong id="rfSlot1CfgVer"
+              <div id="rfSlotNFwRow" class="muted mini" style="margin-bottom: 4px;"><span data-i18n="firmware_lbl">Firmware:</span> <strong id="rfSlotNVer"
+                  style="color:var(--text-bright);">--</strong> • <span data-i18n="config_version_lbl">Config:</span> <strong id="rfSlotNCfgVer"
                   style="color:var(--text-bright);">--</strong></div>
-              <div class="muted mini" style="margin-bottom: 6px;"><span data-i18n="rf_address_lbl">RF Address:</span> <strong id="rfSlot1Addr"
+              <div class="muted mini" style="margin-bottom: 6px;"><span data-i18n="rf_address_lbl">RF Address:</span> <strong id="rfSlotNAddr"
                   style="color:var(--text-bright); font-family: monospace;" data-i18n="val_none">None</strong></div>
-              <div id="rfSlot1BattRow" class="muted mini" style="margin-bottom: 8px;"><span data-i18n="battery_lbl">Battery:</span> <strong
-                  id="rfSlot1Battery" style="color:var(--teal);">--</strong></div>
-              <div id="rfSlot1UpdateWrap" style="display: none; margin-bottom: 8px;">
-                <button id="rfSlot1UpdateBtn" type="button" class="btn btn-xs btn-warning"
+              <div id="rfSlotNBattRow" class="muted mini" style="margin-bottom: 8px;"><span data-i18n="battery_lbl">Battery:</span> <strong
+                  id="rfSlotNBattery" style="color:var(--teal);">--</strong></div>
+              <div id="rfSlotNUpdateWrap" style="display: none; margin-bottom: 8px;">
+                <button id="rfSlotNUpdateBtn" type="button" class="btn btn-xs btn-warning"
                   style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 4px;">
                   <span data-i18n="update_remote_rf_ota_btn">⚡ Update Remote (RF OTA)</span>
                 </button>
-                <div id="rfSlot1OtaStatus" class="mini subtle" style="margin-top: 4px; display: none;"></div>
+                <div id="rfSlotNOtaStatus" class="mini subtle" style="margin-top: 4px; display: none;"></div>
               </div>
             </div>
             <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px;">
-              <button id="rfPairSlot1Btn" type="button" class="btn btn-xs btn-primary" data-i18n="pair_slot1">Pair Slot
-                1</button>
-              <button id="rfUnpairSlot1Btn" type="button" class="btn btn-xs btn-danger" data-i18n="unpair_slot1">Unpair
-                Slot 1</button>
-              <button id="rfConfigSlot1Btn" type="button" class="btn btn-xs btn-secondary"
+              <button id="rfPairSlotNBtn" type="button" class="btn btn-xs btn-primary"></button>
+              <button id="rfUnpairSlotNBtn" type="button" class="btn btn-xs btn-danger"></button>
+              <button id="rfConfigSlotNBtn" type="button" class="btn btn-xs btn-secondary"
                 data-i18n="remote_settings">Remote Settings</button>
-              <button id="rfPullSlot1Btn" type="button" class="btn btn-xs btn-outline" data-i18n="pull_config">Pull
+              <button id="rfPullSlotNBtn" type="button" class="btn btn-xs btn-outline" data-i18n="pull_config">Pull
                 Config</button>
-              <button id="rfRefreshSlot1Btn" type="button" class="btn btn-xs btn-ghost"
+              <button id="rfRefreshSlotNBtn" type="button" class="btn btn-xs btn-ghost"
                 data-i18n="refresh">Refresh</button>
             </div>
           </div>
-
-          <!-- Slot 2 (also the template of the cards for slots 3 to 6, made when a remote is paired there) -->
-          <div id="rfSlotCard2"
-            style="background: var(--bg-dark); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; display: flex; flex-direction: column; justify-content: space-between;">
-            <div>
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                <strong id="rfSlot2Title" style="font-size: 14px;" data-i18n="rf_slot2_title">Slot 2: Remote 2 (Elite /
-                  Ultimate / Companion)</strong>
-                <span id="rfSlot2Badge" class="badge"><span data-i18n="badge_empty">EMPTY</span></span>
-              </div>
-              <div id="rfSlot2FwRow" class="muted mini" style="margin-bottom: 4px;"><span data-i18n="firmware_lbl">Firmware:</span> <strong id="rfSlot2Ver"
-                  style="color:var(--text-bright);">--</strong> • <span data-i18n="config_version_lbl">Config:</span> <strong id="rfSlot2CfgVer"
-                  style="color:var(--text-bright);">--</strong></div>
-              <div class="muted mini" style="margin-bottom: 6px;"><span data-i18n="rf_address_lbl">RF Address:</span> <strong id="rfSlot2Addr"
-                  style="color:var(--text-bright); font-family: monospace;" data-i18n="val_none">None</strong></div>
-              <div id="rfSlot2BattRow" class="muted mini" style="margin-bottom: 8px;"><span data-i18n="battery_lbl">Battery:</span> <strong
-                  id="rfSlot2Battery" style="color:var(--teal);">--</strong></div>
-              <div id="rfSlot2UpdateWrap" style="display: none; margin-bottom: 8px;">
-                <button id="rfSlot2UpdateBtn" type="button" class="btn btn-xs btn-warning"
-                  style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 4px;">
-                  <span data-i18n="update_remote_rf_ota_btn">⚡ Update Remote (RF OTA)</span>
-                </button>
-                <div id="rfSlot2OtaStatus" class="mini subtle" style="margin-top: 4px; display: none;"></div>
-              </div>
-            </div>
-            <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px;">
-              <button id="rfPairSlot2Btn" type="button" class="btn btn-xs btn-primary" data-i18n="pair_slot2">Pair Slot
-                2</button>
-              <button id="rfUnpairSlot2Btn" type="button" class="btn btn-xs btn-danger" data-i18n="unpair_slot2">Unpair
-                Slot 2</button>
-              <button id="rfConfigSlot2Btn" type="button" class="btn btn-xs btn-secondary"
-                data-i18n="remote_settings">Remote Settings</button>
-              <button id="rfPullSlot2Btn" type="button" class="btn btn-xs btn-outline" data-i18n="pull_config">Pull
-                Config</button>
-              <button id="rfRefreshSlot2Btn" type="button" class="btn btn-xs btn-ghost"
-                data-i18n="refresh">Refresh</button>
-            </div>
-          </div>
-        </div>
+        </template>
 
         <div style="margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
           <button id="rfStopPairBtn" type="button" class="btn btn-sm btn-danger" style="display: none;"
@@ -2877,7 +2836,7 @@
         <div class="modal-sheet-dialog">
           <div class="sheet-drag-handle"></div>
           <div class="modal-sheet-header">
-            <h3 id="rfConfigModalTitle" style="font-size: 16px; margin: 0;" data-i18n="remote_settings_slot1">Remote Settings (Slot 1)</h3>
+            <h3 id="rfConfigModalTitle" style="font-size: 16px; margin: 0;"></h3>
             <button type="button" id="rfConfigModalClose" class="btn btn-xs btn-ghost">✕</button>
           </div>
           <input type="hidden" id="rfConfigSlot">
@@ -3050,12 +3009,6 @@
 
       <!-- Paired Remote Slot Switcher -->
       <div id="rfRemoteSlotSelectorBar" class="segmented-nav" style="margin-bottom: 14px; display: none;">
-        <button type="button" class="segmented-btn active" id="rfSlotSelect1Btn" data-slot="1">
-          <span id="rfSlotSelect1Label" data-i18n="slot_1_remote_1">Slot 1: Remote 1</span>
-        </button>
-        <button type="button" class="segmented-btn" id="rfSlotSelect2Btn" data-slot="2">
-          <span id="rfSlotSelect2Label" data-i18n="slot_2_remote_2">Slot 2: Remote 2</span>
-        </button>
       </div>
 
       <!-- No Remotes Paired Banner -->

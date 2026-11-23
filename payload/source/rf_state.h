@@ -229,6 +229,9 @@ void rf_state_note_config_pushed(int slot, int config_ver);
 int http_request_local(int port, const char *method, const char *endpoint, const char *json_body,
                        char *resp, size_t resp_len, int timeout_ms);
 bool is_companion_slot(uint8_t slot);
+/* The slot named by rf_sync_pending_details.json (0: every remote, or no details); its "diff"
+ * text goes to diff when one is given */
+int rf_sync_pending_slot(char *diff, size_t diff_len);
 /* Family name for logs: "juniper", "companion", "smart_control", "unknown" */
 const char *get_remote_model_name(remote_model_t model);
 

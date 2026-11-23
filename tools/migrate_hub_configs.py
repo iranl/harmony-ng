@@ -11,8 +11,7 @@ Produces 100% canonical v2.0 schema files:
 - /data/harmony/config/activities.json
 - /data/harmony/config/settings.json
 - /data/harmony/mqtt.json
-- /data/harmony/remote_slot1_map.json
-- /data/harmony/remote_slot2_map.json
+- /data/harmony/remote_slot<N>_map.json (N = 1 to 6)
 - /data/harmony/bt_remote_map.json
 
 A legacy bt-devices.json (Bluetooth device -> host address) is folded into devices.json,
@@ -36,6 +35,10 @@ from typing import Any, Dict, List, Optional, Tuple
 # Logitech "Transport" is a bitmask: 1 = IR, 32 = Bluetooth (33 = both, e.g. a TV with a BT keyboard)
 TRANSPORT_IR = 1
 TRANSPORT_BT = 32
+
+# The Hub's RF remote slots (payload/source/remote_slots.h REMOTE_SLOT_MAX)
+REMOTE_SLOT_MAX = 6
+SLOT_MAP_FILES = tuple(f"remote_slot{n}_map.json" for n in range(1, REMOTE_SLOT_MAX + 1))
 
 # The RF protocol carries this many bytes of a device id: a longer id never matches on the
 # Hub's RF side, so the migration gives such devices short ids (shorten_long_device_ids())
@@ -841,7 +844,7 @@ def _read_config_maps(cfg_dir: Optional[str]) -> List[Any]:
     maps: List[Any] = []
     if not cfg_dir:
         return maps
-    for name in ("remote_slot1_map.json", "elite_remote_map.json", "remote_slot2_map.json", "bt_remote_map.json"):
+    for name in SLOT_MAP_FILES + ("elite_remote_map.json", "bt_remote_map.json"):
         path = os.path.join(cfg_dir, name)
         if os.path.isfile(path):
             try:
@@ -1217,55 +1220,34 @@ def migrate_directory(source_root: str, dest_harmony: str) -> Dict[str, Any]:
             json.dump(def_settings, f, indent=2)
     stats["settings"] = True
 
-    # 4. Remote maps (Slot 1 and Slot 2)
-    # Slot 1: elite_remote_map.json or remote_slot1_map.json
-    slot1_obj = None
-    if cfg_dir:
-        for cand1 in [
-            os.path.join(cfg_dir, "remote_slot1_map.json"),
-            os.path.join(cfg_dir, "elite_remote_map.json")
-        ]:
-            if os.path.isfile(cand1):
-                with open(cand1, "r", encoding="utf-8") as f:
-                    slot1_obj = json.load(f)
-                break
+    # 4. Remote maps, slots 1 to REMOTE_SLOT_MAX: the config folder's own map (slot 1 also as
+    # the old elite_remote_map.json), else the stock remote map of that slot. A fresh stock
+    # import also gets a default map for slots 1 and 2 (the stock remote and the Companion).
+    for slot in range(1, REMOTE_SLOT_MAX + 1):
+        slot_obj = None
+        if cfg_dir:
+            names = [f"remote_slot{slot}_map.json"] + (["elite_remote_map.json"] if slot == 1 else [])
+            for name in names:
+                cand = os.path.join(cfg_dir, name)
+                if os.path.isfile(cand):
+                    with open(cand, "r", encoding="utf-8") as f:
+                        slot_obj = json.load(f)
+                    break
 
-    if slot1_obj:
-        if id_map:
-            slot1_obj = remap_remote_map_activities(slot1_obj, id_map)
-        slot1_obj = remap_remote_map_devices(slot1_obj, cfg_dev_map)
-    elif stock_maps:
-        slot1_obj = _complete_remote_map(stock_maps[0], activities_obj, devices_obj, "Harmony Remote", roles)
-    elif activities_obj and devices_obj:
-        slot1_obj = generate_default_remote_map(activities_obj, devices_obj, "Harmony Remote", roles)
+        product = "Harmony Remote" if slot == 1 else "Harmony Companion"
+        if slot_obj:
+            if id_map:
+                slot_obj = remap_remote_map_activities(slot_obj, id_map)
+            slot_obj = remap_remote_map_devices(slot_obj, cfg_dev_map)
+        elif len(stock_maps) >= slot:
+            slot_obj = _complete_remote_map(stock_maps[slot - 1], activities_obj, devices_obj, product, roles)
+        elif activities_obj and devices_obj and (slot == 1 or (slot == 2 and res_dir)):
+            slot_obj = generate_default_remote_map(activities_obj, devices_obj, product, roles)
 
-    if slot1_obj:
-        with open(os.path.join(dest_harmony, "remote_slot1_map.json"), "w", encoding="utf-8") as f:
-            json.dump(slot1_obj, f, indent=2)
-        stats["slot1_map"] = True
-
-    # Slot 2 (RF Harmony Companion / 2nd RF Remote)
-    slot2_obj = None
-    if cfg_dir:
-        cand2 = os.path.join(cfg_dir, "remote_slot2_map.json")
-        if os.path.isfile(cand2):
-            with open(cand2, "r", encoding="utf-8") as f:
-                slot2_obj = json.load(f)
-
-    if slot2_obj:
-        if id_map:
-            slot2_obj = remap_remote_map_activities(slot2_obj, id_map)
-        slot2_obj = remap_remote_map_devices(slot2_obj, cfg_dev_map)
-    elif len(stock_maps) > 1:
-        slot2_obj = _complete_remote_map(stock_maps[1], activities_obj, devices_obj, "Harmony Companion", roles)
-    elif activities_obj and devices_obj and res_dir:
-        # Auto-generate RF companion map only on initial stock conversion
-        slot2_obj = generate_default_remote_map(activities_obj, devices_obj, "Harmony Companion", roles)
-
-    if slot2_obj:
-        with open(os.path.join(dest_harmony, "remote_slot2_map.json"), "w", encoding="utf-8") as f:
-            json.dump(slot2_obj, f, indent=2)
-        stats["slot2_map"] = True
+        if slot_obj:
+            with open(os.path.join(dest_harmony, f"remote_slot{slot}_map.json"), "w", encoding="utf-8") as f:
+                json.dump(slot_obj, f, indent=2)
+            stats[f"slot{slot}_map"] = True
 
     # 5. Bluetooth Remote Map (Physical Bluetooth HID remote, e.g. Homatics B25)
     if cfg_dir:
@@ -1326,8 +1308,8 @@ def migrate_bundle_file(bundle_path: str, dest_harmony: str) -> Dict[str, Any]:
 
     # A bundle from an older import can still hold stock device ids
     dev_map = shorten_long_device_ids(dev_obj, act_obj, warnings,
-                                      [bundle.get(k) for k in ("remote_slot1_map", "elite_remote_map",
-                                                               "remote_slot2_map", "bt_remote_map")])
+                                      [bundle.get(k) for k in [f"remote_slot{n}_map" for n in range(1, REMOTE_SLOT_MAX + 1)]
+                                       + ["elite_remote_map", "bt_remote_map"]])
 
     if dev_obj:
         with open(os.path.join(dest_harmony, "config", "devices.json"), "w", encoding="utf-8") as f:
@@ -1350,10 +1332,10 @@ def migrate_bundle_file(bundle_path: str, dest_harmony: str) -> Dict[str, Any]:
         _write_secret(os.path.join(dest_harmony, "mqtt.json"), json.dumps(mqtt_data, indent=2).encode("utf-8"))
         stats["mqtt"] = True
 
-    # Remote maps: slot 1, slot 2 (RF) and the Bluetooth remote
-    for key, alt, fname, stat in (("remote_slot1_map", "elite_remote_map", "remote_slot1_map.json", "slot1_map"),
-                                  ("remote_slot2_map", None, "remote_slot2_map.json", "slot2_map"),
-                                  ("bt_remote_map", None, "bt_remote_map.json", "bt_remote_map")):
+    # Remote maps: the RF slots (slot 1 also as the old elite_remote_map) and the Bluetooth remote
+    rf_maps = [(f"remote_slot{n}_map", "elite_remote_map" if n == 1 else None, f"remote_slot{n}_map.json", f"slot{n}_map")
+               for n in range(1, REMOTE_SLOT_MAX + 1)]
+    for key, alt, fname, stat in rf_maps + [("bt_remote_map", None, "bt_remote_map.json", "bt_remote_map")]:
         map_data = bundle.get(key) or (bundle.get(alt) if alt else None)
         if not map_data:
             continue
@@ -1459,8 +1441,8 @@ def main() -> None:
     print(f"    Devices: {stats.get('devices')}")
     print(f"    Activities: {stats.get('activities')}")
     print(f"    Settings: {stats.get('settings')}")
-    print(f"    Remote Slot 1: {stats.get('slot1_map')}")
-    print(f"    Remote Slot 2 (Companion): {stats.get('slot2_map')}")
+    for n in range(1, REMOTE_SLOT_MAX + 1):
+        print(f"    Remote Slot {n}: {stats.get(f'slot{n}_map', False)}")
     print(f"    Bluetooth Remote Map: {stats.get('bt_remote_map')}")
     print(f"    MQTT: {stats.get('mqtt')}")
     if "bt_keys" in stats:

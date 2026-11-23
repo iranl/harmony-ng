@@ -403,6 +403,25 @@ bool rf_any_slot_active(void) {
     return false;
 }
 
+int rf_sync_pending_slot(char *diff, size_t diff_len) {
+    int slot = 0;
+    FILE *pdf = fopen("/data/harmony/rf_sync_pending_details.json", "r");
+    if (!pdf) return 0;
+    char dline[512] = {0};
+    if (fread(dline, 1, sizeof(dline) - 1, pdf) > 0) {
+        cJSON *pj = cJSON_Parse(dline);
+        if (pj) {
+            cJSON *ps = cJSON_GetObjectItem(pj, "slot");
+            cJSON *pd = cJSON_GetObjectItem(pj, "diff");
+            if (cJSON_IsNumber(ps)) slot = ps->valueint;
+            if (diff && diff_len && cJSON_IsString(pd)) snprintf(diff, diff_len, "%s", pd->valuestring);
+            cJSON_Delete(pj);
+        }
+    }
+    fclose(pdf);
+    return slot;
+}
+
 bool is_companion_slot(uint8_t slot) {
     if (slot < 1 || slot > MAX_PAIRED_REMOTES) return false;
     int idx = slot - 1;

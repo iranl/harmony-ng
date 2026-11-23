@@ -138,23 +138,8 @@ int rf_build_status_json(char *body, size_t len, unsigned flags) {
     }
 
     bool sync_pending = (access("/data/harmony/rf_sync_pending.flag", F_OK) == 0);
-    int pending_slot = 0;
     char pending_diff[256] = "Hub configuration changed. Push settings to sync.";
-    FILE *pdf = fopen("/data/harmony/rf_sync_pending_details.json", "r");
-    if (pdf) {
-        char dline[512] = {0};
-        if (fread(dline, 1, sizeof(dline) - 1, pdf) > 0) {
-            cJSON *pj = cJSON_Parse(dline);
-            if (pj) {
-                cJSON *ps = cJSON_GetObjectItem(pj, "slot");
-                cJSON *pd = cJSON_GetObjectItem(pj, "diff");
-                if (ps) pending_slot = ps->valueint;
-                if (pd && pd->valuestring) snprintf(pending_diff, sizeof(pending_diff), "%s", pd->valuestring);
-                cJSON_Delete(pj);
-            }
-        }
-        fclose(pdf);
-    }
+    int pending_slot = rf_sync_pending_slot(pending_diff, sizeof(pending_diff));
 
     bool any_active = false, any_screen_active = false;
     for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {
@@ -199,10 +184,6 @@ int rf_build_status_json(char *body, size_t len, unsigned flags) {
         const paired_remote_t *r = &g_paired_remotes[i];
         int slot = i + 1;
         bool has_addr = r->rf_addr[0] || r->rf_addr[1] || r->rf_addr[2] || r->rf_addr[3];
-        /* Slots 1 and 2 are always listed (clients index them); a higher one once a remote is
-         * paired there */
-        if (i >= 2 && !r->active && !has_addr) continue;
-
         char addr_str[16] = "None";
         if (has_addr) {
             snprintf(addr_str, sizeof(addr_str), "%02X%02X%02X%02X",
@@ -544,14 +525,14 @@ void *api_server_worker(void *arg) {
                     rf_sync_cache_invalidate();
                     rf_keymap_invalidate_devices_cache();
                     rf_keymap_invalidate_activities_cache();
-                    rf_keymap_invalidate_map(1);
-                    rf_keymap_invalidate_map(2);
+                    for (uint8_t s = 1; s <= MAX_PAIRED_REMOTES; s++) rf_keymap_invalidate_map(s);
                     rf_config_version_bump();
                     pthread_t push_th;
                     int push_ok = (pthread_create(&push_th, NULL, config_push_worker, NULL) == 0);
                     if (push_ok) pthread_detach(push_th);
-                    rf_notify_update_available(1);
-                    rf_notify_update_available(2);
+                    for (uint8_t s = 1; s <= MAX_PAIRED_REMOTES; s++) {
+                        if (g_paired_remotes[s - 1].active && !is_companion_slot(s)) rf_notify_update_available(s);
+                    }
                     const char *res = push_ok
                         ? "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"push_started\"}"
                         : "HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"config push not started\",\"ok\":false}";
@@ -821,8 +802,7 @@ void *api_server_worker(void *arg) {
                     const char *res = "HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"RF OTA in progress\",\"ok\":false}";
                     write(cli, res, strlen(res));
                 } else {
-                    int slot = strstr(buf, "slot=2") ? 2 : 1;
-                    if (strstr(buf, "\"slot\":2") || strstr(buf, "\"slot\": 2")) slot = 2;
+                    int slot = qslot > 0 ? qslot : 1;
                     int saved = 1;
                     char *body_start = strstr(buf, "\r\n\r\n");
                     if (body_start) {
