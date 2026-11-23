@@ -3,6 +3,7 @@
 #include "rf_sync.h"
 #include "cJSON.h"
 #include "atomic_file.h"
+#include "icon_pack.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -117,17 +118,20 @@ uint16_t custom_icon_registry_get_id(const char *icon_name) {
 }
 
 
-/* Icons uploaded to the Hub come first, then the stock images extracted from the icon archive.
+/* Icons uploaded to the Hub come first, then the stock images: from the packed icon archive
+   (*in_pack set, out_path gets the name in it) or extracted from the icon archive into /tmp.
    uploaded_only skips the stock images. */
-static bool locate_custom_icon_file(const char *norm, char *out_path, size_t out_len, bool uploaded_only) {
+static bool locate_custom_icon_file(const char *norm, char *out_path, size_t out_len, bool uploaded_only,
+                                    bool *in_pack) {
+    if (in_pack) *in_pack = false;
     if (!norm || !norm[0]) return false;
     const char *paths[] = {
         "/data/harmony/custom_icons/%s.png",
         "/data/harmony/custom_icons/%s",
         "/data/harmony/custom_icons/custom_%s.png",
         "/data/harmony/custom_icons/custom_%s",
-        "/tmp/www/assets/icons/%s.png",
-        "/tmp/www/assets/icons/%s",
+        HARMONY_TMP_WWW "/assets/icons/%s.png",
+        HARMONY_TMP_WWW "/assets/icons/%s",
         "/cache/www/assets/icons/%s.png",
         "/cache/www/assets/icons/%s",
         NULL
@@ -135,6 +139,16 @@ static bool locate_custom_icon_file(const char *norm, char *out_path, size_t out
     const int uploaded_paths = 4;
     for (int i = 0; paths[i] && (!uploaded_only || i < uploaded_paths); i++) {
         char candidate[256];
+        if (i == uploaded_paths) {
+            for (int k = 0; k < 2; k++) {
+                snprintf(candidate, sizeof(candidate), k == 0 ? "%s.png" : "%s", norm);
+                if (icon_pack_has(candidate)) {
+                    if (out_path && out_len > 0) snprintf(out_path, out_len, "%s", candidate);
+                    if (in_pack) *in_pack = true;
+                    return true;
+                }
+            }
+        }
         snprintf(candidate, sizeof(candidate), paths[i], norm);
         if (access(candidate, R_OK) == 0) {
             if (out_path && out_len > 0) {
@@ -152,7 +166,7 @@ bool custom_icon_registry_has_file(const char *icon_name) {
     char norm[80] = {0};
     normalize_name(icon_name, norm, sizeof(norm));
     if (!norm[0]) return false;
-    return locate_custom_icon_file(norm, NULL, 0, false);
+    return locate_custom_icon_file(norm, NULL, 0, false, NULL);
 }
 
 bool custom_icon_registry_has_uploaded_file(const char *icon_name) {
@@ -160,12 +174,12 @@ bool custom_icon_registry_has_uploaded_file(const char *icon_name) {
     char norm[80] = {0};
     normalize_name(icon_name, norm, sizeof(norm));
     if (!norm[0]) return false;
-    return locate_custom_icon_file(norm, NULL, 0, true);
+    return locate_custom_icon_file(norm, NULL, 0, true, NULL);
 }
 
 int custom_icon_registry_sync_remote(uint8_t target_slot, uint16_t custom_id, const char *icon_name) {
     if (custom_id < CUSTOM_ICON_BASE_ID || !icon_name || !icon_name[0]) return -1;
-    if (target_slot < 1 || target_slot > 2) target_slot = 1;
+    if (target_slot < 1 || target_slot > MAX_PAIRED_REMOTES) target_slot = 1;
 
     char norm[80] = {0};
     normalize_name(icon_name, norm, sizeof(norm));
@@ -175,7 +189,23 @@ int custom_icon_registry_sync_remote(uint8_t target_slot, uint16_t custom_id, co
 
     /* Locate custom PNG on Hub */
     char candidate[256] = {0};
-    bool found = locate_custom_icon_file(norm, candidate, sizeof(candidate), false);
+    bool in_pack = false;
+    bool found = locate_custom_icon_file(norm, candidate, sizeof(candidate), false, &in_pack);
+
+    /* A stock icon of the packed archive goes to the RF sender as a file of its own in /tmp,
+     * removed after the transfer */
+    char pack_name[256] = {0};
+    if (found && in_pack) {
+        snprintf(pack_name, sizeof(pack_name), "%s", candidate);
+        size_t len = 0;
+        unsigned char *data = icon_pack_read(pack_name, &len);
+        snprintf(candidate, sizeof(candidate), "/tmp/icon_push.XXXXXX");
+        int fd = data ? mkstemp(candidate) : -1;
+        found = fd >= 0 && write(fd, data, len) == (ssize_t)len;
+        if (fd >= 0) close(fd);
+        if (fd >= 0 && !found) unlink(candidate);
+        free(data);
+    }
 
     if (!found) {
         pthread_mutex_unlock(&s_reg_lock);
@@ -187,8 +217,9 @@ int custom_icon_registry_sync_remote(uint8_t target_slot, uint16_t custom_id, co
     snprintf(id_str, sizeof(id_str), "%u", (unsigned int)custom_id);
 
     printf("[*] Syncing custom icon '%s' (%s) with remote slot %u as %s.png...\n",
-           norm, candidate, (unsigned int)target_slot, id_str);
+           norm, pack_name[0] ? pack_name : candidate, (unsigned int)target_slot, id_str);
     int res = rf_push_custom_icon_file((int)target_slot, candidate, id_str);
+    if (pack_name[0]) unlink(candidate);
     if (res == 0) {
         printf("[+] Custom icon %s.png in sync with slot %u\n", id_str, (unsigned int)target_slot);
     } else {

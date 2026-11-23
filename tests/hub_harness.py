@@ -31,6 +31,8 @@ MOCK_LIB = os.path.join(BUILD_DIR, "libmock_hardware.so")
 # plugin sockets and logs of the harness daemon: short (a socket path has 108 bytes, a long
 # checkout path did not fit) and one per checkout
 PLUGIN_RUN_DIR = "/tmp/hhp-%s" % hashlib.sha1(BUILD_DIR.encode()).hexdigest()[:8]
+# the folder an unpacked icon archive goes to (HARMONY_TMP_WWW): not the host's /tmp/www
+TMP_WWW = "/tmp/hhw-%s" % hashlib.sha1(BUILD_DIR.encode()).hexdigest()[:8]
 SAMPLE_CONFIG = os.path.join(TESTS_DIR, "fixtures", "ha", "sample_config")
 
 # Sources of the host build of hub_daemon (keep in sync with build/compile_all.sh;
@@ -38,7 +40,7 @@ SAMPLE_CONFIG = os.path.join(TESTS_DIR, "fixtures", "ha", "sample_config")
 HUB_DAEMON_SOURCES = [
     "hub_daemon.c", "http_server.c", "http_util.c", "http_auth.c", "http_api_auth.c",
     "http_api_activities.c", "http_api_devices.c", "http_api_commands.c",
-    "http_api_custom_icons.c", "http_api_network.c", "hub_network_util.c", "wifi_config.c",
+    "http_api_custom_icons.c", "icon_pack.c", "http_api_network.c", "hub_network_util.c", "wifi_config.c",
     "http_api_remotes.c", "http_api_ota.c", "http_api_backup.c", "http_api_system.c",
     "http_api_plugins.c", "plugin_mgr.c",
     "config_store.c", "bt_migrate.c", "config_sanitize.c", "orchestrator.c",
@@ -110,7 +112,8 @@ def build_hub_daemon_test(force=False, extra_cflags=None, out=HUB_BIN):
     cmd = ["gcc", "-Wall", "-O2", "-g", "-Werror=implicit-function-declaration", "-DTEST_HARNESS=1",
            "-I" + os.path.join(REPO_ROOT, "payload", "source"),
            # plugin sockets and logs not in the host's /tmp/plugins
-           '-DHARMONY_PLUGINS_RUN_DIR="%s"' % PLUGIN_RUN_DIR]
+           '-DHARMONY_PLUGINS_RUN_DIR="%s"' % PLUGIN_RUN_DIR,
+           '-DHARMONY_TMP_WWW="%s"' % TMP_WWW]
     # as on the Hub: no BearSSL in the daemon, TLS through hub_fetch (build_hub_fetch_test)
     cmd += ["-DNET_NO_TLS"]
     cmd += list(extra_cflags or [])

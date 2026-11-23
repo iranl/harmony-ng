@@ -4,6 +4,7 @@
 #include "http_util.h"
 #include "http_auth.h"
 #include "http_api_custom_icons.h"
+#include "icon_pack.h"
 #include "hub_network_util.h"
 #include "config_store.h"
 #include "orchestrator.h"
@@ -271,9 +272,9 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
         cJSON_AddItemToObject(st, "mqtt", mj);
 
         http_ensure_icons_extracted();
-        int icons_present = 0;
+        int icons_present = icon_pack_available();
         struct stat st_icon;
-        const char *icon_dir = "/tmp/www/assets/icons";
+        const char *icon_dir = HARMONY_TMP_WWW "/assets/icons";
         if (stat(icon_dir, &st_icon) != 0) {
             icon_dir = "/cache/www/assets/icons";
         }

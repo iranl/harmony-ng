@@ -168,9 +168,19 @@ Query command: `10 FF 83 B5 <pipe> 00 00`:
 
 ### 4.4 Pairing State Machine
 - **Open Pairing Lock (Hub)**: `10 FF 80 B2 01 00 <duration>` (e.g. `0x1E` = 30 seconds). Opens pairing window on Hub.
+  The command has no slot: the CC2544 picks the pipe of the new remote. For a pairing into a
+  chosen slot (`POST /api/rf/pair?slot=N`) `hub_rf` maps that pipe to the slot afterwards
+  (`rf_slot_map_claim_pipe()`, table in `/data/harmony/rf_slot_map.txt`): the pipe that holds an
+  EquadID in the pipe-table reply after the pairing and held none when the window opened. The
+  order of the radio events does not matter (a frame of the new remote can come before the
+  `4A`); a lock that closes without a pairing, a cancel or a timeout places nothing. Byte 1 of every frame,
+  link status, NAK and pipe-table reply names the pipe; `rf_spi.c` turns it into the slot and back.
 - **Request Pairing (Remote)**: `10 FF 80 B2 01 01 00`. Initiates bidirectional handshake from Remote.
 - **Close Pairing Lock (Hub)**: `10 FF 80 B2 02 00 00`. Closes pairing window.
-- **Unpair Slot**: `10 FF 80 B2 03 <slot> 00` (`0x01` = Slot 1, `0x02` = Slot 2, `0x00` = All).
+- **Unpair Slot**: `10 FF 80 B2 03 <pipe> 00` (`0x01` to `0x06`). The CC2544 has six pipes
+  (pipe table `0x20..0x25`). `hub_rf` sends the pipe of the slot, and for "every remote" one
+  command per pipe, as the stock `libhal_rf_command_unpair` does (it never sends index `0x00`
+  either). An `RF_MSG_UNPAIR_NOTIFY` goes first, only to slots that hold a remote.
 - **Clear Bonding (Remote)**: when it is unpaired, `remote_ui` writes `10 FF 80 D0 01 00 00`, then the 20-byte reports `11 FF 82 B5 20 00 ...` and `11 FF 82 B5 30 00 ...` (zeroed pipe entries), then `10 FF 80 D0 00 00 00`, 50 ms apart (`cc2544_clear_bonding()`).
 
 ### 4.5 Hardware Link Events & Notifications
@@ -183,7 +193,7 @@ Query command: `10 FF 83 B5 <pipe> 00 00`:
   - `status != 0x00`: TX failure / drop (`0x01` while the link is lost).
 - **Pairing Notification** (`10 <slot> 4A <code> <status> ...`):
   - Hub: `code == 0x00` and `status == 0x00` means a remote was paired (`hub_rf` then reads the pipe table and closes the pairing lock); `code >= 0x01` with `status == 0x00` means the pairing lock is open.
-  - Remote: `status` `0x00` or `0x01` means paired, on the slot in byte 1; the remote then asks for a full config. Any other status ends the pairing attempt as failed.
+  - Remote: `status == 0x00` completes pairing on the slot in byte 1; the remote then asks for a full config. `status == 0x01` means the attempt did not complete (the stock Hub `hal` logs a non-zero status as an error code); the remote does not stop there and asks again. Any other status ends the pairing attempt as failed.
 - **Error / NAK** (`10 <slot> 8F <sub-id of the refused send> .. <err> ..`, error code in byte 5): the CC2544 refused a write. `hub_rf` counts them per slot (`naks` in `slots[].link` of `GET /api/rf/status`).
 
 ### 4.6 Readable Registers (no RSSI)
@@ -267,6 +277,7 @@ The remote sets no ACK request flag on `RF_MSG_BATTERY_STATUS`, `RF_MSG_REMOTE_C
   - `0x10` `RF_CAP_SWITCH_START`: understands the switch start notice of `RF_MSG_ACTIVITY_SYNC`
     (`payload[24]` `0x02`)
   - `0x20` `RF_CAP_HELP_KEY`: understands Help keys in `RF_MSG_BUTTON_LIST_CHUNK` (`payload[24]` `0x04`)
+  - `0x40` `RF_CAP_STREAM_PUSH`: takes a streamed config push (see `RF_MSG_CONFIG_END`)
 
 The remote sends this report when its link first comes up, every 24 hours, and before each full config request, so a Hub that restarted learns the capabilities before it builds the push. The Hub keeps them in `/data/harmony/remote_slot<N>_version.json` (`caps`). A remote drops frame types it doesn't know without an ACK, so the Hub must not send newer frame types to a remote that doesn't report them. The config push depends on the capabilities (Warmup steps, Help keys): when a known remote reports other capabilities with the current config version (an update, or `init.sh` falling back to `remote_ui.bak`), the Hub raises its config version, so the remote asks for a new push.
 
@@ -441,6 +452,22 @@ while the link is up, also one applied from a settings push, and when the Hub as
 - `payload[1]`: Config version being pushed.
 - `payload[2..3]` (clear only): Number of chunk frames (`0x0B`, `0x0C`, `0x0D`, `0x11`, `0x12`) that follow, 16-bit little-endian. `0` from Hubs that do not send it; the remote then shows no progress total.
 - A push is: clear, the chunk frames and `RF_MSG_SETTINGS_PUSH`, then complete. Every frame requests an ACK and is sent at most 3 times, with 300 ms to wait for the ACK each time. The Hub stops pushing to a slot at the first frame that slot never ACKs, so a remote never receives complete for a partial config.
+- **Streamed push** (remotes that report `RF_CAP_STREAM_PUSH`): the clear carries `payload[4]` = `1`
+  and is ACKed as above. Then both radios switch to `RF_PM_TRANSFER` (the remote after it sent
+  the ACK), and the Hub sends the rest of the push, complete included, without waiting.
+  - Each frame carries `RF_FLAG_STREAM` (`flags` bit `0x04`). The low nibble of `hdr_flag` is the
+    frame's index in the push, mod 16.
+  - Every 4th frame, the last one, and the 15th in flight carry `RF_FLAG_ACK_REQ`. The remote
+    answers with an `RF_MSG_ACK` whose `payload[2..3]` is the count of frames it took in order and
+    `payload[4]` = `0xF2` (`RF_PUSH_STREAMED`). The frame handlers' own ACKs are not sent.
+  - The remote takes a frame only when it is the next in order. The Hub keeps at most 15 frames in
+    flight (the 4-bit index) and sends from the remote's count again when it has not grown for 100 ms
+    (go-back-N). It gives up after 10 s without progress.
+  - The Hub sends 2 ms apart, as for the windowed OTA. In `RF_PM_ACTIVE` the remote gets a Hub frame
+    only with the ACK of one it sends, which held the stop-and-wait push to about 7 frames a second.
+  - Both radios go back to `RF_PM_ACTIVE` at the end. The Hub does this when the remote has every
+    frame or the push fails; the remote does it 3 s after the last stream frame. Until then it still
+    answers a resend after its last ACK was lost.
 - Limits of a push: 16 activities, 16 devices, 16 devices per activity, 255 commands per device, 255 button entries (`RF_BUTTON_LIST_MAX`), 64 steps. A device ID longer than 4 characters is cut to 4 in the device list, so the remote's device pages cannot address that device.
 - A chunk frame that arrives without a clear opens a sync by itself (with no total, so the 30 s limit below applies) and is stored and ACKed like any other. A complete that arrives outside a sync is ACKed only when it carries the version the remote already holds (a resend after a lost ACK); with another version it is ignored and not ACKed. The remote applies the config and adopts the version on complete.
 - If no frame arrives for 15 s (30 s when the clear carried no total), the remote abandons the push and restores its last complete config. It then waits 10 s (3 s when it has no config yet) before requesting a full sync on its own again.

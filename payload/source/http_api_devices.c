@@ -17,6 +17,7 @@
 #include "cJSON.h"
 #include "bt_common.h"
 #include "state_watch.h"
+#include "remote_slots.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -351,9 +352,9 @@ static void id_text(const cJSON *j, char *out, size_t out_sz) {
 }
 
 /* Which touchscreen remote slots hub_rf reports active (GET /api/rf/status, "slots"[].active),
- * into paired[1..2]; stays 0 when hub_rf does not answer */
-static int rf_slots_active(int paired[3]) {
-    paired[1] = paired[2] = 0;
+ * into paired[1..REMOTE_SLOT_MAX]; stays 0 when hub_rf does not answer */
+static int rf_slots_active(int paired[REMOTE_SLOT_MAX + 1]) {
+    for (int k = 0; k <= REMOTE_SLOT_MAX; k++) paired[k] = 0;
     cJSON *st = state_watch_fetch_rf_status();
     const cJSON *slots = st ? cJSON_GetObjectItemCaseSensitive(st, "slots") : NULL;
     int answered = cJSON_IsArray(slots);
@@ -361,7 +362,7 @@ static int rf_slots_active(int paired[3]) {
     cJSON_ArrayForEach(sl, slots) {
         const cJSON *jn = cJSON_GetObjectItemCaseSensitive(sl, "slot");
         int k = cJSON_IsNumber(jn) ? jn->valueint : 0;
-        if (k >= 1 && k <= 2) paired[k] = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(sl, "active"));
+        if (k >= 1 && k <= REMOTE_SLOT_MAX) paired[k] = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(sl, "active"));
     }
     cJSON_Delete(st);
     return answered;
@@ -420,9 +421,9 @@ static cJSON *device_map_users(const char *dev_id) {
     }
     cJSON_Delete(acts_root);
 
-    int paired[3];
+    int paired[REMOTE_SLOT_MAX + 1];
     int answered = rf_slots_active(paired);
-    for (int slot = 1; slot <= 2; slot++) {
+    for (int slot = 1; slot <= REMOTE_SLOT_MAX; slot++) {
         char name[40];
         if (!paired[slot] && !slot_version_file_counts(slot, answered)) continue;
         snprintf(name, sizeof(name), "remote_slot%d_map.json", slot);
@@ -547,7 +548,9 @@ int remote_maps_drop_section(const char *section, const char *id) {
         usleep(2000);
         waited_ms += 2;
     }
-    static const char *const files[] = { "remote_slot1_map.json", "remote_slot2_map.json", "bt_remote_map.json" };
+    static const char *const files[] = { "remote_slot1_map.json", "remote_slot2_map.json", "remote_slot3_map.json",
+                                         "remote_slot4_map.json", "remote_slot5_map.json", "remote_slot6_map.json",
+                                         "bt_remote_map.json" };
     for (size_t i = 0; i < sizeof(files) / sizeof(files[0]); i++) {
         char path[256];
         snprintf(path, sizeof(path), "%s", config_store_path(files[i]));
@@ -1331,6 +1334,20 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                     int val = cJSON_IsTrue(j_pao) || (cJSON_IsNumber(j_pao) && j_pao->valuedouble > 0) || (cJSON_IsString(j_pao) && (strcmp(j_pao->valuestring, "1") == 0 || strcasecmp(j_pao->valuestring, "true") == 0));
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "isPowerAlwaysOn");
                     cJSON_AddBoolToObject(found_dev, "isPowerAlwaysOn", val);
+                }
+
+                cJSON *j_hide = cJSON_GetObjectItemCaseSensitive(p, "hideOnRemote");
+                if (j_hide) {
+                    int val = cJSON_IsTrue(j_hide) || (cJSON_IsNumber(j_hide) && j_hide->valuedouble > 0) || (cJSON_IsString(j_hide) && (strcmp(j_hide->valuestring, "1") == 0 || strcasecmp(j_hide->valuestring, "true") == 0));
+                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "hideOnRemote");
+                    if (val) cJSON_AddTrueToObject(found_dev, "hideOnRemote");
+                }
+
+                cJSON *j_htab = cJSON_GetObjectItemCaseSensitive(p, "hideInDevicesTab");
+                if (j_htab) {
+                    int val = cJSON_IsTrue(j_htab) || (cJSON_IsNumber(j_htab) && j_htab->valuedouble > 0) || (cJSON_IsString(j_htab) && (strcmp(j_htab->valuestring, "1") == 0 || strcasecmp(j_htab->valuestring, "true") == 0));
+                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "hideInDevicesTab");
+                    if (val) cJSON_AddTrueToObject(found_dev, "hideInDevicesTab");
                 }
 
                 cJSON *j_bthost = cJSON_GetObjectItemCaseSensitive(p, "bdaddr");

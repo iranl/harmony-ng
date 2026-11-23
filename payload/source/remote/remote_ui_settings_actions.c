@@ -19,6 +19,7 @@ static void set_touch_enabled(bool enable) {
 
 static void set_gyro_enabled(bool enable) {
     g_gyro_enabled = enable;
+    if (g_gyro_fd >= 0) init_gyro_interrupt();
 }
 
 static void cycle_touch_sensitivity(void) {
@@ -204,15 +205,7 @@ void execute_settings_action(int idx) {
                 set_gyro_enabled(!g_gyro_enabled);
                 save_settings_conf();
                 break;
-            case 1: {
-                g_gyro_rate_hz = (g_gyro_rate_hz == 10) ? 25 : ((g_gyro_rate_hz == 25) ? 50 : ((g_gyro_rate_hz == 50) ? 100 : 10));
-                if (g_gyro_fd >= 0 && g_gyro_enabled) {
-                    init_gyro_interrupt();
-                }
-                save_settings_conf();
-                break;
-            }
-            case 2:
+            case 1:
                 if (g_deep_standby_min < 0) g_deep_standby_min = 15;
                 else if (g_deep_standby_min == 15) g_deep_standby_min = 30;
                 else if (g_deep_standby_min == 30) g_deep_standby_min = 60;
@@ -222,7 +215,7 @@ void execute_settings_action(int idx) {
                 else g_deep_standby_min = -1;
                 save_settings_conf();
                 break;
-            case 3: {
+            case 2: {
                 read_remote_battery();
                 char bat_msg[64];
                 snprintf(bat_msg, sizeof(bat_msg), "Battery: %d%% (%dmV) %s",
@@ -231,7 +224,7 @@ void execute_settings_action(int idx) {
                 show_notice(bat_msg, 2000);
                 break;
             }
-            case 4:
+            case 3:
                 if (g_debug_logging) {
                     log_remote_debug("[*] Debug logging disabled from Settings\n");
                     g_debug_logging = false;

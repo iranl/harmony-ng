@@ -101,6 +101,29 @@ export function createView() {
       ]),
     ]);
 
+    // Where the device is listed: the remote's device pages (config push) and this UI's Devices tab
+    const visibilityToggle = (key, label) => h('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginTop: '6px' } }, [
+      h('input', {
+        type: 'checkbox',
+        checked: Boolean(dev[key]),
+        onchange: async (e) => {
+          try {
+            await api.saveDeviceDetails({ id: dev.id, [key]: e.target.checked });
+            await refreshInventory();
+          } catch (err) {
+            e.target.checked = !e.target.checked;
+            toast.error(err.message);
+          }
+        },
+      }),
+      h('span', { style: { fontSize: '13px' }, text: label }),
+    ]);
+    const visibilityCard = h('div', { className: 'card' }, [
+      h('label', { className: 'form-label', text: t('device_visibility', 'Visibility') }),
+      visibilityToggle('hideOnRemote', t('hide_on_remote', 'Hide on remote (device lists only; activity buttons and keys still work)')),
+      visibilityToggle('hideInDevicesTab', t('hide_in_devices_tab', 'Hide in Devices tab (web UI only; the remote is not changed)')),
+    ]);
+
     const isPlugin = Boolean(dev?.plugin || (dev?.type && (dev.type.startsWith('plugin:') || dev.type === 'plugin')));
     const pluginId = dev?.plugin || (dev?.type && dev.type.startsWith('plugin:') ? dev.type.substring(7) : '');
 
@@ -368,6 +391,7 @@ export function createView() {
 
     container.appendChild(header);
     container.appendChild(iconCard);
+    container.appendChild(visibilityCard);
     if (pluginCard) {
       container.appendChild(pluginCard);
     } else {

@@ -26,7 +26,7 @@ static help_job_t s_job;
 
 static uint8_t frame_slot(const rf_frame_t *f) {
     uint8_t slot = f->dev_slot & 0x0F;
-    return (slot < 1 || slot > 2) ? 1 : slot;
+    return (slot < 1 || slot > MAX_PAIRED_REMOTES) ? 1 : slot;
 }
 
 static void copy_id(char *out, size_t len, const uint8_t *src, size_t n) {

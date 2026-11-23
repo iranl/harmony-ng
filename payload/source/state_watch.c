@@ -92,7 +92,7 @@ cJSON *state_watch_fetch_rf_status(void) {
         close(s);
         return NULL;
     }
-    size_t cap = 8192, len = 0;
+    size_t cap = 16384, len = 0; /* the status of 6 slots */
     char *buf = (char *)malloc(cap + 1);
     if (!buf) {
         close(s);
@@ -176,6 +176,10 @@ static const watched_file_t k_watched_files[] = {
     { "settings", HARMONY_SETTINGS_FILE, 0, 0, 0 },
     { "remote_map", HARMONY_DIR "/remote_slot1_map.json", 0, 0, 0 },
     { "remote_map", HARMONY_DIR "/remote_slot2_map.json", 0, 0, 0 },
+    { "remote_map", HARMONY_DIR "/remote_slot3_map.json", 0, 0, 0 },
+    { "remote_map", HARMONY_DIR "/remote_slot4_map.json", 0, 0, 0 },
+    { "remote_map", HARMONY_DIR "/remote_slot5_map.json", 0, 0, 0 },
+    { "remote_map", HARMONY_DIR "/remote_slot6_map.json", 0, 0, 0 },
 };
 #define N_WATCHED_FILES (sizeof(k_watched_files) / sizeof(k_watched_files[0]))
 
@@ -300,7 +304,8 @@ static void *state_watch_thread(void *arg) {
                         if (strcmp(ev->name, "devices.json") == 0) name = "devices";
                         else if (strcmp(ev->name, "activities.json") == 0) name = "activities";
                         else if (strcmp(ev->name, "settings.json") == 0) name = "settings";
-                        else if (strcmp(ev->name, "remote_slot1_map.json") == 0 || strcmp(ev->name, "remote_slot2_map.json") == 0) name = "remote_map";
+                        else if (strncmp(ev->name, "remote_slot", 11) == 0 && ev->name[11] >= '1' &&
+                                 ev->name[11] <= '6' && strcmp(ev->name + 12, "_map.json") == 0) name = "remote_map";
                         if (name) {
                             if (!changed) changed = cJSON_CreateArray();
                             int dup = 0;

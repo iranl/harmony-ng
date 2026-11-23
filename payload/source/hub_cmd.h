@@ -33,6 +33,10 @@ cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin);
  * WebSocket client if it is still connected) */
 void hub_cmd_poll(void);
 
+/* Request to hub_rf's API on the loopback (POST /api/rf/...); returns the HTTP status or -1 when
+ * hub_rf is not running */
+int hub_rf_request(const char *method, const char *path, const char *body);
+
 /* POST /api/ir-raw body -> hw_ir_send_raw. Returns the HTTP code and the reply object in *reply. */
 int hub_cmd_ir_raw(const cJSON *req, cJSON **reply);
 

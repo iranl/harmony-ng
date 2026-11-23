@@ -311,7 +311,7 @@ jobs:
             fi
             cp -f build/deploy_hub.py staging_hub/
             printf '%s\n' "$VERSION" > staging_hub/VERSION
-            cp -f tools/root_hub_usb.py tools/harmony_hid.py tools/harmony_firmware.py tools/migrate_hub_configs.py tools/backup_hub.py tools/restore_stock.py tools/factory_reset.py tools/clean_stock_resources.py tools/ssh_hostkeys.py staging_hub/tools/
+            cp -f tools/root_hub_usb.py tools/harmony_hid.py tools/harmony_firmware.py tools/migrate_hub_configs.py tools/backup_hub.py tools/restore_stock.py tools/factory_reset.py tools/clean_stock_resources.py tools/ssh_hostkeys.py tools/icon_pack.py staging_hub/tools/
             if [ -d payload/config ]; then
               mkdir -p staging_hub/config
               cp -rf payload/config/* staging_hub/config/

@@ -103,7 +103,7 @@ The table below details every major functional component for both the **Harmony 
 | **GUI & Display Engine** | **Monolithic Lua GUI**: `luadraws` + `luaworks` taking 30+ seconds to boot, heavy memory footprint, closed stock assets. | **Native Framebuffer GUI**: `remote_ui.c` rendering directly to `/dev/fb0` (240x320 16-bit RGB565) in under 2 seconds. Anti-aliased bitmap fonts (built in, or per theme as `.faa` files converted from TTF on the build host) and selectable themes. |
 | **Touch & Physical Controls** | **Vendor Input Handlers**: Custom event pipes dependent on stock daemons. | **Direct Linux Input Multiplexing**: Linux `/dev/input/event0` (physical buttons), `/dev/input/event1` (motion sensor) and `/dev/input/event2` (touch digitizer), with hold events sent while a key stays down. |
 | **Hub Synchronization** | **Desktop USB Sync Required**: Updating button maps or activities required connecting the remote via USB to a PC running MyHarmony. | **Over-the-Air RF Sync**: Over-the-air synchronization over 2.4 GHz CC2544 RF using Report `0x20` protocol. Screen updates state immediately when an activity starts on WebUI or HA. |
-| **Battery Life & Power Management** | **High Drain**: Accelerometer polled continuously at 50 Hz, unconfigurable button backlight draining battery in ~24–48 hours. | **Multi-Tier Power Optimization**: Configurable LIS3DH accelerometer rate (10/25/50/100 Hz, saving up to 60% standby power), night-mode button backlight scheduler, and configurable screen timeouts. |
+| **Battery Life & Power Management** | **High Drain**: Accelerometer polled continuously at 50 Hz, unconfigurable button backlight draining battery in ~24–48 hours. | **Multi-Tier Power Optimization**: LIS3DH accelerometer on its stock motion interrupt (powered down when tilt wake is off), night-mode button backlight scheduler, and configurable screen timeouts. |
 | **Offline Autonomy** | **Hub-Dependent Lockout**: Shows a persistent spinning gear / connection error screen if Hub is out of range or offline. | **Autonomous Cached Operation**: Operates smoothly offline from cached device profiles and button maps, with on-screen diagnostic settings and pairing tools. |
 
 ---
@@ -320,7 +320,7 @@ Without `--firmware` the tool uses the newest remote `.hfw2` bundle in `firmware
 1. Downloads official Elite firmware bundle (`remote_111_4.15.330.hfw2`) from Logitech update servers (or uses cached copy).
 2. Unpacks the internal SquashFS root filesystem with 7-Zip.
 3. Indexes and extracts the PNG assets (about 1,350) across `footer`, `hopsactivity`, `juniperactivity`, `commands`, `devices`, and `settings`.
-4. Packages them into `build/icons.tar.gz`. On the Hub, the web daemon unpacks the icons into `/tmp/www/assets/icons` when it starts (and again on a request if they are missing).
+4. Packages them into `build/icons.tar.gz`. `deploy_hub.py` repacks this archive (`tools/icon_pack.py`) before it installs it as `/cache/icons.tar.gz`. The result is still a plain `tar.gz`, but the Hub can now read one icon at a time from flash instead of unpacking about 6 MB of icons into RAM (`/tmp`). An archive installed by an older deploy or by an OTA update has no pack index. The web daemon still unpacks such an archive into `/tmp/www/assets/icons` until the next `deploy_hub.py` run.
 
 ---
 

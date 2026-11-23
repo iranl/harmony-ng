@@ -105,8 +105,12 @@ static void *pairing_timeout_worker(void *arg) {
 }
 
 void start_pairing_mode(int slot) {
-    if (g_pairing_mode) return;
-    (void)slot;
+    if (g_pairing_mode) {
+        /* a second request while the window is open: its slot replaces the first one */
+        rf_slot_map_set_pair_target((uint8_t)(slot > 0 ? slot : 0), false);
+        return;
+    }
+    rf_slot_map_set_pair_target((uint8_t)(slot > 0 ? slot : 0), true);
     uint8_t duration_sec = 0x1E; /* 30 seconds lock duration (matches stock hal_hub libhal_rf_host_open_lock) */
     uint8_t open_lock[7] = {0x10, 0xFF, 0x80, 0xB2, 0x01, 0x00, duration_sec};
     printf("[*] Opening pairing lock (duration=%ds, 10 FF 80 B2 01 00 %02X)...\n", duration_sec, duration_sec);
@@ -127,8 +131,10 @@ void start_pairing_mode(int slot) {
     }
 }
 
-/* A timeout shows as a failure on the light; a pairing or a cancel does not */
+/* A timeout shows as a failure on the light; a pairing or a cancel does not. A timeout or a
+ * cancel drops the chosen slot: a lock that closes without a pairing must not place a remote. */
 static void stop_pairing(bool timed_out) {
+    if (timed_out) rf_slot_map_set_pair_target(0, false);
     if (g_pairing_mode) {
         g_pairing_mode = false;
         uint8_t close_lock[7] = {0x10, 0xFF, 0x80, 0xB2, 0x02, 0x00, 0x00};
@@ -140,6 +146,11 @@ static void stop_pairing(bool timed_out) {
 }
 
 void stop_pairing_mode(void) {
+    rf_slot_map_set_pair_target(0, false);
+    stop_pairing(false);
+}
+
+void stop_pairing_after_success(void) {
     stop_pairing(false);
 }
 
@@ -163,7 +174,10 @@ void *hub_button_worker(void *arg) {
                     stop_pairing_mode();
                 } else {
                     printf("[*] Starting pairing mode from Hub Pair Button\n");
-                    int target_slot = (g_paired_remotes[0].active && !g_paired_remotes[1].active) ? 2 : 0;
+                    /* the lowest slot without a remote */
+                    int target_slot = 0;
+                    for (int s = 1; s <= MAX_PAIRED_REMOTES && !target_slot; s++)
+                        if (!g_paired_remotes[s - 1].active) target_slot = s;
                     start_pairing_mode(target_slot);
                 }
             }
@@ -177,33 +191,48 @@ void *hub_button_worker(void *arg) {
 }
 
 void unpair_device(int slot) {
-    /* Send RF notification to remote before unpairing so remote clears bonding */
-    rf_frame_t unpair_msg;
-    memset(&unpair_msg, 0, sizeof(unpair_msg));
-    unpair_msg.report_id = 0x20;
-    unpair_msg.sub_id = 0x12;
-    unpair_msg.msg_type = RF_MSG_UNPAIR_NOTIFY;
-    unpair_msg.hdr_flag = 0x50 | (g_tx_seq & 0x0F);
-    unpair_msg.seq = g_tx_seq++;
-    if (slot == 1 || slot == 0) {
-        unpair_msg.dev_slot = 0x01;
-        rf_send_frame(&unpair_msg);
+    /* One slot at a time, also for "every remote": the CC2544's slot-0 "unpair all" request is
+       NAKed on some Hub firmware. Each remote is told first, so its own CC2544 clears the Hub
+       bond before the Hub drops the link. The command names the slot's CC2544 pipe. */
+    if (slot < 0 || slot > MAX_PAIRED_REMOTES) {
+        RF_LOG(LOG_LEVEL_WARN, "[-] Refusing invalid RF unpair slot %d\n", slot);
+        return;
     }
-    if (slot == 2 || slot == 0) {
-        unpair_msg.dev_slot = 0x02;
-        rf_send_frame(&unpair_msg);
-    }
-    usleep(30000); /* Allow RF frame transmission before hardware lock reset */
+    int first_slot = slot == 0 ? 1 : slot;
+    int last_slot = slot == 0 ? MAX_PAIRED_REMOTES : slot;
+    /* "every remote": the notice and the cleanup only for slots that hold one (an empty pipe may
+     * hold a keyboard or a Companion, and needs no version file); the radio command for all six,
+     * as a stale pairing is not always in the Hub's table */
+    bool held[MAX_PAIRED_REMOTES + 1] = { false };
+    for (int fs = 1; fs <= MAX_PAIRED_REMOTES; fs++)
+        held[fs] = slot == fs || (slot == 0 && g_paired_remotes[fs - 1].active);
+    for (int target = first_slot; target <= last_slot; target++) {
+        if (held[target]) {
+            rf_frame_t unpair_msg;
+            memset(&unpair_msg, 0, sizeof(unpair_msg));
+            unpair_msg.report_id = 0x20;
+            unpair_msg.sub_id = 0x12;
+            unpair_msg.dev_slot = (uint8_t)target;
+            unpair_msg.msg_type = RF_MSG_UNPAIR_NOTIFY;
+            unpair_msg.hdr_flag = 0x50 | (g_tx_seq & 0x0F);
+            unpair_msg.seq = g_tx_seq++;
+            rf_send_frame(&unpair_msg);
+            usleep(30000); /* the frame goes out before the slot is removed */
+        }
 
-    uint8_t s = (slot == 2) ? 0x02 : ((slot == 1) ? 0x01 : 0x00);
-    uint8_t unpair[] = { 0x10, 0xFF, 0x80, 0xB2, 0x03, s, 0x00 };
-    RF_LOG(LOG_LEVEL_INFO, "[*] Unpairing remote (slot=%d, 10 FF 80 B2 03 %02X 00)...\n", slot, s);
-    rf_write_cmd(unpair, sizeof(unpair));
+        uint8_t pipe = rf_slot_to_pipe((uint8_t)target);
+        rf_slot_map_note_table(pipe, false); /* a pairing on this pipe is then a new one */
+        uint8_t unpair[] = { 0x10, 0xFF, 0x80, 0xB2, 0x03, pipe, 0x00 };
+        RF_LOG(LOG_LEVEL_INFO, "[*] Unpairing remote (slot=%d, pipe 10 FF 80 B2 03 %02X 00)...\n", target, pipe);
+        rf_write_cmd(unpair, sizeof(unpair));
+        usleep(30000);
+    }
     /* everything known about the remote goes with the pairing (the same cleanup as for an
      * unpair the remote asked for) */
-    if (slot == 1 || slot == 0) rf_slot_forget(1);
-    if (slot == 2 || slot == 0) rf_slot_forget(2);
-    if (!g_paired_remotes[0].active && !g_paired_remotes[1].active) {
+    for (int fs = 1; fs <= MAX_PAIRED_REMOTES; fs++) {
+        if (held[fs]) rf_slot_forget((uint8_t)fs);
+    }
+    if (!rf_any_slot_active()) {
         g_has_paired_device = false;
         memset(g_paired_addr, 0, sizeof(g_paired_addr));
     }

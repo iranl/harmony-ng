@@ -9,7 +9,11 @@ RF50_MOCK=$(mktemp -d /tmp/hng_rf50.XXXXXX)
 build_test -Wall -O2 -include sys/stat.h -include time.h -Dmain=hub_rf_main -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_ack_match" "$SCRIPT_DIR/test_rf_ack_match.c" \
     $RF50_SRCS "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm && "$BUILD_DIR/test_rf_ack_match"
 
-# Frame fields: DEVICE_CMD_REQUEST layouts, escaped request bodies, slots above 2, slot name, update source
+# Streamed config push: a remote that loses frames and ACKs still gets every frame once, in order
+build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_push_stream" "$SCRIPT_DIR/test_rf_push_stream.c" \
+    "$REPO_ROOT/payload/source/rf_push_queue.c" -lpthread && "$BUILD_DIR/test_rf_push_stream"
+
+# Frame fields: DEVICE_CMD_REQUEST layouts, escaped request bodies, slots above 6, slot name, update source
 build_test -Wall -O2 -include sys/stat.h -include time.h -Dmain=hub_rf_main -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_frame_fields" "$SCRIPT_DIR/test_rf_frame_fields.c" \
     -Wl,--wrap=enqueue_remote_device_cmd -Wl,--wrap=handle_companion_packet -Wl,--wrap=http_post_local \
     $RF50_SRCS "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm && \
@@ -29,6 +33,10 @@ build_test -Wall -O2 -include sys/stat.h -include time.h -Dmain=hub_rf_main -DRF
 build_test -Wall -O2 -include sys/stat.h -include time.h -Dmain=hub_rf_main -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_unpair_backup" "$SCRIPT_DIR/test_rf_unpair_backup.c" \
     $RF50_SRCS "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm && \
     HARMONY_MOCK_DIR="$RF50_MOCK/unpair_backup" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_rf_unpair_backup"
+
+# Pairing into a chosen slot: the CC2544 pipe and the slot are translated both ways and kept
+build_test -Wall -O2 -include sys/stat.h -include time.h -Dmain=hub_rf_main -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_slot_map" "$SCRIPT_DIR/test_rf_slot_map.c" \
+    $RF50_SRCS "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm && "$BUILD_DIR/test_rf_slot_map"
 
 # Sender retries: OTA_END sent again, a complete checkpoint gets only OTA_END, RF_CAP_DEVICE_CMDS
 mkdir -p "$RF50_MOCK/sender_tmp"

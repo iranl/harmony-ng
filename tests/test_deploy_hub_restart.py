@@ -45,6 +45,12 @@ class DeployHubRestart(unittest.TestCase):
         d.deploy_file_if_changed = lambda *a, **k: True
         # Repository layout with the web UI built from frontend/
         d.www_dir = d.repo_root / "payload" / "www"
+        # The core binaries a deploy needs (payload/bin is empty in a clean checkout)
+        bins = tempfile.TemporaryDirectory()
+        self.addCleanup(bins.cleanup)
+        d.bin_dir = pathlib.Path(bins.name)
+        for b in deploy_hub.REQUIRED_HUB_BINARIES:
+            (d.bin_dir / b).write_bytes(b"")
         return d
 
     def stopped_then_started(self) -> tuple[bool, bool]:
@@ -102,13 +108,27 @@ class DeployHubRestart(unittest.TestCase):
         self.assertNotIn("Services started", out)
 
 
+    def test_missing_core_binary_refused(self):
+        """A deploy without hub_rf (or another core binary) changes nothing; --webui-only needs none"""
+        for dry in (False, True):
+            d = self.make()
+            d.dry_run = dry
+            (d.bin_dir / "hub_rf").unlink()
+            result, out = self.run_deploy(d, lambda cmd: subprocess.CompletedProcess(cmd, 0, "", ""))
+            self.assertIs(result, False, out)
+            self.assertIn("hub_rf", out)
+            self.assertFalse(self.stopped_then_started()[0], "nothing may be stopped")
+        d = self.make()
+        d.webui_only = True
+        for b in deploy_hub.REQUIRED_HUB_BINARIES:
+            (d.bin_dir / b).unlink()
+        _, out = self.run_deploy(d, lambda cmd: subprocess.CompletedProcess(cmd, 0, "", ""))
+        self.assertNotIn("Hub binaries missing", out)
+
     def test_recovery_ap_leftovers_removed_after_the_stop(self):
         d = self.make(ui="legacy")
         d.www_dir = REPO_DIR / "nonexistent_www"
-        with tempfile.TemporaryDirectory() as tmp:
-            d.bin_dir = pathlib.Path(tmp)
-            (d.bin_dir / "hub_util").write_bytes(b"")
-            self.run_deploy(d, lambda cmd: subprocess.CompletedProcess(cmd, 0, "", ""))
+        self.run_deploy(d, lambda cmd: subprocess.CompletedProcess(cmd, 0, "", ""))
         stop = next((i for i, c in enumerate(self.ssh) if "init.sh stop" in c and "touch /tmp/harmony_stop" in c), None)
         clean = next((i for i, c in enumerate(self.ssh) if c == deploy_hub.RECOVERY_AP_CLEANUP), None)
         self.assertIsNotNone(stop, "precondition: the services were stopped")

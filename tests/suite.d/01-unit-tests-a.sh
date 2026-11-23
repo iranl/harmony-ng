@@ -169,7 +169,13 @@ build_test -Wall -O2 -fsanitize=address -I"$REPO_ROOT/payload/source" -I"$REPO_R
 ASAN_PRELOAD=$(ldd "$BUILD_DIR/test_remote_activity_sync" 2>/dev/null | grep libasan | awk '{print $3}' || true)
 HARMONY_MOCK_DIR="/tmp/harmony_mock" LD_PRELOAD="${ASAN_PRELOAD:+$ASAN_PRELOAD:}$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_remote_activity_sync"
 build_test -Wall -O2 -pthread -I"$REPO_ROOT/payload/source/remote" -o "$BUILD_DIR/test_remote_flightlog" "$SCRIPT_DIR/test_remote_flightlog.c" "$REPO_ROOT/payload/source/remote/remote_flightlog.c" && "$BUILD_DIR/test_remote_flightlog"
-build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_custom_icon_registry" "$SCRIPT_DIR/test_custom_icon_registry.c" "$REPO_ROOT/payload/source/custom_icon_registry.c" "$REPO_ROOT/payload/source/cJSON.c" "$REPO_ROOT/payload/source/sha256.c" -lm && LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_custom_icon_registry"
+build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_custom_icon_registry" "$SCRIPT_DIR/test_custom_icon_registry.c" "$REPO_ROOT/payload/source/custom_icon_registry.c" "$REPO_ROOT/payload/source/icon_pack.c" "$REPO_ROOT/payload/source/cJSON.c" "$REPO_ROOT/payload/source/sha256.c" -lpthread -lm && LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_custom_icon_registry"
+# Stock icons read one at a time from the packed icon archive (tools/icon_pack.py), byte for byte
+python3 "$SCRIPT_DIR/test_icon_pack.py"
+python3 "$SCRIPT_DIR/test_icon_pack.py" --fixture "$BUILD_DIR/icon_pack" && \
+build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source" -DICON_PACK_ARCHIVES="{\"$BUILD_DIR/icon_pack/icons.tar.gz\"}" -o "$BUILD_DIR/test_icon_pack" "$SCRIPT_DIR/test_icon_pack.c" "$REPO_ROOT/payload/source/icon_pack.c" -lpthread && "$BUILD_DIR/test_icon_pack" "$BUILD_DIR/icon_pack"
+# hub_rf: a stock icon only in the pack reaches the RF sender through a /tmp file, removed after
+build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -DICON_PACK_ARCHIVES="{\"$BUILD_DIR/icon_pack/icons.tar.gz\"}" -o "$BUILD_DIR/test_custom_icon_registry_pack" "$SCRIPT_DIR/test_custom_icon_registry.c" "$REPO_ROOT/payload/source/custom_icon_registry.c" "$REPO_ROOT/payload/source/icon_pack.c" "$REPO_ROOT/payload/source/cJSON.c" "$REPO_ROOT/payload/source/sha256.c" -lpthread -lm && LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_custom_icon_registry_pack" "$BUILD_DIR/icon_pack"
 # Config files replaced through a synced temporary file; a full flash keeps the old file
 build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_atomic_file" "$SCRIPT_DIR/test_atomic_file.c" && "$BUILD_DIR/test_atomic_file"
 # Remote: custom icon updates free and reuse their PNG cache slots

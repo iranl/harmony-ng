@@ -86,7 +86,7 @@ int rf_send_frame(rf_frame_t *frame) {
     memset(out, 0, sizeof(out));
     out[0] = 0x12; /* Hub Report 0x12 (Host/Dongle mode) */
     uint8_t slot = frame->dev_slot ? (frame->dev_slot & 0x0F) : (g_remote_slot ? (g_remote_slot & 0x0F) : 0x01);
-    out[1] = slot; /* Slot 0x01 or 0x02 */
+    out[1] = rf_slot_to_pipe(slot); /* the CC2544 pipe of the slot */
     out[2] = frame->hdr_flag ? frame->hdr_flag : (0x50 | (frame->seq & 0x0F));
     out[3] = frame->msg_type;
     out[4] = frame->flags;
@@ -98,7 +98,7 @@ int rf_send_ota_data(uint8_t slot, uint32_t idx, bool ack_req, const uint8_t *da
     uint8_t out[30];
     memset(out, 0, sizeof(out));
     out[0] = 0x12;
-    out[1] = slot ? (slot & 0x0F) : (g_remote_slot ? (g_remote_slot & 0x0F) : 0x01);
+    out[1] = rf_slot_to_pipe(slot ? (slot & 0x0F) : (g_remote_slot ? (g_remote_slot & 0x0F) : 0x01));
     out[2] = (uint8_t)(RF_OTA_HDR_DATA | (idx & 0x0F) | (ack_req ? RF_OTA_HDR_ACK : 0));
     out[3] = (uint8_t)((idx >> 4) & 0xFF);
     if (len > RF_OTA_DATA_BYTES) len = RF_OTA_DATA_BYTES;
@@ -255,20 +255,40 @@ void rf_signal_ack(uint8_t seq, uint8_t status, const uint8_t *payload) {
 }
 
 void query_paired_devices(void) {
-    uint8_t q_pipes[] = { 0x20, 0x30, 0x40, 0x21, 0x31, 0x41, 0x03 };
-    for (size_t i = 0; i < sizeof(q_pipes); i++) {
-        uint8_t q[7] = {0x10, 0xFF, 0x83, 0xB5, q_pipes[i], 0x00, 0x00};
-        rf_write_cmd(q, sizeof(q));
-        usleep(30000);
+    /* per slot: EquadID (0x20 + n), address (0x30 + n), name (0x40 + n); then the Hub's own address */
+    for (int n = 0; n <= MAX_PAIRED_REMOTES; n++) {
+        for (int k = 0; k < 3; k++) {
+            uint8_t pipe = (n < MAX_PAIRED_REMOTES) ? (uint8_t)(0x20 + 0x10 * k + n) : 0x03;
+            uint8_t q[7] = {0x10, 0xFF, 0x83, 0xB5, pipe, 0x00, 0x00};
+            rf_write_cmd(q, sizeof(q));
+            usleep(30000);
+            if (n == MAX_PAIRED_REMOTES) break;
+        }
     }
 }
 
-static void handle_rf_packet(const uint8_t *pkt, size_t len) {
+static void handle_rf_packet(const uint8_t *raw, size_t len) {
     if (len < 7) return;
+    /* Byte 1 names the CC2544 pipe; everything after this sees the slot instead (rf_state.h) */
+    uint8_t pkt[64];
+    if (len > sizeof(pkt)) len = sizeof(pkt);
+    memcpy(pkt, raw, len);
+    if (pkt[0] == 0x20) {
+        /* a TX completion report (42) answers the Hub's own send: it does not show a remote */
+        uint8_t pipe = pkt[1] & 0x0F;
+        uint8_t slot = pkt[2] == 0x42 ? rf_pipe_to_slot(pipe) : rf_slot_map_claim_pipe(pipe, false);
+        pkt[1] = (uint8_t)((pkt[1] & 0xF0) | slot);
+    } else if (pkt[0] == 0x12) {
+        pkt[1] = rf_slot_map_claim_pipe(pkt[1], false);
+    } else if (pkt[0] == 0x10 && pkt[2] == 0x41) {
+        pkt[1] = rf_slot_map_claim_pipe(pkt[1], false);
+    } else if (pkt[0] == 0x10 && pkt[2] != 0x4A) {
+        pkt[1] = rf_pipe_to_slot(pkt[1]);
+    }
 
-    if (pkt[0] == 0x20 && (pkt[1] & 0x0F) > 0 && (pkt[1] & 0x0F) <= 2) {
+    if (pkt[0] == 0x20 && (pkt[1] & 0x0F) > 0 && (pkt[1] & 0x0F) <= MAX_PAIRED_REMOTES) {
         mark_remote_slot_active(pkt[1] & 0x0F);
-    } else if (pkt[0] == 0x12 && pkt[1] >= 1 && pkt[1] <= 2) {
+    } else if (pkt[0] == 0x12 && pkt[1] >= 1 && pkt[1] <= MAX_PAIRED_REMOTES) {
         mark_remote_slot_active(pkt[1]);
     }
 
@@ -280,14 +300,14 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
 
     /* Route Companion / eQuad HID keyboard & consumer reports (Report 0x20, Sub-ID 0x01 or 0x03) */
     if (len >= 5 && pkt[0] == 0x20 && (pkt[2] == 0x01 || pkt[2] == 0x03)) {
-        /* hub_rf keeps two remote slots; a key report from another CC2544 slot (a third paired
-           device) would be handled as a key of the remote in slot 1 */
+        /* a key report from a CC2544 slot above MAX_PAIRED_REMOTES would be handled as a key of
+           the remote in slot 1 */
         uint8_t kslot = pkt[1] & 0x0F;
         if (kslot < 1 || kslot > MAX_PAIRED_REMOTES) {
             static uint16_t s_logged; /* one line per slot */
             if (!(s_logged & (1u << kslot))) {
                 s_logged |= (uint16_t)(1u << kslot);
-                printf("[-] RF key report from slot %u ignored: only slots 1 and 2 hold a remote\n", kslot);
+                printf("[-] RF key report from slot %u ignored: only slots 1 to %d hold a remote\n", kslot, MAX_PAIRED_REMOTES);
             }
             return;
         }
@@ -364,7 +384,7 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
             g_remote_slot = pkt[1];
         }
         bool link_lost = (pkt[4] & 0x40) != 0;
-        if (pkt[1] == 1 || pkt[1] == 2) {
+        if (pkt[1] >= 1 && pkt[1] <= MAX_PAIRED_REMOTES) {
             g_paired_remotes[pkt[1] - 1].link_lost = link_lost;
             if (!link_lost) rf_key_note_restart_hint(pkt[1]); /* a remote that started links again */
         }
@@ -402,8 +422,10 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
                    pair_code, pair_status, pkt[0], pkt[1], pkt[2], pkt[3], pkt[4], pkt[5], pkt[6]);
             if (pair_code == 0x00 && pair_status == 0x00) {
                 printf("[+] CC2544 Pairing SUCCESS! Remote paired to Hub!\n");
+                rf_slot_map_note_pair_success();
                 query_paired_devices();
-                stop_pairing_mode();
+                /* the chosen slot stays until the table replies above are read */
+                stop_pairing_after_success();
             } else if (pair_code >= 0x01 && pair_status == 0x00) {
                 printf("[+] CC2544 Pairing lock is OPEN (listening for remotes on slot=%d)...\n", pair_code);
             } else {
@@ -438,8 +460,10 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
                 return;
             }
             if (pipe >= 0x20 && pipe <= 0x25) {
-                int sidx = pipe - 0x20;
                 uint16_t equad_id = ((uint16_t)pkt[7] << 8) | pkt[8];
+                rf_slot_map_note_table((uint8_t)(pipe - 0x20 + 1), equad_id != 0);
+                int sidx = (equad_id != 0 ? rf_slot_map_claim_pipe((uint8_t)(pipe - 0x20 + 1), true)
+                                          : rf_pipe_to_slot((uint8_t)(pipe - 0x20 + 1))) - 1;
                 if (sidx < MAX_PAIRED_REMOTES && equad_id != 0) {
                     g_paired_remotes[sidx].active = true;
                     g_has_paired_device = true;
@@ -458,7 +482,7 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
                 return;
             }
             if (pipe >= 0x30 && pipe <= 0x35) {
-                int sidx = pipe - 0x30;
+                int sidx = rf_pipe_to_slot((uint8_t)(pipe - 0x30 + 1)) - 1;
                 if (sidx < MAX_PAIRED_REMOTES) {
                     memcpy(g_paired_remotes[sidx].rf_addr, &pkt[5], 4);
                     bool has_addr = (pkt[5] != 0 || pkt[6] != 0 || pkt[7] != 0 || pkt[8] != 0);
@@ -471,7 +495,7 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
                 return;
             }
             if (pipe >= 0x40 && pipe <= 0x45) {
-                int sidx = pipe - 0x40;
+                int sidx = rf_pipe_to_slot((uint8_t)(pipe - 0x40 + 1)) - 1;
                 uint8_t nlen = pkt[5];
                 if (sidx < MAX_PAIRED_REMOTES && nlen > 0) {
                     if (nlen > 15) nlen = 15;

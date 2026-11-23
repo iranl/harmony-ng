@@ -702,6 +702,9 @@
     "harmony_no_codeset",
     "usb_wifi_setup_lbl",
     "usb_wifi_setup_desc",
+    "hide_on_remote",
+    "pair_slot_n",
+    "unpair_slot_n",
     "stock_resources_title",
     "stock_resources_desc",
     "empty_stock_resources",
@@ -923,7 +926,10 @@
     "plg_listen_done",
     "plg_listen_failed",
     "plg_confirm_running",
-    "plg_confirm_timeout"
+    "plg_confirm_timeout",
+    "hide_in_devices_tab",
+    "devices_all_hidden",
+    "slot_n_empty"
   ],
   "fr": [
     "map_action_help",
@@ -1627,6 +1633,9 @@
     "harmony_no_codeset",
     "usb_wifi_setup_lbl",
     "usb_wifi_setup_desc",
+    "hide_on_remote",
+    "pair_slot_n",
+    "unpair_slot_n",
     "stock_resources_title",
     "stock_resources_desc",
     "empty_stock_resources",
@@ -1848,7 +1857,10 @@
     "plg_listen_done",
     "plg_listen_failed",
     "plg_confirm_running",
-    "plg_confirm_timeout"
+    "plg_confirm_timeout",
+    "hide_in_devices_tab",
+    "devices_all_hidden",
+    "slot_n_empty"
   ],
   "nl": [
     "map_action_help",
@@ -2552,6 +2564,9 @@
     "harmony_no_codeset",
     "usb_wifi_setup_lbl",
     "usb_wifi_setup_desc",
+    "hide_on_remote",
+    "pair_slot_n",
+    "unpair_slot_n",
     "stock_resources_title",
     "stock_resources_desc",
     "empty_stock_resources",
@@ -2773,7 +2788,10 @@
     "plg_listen_done",
     "plg_listen_failed",
     "plg_confirm_running",
-    "plg_confirm_timeout"
+    "plg_confirm_timeout",
+    "hide_in_devices_tab",
+    "devices_all_hidden",
+    "slot_n_empty"
   ],
   "es": [
     "map_action_help",
@@ -3477,6 +3495,9 @@
     "harmony_no_codeset",
     "usb_wifi_setup_lbl",
     "usb_wifi_setup_desc",
+    "hide_on_remote",
+    "pair_slot_n",
+    "unpair_slot_n",
     "stock_resources_title",
     "stock_resources_desc",
     "empty_stock_resources",
@@ -3698,7 +3719,10 @@
     "plg_listen_done",
     "plg_listen_failed",
     "plg_confirm_running",
-    "plg_confirm_timeout"
+    "plg_confirm_timeout",
+    "hide_in_devices_tab",
+    "devices_all_hidden",
+    "slot_n_empty"
   ],
   "it": [
     "map_action_help",
@@ -4402,6 +4426,9 @@
     "harmony_no_codeset",
     "usb_wifi_setup_lbl",
     "usb_wifi_setup_desc",
+    "hide_on_remote",
+    "pair_slot_n",
+    "unpair_slot_n",
     "stock_resources_title",
     "stock_resources_desc",
     "empty_stock_resources",
@@ -4623,6 +4650,9 @@
     "plg_listen_done",
     "plg_listen_failed",
     "plg_confirm_running",
-    "plg_confirm_timeout"
+    "plg_confirm_timeout",
+    "hide_in_devices_tab",
+    "devices_all_hidden",
+    "slot_n_empty"
   ]
 }

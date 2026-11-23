@@ -1178,6 +1178,24 @@
                 </div>
               </div>
 
+              <!-- Visibility (every device type) -->
+              <div style="margin-top: 10px; border-top: 1px dotted var(--border); padding-top: 8px;">
+                <div>
+                  <label for="devHideOnRemote"
+                    style="cursor: pointer; display: flex; align-items: center; gap: 6px; margin: 0; font-size: 11px;">
+                    <input type="checkbox" id="devHideOnRemote" style="width: 14px; height: 14px;">
+                    <span data-i18n="hide_on_remote">Hide on remote (device lists only; activity buttons and keys still work)</span>
+                  </label>
+                </div>
+                <div style="margin-top: 6px;">
+                  <label for="devHideInDevicesTab"
+                    style="cursor: pointer; display: flex; align-items: center; gap: 6px; margin: 0; font-size: 11px;">
+                    <input type="checkbox" id="devHideInDevicesTab" style="width: 14px; height: 14px;">
+                    <span data-i18n="hide_in_devices_tab">Hide in Devices tab (web UI only; the remote is not changed)</span>
+                  </label>
+                </div>
+              </div>
+
               <!-- Bluetooth Auto-Reconnect Settings (BT Devices Only) -->
               <div id="devEditBtReconnectBox"
                 style="display: none; margin-top: 10px; border-top: 1px dotted var(--border); padding-top: 8px;">
@@ -2800,8 +2818,8 @@
             </div>
           </div>
 
-          <!-- Slot 2 -->
-          <div
+          <!-- Slot 2 (also the template of the cards for slots 3 to 6, made when a remote is paired there) -->
+          <div id="rfSlotCard2"
             style="background: var(--bg-dark); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; display: flex; flex-direction: column; justify-content: space-between;">
             <div>
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
@@ -3002,15 +3020,6 @@
                 <select id="rfCfgGyro" class="form-control">
                   <option value="1" selected data-i18n="opt_gyro_enabled">Enabled (Wake display on movement) (Default)</option>
                   <option value="0" data-i18n="opt_gyro_disabled">Disabled (Preserve battery)</option>
-                </select>
-              </div>
-              <div>
-                <label for="rfCfgGyroRate" data-i18n="gyro_poll_rate_lbl">Gyro Poll Rate</label>
-                <select id="rfCfgGyroRate" class="form-control">
-                  <option value="10" data-i18n="opt_gyro_10hz">10 Hz (Power Saver)</option>
-                  <option value="25" data-i18n="opt_gyro_25hz">25 Hz</option>
-                  <option value="50" selected data-i18n="opt_gyro_50hz">50 Hz (Default)</option>
-                  <option value="100" data-i18n="opt_gyro_100hz">100 Hz (Instant)</option>
                 </select>
               </div>
             </div>

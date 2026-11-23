@@ -17,6 +17,8 @@ typedef struct {
 
 void push_queue_add(push_queue_t *q, const rf_frame_t *f);
 int push_queue_send(uint8_t slot, uint8_t config_ver, push_queue_t *q);
+/* RF_MSG_ACK from a remote: the progress of a streamed push (ignored for other ACKs) */
+void push_note_stream_ack(uint8_t slot, const uint8_t *payload);
 
 #ifdef __cplusplus
 }

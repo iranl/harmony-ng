@@ -148,6 +148,7 @@ build_daemon() {
         payload/source/http_api_devices.c \
         payload/source/http_api_commands.c \
         payload/source/http_api_custom_icons.c \
+        payload/source/icon_pack.c \
         payload/source/http_api_network.c \
         payload/source/hub_network_util.c \
         payload/source/wifi_config.c \
@@ -215,7 +216,7 @@ build_sync() {
 
 build_rf() {
     echo "[-] Building hub_rf..."
-    RF_SRCS="payload/source/rf_state.c payload/source/rf_spi.c payload/source/rf_keymap.c payload/source/rf_ota.c payload/source/rf_sync.c payload/source/rf_pairing.c payload/source/rf_config_push.c payload/source/rf_button_list.c payload/source/rf_push_queue.c payload/source/rf_help.c payload/source/rf_api.c payload/source/rf_main.c payload/source/remote_stock_icons.c payload/source/custom_icon_registry.c payload/source/timezone_db.c payload/source/sha256.c payload/source/ota_verify.c payload/source/tweetnacl.c"
+    RF_SRCS="payload/source/rf_state.c payload/source/rf_spi.c payload/source/rf_keymap.c payload/source/rf_ota.c payload/source/rf_sync.c payload/source/rf_pairing.c payload/source/rf_config_push.c payload/source/rf_button_list.c payload/source/rf_push_queue.c payload/source/rf_help.c payload/source/rf_api.c payload/source/rf_main.c payload/source/remote_stock_icons.c payload/source/custom_icon_registry.c payload/source/icon_pack.c payload/source/timezone_db.c payload/source/sha256.c payload/source/ota_verify.c payload/source/tweetnacl.c"
     "$CC" $CFLAGS $OTA_KEY_CFLAGS -Ipayload/source -o "$BIN/hub_rf" $RF_SRCS payload/source/cJSON.c payload/source/uclibc_static_locks.c $COMPAT_SRC -lpthread -lm
 }
 
@@ -351,7 +352,8 @@ case "$TARGET" in
 esac
 
 echo "Copying binaries to build/output..."
-if [ -f "$REPO_ROOT/tools/bin/dropbearmulti_mips" ] && [ ! -f "$BIN/dropbearmulti" ]; then
+# copied when it differs: a tree built before kept shipping its older server
+if [ -f "$REPO_ROOT/tools/bin/dropbearmulti_mips" ] && ! cmp -s "$REPO_ROOT/tools/bin/dropbearmulti_mips" "$BIN/dropbearmulti"; then
     cp -f "$REPO_ROOT/tools/bin/dropbearmulti_mips" "$BIN/dropbearmulti"
 fi
 # Only what this run built (plus the dropbear blob, which is never built here): a binary that

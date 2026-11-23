@@ -17,6 +17,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 
@@ -47,7 +48,7 @@ def find_default_ssh_key() -> str | None:
         if owner_keys:
             return str(owner_keys[0])
 
-        for std in ("id_rsa", "id_ed25519"):
+        for std in ("id_ed25519",):  # the Hub server takes Ed25519 keys only
             cand = ssh_dir / std
             if cand.is_file():
                 return str(cand)
@@ -56,6 +57,9 @@ def find_default_ssh_key() -> str | None:
 
 
 ELF_MACHINE_MIPS = 8
+
+# The core binaries a deploy needs (a deploy without hub_rf left the Hub without its RF daemon)
+REQUIRED_HUB_BINARIES = ("hub_daemon", "hub_rf", "hub_btstack", "hub_util")
 
 
 def elf_machine(path: pathlib.Path) -> int | None:
@@ -101,6 +105,22 @@ def parse_space_reply(reply: str) -> tuple[int | None, int]:
 # The Hub has no recovery access point any more. On a Hub deployed with an older release this
 # stops one still running (portal loop, DHCP server, hostapd, ath1) and removes its script, its
 # settings, its log and the hub_util links it used (hub_portal, hub_dhcpd).
+# The Hub's dropbearmulti takes Ed25519 user keys only: root's authorized_keys (dropbear reads
+# the one in root's home) must hold one before it is installed, or the next reboot locks root out
+ED25519_USER_KEY_CHECK = (
+    "h=$(awk -F: '$1==\"root\"{print $6}' /etc/passwd 2>/dev/null); f=\"${h:-/home/root}/.ssh/authorized_keys\"; "
+    # not a comment, and an Ed25519 key blob (they all start with AAAAC3NzaC1lZDI1NTE5)
+    "[ -f \"$f\" ] && grep -v \"^[ \t]*#\" \"$f\" | grep -q 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5' && echo yes || echo no"
+)
+
+# Run on the uploaded dropbearmulti ($s) before it replaces the old one: a build that cannot start
+# or whose scp crashes (seen with -mno-abicalls) would leave the Hub with a broken scp
+DROPBEAR_SELFTEST = (
+    'p=/tmp/.scp_probe.$$; echo x > "$p"; '
+    '"$s" dropbear -V >/dev/null 2>&1 && printf "\\0\\0\\0" | "$s" scp -f "$p" >/dev/null 2>&1; t=$?; rm -f "$p"; '
+    'if [ "$t" != 0 ]; then rm -f "$s"; echo selftest-failed; exit; fi; '
+)
+
 RECOVERY_AP_CLEANUP = (
     "if [ -f /var/run/hub-recovery-ap.pid ]; then "
     "_l=$(cat /var/run/hub-recovery-ap.pid 2>/dev/null); [ -n \"$_l\" ] && kill -9 \"$_l\" 2>/dev/null; "
@@ -203,6 +223,52 @@ class HubDeployer:
     def run_ssh(self, cmd_str: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(self.get_ssh_cmd(cmd_str), capture_output=True, text=True)
 
+    def ed25519_login_problem(self) -> str | None:
+        """Why the Ed25519-only server would lock this PC out, or None. root's authorized_keys must
+        hold an Ed25519 key, and this PC must log in with one (an Ed25519 line of another PC lets
+        the deploy in over RSA, and this PC out after the restart)."""
+        res = self.run_ssh(ED25519_USER_KEY_CHECK)
+        answer = res.stdout.strip()
+        if res.returncode != 0 or answer not in ("yes", "no"):
+            return f"the Hub's authorized_keys could not be checked ({res.stderr.strip() or 'no answer'})."
+        if answer == "no":
+            return ("root's authorized_keys on the Hub has no Ed25519 key, and the new SSH server takes\n"
+                    "    Ed25519 keys only (the next restart would lock you out). Add one, e.g.\n"
+                    "    ssh-keygen -t ed25519 -f ~/.ssh/harmony_owner_ed25519, append the .pub line to\n"
+                    "    /home/root/.ssh/authorized_keys on the Hub, then deploy again.")
+        cmd = self.get_ssh_cmd("true")
+        cmd[1:1] = ["-o", "PubkeyAcceptedKeyTypes=ssh-ed25519"]
+        try:
+            probe = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.SubprocessError) as e:
+            return f"the Ed25519 login test did not run ({e})."
+        if probe.returncode != 0:
+            return ("this PC cannot log in to the Hub with an Ed25519 key (the Hub holds another PC's),\n"
+                    "    and the new SSH server takes Ed25519 keys only. Pass --key with this PC's Ed25519\n"
+                    "    key, or add its .pub line to /home/root/.ssh/authorized_keys, then deploy again.")
+        return None
+
+    def ensure_ed25519_host_key(self) -> None:
+        """The server loads only an Ed25519 host key. Create a missing one now (not at the first
+        login with -R) and record it next to the key this connection was checked against, so a
+        client that knows only the Hub's RSA key sees no changed key."""
+        res = self.run_ssh(
+            "k=/etc/dropbear/dropbear_ed25519_host_key; "
+            # an empty file: dropbearkey answers "File exists" and the server exits on it
+            "[ -f \"$k\" ] && [ ! -s \"$k\" ] && rm -f \"$k\"; "
+            "[ -s \"$k\" ] || /data/harmony/bin/dropbearmulti dropbearkey -t ed25519 -f \"$k\" >/dev/null 2>&1; "
+            "/data/harmony/bin/dropbearmulti dropbearkey -y -f \"$k\" 2>/dev/null | grep '^ssh-ed25519 '"
+        )
+        line = res.stdout.strip().splitlines()[0] if res.stdout.strip() else ""
+        if not line:
+            print("[!] Could not read the Hub's Ed25519 host key: the server creates it at the first login.")
+            return
+        try:
+            if ssh_hostkeys.record_host_key(self.hub_host, line):
+                print(f"[*] Recorded the Hub's Ed25519 host key in {ssh_hostkeys.known_hosts_file()}.")
+        except OSError as e:
+            print(f"[!] Could not record the Hub's Ed25519 host key: {e}")
+
     def empty_stock_resources(self, imported_now: bool) -> None:
         """--clean-stock-resources: the steps of tools/clean_stock_resources.py, over this deploy's SSH."""
         # The files are the import's source: never in the run that imported them (its scp results
@@ -251,7 +317,9 @@ class HubDeployer:
             return True
         return False
 
-    def deploy_file_if_changed(self, src: pathlib.Path, dst: str, perm: str = "755") -> bool:
+    def deploy_file_if_changed(self, src: pathlib.Path, dst: str, perm: str = "755", selftest: str = "") -> bool:
+        """Upload src to dst when the MD5 differs. selftest: shell run on the uploaded copy ($s) before
+        it replaces dst; it ends the install with "selftest-failed"."""
         if not src.is_file():
             return False
 
@@ -315,6 +383,7 @@ class HubDeployer:
             f"s='{stage}'; d='{dst}'; m=$(md5sum \"$s\" 2>/dev/null | cut -d' ' -f1); "
             f'if [ "$m" != "{local_md5}" ]; then rm -f "$s"; echo staged-mismatch; exit; fi; '
             f"chmod {perm} \"$s\" 2>/dev/null; "
+            f"{selftest}"
             f'if [ "$s" = "$d.new" ]; then mv -f "$s" "$d" && echo ok || echo move-failed; exit; fi; '
             f'rm -f "$d"; cp "$s" "$d" 2>/dev/null; m=$(md5sum "$d" 2>/dev/null | cut -d\' \' -f1); '
             f'if [ "$m" = "{local_md5}" ]; then chmod {perm} "$d" 2>/dev/null; rm -f "$s"; echo ok; else rm -f "$d"; echo copy-failed; fi'
@@ -325,6 +394,8 @@ class HubDeployer:
             return True
         elif status == "staged-mismatch":
             print(f"    [-] {fname}: uploaded copy MD5 mismatch; Hub keeps old copy.", file=sys.stderr)
+        elif status == "selftest-failed":
+            print(f"    [-] {fname}: the uploaded copy failed its self-test on the Hub; Hub keeps old copy.", file=sys.stderr)
         elif status == "copy-failed":
             print(f"    [-] {fname}: writing {dst} failed and old copy gone. Temp copy in {stage}.", file=sys.stderr)
         else:
@@ -407,6 +478,14 @@ class HubDeployer:
         if not machine.startswith("mips"):
             print(f"[-] {self.hub_host} is not a Harmony Hub (uname -m: {machine or 'no answer'}). Nothing was changed. "
                   "For the remote use remote/deploy_remote.py.", file=sys.stderr)
+            return False
+        # A deploy without one of them reported success and left the Hub without it
+        missing = [] if self.webui_only else [b for b in REQUIRED_HUB_BINARIES if not (self.bin_dir / b).is_file()]
+        if missing:
+            how = ("The release bundle is incomplete: download it again." if self.bundle_layout
+                   else "Build the Hub binaries with ./build/compile_all.sh first.")
+            print(f"[-] Hub binaries missing in {self.bin_dir}: {', '.join(missing)}. Nothing was changed. {how}",
+                  file=sys.stderr)
             return False
         wrong = [] if self.webui_only else self.wrong_arch_binaries()
         if wrong:
@@ -503,10 +582,10 @@ class HubDeployer:
                 "if [ -n \"$_dbm\" ]; then "
                 "  if [ \"$_dbm\" = \"/data/harmony/bin/dropbearmulti\" ]; then "
                 "    _harm_m=$(md5sum /data/harmony/bin/dropbearmulti 2>/dev/null | awk '{print $1}'); _data_m=$(md5sum /data/dropbearmulti 2>/dev/null | awk '{print $1}'); "
-                "    if [ -n \"$_harm_m\" ] && { [ \"$_harm_m\" = \"$_data_m\" ] || [ \"$_harm_m\" = \"3733327fd04bca282dbf06f33da0bf6c\" ]; }; then rm -f /data/dropbearmulti /usr/sbin/dropbearmulti 2>/dev/null || true; fi; "
-                "    for _a in dropbear dropbearkey dbclient scp; do [ -f /data/harmony/bin/$_a ] && [ ! -L /data/harmony/bin/$_a ] && rm -f /data/harmony/bin/$_a 2>/dev/null; ln -sf /data/harmony/bin/dropbearmulti /data/harmony/bin/$_a 2>/dev/null || true; done; "
+                "    if [ -n \"$_harm_m\" ] && [ \"$_harm_m\" = \"$_data_m\" ]; then rm -f /data/dropbearmulti /usr/sbin/dropbearmulti 2>/dev/null || true; fi; "
+                "    for _a in dropbear dropbearkey scp; do [ -f /data/harmony/bin/$_a ] && [ ! -L /data/harmony/bin/$_a ] && rm -f /data/harmony/bin/$_a 2>/dev/null; ln -sf /data/harmony/bin/dropbearmulti /data/harmony/bin/$_a 2>/dev/null || true; done; "
                 "  fi; "
-                "  for _a in dropbearkey dbclient scp; do ln -sf \"$_dbm\" /usr/sbin/$_a 2>/dev/null || true; done; "
+                "  for _a in dropbearkey scp; do ln -sf \"$_dbm\" /usr/sbin/$_a 2>/dev/null || true; done; "
                 "fi"
             )
             if not self.dry_skip("move legacy /data/codex files to /data/harmony and remove obsolete files"):
@@ -601,24 +680,35 @@ class HubDeployer:
             elif (self.repo_root / "tools" / "bin" / "dropbearmulti_mips").is_file():
                 dropbear_src = self.repo_root / "tools" / "bin" / "dropbearmulti_mips"
 
+            key_problem = self.ed25519_login_problem() if dropbear_src else None
+            if key_problem:
+                print(f"[!] dropbearmulti NOT updated: {key_problem}")
+                self.deploy_failures.append("/data/harmony/bin/dropbearmulti (no Ed25519 login)")
+                dropbear_src = None
             if dropbear_src:
-                self.deploy_file_if_changed(dropbear_src, "/data/harmony/bin/dropbearmulti", "755")
+                dropbear_md5 = get_file_md5(dropbear_src)
+                installed = self.deploy_file_if_changed(dropbear_src, "/data/harmony/bin/dropbearmulti", "755",
+                                                        selftest=DROPBEAR_SELFTEST)
                 dropbear_links = (
-                    "for _a in dropbear dropbearkey dbclient scp; do "
+                    "for _a in dropbear dropbearkey scp; do "
                     "  [ -f /data/harmony/bin/$_a ] && [ ! -L /data/harmony/bin/$_a ] && rm -f /data/harmony/bin/$_a 2>/dev/null; "
                     "  ln -sf /data/harmony/bin/dropbearmulti /data/harmony/bin/$_a 2>/dev/null || true; "
                     "done; "
-                    "for _a in dropbearkey dbclient scp; do "
+                    "for _a in dropbearkey scp; do "
                     "  ln -sf /data/harmony/bin/dropbearmulti /usr/sbin/$_a 2>/dev/null || true; "
                     "done; "
+                    # the server has no client: drop the dbclient links of older installs
+                    "for _l in /data/harmony/bin/dbclient /usr/sbin/dbclient; do [ -L $_l ] && rm -f $_l; done; "
+                    # the release binary is in place (MD5 checked): the old copies of the USB root
+                    # tool and of the serial guide go
                     "_harm_m=$(md5sum /data/harmony/bin/dropbearmulti 2>/dev/null | awk '{print $1}'); "
-                    "_data_m=$(md5sum /data/dropbearmulti 2>/dev/null | awk '{print $1}'); "
-                    "if [ -n \"$_harm_m\" ] && { [ \"$_harm_m\" = \"$_data_m\" ] || [ \"$_harm_m\" = \"3733327fd04bca282dbf06f33da0bf6c\" ]; }; then "
+                    f"if [ \"$_harm_m\" = \"{dropbear_md5}\" ]; then "
                     "  rm -f /data/dropbearmulti /usr/sbin/dropbearmulti 2>/dev/null || true; "
                     "fi"
                 )
-                if not self.dry_skip("create dropbear multicall symlinks and safely deduplicate"):
+                if installed and not self.dry_skip("create dropbear multicall symlinks and safely deduplicate"):
                     self.run_ssh(dropbear_links)
+                    self.ensure_ed25519_host_key()
 
             # Deploy core binaries
             if (self.bin_dir / "hub_util").is_file():
@@ -824,7 +914,37 @@ class HubDeployer:
                 print("[!] No icon archive: Hub icons left as-is.")
 
         if self.icons_tar.is_file():
-            self.deploy_file_if_changed(self.icons_tar, "/cache/icons.tar.gz", "644")
+            # The Hub reads single icons from a packed archive (tools/icon_pack.py) instead of
+            # unpacking about 6 MB of them into RAM; it is still a plain tar.gz for every reader
+            try:
+                import icon_pack
+            except ImportError as e:
+                # a bundle put together by hand, or an older tools/ folder: deploy as it is
+                icon_pack = None
+                print(f"    [!] tools/icon_pack.py not found ({e}): {self.icons_tar.name} deployed as it is, "
+                      "the Hub unpacks it into RAM as before")
+            icons_src = self.icons_tar
+            packed_tmp = None
+            if icon_pack and not icon_pack.is_packed(self.icons_tar):
+                try:
+                    if self.dry_run:
+                        # pack into a temporary file: its md5 is what the real run would upload
+                        fd, packed_tmp = tempfile.mkstemp(prefix="icons.", suffix=".tar.gz")
+                        os.close(fd)
+                        icon_pack.pack(self.icons_tar, pathlib.Path(packed_tmp))
+                        icons_src = pathlib.Path(packed_tmp)
+                        print(f"    [dry-run] would repack {self.icons_tar.name} so the Hub reads icons from flash")
+                    else:
+                        print(f"[*] Repacking {self.icons_tar.name} so the Hub reads icons from flash (not RAM)...")
+                        icon_pack.pack(self.icons_tar, self.icons_tar)
+                except (OSError, ValueError, tarfile.TarError) as e:
+                    print(f"    [!] Could not repack {self.icons_tar.name} ({e}): deployed as it is, "
+                          "the Hub unpacks it into RAM as before")
+            try:
+                self.deploy_file_if_changed(icons_src, "/cache/icons.tar.gz", "644")
+            finally:
+                if packed_tmp:
+                    os.unlink(packed_tmp)
             if not self.dry_run:
                 self.run_ssh(
                     "if [ -f /data/harmony/icons.tar.gz ] && [ ! -L /data/harmony/icons.tar.gz ]; then rm -f /data/harmony/icons.tar.gz 2>/dev/null; fi; "

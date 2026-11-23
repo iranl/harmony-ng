@@ -204,7 +204,12 @@ def package_ota(output_dir: Path, version: str):
         for bname in HUB_BINARIES + ["busybox", "dropbearmulti"]:
             src = find_candidate_file(bname, MIPS_SEARCH_PATHS)
             if src and src.exists():
-                tar.add(src, arcname=f"bin/{bname}")
+                # The SSH server takes Ed25519 user keys only. The update.sh of v2.5.3 and older
+                # installs bin/dropbearmulti unchecked and reboots, which would lock out a Hub
+                # whose root has no Ed25519 key: under this name that script skips it, and the new
+                # update.sh installs it as dropbearmulti behind its key check.
+                arc = "bin/dropbearmulti_ed25519" if bname == "dropbearmulti" else f"bin/{bname}"
+                tar.add(src, arcname=arc)
         # Scripts
         scripts_dir = REPO_ROOT / "payload" / "scripts"
         if scripts_dir.is_dir():
@@ -240,6 +245,16 @@ def package_ota(output_dir: Path, version: str):
             with tarfile.open(icons_tar, "w:gz") as itar:
                 itar.add(REPO_ROOT / "data" / "remote_icons" / "icons", arcname="icons")
         if icons_tar.is_file():
+            # the packed form, as deploy_hub.py installs it: a plain archive put over a packed one
+            # had the Hub unpack about 6.8 MB into RAM again
+            try:
+                sys.path.insert(0, str(REPO_ROOT / "tools"))
+                import icon_pack
+                if not icon_pack.is_packed(icons_tar):
+                    print(f"[*] Repacking {icons_tar.name} so the Hub reads icons from flash...")
+                    icon_pack.pack(icons_tar, icons_tar)
+            except (ImportError, OSError, ValueError, tarfile.TarError) as e:
+                print(f"[-] Warning: {icons_tar.name} not packed ({e}): Hubs unpack it into RAM")
             tar.add(icons_tar, arcname="icons.tar.gz")
             shutil.copy2(icons_tar, output_dir / "icons.tar.gz")
             imd5, isha = get_file_hashes(output_dir / "icons.tar.gz")
