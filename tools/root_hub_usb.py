@@ -83,7 +83,6 @@ EOF
 chmod 755 /usr/sbin/dropbear.new
 mv -f /usr/sbin/dropbear.new /usr/sbin/dropbear
 ln -sf /data/dropbearmulti /usr/sbin/dropbearkey
-ln -sf /data/dropbearmulti /usr/sbin/dbclient
 ln -sf /data/dropbearmulti /usr/sbin/scp
 
 # Phase 5: Ensure the Ed25519 host key exists (the only host key type the server loads)
@@ -125,6 +124,15 @@ def private_key_path(pub_path: pathlib.Path) -> pathlib.Path:
     raise ValueError(f"{pub_path} does not end in .pub: pass the public key that sits next to its private key")
 
 
+def _ed25519_only(pub: pathlib.Path) -> str:
+    """The key line of pub; the Hub's SSH server takes Ed25519 user keys only."""
+    text = pub.read_text(encoding="utf-8").strip()
+    if not text.startswith("ssh-ed25519 "):
+        raise ValueError(f"{pub} is a {text.split(' ', 1)[0] or 'unknown'} key: the Hub's SSH server takes "
+                         "Ed25519 keys only (ssh-keygen -t ed25519)")
+    return text
+
+
 def resolve_ssh_key(pubkey_path: str | None = None) -> tuple[pathlib.Path, str]:
     """Find existing harmony_owner key or generate a new ED25519 keypair."""
     ssh_dir = pathlib.Path.home() / ".ssh"
@@ -134,7 +142,7 @@ def resolve_ssh_key(pubkey_path: str | None = None) -> tuple[pathlib.Path, str]:
         p = pathlib.Path(pubkey_path)
         if not p.is_file():
             raise FileNotFoundError(f"Specified pubkey not found: {pubkey_path}")
-        return p, p.read_text(encoding="utf-8").strip()
+        return p, _ed25519_only(p)
 
     # Look for existing harmony_owner keys
     existing_keys = sorted(
@@ -145,7 +153,7 @@ def resolve_ssh_key(pubkey_path: str | None = None) -> tuple[pathlib.Path, str]:
     if existing_keys:
         chosen = existing_keys[0]
         print(f"[*] Using existing SSH key: {chosen}")
-        return chosen, chosen.read_text(encoding="utf-8").strip()
+        return chosen, _ed25519_only(chosen)
 
     # Generate new ED25519 key
     new_priv = ssh_dir / "harmony_owner_ed25519"
@@ -581,7 +589,11 @@ def main() -> None:
             return
 
         # 4. Resolve SSH Public Key & Build Self-Extracting Payload
-        pub_path, pub_str = resolve_ssh_key(args.pubkey)
+        try:
+            pub_path, pub_str = resolve_ssh_key(args.pubkey)
+        except (OSError, ValueError) as e:
+            print(f"[-] SSH key: {e}")
+            sys.exit(1)
         print(f"[+] Authorized public key: {pub_str.split()[0]} {pub_str.split()[-1]}")
 
         print(f"[*] Building self-extracting Dropbear payload (MIPS 24Kc)...")

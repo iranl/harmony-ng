@@ -366,22 +366,22 @@ class DropbearkeyWrapper(unittest.TestCase):
         self.s.fake_server("data/harmony/bin/dropbearkey")
         self.s.fake_server("data/harmony/bin/dropbearmulti")
         self.s.fake_server("data/dropbearmulti")
-        res = self.s.run(self.script, "-t", "rsa")
+        res = self.s.run(self.script, "-t", "ed25519")
         self.assertEqual(res.returncode, 0)
-        self.assertEqual(self.s.started(), [f"{self.s.root}/data/harmony/bin/dropbearkey -t rsa"])
+        self.assertEqual(self.s.started(), [f"{self.s.root}/data/harmony/bin/dropbearkey -t ed25519"])
 
     def test_falls_back_to_harmony_bin_dropbearmulti(self):
         self.s.fake_server("data/harmony/bin/dropbearmulti")
         self.s.fake_server("data/dropbearmulti")
-        res = self.s.run(self.script, "-t", "rsa")
+        res = self.s.run(self.script, "-t", "ed25519")
         self.assertEqual(res.returncode, 0)
-        self.assertEqual(self.s.started(), [f"{self.s.root}/data/harmony/bin/dropbearmulti dropbearkey -t rsa"])
+        self.assertEqual(self.s.started(), [f"{self.s.root}/data/harmony/bin/dropbearmulti dropbearkey -t ed25519"])
 
     def test_falls_back_to_data_dropbearmulti(self):
         self.s.fake_server("data/dropbearmulti")
-        res = self.s.run(self.script, "-t", "rsa")
+        res = self.s.run(self.script, "-t", "ed25519")
         self.assertEqual(res.returncode, 0)
-        self.assertEqual(self.s.started(), [f"{self.s.root}/data/dropbearmulti dropbearkey -t rsa"])
+        self.assertEqual(self.s.started(), [f"{self.s.root}/data/dropbearmulti dropbearkey -t ed25519"])
 
 
 if __name__ == "__main__":

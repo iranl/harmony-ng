@@ -161,6 +161,12 @@ install_bundle() {
   fi
   # B. Application binaries -> /data/harmony/bin/
   for _b in hub_util $BUNDLE_BINS; do
+    if [ "$_b" = dropbearmulti ] && [ -f "$_pkg/bin/$_b" ] && ! has_ed25519_user_key; then
+      # The package's SSH server takes Ed25519 user keys only: the current one stays, or the
+      # next reboot would lock root out
+      echo "[!] dropbearmulti not updated: root's authorized_keys has no Ed25519 key (the new SSH server takes Ed25519 keys only)."
+      continue
+    fi
     if [ -f "$_pkg/bin/$_b" ]; then
       install_file "$_pkg/bin/$_b" "/data/harmony/bin/$_b" 755 || return 1
     fi
@@ -184,20 +190,38 @@ link_hub_util() {
   done
 }
 
+# Root's authorized_keys (dropbear reads the one in root's home) holds an Ed25519 key
+has_ed25519_user_key() {
+  _home=$(awk -F: '$1=="root"{print $6}' /etc/passwd 2>/dev/null)
+  grep -q 'ssh-ed25519 ' "${_home:-/home/root}/.ssh/authorized_keys" 2>/dev/null
+}
+
+# link_dropbear [PKG_BINARY]: the multi-call links. Given the package's dropbearmulti (checked
+# against the signed manifest), the old copies of the USB root tool and of the serial guide go
+# once the installed copy is that binary.
 link_dropbear() {
   if [ -s /data/harmony/bin/dropbearmulti ] && [ -x /data/harmony/bin/dropbearmulti ]; then
-    for _app in dropbear dropbearkey dbclient scp; do
+    for _app in dropbear dropbearkey scp; do
       [ -f "/data/harmony/bin/$_app" ] && [ ! -L "/data/harmony/bin/$_app" ] && rm -f "/data/harmony/bin/$_app" 2>/dev/null || true
       ln -sf /data/harmony/bin/dropbearmulti "/data/harmony/bin/$_app" 2>/dev/null || true
     done
-    for _app in dropbearkey dbclient scp; do
+    for _app in dropbearkey scp; do
       ln -sf /data/harmony/bin/dropbearmulti "/usr/sbin/$_app" 2>/dev/null || true
+    done
+    # the server has no client: the dbclient links of older installs go
+    for _l in /data/harmony/bin/dbclient /usr/sbin/dbclient; do
+      [ -L "$_l" ] && rm -f "$_l" 2>/dev/null
     done
     _harm_m=$(md5sum /data/harmony/bin/dropbearmulti 2>/dev/null | awk '{print $1}')
     _data_m=$(md5sum /data/dropbearmulti 2>/dev/null | awk '{print $1}')
-    if [ -n "$_harm_m" ] && { [ "$_harm_m" = "$_data_m" ] || [ "$_harm_m" = "3733327fd04bca282dbf06f33da0bf6c" ]; }; then
+    _pkg_m=""
+    [ -n "$1" ] && [ -f "$1" ] && _pkg_m=$(md5sum "$1" 2>/dev/null | awk '{print $1}')
+    if [ -n "$_harm_m" ] && { [ "$_harm_m" = "$_data_m" ] || [ "$_harm_m" = "$_pkg_m" ]; }; then
       rm -f /data/dropbearmulti /usr/sbin/dropbearmulti 2>/dev/null || true
     fi
+    # the server loads only an Ed25519 host key: made now, not at the first login (-R)
+    [ -s /etc/dropbear/dropbear_ed25519_host_key ] || \
+      /data/harmony/bin/dropbearmulti dropbearkey -t ed25519 -f /etc/dropbear/dropbear_ed25519_host_key >/dev/null 2>&1 || true
   fi
 }
 
@@ -457,7 +481,7 @@ do_apply() {
       if [ -f "$TMPDIR/pkg/bin/hub_util" ]; then
         link_hub_util
       fi
-      link_dropbear
+      link_dropbear "$TMPDIR/pkg/bin/dropbearmulti"
       # The package no longer has the recovery access point: its script, settings and the
       # hub_util links it used go (the reboot after the update stops one still running)
       rm -f /data/harmony/recovery_ap.sh /data/harmony/scripts/recovery_ap.sh /data/harmony/bin/recovery_ap.sh \
