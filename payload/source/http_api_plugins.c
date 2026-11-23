@@ -384,7 +384,7 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
              * holds one of the HTTP workers. */
             int polls = is_async ? 10 : (timeout_s < 15 ? timeout_s : 15) * 10;
             if (!sent) {
-                /* not running, or no socket: nothing would answer, say so at once */
+                /* not running, no socket or a full queue after 3 s of tries: nothing would answer */
                 res_obj = cJSON_CreateObject();
                 cJSON_AddBoolToObject(res_obj, "ok", 0);
                 cJSON_AddStringToObject(res_obj, "stage", "error");

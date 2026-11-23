@@ -486,7 +486,8 @@ cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin) {
 
         /* "value": the number for a plugin command (one with a range needs it); one command only */
         const cJSON *j_val = cJSON_GetObjectItemCaseSensitive(req, "value");
-        if (j_val && (!cJSON_IsNumber(j_val) || j_val->valuedouble != (double)(int)j_val->valuedouble))
+        if (j_val && (!cJSON_IsNumber(j_val) || j_val->valuedouble != (double)(int)j_val->valuedouble ||
+                      j_val->valueint == HW_VALUE_NONE))
             return ack(req, action, 0, 400, "value must be an integer");
         if (j_val && (cmd_count != 1 || num_repeats > 1 || hold_secs > 0.0))
             return ack(req, action, 0, 400, "value takes a single command");
@@ -499,6 +500,12 @@ cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin) {
             if (rc == HW_ERR_VALUE_RANGE) return ack(req, action, 0, 400, "value out of range");
             if (rc == HW_ERR_VALUE_MISSING) return ack(req, action, 0, 400, "value required (the command has a range)");
             return (rc == 0) ? ack(req, action, 1, 200, NULL) : ack(req, action, 0, 500, "IR transmit failed");
+        }
+        /* queued commands carry no value: a ranged plugin command among them is refused now,
+         * not acked and dropped later with a log line */
+        for (int ci = 0; ci < cmd_count; ci++) {
+            if (hw_device_command_needs_value(dev_buf, 0, cmd_list[ci]))
+                return ack(req, action, 0, 400, "value required (the command has a range)");
         }
         int waiting = hub_mqtt_queue_busy();
         int rc = hub_mqtt_queue_commands(dev_buf, 0, cmd_list, cmd_count, num_repeats, btn_action, delay_secs, hold_secs);

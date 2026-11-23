@@ -13,6 +13,8 @@
 #define ADV_ALL_CHANNELS 0x07
 // a broadcast from another address waits this long, again, while the remote's link is set up
 #define ADV_ADDR_RETRY_MS 500
+// and is dropped after this: a wake sent two minutes late turns a device on at the wrong time
+#define ADV_ADDR_WAIT_MAX_MS 10000
 
 typedef struct {
     uint8_t data[BLE_ADV_MAX_LEN];
@@ -20,6 +22,7 @@ typedef struct {
     uint16_t ms;
     bool has_addr;   /* sent from this address (as the random address), not the Hub's */
     bd_addr_t addr;
+    uint32_t queued_ms; /* run loop time when it was queued (unsigned differences: no wrap issue) */
 } adv_entry_t;
 
 // Broadcasts run one after another so each receiver hears every packet in an activity sequence
@@ -65,15 +68,32 @@ static bool remote_link_setup(void) {
 }
 
 static void adv_start_next(void) {
-    if (g_adv_count == 0) return;
-    adv_entry_t *e = &g_adv_queue[g_adv_head];
-    if (e->has_addr && remote_link_setup()) {
+    while (g_adv_count > 0 && g_adv_queue[g_adv_head].has_addr && remote_link_setup()) {
+        adv_entry_t *h = &g_adv_queue[g_adv_head];
+        if ((uint32_t)(btstack_run_loop_get_time_ms() - h->queued_ms) > ADV_ADDR_WAIT_MAX_MS) {
+            log_msg("BLE broadcast dropped: its address could not be used for 10 s (the remote was connecting or pairing)");
+            g_adv_head = (g_adv_head + 1) % ADV_QUEUE_LEN;
+            g_adv_count--;
+            continue;
+        }
+        /* a broadcast without addr= behind it goes first (the others keep their order) */
+        int k = 1;
+        while (k < g_adv_count && g_adv_queue[(g_adv_head + k) % ADV_QUEUE_LEN].has_addr) k++;
+        if (k < g_adv_count) {
+            adv_entry_t plain = g_adv_queue[(g_adv_head + k) % ADV_QUEUE_LEN];
+            for (int i = k; i > 0; i--)
+                g_adv_queue[(g_adv_head + i) % ADV_QUEUE_LEN] = g_adv_queue[(g_adv_head + i - 1) % ADV_QUEUE_LEN];
+            g_adv_queue[g_adv_head] = plain;
+            break;
+        }
         btstack_run_loop_remove_timer(&g_adv_timer);
         btstack_run_loop_set_timer_handler(&g_adv_timer, &adv_retry_handler);
         btstack_run_loop_set_timer(&g_adv_timer, ADV_ADDR_RETRY_MS);
         btstack_run_loop_add_timer(&g_adv_timer);
         return;
     }
+    if (g_adv_count == 0) return;
+    adv_entry_t *e = &g_adv_queue[g_adv_head];
     g_adv_head = (g_adv_head + 1) % ADV_QUEUE_LEN;
     g_adv_count--;
 
@@ -143,6 +163,7 @@ void bt_adv_handle_cmd(const char *args) {
     e->ms = (uint16_t)ms;
     e->has_addr = a != NULL;
     if (a) memcpy(e->addr, addr, 6);
+    e->queued_ms = btstack_run_loop_get_time_ms();
     g_adv_count++;
 
     char msg[96];

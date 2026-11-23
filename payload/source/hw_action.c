@@ -1057,6 +1057,29 @@ int hw_command_value_in_range(const cJSON *cmd, int value) {
     return value >= cJSON_GetArrayItem(r, 0)->valueint && value <= cJSON_GetArrayItem(r, 1)->valueint;
 }
 
+int hw_device_command_needs_value(const char *target, int match_mode, const char *command) {
+    if (!target || !command) return 0;
+    struct cfg_snap *snap = NULL;
+    const cJSON *root = get_device_list_acquire(&snap);
+    if (!root) return 0;
+    int needs = 0;
+    const cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
+    const cJSON *dev = cJSON_IsArray(devs) ? find_device(devs, target, match_mode, NULL, 0) : NULL;
+    const cJSON *c = NULL;
+    cJSON_ArrayForEach(c, (dev ? cJSON_GetObjectItemCaseSensitive(dev, "commands") : NULL)) {
+        const cJSON *cn = cJSON_GetObjectItemCaseSensitive(c, "name");
+        if (!cJSON_IsString(cn) || strcasecmp(cn->valuestring, command) != 0) continue;
+        const cJSON *kc = cJSON_GetObjectItemCaseSensitive(c, "keyCode");
+        if (!cJSON_IsString(kc)) kc = cJSON_GetObjectItemCaseSensitive(c, "raw");
+        int plugin = plugin_mgr_device_plugin_id(dev, NULL, 0) ||
+                     (cJSON_IsString(kc) && strncasecmp(kc->valuestring, "PLUGIN:", 7) == 0);
+        needs = plugin && cmd_range_valid(cJSON_GetObjectItemCaseSensitive(c, "range"));
+        break;
+    }
+    release_device_list(&snap);
+    return needs;
+}
+
 static int hw_device_command_send_match(const char *target, int match_mode, const char *command, int action, int value) {
     if (!target || !command) return -1;
 

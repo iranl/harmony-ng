@@ -5,6 +5,7 @@
  * Kept through device saves and reloads; hw_action refuses a value outside it. */
 
 #include "cJSON.h"
+#include <string.h>
 
 /* 1 for an array of two integers with min <= max */
 static inline int cmd_range_valid(const cJSON *r) {
@@ -40,6 +41,22 @@ static inline void cmd_range_copy(cJSON *dst, const cJSON *src) {
     cJSON_AddItemToArray(n, cJSON_CreateNumber(cJSON_GetArrayItem(r, 0)->valueint));
     cJSON_AddItemToArray(n, cJSON_CreateNumber(cJSON_GetArrayItem(r, 1)->valueint));
     cJSON_AddItemToObject(dst, "range", n);
+}
+
+/* A command without "range" takes the one of the manifest's default_commands entry of the same
+ * name (dev_def: the plugin's device_definition); nothing when the command has one */
+static inline void cmd_range_fill_from_manifest(cJSON *cmd, const cJSON *dev_def) {
+    const cJSON *cn = cJSON_GetObjectItemCaseSensitive(cmd, "name");
+    if (!cJSON_IsString(cn) || cJSON_GetObjectItemCaseSensitive(cmd, "range") || !dev_def) return;
+    const cJSON *dc = cJSON_GetObjectItemCaseSensitive(dev_def, "default_commands");
+    const cJSON *d = NULL;
+    cJSON_ArrayForEach(d, (cJSON_IsArray(dc) ? dc : NULL)) {
+        const cJSON *dn = cJSON_GetObjectItemCaseSensitive(d, "name");
+        if (cJSON_IsString(dn) && strcmp(dn->valuestring, cn->valuestring) == 0) {
+            cmd_range_copy(cmd, d);
+            return;
+        }
+    }
 }
 
 #endif

@@ -1988,7 +1988,7 @@ These are aliases of the command channel for existing automations and for the di
 | Topic | Payload | Does |
 | --- | --- | --- |
 | `<base>/activity/set` | an activity name, an activity id, `PowerOff` or `-1` | `start_activity` / `stop_activity` |
-| `<base>/send_command` | `{"device": "<name>"` or `"deviceId": "<id>", "command": "<cmd>"` or `"commands": [...]`, optional `repeats`, `delay` (s) or `delay_ms`, `hold` (s) or `hold_ms`, `action`}` | the commands in order, `repeats` times, `delay` apart (0.25 s default for more than one) |
+| `<base>/send_command` | `{"device": "<name>"` or `"deviceId": "<id>", "command": "<cmd>"` or `"commands": [...]`, optional `repeats`, `delay` (s) or `delay_ms`, `hold` (s) or `hold_ms`, `action`}` (no `value`: use `<base>/cmd` with the `send_command` action, 10.3, for a plugin command that takes one) | the commands in order, `repeats` times, `delay` apart (0.25 s default for more than one) |
 | `<base>/command/<device>/<command>` | any | one command to the device (id or name); a payload that is a plain integer is the command's `value` (plugin commands) |
 | `<base>/sync` | any | republishes every retained topic and the discovery entities |
 | `<base>/remote/<n>/sleep`, `<base>/remote/sleep` (slot 1) | any | `rf_sleep` |
@@ -2050,7 +2050,9 @@ whole here; only WebSocket replies cut it to 64); a request without `id`
 is executed and not answered. Actions and fields mirror the WebSocket actions (section 10):
 `ping`, `get_state`, `get_snapshot` (the reply carries the snapshot), `start_activity` (`activity`),
 `stop_activity`, `cancel_activity`, `cancel_commands`, `send_command` (`deviceId`, `command`, `status` = `press`,
-`hold`, `release` or omitted for a tap), `bt_key` (`key`, `keyAction`, `target`), `bt_text`,
+`hold`, `release` or omitted for a tap; `value`, an integer, for a single plugin command: one with a range needs
+it and answers `400` "value required" without; a list or `num_repeats` with such a command is refused the
+same way), `bt_key` (`key`, `keyAction`, `target`), `bt_text`,
 `bt_mouse`, `rf_wake` (`slot`), `rf_sleep` (`slot`), `sync`, `ir_raw` (fields of 5.4),
 `ir_capture` (`enabled`, 5.5; the reply carries `enabled`),
 `update_check`, `update_apply`, `activity_help`, `activity_help_answer` (10.6a, 10.6b).

@@ -156,6 +156,15 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                         cJSON_AddBoolToObject(new_cmd, "isMacro", 1);
                                     }
                                     cmd_range_copy(new_cmd, p);
+                                    /* a new plugin command without "range": the manifest's (the
+                                     * legacy UI's single preset Add sends none) */
+                                    if (dev_is_plugin && !cJSON_GetObjectItemCaseSensitive(p, "range")) {
+                                        char pid[64];
+                                        plugin_mgr_device_plugin_id(dev_item, pid, sizeof(pid));
+                                        cJSON *dd = plugin_mgr_get_device_definition(pid);
+                                        cmd_range_fill_from_manifest(new_cmd, dd);
+                                        cJSON_Delete(dd);
+                                    }
                                     if (dev_net) copy_net_cmd_fields(p, new_cmd);
                                     if (!is_bt_cmd && !is_mqtt_cmd && !is_ble_cmd && !is_plugin_cmd && !dev_net) {
                                         cJSON_AddNumberToObject(new_cmd, "repeats", repeats);
@@ -287,6 +296,13 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                             if (port > 0) cJSON_AddNumberToObject(new_cmd, "port", port);
                                         }
                                         cmd_range_copy(new_cmd, cmd_in);
+                                        if (dev_is_plugin && !cJSON_GetObjectItemCaseSensitive(cmd_in, "range")) {
+                                            char pid[64];
+                                            plugin_mgr_device_plugin_id(dev_item, pid, sizeof(pid));
+                                            cJSON *dd = plugin_mgr_get_device_definition(pid);
+                                            cmd_range_fill_from_manifest(new_cmd, dd);
+                                            cJSON_Delete(dd);
+                                        }
                                         cJSON_AddItemToArray(cmds, new_cmd);
                                     }
                                     saved_count++;

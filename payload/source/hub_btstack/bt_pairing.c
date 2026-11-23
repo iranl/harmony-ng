@@ -933,8 +933,8 @@ void try_connect_host_addr(const bd_addr_t addr) {
     uint8_t status = hid_device_connect((uint8_t*)addr, &cid);
     if (status != ERROR_CODE_SUCCESS || cid == 0) {
         g_host_connecting = false;
-        if (app_state == APP_SCANNING && !g_user_scan_active) {
-            gap_start_scan();
+        if ((app_state == APP_SCANNING && !g_user_scan_active) || g_adv_listen_active) {
+            gap_start_scan(); /* paused for the page above */
         }
         snprintf(msg, sizeof(msg), "Classic HID Host connect request failed (status=0x%02x, cid=0x%04x)", status, cid);
         log_msg(msg);

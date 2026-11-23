@@ -798,7 +798,8 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
 
             /* An integer (a number or its text); 1.9, "abc" or true is refused, not cut or taken as 0 */
             cJSON *jval = cJSON_GetObjectItemCaseSensitive(req_j, "value");
-            if (jval && cJSON_IsNumber(jval) && jval->valuedouble == (double)jval->valueint) {
+            if (jval && cJSON_IsNumber(jval) && jval->valuedouble == (double)jval->valueint &&
+                    jval->valueint != HW_VALUE_NONE) {
                 value = jval->valueint;
                 has_value = 1;
             } else if (jval && cJSON_IsString(jval) && jval->valuestring && jval->valuestring[0]) {
@@ -1463,6 +1464,9 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                 }
                 cJSON_Delete(flat_def);
 
+                /* the names of the commands the device has now: a manifest range is filled in only
+                 * for a command that is new (a range removed with null or [] stays removed) */
+                cJSON *stored_cmds = cJSON_Duplicate(cJSON_GetObjectItemCaseSensitive(found_dev, "commands"), 1);
                 /* If commands are provided in payload (e.g. plugin default_commands or batch list) */
                 cJSON *j_cmds = cJSON_GetObjectItemCaseSensitive(p, "commands");
                 if (j_cmds) {
@@ -1541,20 +1545,17 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                                 /* A command saved without "range" (a client that copies only name and
                                  * keyCode) takes the one of the manifest's command of that name: the
                                  * Hub would otherwise send any value */
-                                cJSON *def_cmds = cJSON_GetObjectItemCaseSensitive(dev_def, "default_commands");
                                 cJSON *cmd_it = NULL;
                                 cJSON_ArrayForEach(cmd_it, cur_cmds) {
                                     cJSON *cn = cJSON_GetObjectItemCaseSensitive(cmd_it, "name");
-                                    if (!cJSON_IsString(cn) || cJSON_GetObjectItemCaseSensitive(cmd_it, "range")) continue;
-                                    cJSON *def_it = NULL;
-                                    cJSON_ArrayForEach(def_it, (cJSON_IsArray(def_cmds) ? def_cmds : NULL)) {
-                                        cJSON *dn = cJSON_GetObjectItemCaseSensitive(def_it, "name");
-                                        cJSON *dr = cJSON_GetObjectItemCaseSensitive(def_it, "range");
-                                        if (cJSON_IsString(dn) && strcmp(dn->valuestring, cn->valuestring) == 0) {
-                                            if (cmd_range_valid(dr)) cJSON_AddItemToObject(cmd_it, "range", cJSON_Duplicate(dr, 1));
-                                            break;
-                                        }
+                                    if (!cJSON_IsString(cn)) continue;
+                                    int known = 0;
+                                    const cJSON *sc = NULL;
+                                    cJSON_ArrayForEach(sc, (cJSON_IsArray(stored_cmds) ? stored_cmds : NULL)) {
+                                        const cJSON *sn = cJSON_GetObjectItemCaseSensitive(sc, "name");
+                                        if (cJSON_IsString(sn) && strcmp(sn->valuestring, cn->valuestring) == 0) { known = 1; break; }
                                     }
+                                    if (!known) cmd_range_fill_from_manifest(cmd_it, dev_def);
                                 }
                             }
                             cJSON_Delete(dev_def);
@@ -1562,6 +1563,7 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                     }
                 }
 
+                cJSON_Delete(stored_cmds);
                 if (config_store_save_devices(root) == 0) {
                     root = NULL;
                     success = 1;

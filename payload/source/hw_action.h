@@ -97,6 +97,9 @@ int hw_device_command_send_value(const char *target, int match_mode, const char 
 #define HW_ERR_VALUE_MISSING (-1008)
 /* 1 when value fits the command's "range" (or the command has none) */
 int hw_command_value_in_range(const cJSON *cmd, int value);
+/* 1 when the device's command (exact name, any case) is a plugin command with a range, so a
+ * send without a value would be refused */
+int hw_device_command_needs_value(const char *target, int match_mode, const char *command);
 int hw_device_command_send(const char *device_id, const char *command);
 int hw_device_command_send_by_id(const char *device_id, const char *command);
 int hw_device_command_send_by_name(const char *device_name, const char *command);

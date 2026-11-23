@@ -18,6 +18,8 @@ void bt_listen_end(const char *why);
 /* The pinned remote advertised during a listen: the listen ends, and a new one is refused
  * until the remote is connected (at most ADV_LISTEN_REMOTE_HOLD_MS) */
 void bt_listen_end_for_remote(void);
+/* false after the remote ended a listen and did not connect: its reports end no listen then */
+bool bt_listen_remote_may_end(void);
 
 /* Called for every advertising report while listening */
 void bt_listen_on_report(const uint8_t *packet);

@@ -1913,7 +1913,9 @@ paths:
                 deviceId: "70321456"
                 command: PowerToggle
         '400':
-          description: Neither deviceId with one command name nor a Pronto code
+          description: |
+            Neither deviceId with one command name nor a Pronto code; "value must be an integer"; "value out of
+            range" (a plugin command with a range); "value required (the command has a range)"
         '500':
           description: The send failed, or the device or the command is not known ("error":"IR transmit failed")
 
@@ -4335,8 +4337,10 @@ paths:
         - Plugins
       summary: Pair a plugin with its device
       description: |
-        Starts the plugin daemon if needed, sends the pairing step to it and waits for its answer (the manifest's
-        `pairing.timeout_s`, default 15 s, at most 60).
+        Starts the plugin daemon if needed, sends the pairing step to it and waits for its answer: 15 s at most
+        for a start or PIN step (whatever `pairing.timeout_s` says), 1 s for a listen or confirm pairing (which
+        then runs for `timeout_s`). A plugin that cannot take the step (not running, no socket) answers `ok: false`
+        with `stage: error` after about 3 s.
         `action` `start` (default) asks the device to show a code; `pin` (or `finish_pair`) sends the code the user read from the device;
         `status` returns the plugin's current status and sends nothing.
         A plugin whose manifest has `pairing.type: listen` hears its device itself: no `host` is needed, `start` answers

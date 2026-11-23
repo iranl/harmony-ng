@@ -236,7 +236,7 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
 
             /* The pinned remote advertises (a key pressed, it wants its link): a plugin's listen
              * ends for it, and a renewal waits until the remote is connected (bt_listen.c) */
-            if (match && g_adv_listen_active) bt_listen_end_for_remote();
+            if (match && g_adv_listen_active && bt_listen_remote_may_end()) bt_listen_end_for_remote();
             if (match && !g_adv_listen_active) {
                 memcpy(remote_device.addr, adv_addr, 6);
                 remote_device.addr_type = adv_addr_type;
