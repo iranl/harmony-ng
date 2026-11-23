@@ -4,6 +4,7 @@
 #include "cJSON.h"
 #include "bt_common.h"
 #include "json_number.h"
+#include "plugin_mgr.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -87,17 +88,25 @@ void sanitize_devices_json(cJSON *root) {
         cJSON *jtype = cJSON_GetObjectItemCaseSensitive(src_d, "type");
         const char *type_str = (jtype && jtype->valuestring) ? jtype->valuestring : "IR";
 
+        /* A plugin device only through its "plugin" field or a "plugin:<id>" type, with a safe
+         * id: the free-text type of an IR device is never compared with plugin names. That
+         * choice wins over the MQTT and Bluetooth guesses below: a plugin whose name says
+         * "Bluetooth" (the new UI puts it in the manufacturer) lost its plugin. */
+        char res_plug_id[64] = {0};
+        int is_plugin = plugin_mgr_device_plugin_id(src_d, res_plug_id, sizeof(res_plug_id));
+
         cJSON *jmqtt_en = cJSON_GetObjectItemCaseSensitive(src_d, "mqttEnabled");
-        int is_mqtt = (strcasecmp(type_str, "MQTT") == 0 ||
+        int is_mqtt = !is_plugin && (strcasecmp(type_str, "MQTT") == 0 ||
                        (jmqtt_en && (cJSON_IsTrue(jmqtt_en) || (cJSON_IsNumber(jmqtt_en) && jmqtt_en->valueint == 1))));
 
         cJSON *jtrans = cJSON_GetObjectItemCaseSensitive(src_d, "transport");
-        int is_bt = (!is_mqtt) && ((jtrans && cJSON_IsNumber(jtrans) && jtrans->valueint == 32) ||
+        int is_bt = !is_plugin && !is_mqtt && ((jtrans && cJSON_IsNumber(jtrans) && jtrans->valueint == 32) ||
                        strcasecmp(type_str, "BT") == 0 || strcasecmp(type_str, "Bluetooth") == 0 ||
                        strcasestr(type_str, "bluetooth") != NULL || strcasestr(mfg_str, "bluetooth") != NULL ||
                        strcasecmp(type_str, "BTHID") == 0);
 
         const char *final_type = "IR";
+        char plug_type_buf[128] = {0};
         if (is_mqtt) {
             final_type = (type_str && type_str[0]) ? type_str : "MQTT";
         } else if (is_bt) {
@@ -107,6 +116,17 @@ void sanitize_devices_json(cJSON *root) {
             int type_says_bt = strcasecmp(type_str, "BT") == 0 || strcasestr(type_str, "bluetooth") != NULL ||
                                strcasecmp(type_str, "BTHID") == 0 || strcasestr(mfg_str, "bluetooth") != NULL;
             final_type = (type_str && type_str[0] && type_says_bt) ? type_str : "BT";
+        } else if (is_plugin) {
+            if (res_plug_id[0]) {
+                if (type_str && type_str[0] && strncasecmp(type_str, "plugin:", 7) != 0 && strcasecmp(type_str, "plugin") != 0) {
+                    final_type = type_str; /* preserve custom device type, e.g. Roku, PS5 */
+                } else {
+                    snprintf(plug_type_buf, sizeof(plug_type_buf), "plugin:%s", res_plug_id);
+                    final_type = plug_type_buf;
+                }
+            } else {
+                final_type = (type_str && type_str[0]) ? type_str : "plugin";
+            }
         } else if (type_str && type_str[0]) {
             final_type = type_str;
         }
@@ -118,7 +138,7 @@ void sanitize_devices_json(cJSON *root) {
             else if (cJSON_IsNumber(jicon)) cJSON_AddNumberToObject(cdev, "icon", jicon->valueint);
         }
 
-        if (!is_bt && !is_mqtt) {
+        if (!is_bt && !is_mqtt && !is_plugin) {
             cJSON *jcp = cJSON_GetObjectItemCaseSensitive(src_d, "controlPort");
             int cp_val = (jcp && cJSON_IsNumber(jcp)) ? jcp->valueint : 7;
             cJSON_AddNumberToObject(cdev, "controlPort", (cp_val >= 0 && cp_val <= 7) ? cp_val : 7);
@@ -217,6 +237,23 @@ void sanitize_devices_json(cJSON *root) {
             cJSON_AddNumberToObject(cdev, "mqttPulseMs", (jpul && cJSON_IsNumber(jpul)) ? jpul->valueint : 1000);
         }
 
+        /* Plugin */
+        if (res_plug_id[0]) {
+            cJSON_AddStringToObject(cdev, "plugin", res_plug_id);
+        }
+
+        cJSON *j_cfg = cJSON_GetObjectItemCaseSensitive(src_d, "config");
+        if (j_cfg && cJSON_IsObject(j_cfg)) {
+            cJSON_AddItemToObject(cdev, "config", cJSON_Duplicate(j_cfg, 1));
+        } else if (j_cfg && cJSON_IsString(j_cfg) && j_cfg->valuestring && j_cfg->valuestring[0]) {
+            cJSON *parsed = cJSON_Parse(j_cfg->valuestring);
+            if (parsed && cJSON_IsObject(parsed)) {
+                cJSON_AddItemToObject(cdev, "config", parsed);
+            } else if (parsed) {
+                cJSON_Delete(parsed);
+            }
+        }
+
         /* Power Sequences */
         cJSON *po = cJSON_GetObjectItemCaseSensitive(src_d, "powerOnSequence");
         if (po && cJSON_IsArray(po)) {
@@ -258,13 +295,16 @@ void sanitize_devices_json(cJSON *root) {
 
                 cJSON *ckc = cJSON_GetObjectItemCaseSensitive(c, "keyCode");
                 const char *kc_str = (ckc && ckc->valuestring) ? ckc->valuestring : "";
-                cJSON_AddStringToObject(ccmd, "keyCode", kc_str);
 
                 cJSON *craw = cJSON_GetObjectItemCaseSensitive(c, "raw");
                 const char *raw_str = (craw && craw->valuestring) ? craw->valuestring : "";
-                cJSON_AddStringToObject(ccmd, "raw", raw_str[0] ? raw_str : kc_str);
 
-                if (!is_bt && !is_mqtt) {
+                const char *raw_val = (raw_str && raw_str[0]) ? raw_str : kc_str;
+                const char *kc_val = (kc_str && kc_str[0]) ? kc_str : raw_val;
+                cJSON_AddStringToObject(ccmd, "keyCode", kc_val);
+                cJSON_AddStringToObject(ccmd, "raw", raw_val);
+
+                if (!is_bt && !is_mqtt && !is_plugin) {
                     cJSON *cp_item = cJSON_GetObjectItemCaseSensitive(c, "port");
                     cJSON *dev_cp = cJSON_GetObjectItemCaseSensitive(cdev, "controlPort");
                     /* ports are the same 0..7 as controlPort; the sender keeps repeats in 8 bits */

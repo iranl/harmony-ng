@@ -220,9 +220,7 @@ void handle_rf_frame(const rf_frame_t *f) {
             uint8_t slot = f->dev_slot ? f->dev_slot : (g_remote_slot ? g_remote_slot : 0x01);
             printf("[*] SYNC_REQUEST: type=%d seq=%d slot=%d\n", req_type, f->seq, slot);
 
-            char cur[32] = "-1";
-            get_current_activity(cur, sizeof(cur));
-            rf_send_hub_activity_sync_slot(cur, f->seq, slot, 0x01);
+            rf_send_hub_activity_query_reply(f->seq, slot);
 
             if (req_type == 0x02) {
                 rf_sync_cache_invalidate();
@@ -286,6 +284,12 @@ void handle_rf_frame(const rf_frame_t *f) {
             bool ver_changed = strcmp(g_remote_versions[idx].sw_version, new_ver) != 0 ||
                                g_remote_versions[idx].config_version != cfg_ver ||
                                g_remote_versions[idx].caps != caps;
+            /* The push depends on the caps (Warmup steps, Help keys): a remote whose caps changed
+               (an update, or init.sh falling back to remote_ui.bak) keeps a list built for the old
+               ones. A new config version makes it ask for the push. Not for a remote not heard
+               before: its pairing pushes anyway. */
+            bool caps_changed = g_remote_versions[idx].caps != caps &&
+                                strcmp(g_remote_versions[idx].sw_version, "unknown") != 0;
             snprintf(g_remote_versions[idx].sw_version, sizeof(g_remote_versions[idx].sw_version), "%s", new_ver);
             g_remote_versions[idx].config_version = cfg_ver;
             g_remote_versions[idx].caps = caps;
@@ -295,6 +299,10 @@ void handle_rf_frame(const rf_frame_t *f) {
             snprintf(vpath, sizeof(vpath), "/data/harmony/remote_slot%d_version.json", slot);
             if (ver_changed || access(vpath, F_OK) != 0) rf_state_save_version_file(slot);
             printf("[*] VERSION_REPORT: Slot %d -> SW v%s, Config v%d, caps 0x%02X\n", slot, g_remote_versions[idx].sw_version, cfg_ver, caps);
+            if (caps_changed && cfg_ver == g_config_version) {
+                printf("[*] Slot %d capabilities changed: new config version for a push\n", slot);
+                rf_config_version_bump();
+            }
             rf_key_note_restart_hint(slot); /* sent when remote_ui starts: its key counter may begin at 1 again */
             rf_frame_t ack;
             rf_build_ack(&ack, slot, f->seq, 0x00);

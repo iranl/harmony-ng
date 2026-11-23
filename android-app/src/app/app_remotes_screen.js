@@ -423,6 +423,11 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
         type: 'activity_stop',
         action: 'activity_stop'
       };
+    } else if (type === 'help') {
+      mapObj = {
+        type: 'help',
+        action: 'help'
+      };
     } else if (type === 'sequence') {
       mapObj = {
         type: 'sequence',

@@ -176,6 +176,7 @@ function actionOf(b) {
   if (a === 'device_cmd' || a === 'command' || (!a && b.command && (b.deviceId || b.targetDevice))) return 'command';
   if (a === 'activity_start' || a === 'change_activity') return 'activity';
   if (a === 'activity_stop' || a === 'poweroff') return 'poweroff';
+  if (a === 'help') return 'help';
   return a === 'none' ? 'none' : `unsupported:${a}`;
 }
 
@@ -205,6 +206,7 @@ export function createButtonEditor() {
       case 'command': return `${deviceName(b.deviceId || b.targetDevice)} › ${b.command}`;
       case 'activity': return t('start_activity_name', 'Start {name}', { name: activityName(b.activityId || b.targetActivity || b.deviceId) });
       case 'poweroff': return t('turn_everything_off', 'Turn everything off');
+      case 'help': return t('map_action_help', 'Activity Help (Repair)');
       case 'none': return t('binding_nothing', 'Nothing');
       default: return t('binding_unsupported', 'Not supported by the Hub ({action})', { action: b.action || b.type });
     }
@@ -592,6 +594,7 @@ export function createButtonEditor() {
         ['command', t('mode_send_device_command', 'Send a device command')],
         ['activity', t('mode_start_activity', 'Start an activity')],
         ['poweroff', t('turn_everything_off', 'Turn everything off')],
+        ['help', t('map_action_help', 'Activity Help (Repair)')],
         ['none', isDefaults ? t('binding_nothing', 'Nothing') : t('mode_nothing_ignore_default', 'Nothing (ignore the default)')],
       ];
     if (mode.startsWith('unsupported:')) modes.push([mode, describe(own)]);
@@ -610,6 +613,7 @@ export function createButtonEditor() {
         } else if (m === 'activity') {
           setBinding(selected, { type: 'activity_start', action: 'activity_start', activityId: String(activities()[0]?.id || '') });
         } else if (m === 'poweroff') setBinding(selected, { type: 'activity_stop', action: 'activity_stop' });
+        else if (m === 'help') setBinding(selected, { type: 'help', action: 'help' });
         else if (m === 'none') setBinding(selected, { type: 'none', action: 'none' });
       },
     }, modes.map(([v, text]) => h('option', { value: v, text, selected: v === mode })));

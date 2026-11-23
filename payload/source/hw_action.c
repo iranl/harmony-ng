@@ -7,6 +7,8 @@
 #include "bt_common.h"
 #include "orchestrator.h"
 #include "hub_events.h"
+#include "ble_adv_payload.h"
+#include "plugin_mgr.h"
 #include "cJSON.h"
 
 #include <stdio.h>
@@ -16,6 +18,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <sys/socket.h>
+#include <sys/un.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <netinet/in.h>
@@ -632,6 +635,11 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
     cJSON *j_mtop = cJSON_GetObjectItemCaseSensitive(target_dev, "mqttTopic");
     if (j_mtop && cJSON_IsString(j_mtop) && j_mtop->valuestring && j_mtop->valuestring[0]) is_mqtt = 1;
 
+    /* Only the device's "plugin" field or "plugin:<id>" type: no manifest is read in the key
+     * path, and an IR device whose type happens to match a plugin name stays IR */
+    char plugin_id[64] = {0};
+    int is_plugin = plugin_mgr_device_plugin_id(target_dev, plugin_id, sizeof(plugin_id));
+
     /* Find Command */
     cJSON *cmds = cJSON_GetObjectItemCaseSensitive(target_dev, "commands");
     cJSON *target_cmd = NULL;
@@ -664,7 +672,7 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
         }
     }
 
-    if (!target_cmd && !is_mqtt) {
+    if (!target_cmd && !is_mqtt && !is_plugin) {
         return -6;
     }
 
@@ -682,6 +690,24 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
             if (j_raw && cJSON_IsString(j_raw) && j_raw->valuestring && j_raw->valuestring[0]) {
                 keycode_str = j_raw->valuestring;
             }
+        }
+    }
+
+    /* Points into the saved keyCode (held until the send is done): a copy cut long app links */
+    const char *plug_cmd = command;
+    if (strncmp(keycode_str, "PLUGIN:", 7) == 0 || strncmp(keycode_str, "plugin:", 7) == 0) {
+        is_plugin = 1;
+        const char *p = keycode_str + 7;
+        const char *colon = strchr(p, ':');
+        if (colon) {
+            size_t plen = (size_t)(colon - p);
+            if (plen < sizeof(plugin_id)) {
+                memcpy(plugin_id, p, plen);
+                plugin_id[plen] = '\0';
+            }
+            if (colon[1]) plug_cmd = colon + 1;
+        } else if (!plugin_id[0]) {
+            strncpy(plugin_id, p, sizeof(plugin_id) - 1);
         }
     }
 
@@ -773,7 +799,30 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
         }
     }
 
-    if (is_bt) {
+    int is_ble_adv = (strncmp(keycode_str, BLE_ADV_KEYCODE_PREFIX, BLE_ADV_KEYCODE_PREFIX_LEN) == 0);
+
+    if (is_plugin && plugin_id[0]) {
+        cJSON *j_cfg = cJSON_GetObjectItemCaseSensitive(target_dev, "config");
+        ret = hw_plugin_command_send(plugin_id, actual_dev_id, dev_name, plug_cmd, action, 0, j_cfg ? j_cfg : target_dev);
+    } else if (is_ble_adv) {
+        /* One broadcast per press: the receiver acts on the packet, not on how long it is held */
+        if (action == HW_BTN_ACTION_RELEASE || action == HW_BTN_ACTION_REPEAT) {
+            ret = 0;
+        } else {
+            const char *hex = keycode_str + BLE_ADV_KEYCODE_PREFIX_LEN;
+            uint8_t adv[BLE_ADV_MAX_LEN];
+            int adv_len = ble_adv_parse_hex(hex, adv, NULL);
+            if (adv_len < 0) {
+                printf("[!] BLE broadcast '%s' skipped: Device '%s' (%s) has an invalid payload\n",
+                       command, dev_name[0] ? dev_name : "BLE-Device", actual_dev_id);
+                ret = -2;
+            } else {
+                char adv_cmd[8 + 2 * BLE_ADV_MAX_LEN];
+                snprintf(adv_cmd, sizeof(adv_cmd), "adv %.*s\n", 2 * adv_len, hex);
+                ret = hub_send_btstack_cmd(adv_cmd);
+            }
+        }
+    } else if (is_bt) {
         if (!bdaddr[0]) {
             pthread_mutex_unlock(&s_hw_cmd_lock);
             printf("[!] BT command '%s' skipped: Device '%s' (%s) has no host paired\n",
@@ -1172,4 +1221,73 @@ int hw_bt_release_all(void) {
     ssize_t w = write(fd, "RELEASE\n", 8);
     close(fd);
     return (w == 8) ? 0 : -1;
+}
+
+int hw_plugin_command_send(const char *plugin_id, const char *dev_id, const char *dev_name,
+                          const char *command, int action, int value, const cJSON *config) {
+    /* the id goes into the socket path */
+    if (!plugin_mgr_is_safe_id(plugin_id) || !command || !command[0]) return -1;
+
+    char sock_path[128];
+    snprintf(sock_path, sizeof(sock_path), HARMONY_PLUGINS_RUN_DIR "/%s.sock", plugin_id);
+
+    const char *action_str = "press";
+    if (action == HW_BTN_ACTION_RELEASE) action_str = "release";
+    else if (action == HW_BTN_ACTION_REPEAT) action_str = "repeat";
+    else if (action == HW_BTN_ACTION_TAP) action_str = "tap";
+
+    if (g_dry_run) {
+        printf("[DRY-RUN] Plugin command simulated: plugin=%s dev=%s (%s) cmd=%s action=%s val=%d sock=%s\n",
+               plugin_id, dev_id ? dev_id : "", dev_name ? dev_name : "", command, action_str, value, sock_path);
+        return 0;
+    }
+
+    int s = socket(AF_UNIX, SOCK_DGRAM, 0);
+    if (s < 0) return -1;
+
+    struct sockaddr_un sun;
+    memset(&sun, 0, sizeof(sun));
+    sun.sun_family = AF_UNIX;
+    strncpy(sun.sun_path, sock_path, sizeof(sun.sun_path) - 1);
+
+    cJSON *msg = cJSON_CreateObject();
+    if (msg) {
+        cJSON_AddStringToObject(msg, "plugin_id", plugin_id);
+        cJSON_AddStringToObject(msg, "device_id", dev_id ? dev_id : "");
+        cJSON_AddStringToObject(msg, "device_name", dev_name ? dev_name : "");
+        cJSON_AddStringToObject(msg, "command", command);
+        cJSON_AddStringToObject(msg, "action", action_str);
+        cJSON_AddNumberToObject(msg, "value", value);
+        /* When it was queued (CLOCK_MONOTONIC ms): a plugin drops a repeat that waited too long */
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        cJSON_AddNumberToObject(msg, "ts", (double)((uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL));
+        if (config) {
+            /* A device with no "config" object goes as itself, but not its command list: the
+             * datagram outgrew the plugin's buffer and the fields after it were lost */
+            cJSON *cfg = cJSON_CreateObject();
+            const cJSON *it = NULL;
+            cJSON_ArrayForEach(it, config) {
+                if (it->string && strcmp(it->string, "commands") != 0) {
+                    cJSON_AddItemReferenceToObject(cfg, it->string, (cJSON *)it);
+                }
+            }
+            cJSON_AddItemToObject(msg, "config", cfg);
+        }
+    }
+
+    char *json = msg ? cJSON_PrintUnformatted(msg) : NULL;
+    ssize_t sent = -1;
+    if (json) {
+        /* Never waits: this runs under the lock of every device send, and a plugin busy with
+         * a slow device (its queue full) stalled IR and Bluetooth keys behind it */
+        sent = sendto(s, json, strlen(json), MSG_DONTWAIT, (struct sockaddr *)&sun, sizeof(sun));
+        if (sent < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            printf("[!] Plugin '%s' busy (queue full): '%s' %s dropped\n", plugin_id, command, action_str);
+        }
+        free(json);
+    }
+    if (msg) cJSON_Delete(msg);
+    close(s);
+    return (sent > 0) ? 0 : -1;
 }

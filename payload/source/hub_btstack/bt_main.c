@@ -292,6 +292,8 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
             char msg[128];
             snprintf(msg, sizeof(msg), "Classic BT: Connection Complete: %s handle=0x%04x status=0x%02x", bd_addr_to_str(conn_addr), handle, status);
             log_msg(msg);
+            /* Generic bt_page: restore spoof, disconnect if needed */
+            bt_page_on_complete(conn_addr, status, handle);
             if (status == 0) {
                 /* A host table entry only for a known host, or for a device that may be pairing:
                  * every ACL link of any device used to take one of the four entries for good,

@@ -539,13 +539,7 @@ void *api_server_worker(void *arg) {
                     rf_keymap_invalidate_activities_cache();
                     rf_keymap_invalidate_map(1);
                     rf_keymap_invalidate_map(2);
-                    g_config_version++;
-                    if (g_config_version == 0) g_config_version = 1;
-                    char vline[16];
-                    snprintf(vline, sizeof(vline), "%d\n", g_config_version);
-                    if (atomic_file_write_str("/data/harmony/config_version", vline) != 0) {
-                        fprintf(stderr, "[-] Could not save /data/harmony/config_version\n");
-                    }
+                    rf_config_version_bump();
                     pthread_t push_th;
                     int push_ok = (pthread_create(&push_th, NULL, config_push_worker, NULL) == 0);
                     if (push_ok) pthread_detach(push_th);
@@ -564,7 +558,8 @@ void *api_server_worker(void *arg) {
                     rf_sync_cache_invalidate();
                     char cur[32] = "-1";
                     get_current_activity(cur, sizeof(cur));
-                    rf_send_hub_activity_sync(cur);
+                    /* Mid-switch this would end the remotes' switch screen: the end notice follows */
+                    if (!is_activity_transitioning()) rf_send_hub_activity_sync(cur);
                     const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"synced\"}";
                     write(cli, res, strlen(res));
                 }

@@ -61,6 +61,10 @@ export function createSystemApi(client) {
       return client.postForm('/system', { action: 'reboot' });
     },
 
+    async cleanStockResources() {
+      return client.postForm('/system', { action: 'clean_stock_resources', confirm: 'EMPTY' });
+    },
+
     async saveSystemAction(action, extra = {}) {
       return client.postForm('/system', { action, ...extra });
     },
@@ -297,6 +301,44 @@ export function createSystemApi(client) {
         }
       }
       client.connectWebSocket(true);
+    },
+
+    async getPlugins() {
+      return client.request('/api/plugins');
+    },
+
+    // The Hub fetches every repository (20 s each at most); refresh skips its 10 minute cache
+    async getPluginMarketplace(forceReload = false) {
+      return client.request(`/api/plugins/marketplace${forceReload ? '?refresh=1' : ''}`, { timeout: 60000 });
+    },
+
+    async getPluginRepositories() {
+      return client.request('/api/plugins/repositories');
+    },
+
+    async updatePluginRepositories(action, url) {
+      return client.postJson('/api/plugins/repositories', { action, url });
+    },
+
+    // An install downloads for up to 120 s on the Hub. An upload needs the archive's SHA-256,
+    // or isDev for a local build.
+    async installPlugin(urlOrBase64, isDev = false, sha256 = '') {
+      const opts = { timeout: 130000 };
+      if (typeof urlOrBase64 === 'string' && urlOrBase64.startsWith('http')) {
+        return client.postJson('/api/plugins/install', { url: urlOrBase64, dev: !!isDev }, opts);
+      }
+      const body = { archive_base64: urlOrBase64 };
+      if (sha256) body.sha256 = sha256;
+      if (isDev) body.dev = true;
+      return client.postJson('/api/plugins/install', body, opts);
+    },
+
+    async pluginAction(id, action) {
+      return client.postJson('/api/plugins/action', { id, action });
+    },
+
+    async uninstallPlugin(id) {
+      return client.postJson('/api/plugins/uninstall', { id });
     }
   };
 }

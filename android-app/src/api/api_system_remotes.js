@@ -112,12 +112,28 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
     return this.postForm('/ir/command', data);
   }
 
+  // config goes as one JSON field: copied flat on top, a config key named like a device field
+  // (name, deviceId) replaced it
   async saveNewDevice(data) {
-    return this.postForm('/ir/new-device', data);
+    const payload = { ...data };
+    if (data.config && typeof data.config === 'object') {
+      payload.config = JSON.stringify(data.config);
+    }
+    if (data.commands && typeof data.commands === 'object') {
+      payload.commands = JSON.stringify(data.commands);
+    }
+    return this.postForm('/ir/new-device', payload);
   }
 
   async saveDeviceDetails(data) {
-    return this.postForm('/ir/device', data);
+    const payload = { ...data };
+    if (data.config && typeof data.config === 'object') {
+      payload.config = JSON.stringify(data.config);
+    }
+    if (data.commands && typeof data.commands === 'object') {
+      payload.commands = JSON.stringify(data.commands);
+    }
+    return this.postForm('/ir/device', payload);
   }
 
   async deleteDevice(deviceId) {
@@ -316,6 +332,10 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
     return this.saveSystemAction('reboot');
   }
 
+  async cleanStockResources() {
+    return this.saveSystemAction('clean_stock_resources', { confirm: 'EMPTY' });
+  }
+
   async getUpdateStatus() {
     return this.request('/api/update-status');
   }
@@ -485,5 +505,52 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
     return this.request(`/api/auth/tokens?id=${encodeURIComponent(id)}`, {
       method: 'DELETE'
     });
+  }
+
+  async getPlugins() {
+    return this.request('/api/plugins');
+  }
+
+  // The Hub fetches every repository (20 s each at most); refresh skips its 10 minute cache
+  async getPluginMarketplace(forceReload = false) {
+    return this.request(`/api/plugins/marketplace${forceReload ? '?refresh=1' : ''}`, { timeout: 60000 });
+  }
+
+  async getPluginRepositories() {
+    return this.request('/api/plugins/repositories');
+  }
+
+  async updatePluginRepositories(action, url) {
+    return this.postJson('/api/plugins/repositories', { action, url });
+  }
+
+  // An install downloads for up to 120 s on the Hub. An upload needs the archive's SHA-256, or
+  // isDev for a local build.
+  async installPlugin(urlOrBase64, isDev = false, sha256 = '') {
+    const opts = { timeout: 130000 };
+    if (typeof urlOrBase64 === 'string' && urlOrBase64.startsWith('http')) {
+      return this.postJson('/api/plugins/install', { url: urlOrBase64, dev: !!isDev }, opts);
+    }
+    const body = { archive_base64: urlOrBase64 };
+    if (sha256) body.sha256 = sha256;
+    if (isDev) body.dev = true;
+    return this.postJson('/api/plugins/install', body, opts);
+  }
+
+  async pullPlugin(id) {
+    return this.postJson('/api/plugins/pull', { id }, { timeout: 130000 });
+  }
+
+  async pluginAction(id, action) {
+    return this.postJson('/api/plugins/action', { id, action });
+  }
+
+  async uninstallPlugin(id) {
+    return this.postJson('/api/plugins/uninstall', { id });
+  }
+
+  // The Hub waits up to 15 s for the plugin's answer. No port: the plugin knows its own.
+  async pairPlugin(id, action, host, pin = '') {
+    return this.postJson('/api/plugins/pair', { id, action, host, pin }, { timeout: 20000 });
   }
 }

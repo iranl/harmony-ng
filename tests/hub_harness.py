@@ -10,6 +10,7 @@ test_status.py and record_fixtures.py. Pure stdlib.
 """
 
 import base64
+import hashlib
 import http.client
 import json
 import os
@@ -27,6 +28,9 @@ REPO_ROOT = os.path.abspath(os.path.join(TESTS_DIR, ".."))
 BUILD_DIR = os.path.join(REPO_ROOT, "build", "tmp", "test_host")
 HUB_BIN = os.path.join(BUILD_DIR, "hub_daemon_test")
 MOCK_LIB = os.path.join(BUILD_DIR, "libmock_hardware.so")
+# plugin sockets and logs of the harness daemon: short (a socket path has 108 bytes, a long
+# checkout path did not fit) and one per checkout
+PLUGIN_RUN_DIR = "/tmp/hhp-%s" % hashlib.sha1(BUILD_DIR.encode()).hexdigest()[:8]
 SAMPLE_CONFIG = os.path.join(TESTS_DIR, "fixtures", "ha", "sample_config")
 
 # Sources of the host build of hub_daemon (keep in sync with build/compile_all.sh;
@@ -36,6 +40,7 @@ HUB_DAEMON_SOURCES = [
     "http_api_activities.c", "http_api_devices.c", "http_api_commands.c",
     "http_api_custom_icons.c", "http_api_network.c", "hub_network_util.c", "wifi_config.c",
     "http_api_remotes.c", "http_api_ota.c", "http_api_backup.c", "http_api_system.c",
+    "http_api_plugins.c", "plugin_mgr.c",
     "config_store.c", "bt_migrate.c", "config_sanitize.c", "orchestrator.c",
     "orchestrator_queue.c", "hub_mqtt.c", "hub_mqtt_ha.c", "hub_ws.c", "hub_ntp.c",
     "resource_cache.c", "cJSON.c", "ir_encoder.c", "ir_i2s.c", "hw_action.c",
@@ -72,7 +77,9 @@ def build_hub_daemon_test(force=False, extra_cflags=None, out=HUB_BIN):
     """Compile the host daemon with -DTEST_HARNESS=1 (when missing, when a source changed, when
     the compile command changed, or with force)."""
     cmd = ["gcc", "-Wall", "-O2", "-g", "-Werror=implicit-function-declaration", "-DTEST_HARNESS=1",
-           "-I" + os.path.join(REPO_ROOT, "payload", "source")]
+           "-I" + os.path.join(REPO_ROOT, "payload", "source"),
+           # plugin sockets and logs not in the host's /tmp/plugins
+           '-DHARMONY_PLUGINS_RUN_DIR="%s"' % PLUGIN_RUN_DIR]
     cmd += list(extra_cflags or [])
     cmd += [os.path.join(REPO_ROOT, "payload", "source", s) for s in HUB_DAEMON_SOURCES]
     cmd += ["-lpthread", "-lm", "-o", out]

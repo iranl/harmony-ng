@@ -29,6 +29,18 @@ build_test -Wall -O2 -fsanitize=address -include sys/stat.h -include time.h -Dma
     $(sed -n 's/^ *RF_SRCS="\(.*\)"$/\1/p' "$REPO_ROOT/build/compile_all.sh" | sed "s|payload/|$REPO_ROOT/payload/|g") "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm
 ASAN_PRELOAD=$(ldd "$BUILD_DIR/test_rf_push_targets" 2>/dev/null | grep libasan | awk '{print $3}' || true)
 HARMONY_MOCK_DIR="/tmp/harmony_mock" LD_PRELOAD="${ASAN_PRELOAD:+$ASAN_PRELOAD:}$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_rf_push_targets"
+# hub_rf config push step list: device warmup step, leading delay step, default steps (own mock folder)
+build_test -Wall -O2 -fsanitize=address -include sys/stat.h -include time.h -Dmain=hub_rf_main -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_push_steps" "$SCRIPT_DIR/test_rf_push_steps.c" \
+    $(sed -n 's/^ *RF_SRCS="\(.*\)"$/\1/p' "$REPO_ROOT/build/compile_all.sh" | sed "s|payload/|$REPO_ROOT/payload/|g") "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm
+PUSH_STEPS_DIR="$(mktemp -d /tmp/hng_push_steps.XXXXXX)"
+mkdir -p "$PUSH_STEPS_DIR/data/harmony/config"
+HARMONY_MOCK_DIR="$PUSH_STEPS_DIR" LD_PRELOAD="${ASAN_PRELOAD:+$ASAN_PRELOAD:}$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_rf_push_steps" \
+    || { rm -rf "$PUSH_STEPS_DIR"; exit 1; }
+rm -rf "$PUSH_STEPS_DIR"
+# hub_rf switch start notice only to remotes that report RF_CAP_SWITCH_START
+build_test -Wall -O2 -fsanitize=address -include sys/stat.h -include time.h -Dmain=hub_rf_main -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_switch_notice" "$SCRIPT_DIR/test_rf_switch_notice.c" \
+    $(sed -n 's/^ *RF_SRCS="\(.*\)"$/\1/p' "$REPO_ROOT/build/compile_all.sh" | sed "s|payload/|$REPO_ROOT/payload/|g") "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm
+HARMONY_MOCK_DIR="/tmp/harmony_mock" HARMONY_MOCK_ACTIVITY_FILES=1 LD_PRELOAD="${ASAN_PRELOAD:+$ASAN_PRELOAD:}$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_rf_switch_notice"
 build_test -Wall -Wextra -O2 -pthread -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_mqtt_client_io" "$SCRIPT_DIR/test_mqtt_client_io.c" "$REPO_ROOT/payload/source/mqtt_client.c" && "$BUILD_DIR/test_mqtt_client_io"
 python3 "$SCRIPT_DIR/test_switched_marker.py"
 build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_hbus_config" "$SCRIPT_DIR/test_hbus_config.c" "$REPO_ROOT/payload/source/hbus_config.c" "$REPO_ROOT/payload/source/sha256.c" "$REPO_ROOT/payload/source/cJSON.c" -lm && "$BUILD_DIR/test_hbus_config" "$SCRIPT_DIR/fixtures/ha/sample_config"
@@ -36,7 +48,7 @@ build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_h
 build_test -Wall -Wextra -O1 -g -fsanitize=address -pthread -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_config_snap" "$SCRIPT_DIR/test_config_snap.c" "$REPO_ROOT/payload/source/cJSON.c" -lm && "$BUILD_DIR/test_config_snap"
 # Key presses read the shared device list without copying it
 build_test -Wall -O1 -g -fsanitize=address -pthread -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_config_keypath" "$SCRIPT_DIR/test_config_keypath.c" \
-    "$REPO_ROOT"/payload/source/{config_store,resource_cache,hw_action,bt_migrate,config_sanitize,cJSON}.c -lm
+    "$REPO_ROOT"/payload/source/{config_store,resource_cache,hw_action,bt_migrate,config_sanitize,plugin_mgr,http_util,sha256,cJSON}.c -lm
 ASAN_PRELOAD=$(ldd "$BUILD_DIR/test_config_keypath" 2>/dev/null | grep libasan | awk '{print $3}' || true)
 LD_PRELOAD="${ASAN_PRELOAD:+$ASAN_PRELOAD:}$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_config_keypath"
 build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_hub_events" "$SCRIPT_DIR/test_hub_events.c" "$REPO_ROOT/payload/source/hub_events.c" "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm && "$BUILD_DIR/test_hub_events"

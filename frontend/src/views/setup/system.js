@@ -74,6 +74,33 @@ export function createView() {
         },
       }),
       h('button', {
+        className: 'btn btn-secondary',
+        id: 'btn-empty-stock-res',
+        text: t('empty_stock_resources', 'Empty Stock Resources'),
+        // Enabled only once the disk status says the files may go
+        disabled: true,
+        // style, not the hidden attribute: .btn sets display, which wins over [hidden]
+        style: { display: 'none' },
+        onclick: async () => {
+          const disk = await api.getSystemDisk().catch(() => null);
+          const kb = disk?.stock_resources_kb ?? 0;
+          const ok = await confirm.ask({
+            title: t('clean_stock_resources_title', 'Empty Stock Resources'),
+            message: t('clean_stock_resources_confirm', 'Empty /data/resources? This deletes the stock Logitech files ({kb} kB uncompressed; less flash space is freed, as the flash is compressed). A revert to the stock firmware then needs the saved copy (stock_resources_<hub>.tar).', { kb }),
+            danger: true,
+          });
+          if (ok) {
+            try {
+              const res = await api.cleanStockResources();
+              toast.success(t('freed_stock_resources_toast', 'Freed ~{kb} kB of flash storage!', { kb: res?.freed_kb ?? kb }));
+              loadSystemInfo();
+            } catch (e) {
+              toast.error(e.message);
+            }
+          }
+        },
+      }),
+      h('button', {
         className: 'btn btn-danger',
         text: `⚠️ ${t('reboot_hub', 'Reboot Hub')}`,
         onclick: async () => {
@@ -168,6 +195,18 @@ export function createView() {
       ]);
 
       statsMount.appendChild(grid);
+
+      const emptyResBtn = container.querySelector('#btn-empty-stock-res');
+      if (emptyResBtn && disk) {
+        const kb = disk.stock_resources_kb;
+        const canEmpty = disk.can_empty_stock_resources === true;
+        // Hidden on firmware without the delete and when nothing is left
+        emptyResBtn.style.display = typeof kb !== 'number' || kb === 0 ? 'none' : '';
+        emptyResBtn.disabled = !canEmpty;
+        emptyResBtn.title = canEmpty ? ''
+          : !disk.stock_resources_saved ? t('stock_resources_not_saved', 'Kept until a backup has saved them (run deploy_hub.py or tools/backup_hub.py).')
+          : t('stock_resources_not_imported', 'Kept until the stock configuration is imported.');
+      }
     } catch (e) {
       statsMount.textContent = t('error_msg', 'Error: {error}', { error: e.message });
     }

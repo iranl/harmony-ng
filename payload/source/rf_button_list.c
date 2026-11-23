@@ -13,7 +13,7 @@ static void put(rf_button_entry_t *e, const char *ctx, const char *label, uint8_
     e->idx = (uint8_t)(idx < 0 ? 0 : (idx > 255 ? 255 : idx));
 }
 
-int rf_build_button_list(const cJSON *acts_map, rf_button_entry_t *out, int max) {
+int rf_build_button_list(const cJSON *acts_map, rf_button_entry_t *out, int max, int help_keys) {
     if (!out || max <= 0) return 0;
     rf_button_entry_t trig[RF_BUTTON_TRIGGERS_MAX + 1];
     int nt = 0, n = 0;
@@ -34,7 +34,9 @@ int rf_build_button_list(const cJSON *acts_map, rf_button_entry_t *out, int max)
                 if (!name || !cJSON_IsObject(b) || strcmp(name, "screen_buttons") == 0) continue;
                 int pos = hidx++;
                 if (strcasecmp(name, "PwrOff") == 0 || strcasecmp(name, "PowerOffActivity") == 0) has_pwroff = 1;
+                /* "type" when there is no "action", as dispatch_remote_button() reads it */
                 const cJSON *ja = cJSON_GetObjectItemCaseSensitive(b, "action");
+                if (!ja) ja = cJSON_GetObjectItemCaseSensitive(b, "type");
                 const char *action = cJSON_IsString(ja) ? ja->valuestring : "device_cmd";
                 if (nt >= RF_BUTTON_TRIGGERS_MAX) continue;
                 /* The spellings dispatch_remote_button() accepts for the same key (rf_keymap.c):
@@ -49,6 +51,8 @@ int rf_build_button_list(const cJSON *acts_map, rf_button_entry_t *out, int max)
                     put(&trig[nt++], cJSON_IsString(jid) ? jid->valuestring : ctx, name, 0x00, 0x02, pos);
                 } else if (strcmp(action, "activity_stop") == 0 || strcmp(action, "poweroff") == 0) {
                     put(&trig[nt++], "-1", name, 0x00, 0x03, pos);
+                } else if (help_keys && strcmp(action, "help") == 0) {
+                    put(&trig[nt++], ctx, name, 0x00, 0x04, pos);
                 }
             }
         }

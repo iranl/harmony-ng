@@ -20,6 +20,8 @@
 #include "timezone_db.h"
 #include "json_number.h"
 
+/* No plugins installed: the sanitizer only asks which device types belong to a plugin */
+
 static int g_failures;
 #define CHECK(cond, msg) do { if (!(cond)) { g_failures++; printf("  FAIL %s\n", msg); } else printf("  PASS %s\n", msg); } while (0)
 

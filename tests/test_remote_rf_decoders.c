@@ -28,6 +28,7 @@
 #include "remote/remote_state.h"
 #include "remote/remote_rf_sync.h"
 #include "remote/remote_rf.h"
+#include "remote/remote_config.h"
 #include "rf_proto.h"
 #include "sha256.h"
 
@@ -163,6 +164,35 @@ int main(void) {
     hub(RF_MSG_BUTTON_LIST_CHUNK, RF_FLAG_ACK_REQ, btn, sizeof(btn));
     hub(RF_MSG_BUTTON_LIST_CHUNK, RF_FLAG_ACK_REQ, btn, sizeof(btn));
     CHECK(g_act_trigger_count == before + 1, "a trigger chunk sent twice added %d triggers", g_act_trigger_count - before);
+
+    /* A hard key mapped to Help (atype 0x04) is a trigger too, and the saved config brings the
+       triggers back after a restart */
+    btn[0] = 1;
+    memset(&btn[3], 0, 21);
+    memcpy(&btn[3], "10", 2);
+    memcpy(&btn[12], "Info", 4);
+    btn[24] = 0x04;
+    hub(RF_MSG_BUTTON_LIST_CHUNK, RF_FLAG_ACK_REQ, btn, sizeof(btn));
+    int help_at = -1;
+    for (int t = 0; t < g_act_trigger_count; t++)
+        if (g_act_triggers[t].atype == 0x04 && strcmp(g_act_triggers[t].target_act_id, "10") == 0 &&
+            strcmp(g_act_triggers[t].button_name, "Info") == 0) help_at = t;
+    CHECK(help_at >= 0, "a Help key chunk added no trigger");
+    save_rf_config();
+    init_act_triggers();
+    load_rf_config();
+    help_at = -1;
+    int start_at = -1, watch_count = 0;
+    for (int t = 0; t < g_act_trigger_count; t++) {
+        if (g_act_triggers[t].atype == 0x04 && strcmp(g_act_triggers[t].target_act_id, "10") == 0) help_at = t;
+        if (g_act_triggers[t].atype == 0x02 && strcmp(g_act_triggers[t].button_name, "Watch") == 0) {
+            start_at = t;
+            watch_count++;
+        }
+    }
+    CHECK(help_at >= 0 && start_at >= 0 && watch_count == 1,
+          "after a reload of the saved config: Help key %s, start key %s (%d times)",
+          help_at >= 0 ? "kept" : "lost", start_at >= 0 ? "kept" : "lost", watch_count);
 
     char cdir[512];
     snprintf(cdir, sizeof(cdir), "%s", getenv("HARMONY_MOCK_DIR") ? getenv("HARMONY_MOCK_DIR") : "/tmp/harmony_mock");

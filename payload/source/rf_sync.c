@@ -231,7 +231,7 @@ int rf_send_settings_push_slot(uint8_t slot, int bright, int timeout, int touch,
     return rf_send_frame_acked(&f, 300);
 }
 
-void rf_send_hub_activity_sync_slot(const char *act_id, uint8_t seq, uint8_t slot, uint8_t is_query_reply) {
+void rf_send_hub_activity_sync_slot(const char *act_id, uint8_t seq, uint8_t slot, uint8_t state) {
     if (g_rf_fd < 0 || !g_has_paired_device) return;
     if (is_companion_slot(slot)) return;
 
@@ -247,22 +247,44 @@ void rf_send_hub_activity_sync_slot(const char *act_id, uint8_t seq, uint8_t slo
         strncpy((char *)&payload[0], act_id, 10);
         strncpy((char *)&payload[10], act_name, 14);
     }
-    payload[24] = is_query_reply; /* 1 = reply to SYNC_REQUEST (steady-state catchup), 0 = live transition */
+    payload[24] = state; /* RF_ACT_SYNC_COMPLETE, _QUERY or _STARTING */
 
     rf_build_frame(&f, slot ? slot : 0x01, RF_MSG_ACTIVITY_SYNC, seq, 0, payload, 25);
     rf_send_frame(&f);
 }
 
 void rf_send_hub_activity_sync_seq(const char *act_id, uint8_t seq) {
+    rf_send_hub_activity_sync_state(act_id, seq, RF_ACT_SYNC_COMPLETE);
+}
+
+void rf_send_hub_activity_sync_state(const char *act_id, uint8_t seq, uint8_t state) {
     if (g_rf_fd < 0 || !g_has_paired_device) return;
 
     for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {
         if (g_paired_remotes[i].active && !g_paired_remotes[i].link_lost) {
             if (is_companion_slot(g_paired_remotes[i].slot)) continue;
-            rf_send_hub_activity_sync_slot(act_id, seq, g_paired_remotes[i].slot, 0x00);
+            uint8_t slot = g_paired_remotes[i].slot;
+            /* An older remote takes a start notice for the end and closes its switch screen */
+            if (state == RF_ACT_SYNC_STARTING &&
+                (slot < 1 || slot > MAX_PAIRED_REMOTES || !(g_remote_versions[slot - 1].caps & RF_CAP_SWITCH_START)))
+                continue;
+            rf_send_hub_activity_sync_slot(act_id, seq, slot, state);
             usleep(10000);
         }
     }
+}
+
+void rf_send_hub_activity_query_reply(uint8_t seq, uint8_t slot) {
+    char act[32] = "";
+    if (slot >= 1 && slot <= MAX_PAIRED_REMOTES && (g_remote_versions[slot - 1].caps & RF_CAP_SWITCH_START) &&
+        is_activity_transitioning() && get_activity_target(act, sizeof(act))) {
+        /* The remote keeps its switch screen; a plain reply after this tells it the switch is over */
+        rf_send_hub_activity_sync_slot(act, seq, slot, RF_ACT_SYNC_QUERY_SWITCHING);
+        return;
+    }
+    snprintf(act, sizeof(act), "-1");
+    get_current_activity(act, sizeof(act));
+    rf_send_hub_activity_sync_slot(act, seq, slot, RF_ACT_SYNC_QUERY);
 }
 
 void rf_send_hub_activity_sync(const char *act_id) {
@@ -292,6 +314,16 @@ static uint32_t s_ota_cache_epoch = 0;
 void rf_sync_cache_invalidate(void) {
     s_tz_cache_epoch = 0;
     s_ota_cache_epoch = 0;
+}
+
+void rf_config_version_bump(void) {
+    g_config_version++;
+    if (g_config_version == 0) g_config_version = 1;
+    char vline[16];
+    snprintf(vline, sizeof(vline), "%d\n", g_config_version);
+    if (atomic_file_write_str("/data/harmony/config_version", vline) != 0) {
+        fprintf(stderr, "[-] Could not save /data/harmony/config_version\n");
+    }
 }
 
 static void get_cached_tz_prefix(uint32_t now, char *out_prefix, uint8_t *out_len) {
@@ -626,18 +658,31 @@ void *activity_sync_worker(void *arg) {
 
     /* Seed last_act on startup to prevent unsolicited TX into empty air */
     get_current_activity(last_act, sizeof(last_act));
+    char started[32] = ""; /* target of the switch the remotes were told about */
 
     while (g_running) {
-        char cur_act[32] = "-1";
-        get_current_activity(cur_act, sizeof(cur_act));
-        if (strcmp(cur_act, last_act) != 0) {
-            if (!is_activity_transitioning() && !is_ota_busy()) {
-                strncpy(last_act, cur_act, sizeof(last_act) - 1);
-                last_act[sizeof(last_act) - 1] = '\0';
-                rf_send_hub_activity_sync_seq(cur_act, ++g_tx_seq);
+        if (!is_ota_busy()) {
+            char target[32] = "";
+            if (is_activity_transitioning()) {
+                /* The target file follows the state file: no notice until it is there */
+                if (get_activity_target(target, sizeof(target)) && strcmp(target, started) != 0) {
+                    snprintf(started, sizeof(started), "%s", target);
+                    printf("[*] RF activity switch starting: target=%s\n", target);
+                    rf_send_hub_activity_sync_state(target, ++g_tx_seq, RF_ACT_SYNC_STARTING);
+                }
+            } else {
+                char cur_act[32] = "-1";
+                get_current_activity(cur_act, sizeof(cur_act));
+                /* Also after a switch that ended on the same activity: it closes the remotes'
+                   switch screen */
+                if (started[0] || strcmp(cur_act, last_act) != 0) {
+                    started[0] = '\0';
+                    snprintf(last_act, sizeof(last_act), "%s", cur_act);
+                    rf_send_hub_activity_sync_state(cur_act, ++g_tx_seq, RF_ACT_SYNC_COMPLETE);
+                }
             }
         }
-        sleep(1);
+        usleep(200000);
     }
     return NULL;
 }

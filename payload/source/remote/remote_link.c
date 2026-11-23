@@ -40,17 +40,20 @@ void link_note_query(uint8_t seq, uint64_t now_ms) {
 /* The Hub answers a sync query with ACTIVITY_SYNC carrying the query's sequence number. Frames
    carry only its low 4 bits; at one query per 800 ms they repeat every 12.8 s, well beyond the
    1 s a reply may take. */
-void link_note_reply(uint8_t seq, uint64_t now_ms) {
+uint64_t link_note_reply(uint8_t seq, uint64_t now_ms) {
+    uint64_t sent = 0;
     pthread_mutex_lock(&s_lock);
     for (int i = 0; i < s_query_n; i++) {
         int k = (s_query_head - 1 - i + RING) % RING;
         if (ms_since(now_ms, s_query[k].t) > REPLY_TIMEOUT_MS) break;
         if ((s_query[k].seq & 0x0F) == (seq & 0x0F)) {
             s_query[k].answered = true;
+            sent = s_query[k].t;
             break;
         }
     }
     pthread_mutex_unlock(&s_lock);
+    return sent;
 }
 
 void link_reset(void) {

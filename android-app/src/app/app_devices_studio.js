@@ -208,6 +208,16 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     }
   }
 
+  getPluginForType(type) {
+    if (!type) return null;
+    const sType = String(type).trim();
+    if (sType.startsWith('plugin:')) {
+      const pid = sType.substring(7);
+      return (this.installedPlugins || []).find(p => p.id === pid) || { id: pid };
+    }
+    return (this.installedPlugins || []).find(p => p.id === sType || (p.device_definition?.device_type && p.device_definition.device_type.toLowerCase() === sType.toLowerCase()) || (p.device_definition?.display_name && p.device_definition.display_name.toLowerCase() === sType.toLowerCase()));
+  }
+
   updateStudioDeviceView() {
     const sel = document.getElementById('manageDeviceSelect');
     if (!sel) return;
@@ -241,16 +251,30 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     const portEl = document.getElementById('curDevPortSelect');
     const mqttTopicInput = document.getElementById('devMqttTopic');
     if (nameEl) nameEl.textContent = dev.name || tf('device_n', { id: dev.id });
-    if (detailsEl) detailsEl.textContent = tf('studio_device_details_line', { type: dev.type || t('device_type_appliance'), brand: dev.manufacturer || t('unknown'), model: dev.model || t('unknown') });
+    const pluginDef = this.getPluginForType(dev.type) || (dev.plugin ? (this.installedPlugins || []).find(p => p.id === dev.plugin) : null);
+    const isPlugin = !!(pluginDef || dev.plugin || (dev.type && dev.type.startsWith('plugin:')));
+    const pluginId = dev.plugin || pluginDef?.id || (dev.type?.startsWith('plugin:') ? dev.type.substring(7) : '');
+    if (detailsEl) {
+      if (isPlugin) {
+        // a password field of the plugin is never shown
+        const secretKeys = new Set((Array.isArray(pluginDef?.device_definition?.config_fields) ? pluginDef.device_definition.config_fields : [])
+          .filter(f => f && f.type === 'password').map(f => f.key));
+        const cfgSummary = dev.config && typeof dev.config === 'object'
+          ? Object.entries(dev.config).map(([k, v]) => `${k}: ${secretKeys.has(k) ? '••••' : v}`).join(', ') : '';
+        detailsEl.textContent = tf('studio_plugin_details_line', { plugin: pluginId, config: cfgSummary ? ' • (' + cfgSummary + ')' : '', name: dev.name || dev.id });
+      } else {
+        detailsEl.textContent = tf('studio_device_details_line', { type: dev.type || t('device_type_appliance'), brand: dev.manufacturer || t('unknown'), model: dev.model || t('unknown') });
+      }
+    }
     if (countEl) countEl.textContent = (dev.commands || []).length;
     if (portEl) {
       const p = (dev.controlPort !== undefined) ? dev.controlPort : 7;
       portEl.value = String(p);
     }
 
-    const isIr = (dev.type === 'IR' || !dev.type || dev.type === 'Television' || dev.type === 'Amplifier' || dev.type === 'Media Player' || dev.type === 'HomeAppliance');
-    const isBt = (dev.type === 'BT' || dev.type === 'Bluetooth' || dev.isBt);
-    const isMqtt = (dev.type === 'MQTT' || dev.mqttEnabled);
+    const isIr = !isPlugin && (dev.type === 'IR' || !dev.type || dev.type === 'Television' || dev.type === 'Amplifier' || dev.type === 'Media Player' || dev.type === 'HomeAppliance');
+    const isBt = !isPlugin && (dev.type === 'BT' || dev.type === 'Bluetooth' || dev.isBt);
+    const isMqtt = !isPlugin && !isBt && (dev.type === 'MQTT' || dev.mqttEnabled);
 
     const blasterBox = document.getElementById('curDevBlasterBox');
     if (blasterBox) blasterBox.style.display = isIr ? 'flex' : 'none';
@@ -400,7 +424,39 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     const editMdl = document.getElementById('editDevModel');
     const editIcn = document.getElementById('editDevIcon');
     if (editName) editName.value = dev.name || '';
-    if (editType) editType.value = isBt ? 'BT' : (isMqtt ? 'MQTT' : 'IR');
+    if (editType) {
+      editType.disabled = true;
+      editType.title = t('plg_type_locked');
+      if (isPlugin) {
+        const plugVal = (dev.type && dev.type.startsWith('plugin:')) ? dev.type : (pluginId ? `plugin:${pluginId}` : dev.type);
+        let opt = editType.querySelector(`option[value="${plugVal}"]`) || editType.querySelector(`option[value="${dev.type}"]`);
+        if (!opt) {
+          let optgroup = document.getElementById('editDevTypePluginGroup');
+          if (!optgroup) {
+            optgroup = document.createElement('optgroup');
+            optgroup.id = 'editDevTypePluginGroup';
+            optgroup.label = t('plg_community_plugins');
+            editType.appendChild(optgroup);
+          }
+          opt = document.createElement('option');
+          opt.value = plugVal;
+          opt.textContent = tf('plg_type_option', { name: pluginDef?.device_definition?.display_name || pluginDef?.name || pluginId });
+          optgroup.appendChild(opt);
+        }
+        editType.value = opt.value;
+      } else if (isBt) {
+        editType.value = 'BT';
+      } else if (isMqtt) {
+        editType.value = 'MQTT';
+      } else {
+        editType.value = dev.type || 'IR';
+      }
+    }
+    const devEditTimingsBox = document.getElementById('devEditTimingsBox');
+    if (devEditTimingsBox) devEditTimingsBox.style.display = isIr ? 'block' : 'none';
+    if (typeof this.handleEditDeviceTypeChanged === 'function') {
+      this.handleEditDeviceTypeChanged(editType ? editType.value : (dev.type || 'IR'), dev.config || dev);
+    }
     if (editMfg) editMfg.value = dev.manufacturer || '';
     if (editMdl) editMdl.value = dev.model || '';
     if (editIcn) {
@@ -534,22 +590,39 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     const rawVal = c.raw || c.keyCode || '';
     document.getElementById('editCmdPayload').value = rawVal;
 
+    const pluginDef = this.getPluginForType(dev.type) || (dev.plugin ? (this.installedPlugins || []).find(p => p.id === dev.plugin) : null);
+    const isPlugin = !!(pluginDef || dev.plugin || (dev.type && dev.type.startsWith('plugin:')) || (rawVal && rawVal.startsWith('PLUGIN:')));
     const isBt = (dev.type === 'BT' || dev.type === 'Bluetooth' || dev.isBt);
     const isMqtt = (dev.type === 'MQTT' || dev.mqttEnabled);
-    const isIr = !isBt && !isMqtt;
+    const isIr = !isPlugin && !isBt && !isMqtt;
 
     const typeWrap = document.getElementById('editCmdTypeWrap');
     const btHint = document.getElementById('editCmdBtHint');
     const irOpts = document.getElementById('editCmdIrOptions');
     const payloadWrap = document.getElementById('editCmdPayloadWrap');
+    const payloadLabel = payloadWrap?.querySelector('label');
 
     if (typeWrap) typeWrap.style.display = isIr ? 'block' : 'none';
     if (btHint) btHint.style.display = isBt ? 'block' : 'none';
     if (irOpts) irOpts.style.display = isIr ? 'grid' : 'none';
     if (payloadWrap) payloadWrap.style.display = isMqtt ? 'none' : 'block';
 
+    const payloadInp = document.getElementById('editCmdPayload');
+    if (isPlugin) {
+      if (payloadLabel) payloadLabel.textContent = t('plg_keycode_label');
+      if (payloadInp) payloadInp.placeholder = tf('plg_keycode_placeholder', { id: pluginDef?.id || dev.plugin || 'plugin' });
+    } else if (isBt) {
+      if (payloadLabel) payloadLabel.textContent = t('cmd_bt_hid_code_label');
+      if (payloadInp) payloadInp.placeholder = t('cmd_bt_hid_code_placeholder');
+    } else {
+      if (payloadLabel) payloadLabel.textContent = t('command_data_signal');
+      if (payloadInp) payloadInp.placeholder = t('ph_cmd_payload_formats');
+    }
+
     let modeVal = 'raw';
-    if (isBt) {
+    if (isPlugin) {
+      modeVal = 'plugin';
+    } else if (isBt) {
       modeVal = 'bt';
     } else if (isMqtt) {
       modeVal = 'mqtt';
@@ -567,7 +640,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     const stat = document.getElementById('cmdEditStatus');
     if (stat) stat.textContent = '';
 
-    modal.dataset.deviceType = isBt ? 'BT' : (isMqtt ? 'MQTT' : 'IR');
+    modal.dataset.deviceType = isPlugin ? 'PLUGIN' : (isBt ? 'BT' : (isMqtt ? 'MQTT' : 'IR'));
     modal.style.display = 'flex';
   }
 
@@ -578,7 +651,17 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     const model = document.getElementById('newDeviceModel')?.value.trim();
     const status = document.getElementById('profileStatus');
 
-    if (!name || !manufacturer || !model) return alert(t("name_mfr_model_required"));
+    const pluginDef = this.getPluginForType(type);
+    const isPlugin = !!pluginDef;
+    const pluginId = pluginDef?.id || (type.startsWith('plugin:') ? type.substring(7) : null);
+    let effectiveMfg = manufacturer;
+    let effectiveModel = model;
+    if (isPlugin) {
+      if (!effectiveMfg) effectiveMfg = pluginDef?.author || pluginDef?.name || 'Community';
+      if (!effectiveModel) effectiveModel = pluginDef?.device_definition?.device_type || pluginId;
+    }
+
+    if (!name || (!isPlugin && (!effectiveMfg || !effectiveModel))) return alert(t("name_mfr_model_required"));
     try {
       if (status) status.textContent = t('saving_new_device');
       const icon = document.getElementById('newDeviceIcon')?.value || 'tv';
@@ -593,10 +676,33 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
         id: generatedDevId,
         name,
         type,
-        manufacturer,
-        model,
+        manufacturer: effectiveMfg || 'Generic',
+        model: effectiveModel || 'Generic',
         icon
       };
+
+      if (isPlugin) {
+        devPayload.type = type;
+        devPayload.plugin = pluginId;
+        const cfg = {};
+        if (pluginDef?.device_definition?.config_fields) {
+          for (const f of pluginDef.device_definition.config_fields) {
+            const inp = document.getElementById(`plug_cfg_${f.key}`);
+            const val = inp ? inp.value : '';
+            cfg[f.key] = (f.type === 'number') ? Number(val || f.default || 0) : (val !== undefined && val !== null && val !== '' ? val : (f.default !== undefined ? f.default : ''));
+          }
+        }
+        devPayload.config = cfg;
+
+        const defaultCmds = pluginDef?.device_definition?.default_commands;
+        if (defaultCmds && defaultCmds.length > 0) {
+          devPayload.commands = defaultCmds.map(c => ({
+            name: c.name,
+            keyCode: c.keyCode || `PLUGIN:${pluginId}:${c.name}`,
+            raw: c.raw || c.keyCode || `PLUGIN:${pluginId}:${c.name}`
+          }));
+        }
+      }
       if (type === 'MQTT') {
         devPayload.mqttTopic = `{base_topic}/button/${name.toLowerCase().replace(/\s+/g, '_')}/{command}`;
         devPayload.mqttEnabled = 1;
@@ -710,17 +816,20 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
 
   updateStudioAddPanels(dev) {
     if (!dev) return;
-    const isBt = (dev.type === 'BT' || dev.type === 'Bluetooth' || dev.isBt);
-    const isMqtt = (dev.type === 'MQTT' || dev.mqttEnabled);
-    const isIr = !isBt && !isMqtt;
+    const isPlugin = !!(dev.plugin || (dev.type && dev.type.startsWith('plugin:')));
+    const isBt = !isPlugin && (dev.type === 'BT' || dev.type === 'Bluetooth' || dev.isBt);
+    const isMqtt = !isPlugin && !isBt && (dev.type === 'MQTT' || dev.mqttEnabled);
+    const isIr = !isPlugin && !isBt && !isMqtt;
 
     const irTabsRow = document.getElementById('irAddTabsRow');
     const btTabsRow = document.getElementById('btAddTabsRow');
     const mqttTabsRow = document.getElementById('mqttAddTabsRow');
+    const pluginTabsRow = document.getElementById('pluginAddTabsRow');
 
     if (irTabsRow) irTabsRow.style.display = isIr ? 'flex' : 'none';
     if (btTabsRow) btTabsRow.style.display = isBt ? 'flex' : 'none';
     if (mqttTabsRow) mqttTabsRow.style.display = isMqtt ? 'flex' : 'none';
+    if (pluginTabsRow) pluginTabsRow.style.display = isPlugin ? 'flex' : 'none';
 
     const pLearn = document.getElementById('addModeLearn');
     const pDb = document.getElementById('addModeDb');
@@ -728,21 +837,29 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     const pBtPresets = document.getElementById('addModeBtPresets');
     const pBtCustom = document.getElementById('addModeBtCustom');
     const pMqtt = document.getElementById('addModeMqtt');
+    const pPlugPresets = document.getElementById('addModePluginPresets');
+    const pPlugCustom = document.getElementById('addModePluginCustom');
 
-    if (isIr) {
+    if (isPlugin) {
+      if (pLearn) pLearn.style.display = 'none';
+      if (pDb) pDb.style.display = 'none';
+      if (pPaste) pPaste.style.display = 'none';
       if (pBtPresets) pBtPresets.style.display = 'none';
       if (pBtCustom) pBtCustom.style.display = 'none';
       if (pMqtt) pMqtt.style.display = 'none';
 
-      const activeTab = document.querySelector('.ir-add-tab.btn-primary')?.getAttribute('data-add-mode') || 'learn';
-      if (pLearn) pLearn.style.display = (activeTab === 'learn') ? 'block' : 'none';
-      if (pDb) pDb.style.display = (activeTab === 'database') ? 'block' : 'none';
-      if (pPaste) pPaste.style.display = (activeTab === 'paste') ? 'block' : 'none';
+      const activePlugTab = document.querySelector('.plug-add-tab.btn-primary')?.getAttribute('data-plug-mode') || 'presets';
+      if (pPlugPresets) pPlugPresets.style.display = (activePlugTab === 'presets') ? 'block' : 'none';
+      if (pPlugCustom) pPlugCustom.style.display = (activePlugTab === 'custom') ? 'block' : 'none';
+
+      this.renderPluginPresetsList(dev);
     } else if (isBt) {
       if (pLearn) pLearn.style.display = 'none';
       if (pDb) pDb.style.display = 'none';
       if (pPaste) pPaste.style.display = 'none';
       if (pMqtt) pMqtt.style.display = 'none';
+      if (pPlugPresets) pPlugPresets.style.display = 'none';
+      if (pPlugCustom) pPlugCustom.style.display = 'none';
 
       const activeBtTab = document.querySelector('.bt-add-tab.btn-primary')?.getAttribute('data-bt-mode') || 'presets';
       if (pBtPresets) pBtPresets.style.display = (activeBtTab === 'presets') ? 'block' : 'none';
@@ -755,10 +872,88 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
       if (pPaste) pPaste.style.display = 'none';
       if (pBtPresets) pBtPresets.style.display = 'none';
       if (pBtCustom) pBtCustom.style.display = 'none';
+      if (pPlugPresets) pPlugPresets.style.display = 'none';
+      if (pPlugCustom) pPlugCustom.style.display = 'none';
       if (pMqtt) pMqtt.style.display = 'block';
 
       this.updateMqttTopicPreview(dev);
+    } else if (isIr) {
+      if (pBtPresets) pBtPresets.style.display = 'none';
+      if (pBtCustom) pBtCustom.style.display = 'none';
+      if (pMqtt) pMqtt.style.display = 'none';
+      if (pPlugPresets) pPlugPresets.style.display = 'none';
+      if (pPlugCustom) pPlugCustom.style.display = 'none';
+
+      const activeTab = document.querySelector('.ir-add-tab.btn-primary')?.getAttribute('data-add-mode') || 'learn';
+      if (pLearn) pLearn.style.display = (activeTab === 'learn') ? 'block' : 'none';
+      if (pDb) pDb.style.display = (activeTab === 'database') ? 'block' : 'none';
+      if (pPaste) pPaste.style.display = (activeTab === 'paste') ? 'block' : 'none';
     }
+  }
+
+  async renderPluginPresetsList(dev) {
+    const cont = document.getElementById('plugPresetsContainer');
+    if (!cont) return;
+    const filter = (document.getElementById('plugPresetsFilter')?.value || '').toLowerCase().trim();
+    const pluginId = dev.plugin || (dev.type && dev.type.startsWith('plugin:') ? dev.type.substring(7) : '');
+
+    if ((!this.installedPlugins || this.installedPlugins.length === 0) && this.client && typeof this.client.getPlugins === 'function') {
+      try {
+        const res = await this.client.getPlugins();
+        this.installedPlugins = Array.isArray(res) ? res : (res?.plugins || []);
+      } catch (_) {}
+    }
+
+    const plug = (this.installedPlugins || []).find(p => p.id === pluginId);
+    const defCmds = plug?.device_definition?.default_commands || plug?.manifest?.device_definition?.default_commands || [];
+
+    const existingCmds = dev.commands || [];
+    const existingNames = new Set(existingCmds.map(c => (typeof c === 'string' ? c : (c.name || '')).toLowerCase()));
+
+    const filtered = defCmds.filter(c => !filter || c.name.toLowerCase().includes(filter));
+    if (filtered.length === 0) {
+      cont.innerHTML = `<div class="muted mini" style="padding: 12px; text-align: center;">${defCmds.length === 0 ? t('plg_no_default_cmds') : t('plg_no_cmds_match')}</div>`;
+      return;
+    }
+
+    cont.innerHTML = filtered.map(c => {
+      const isAdded = existingNames.has(c.name.toLowerCase());
+      return `
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: var(--bg-card); border-radius: var(--radius-sm); border: 1px solid var(--border);">
+          <div>
+            <strong style="font-size: 12px; color: var(--text-main);">${escapeHtml(c.name)}</strong>
+            <span class="subtle mini" style="margin-left: 6px; font-family: monospace; font-size: 10px;">${escapeHtml(c.keyCode || '')}</span>
+          </div>
+          <div>
+            ${isAdded ? `<span class="badge ok mini">${t('plg_added')}</span>` : `<button type="button" class="btn btn-xs btn-primary btn-plug-preset-add" data-name="${escapeHtml(c.name)}" data-code="${escapeHtml(c.keyCode || '')}">${t('plg_add_one')}</button>`}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    cont.querySelectorAll('.btn-plug-preset-add').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const name = btn.getAttribute('data-name');
+        const keyCode = btn.getAttribute('data-code');
+        btn.textContent = '...';
+        btn.disabled = true;
+        try {
+          await this.client.saveLearnedCommand({
+            deviceId: dev.id,
+            name,
+            raw: keyCode,
+            mode: 'plugin'
+          });
+          await this.refreshData();
+          const updatedDev = (this.inventory.devices || []).find(d => String(d.id) === String(dev.id));
+          if (updatedDev) this.updateStudioDeviceView(updatedDev);
+        } catch (err) {
+          alert(t('failed_to_save', 'Failed to save: ') + err.message);
+          btn.textContent = t('plg_add_one');
+          btn.disabled = false;
+        }
+      });
+    });
   }
 
   renderBtPresetsList(dev) {
