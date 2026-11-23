@@ -3,6 +3,7 @@
 #include "bt_hid.h"
 #include "bt_remote.h"
 #include "bt_adv.h"
+#include "bt_listen.h"
 #include "bt_wake_key.h"
 
 #ifndef TLV_DB_PATH
@@ -559,7 +560,9 @@ void execute_btstack_cmd(const char *cmd_in) {
     while (p >= cmd && (*p == '\r' || *p == '\n' || *p == ' ')) *p-- = 0;
     if (!cmd[0]) return;
 
-    if (strcasecmp(cmd, "stop_scan") == 0 || strcasecmp(cmd, "scan_off") == 0 || strcasecmp(cmd, "scan_stop") == 0) {
+    if (strncasecmp(cmd, "adv_listen ", 11) == 0) {
+        bt_listen_handle_cmd(cmd + 11);
+    } else if (strcasecmp(cmd, "stop_scan") == 0 || strcasecmp(cmd, "scan_off") == 0 || strcasecmp(cmd, "scan_stop") == 0) {
         stop_user_scan();
     } else if (strncasecmp(cmd, "scan", 4) == 0) {
         start_user_scan();

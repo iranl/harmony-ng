@@ -9,6 +9,7 @@ import { renderDeviceIcon } from '../../icons/render.js';
 import { createModal } from '../../components/modal.js';
 import { openIconPicker } from '../../components/icon-picker.js';
 import { showDeviceInUse } from '../../components/hub-decisions.js';
+import { pluginPairingRow } from './plugin-pairing.js';
 
 export function createView() {
   const container = h('div', { className: 'setup-subview-devices', style: { display: 'flex', flexDirection: 'column', gap: '16px' } });
@@ -205,6 +206,8 @@ export function createView() {
               inp,
             ]));
           });
+          const pairRow = pluginPairingRow(plug, pluginInputs);
+          if (pairRow) fieldsContainer.appendChild(pairRow);
         } else {
           fieldsContainer.replaceChildren(h('span', { className: 'text-dim', style: { fontSize: '12px' }, text: t('plg_no_settings', 'No configurable settings for this plugin.') }));
         }
@@ -520,6 +523,8 @@ export function createView() {
               ]));
             });
           }
+          const pairRow = pluginPairingRow(plug, dynamicFieldInputs);
+          if (pairRow) dynamicConfigContainer.appendChild(pairRow);
         }
       }
     }

@@ -40,6 +40,8 @@ export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
       const cleanType = isPluginDev ? rawType : rawType === 'BT' ? 'BT' : rawType === 'MQTT' ? 'MQTT' : (rawType || 'IR');
       const isBt = cleanType === 'BT';
       const isMqtt = cleanType === 'MQTT';
+      // HTTP(S) and TCP devices (payload/source/net_device.h): no IR port or repeats
+      const isNet = !isPluginDev && (cleanType === 'HTTP' || cleanType === 'TCP');
       const hostAddr = dev.bdaddr || dev.btHost || '';
 
       return {
@@ -73,6 +75,17 @@ export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
         mqttPulseMs: Number(dev.mqttPulseMs !== undefined ? dev.mqttPulseMs : 1000),
         plugin: dev.plugin || '',
         config: dev.config || null,
+        isNet,
+        netHost: dev.netHost || '',
+        netPort: dev.netPort !== undefined ? Number(dev.netPort) : 0,
+        netTls: Boolean(dev.netTls),
+        netTlsVerify: dev.netTlsVerify || 'verify',
+        netTimeoutMs: dev.netTimeoutMs !== undefined ? Number(dev.netTimeoutMs) : 3000,
+        httpHeaders: Array.isArray(dev.httpHeaders) ? dev.httpHeaders : [],
+        httpAuthType: dev.httpAuthType || 'none',
+        httpUser: dev.httpUser || '',
+        hasHttpPassword: Boolean(dev.hasHttpPassword),
+        hasHttpToken: Boolean(dev.hasHttpToken),
         commands: rawCmds.map((c, idx) => {
           if (typeof c === 'string') return { name: c, keyCode: '', raw: '' };
           const kCode = c.keyCode || '';
@@ -85,7 +98,11 @@ export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
             keyCode: kCode,
             raw: rawStr
           };
-          if (!isBtCmd && !isMqttCmd) {
+          if (isNet) {
+            for (const k of ['httpMethod', 'httpPath', 'httpBody', 'httpContentType', 'tcpPayload', 'tcpFormat']) {
+              if (c[k] !== undefined) cmdObj[k] = c[k];
+            }
+          } else if (!isBtCmd && !isMqttCmd) {
             cmdObj.repeats = c.repeats !== undefined ? c.repeats : 3;
             cmdObj.port = c.port !== undefined ? c.port : (c.controlPort || dev.controlPort || 7);
           }

@@ -12,6 +12,7 @@
 #include "../payload/source/resource_cache.h"
 #include "../payload/source/orchestrator.h"
 #include "../payload/source/hub_events.h"
+#include "../payload/source/net_action.h"
 
 /* Mock device database */
 static cJSON *s_mock_device_root = NULL;
@@ -21,6 +22,8 @@ orch_state_t orch_get_state(void) { return ORCH_STATE_RUNNING; }
 const char *orch_get_current_activity(void) { return "1"; }
 /* the MQTT-type device path puts a button event on the daemon's bus */
 void hub_events_emit(hub_event_type_t type, cJSON *payload) { (void)type; cJSON_Delete(payload); }
+/* HTTP/TCP devices (net_action.c): none in these tests */
+int net_action_send(const cJSON *dev, const cJSON *cmd, const char *dev_id, const char *dev_name, const char *command, int live_key) { (void)dev; (void)cmd; (void)dev_id; (void)dev_name; (void)command; (void)live_key; return 0; }
 
 /* The shared device list (resource_cache.h): every acquire must be released */
 static int s_list_held = 0;
@@ -35,7 +38,8 @@ const cJSON *get_device_list_acquire(struct cfg_snap **snap) {
             "{\"name\":\"LightOff\",\"keyCode\":\"BLEADV:02011A19054E6F720E0438064C2E561510D42DEB8C15D3B51804030201\"},"
             "{\"name\":\"Broken\",\"keyCode\":\"BLEADV:030106\"}]},"
             "{\"id\":\"plug_dev\",\"name\":\"PluginDevice\",\"interDeviceDelay\":0,\"interKeyDelay\":0,\"holdInterKeyDelay\":0,\"plugin\":\"roku-ecp\",\"config\":{\"ip\":\"192.168.1.50\"},\"commands\":["
-            "{\"name\":\"Home\",\"keyCode\":\"PLUGIN:roku-ecp:Home\"}]},"
+            "{\"name\":\"Home\",\"keyCode\":\"PLUGIN:roku-ecp:Home\"},"
+            "{\"name\":\"Level\",\"keyCode\":\"PLUGIN:roku-ecp:Level\",\"range\":[1,100]}]},"
             "{\"id\":\"plug_typed\",\"name\":\"AndroidTV\",\"type\":\"plugin:androidtv\",\"config\":{\"host\":\"192.168.1.60\"},\"commands\":["
             "{\"name\":\"Back\",\"keyCode\":\"Back\"}]},"
             "{\"id\":\"custom_dev\",\"name\":\"CustomDev\",\"commands\":["
@@ -242,7 +246,7 @@ int main(void) {
     printf("[+] press, release, press 70 ms after the release: both presses sent.\n");
 
     /* 6. BLE broadcast commands reach hub_btstack as "adv <hex>" */
-    char out[512] = {0};
+    char out[4096] = {0};
     res = capture_send("ble_dev", "LightOff", HW_BTN_ACTION_TAP, out, sizeof(out));
     assert(res == 0);
     assert(strstr(out, "BTstack command simulated: adv 02011A19054E6F720E0438064C2E561510D42DEB8C15D3B51804030201") != NULL);
@@ -326,6 +330,51 @@ int main(void) {
     assert(res == 0);
     assert(strstr(out, "cmd=DynamicArbitraryCommand") != NULL);
     printf("[+] Non-existent device (-5), missing IR command (-6), and dynamic plugin command dispatching verified.\n");
+
+    /* 11. A value reaches the plugin; a command's "range" refuses values outside it */
+    {
+        fflush(stdout);
+        int saved = dup(STDOUT_FILENO);
+        FILE *tf = tmpfile();
+        assert(saved >= 0 && tf);
+        dup2(fileno(tf), STDOUT_FILENO);
+        g_dry_run = 1;
+        int r_in = hw_device_command_send_value("plug_dev", 0, "Level", HW_BTN_ACTION_TAP, 42);
+        usleep(100000);
+        int r_lo = hw_device_command_send_value("plug_dev", 0, "Level", HW_BTN_ACTION_TAP, 0);
+        int r_hi = hw_device_command_send_value("plug_dev", 0, "Level", HW_BTN_ACTION_TAP, 101);
+        int r_free = hw_device_command_send_value("plug_dev", 0, "Free", HW_BTN_ACTION_TAP, -5);
+        /* a sender without a value (a remote key, an activity step): a ranged command needs one,
+         * a command without a range gets 0 */
+        int r_none = hw_device_command_send_action("plug_dev", 0, "Level", HW_BTN_ACTION_TAP);
+        usleep(300000); /* past the repeat guard of the same command */
+        int r_free0 = hw_device_command_send_action("plug_dev", 0, "Free", HW_BTN_ACTION_TAP);
+        usleep(100000);
+        g_dry_run = 0;
+        fflush(stdout);
+        dup2(saved, STDOUT_FILENO);
+        close(saved);
+        rewind(tf);
+        size_t n = fread(out, 1, sizeof(out) - 1, tf);
+        out[n] = '\0';
+        fclose(tf);
+        assert(r_in == 0 && strstr(out, "cmd=Level action=tap val=42") != NULL);
+        assert(r_lo == HW_ERR_VALUE_RANGE && r_hi == HW_ERR_VALUE_RANGE);
+        assert(r_free == 0 && strstr(out, "cmd=Free action=tap val=-5") != NULL);
+        assert(r_none == HW_ERR_VALUE_MISSING);
+        assert(r_free0 == 0 && strstr(out, "cmd=Free action=tap val=0") != NULL);
+        /* outside the errno range: the infrared senders return -errno codes */
+        assert(HW_ERR_VALUE_RANGE < -200 && HW_ERR_VALUE_MISSING < -200);
+
+        cJSON *c = cJSON_Parse("{\"range\":[1,100]}");
+        assert(hw_command_value_in_range(c, 1) && hw_command_value_in_range(c, 100));
+        assert(!hw_command_value_in_range(c, 101));
+        cJSON_Delete(c);
+        c = cJSON_Parse("{\"range\":\"bad\"}");
+        assert(hw_command_value_in_range(c, 999)); /* a malformed range checks nothing */
+        cJSON_Delete(c);
+    }
+    printf("[+] Plugin value and command range verified.\n");
 
     assert(s_list_held == 0);
     printf("[+] every use of the shared device list was released.\n");

@@ -24,6 +24,14 @@ void sanitize_activity_steps(cJSON *steps);
 void sanitize_activities_json(cJSON *root);
 /* The same; returns 1 when the list was put in Display Order or an activity got an order */
 int sanitize_activities_json_changed(cJSON *root);
+/* HTTP/TCP devices (net_device.h): the stored httpPassword/httpToken as "" plus
+ * hasHttpPassword/hasHttpToken; returns how many were masked */
+int config_mask_device_secrets(cJSON *root);
+int config_devices_have_secrets(const cJSON *root);
+/* host name or IP address of an HTTP/TCP device */
+int net_host_valid(const char *host);
+/* an HTTP header name an HTTP device may set */
+int net_header_name_ok(const char *name);
 
 #ifdef __cplusplus
 }

@@ -166,6 +166,12 @@ int main(void) {
         { "{\"id\": \"ok\", \"version\": \"1\", \"entrypoint\": \"bin/missing\"}", "not in the plugin" },
         { "{\"id\": \"ok\", \"version\": \"1\", \"entrypoint\": \"bin/drv\", \"device_definition\": {\"config_fields\": 5}}", "array" },
         { "{\"id\": \"ok\", \"version\": \"1\", \"entrypoint\": \"bin/drv\", \"device_definition\": {\"config_fields\": [null]}}", "key" },
+        { "{\"id\": \"ok\", \"version\": \"1\", \"entrypoint\": \"bin/drv\", \"device_definition\": {\"default_commands\": [{\"name\": \"L\", \"range\": [100, 1]}]}}", "range" },
+        { "{\"id\": \"ok\", \"version\": \"1\", \"entrypoint\": \"bin/drv\", \"device_definition\": {\"default_commands\": [{\"name\": \"L\", \"range\": [1.5, 9]}]}}", "range" },
+        { "{\"id\": \"ok\", \"version\": \"1\", \"entrypoint\": \"bin/drv\", \"device_definition\": {\"default_commands\": [{\"name\": \"L\", \"range\": [1]}]}}", "range" },
+        { "{\"id\": \"ok\", \"version\": \"1\", \"entrypoint\": \"bin/drv\", \"requires_libs\": \"libbearssl.so.0\"}", "must be an array" },
+        { "{\"id\": \"ok\", \"version\": \"1\", \"entrypoint\": \"bin/drv\", \"requires_libs\": [\"../lib/x.so\"]}", "bad library name" },
+        { "{\"id\": \"ok\", \"version\": \"1\", \"entrypoint\": \"bin/drv\", \"requires_libs\": [\"libnope.so.0\"]}", "does not have" },
     };
     for (size_t i = 0; i < sizeof(bad_manifests) / sizeof(bad_manifests[0]); i++) {
         make_src("ok", "1", "exec sleep 300");
@@ -179,7 +185,21 @@ int main(void) {
     }
     assert(access(ROOT "/plugins/ok", F_OK) != 0);
     unlink("/tmp/test_bad.tar.gz");
-    printf("[+] Bad manifests refused (id, version, entrypoint, config_fields).\n");
+    printf("[+] Bad manifests refused (id, version, entrypoint, config_fields, command range, requires_libs).\n");
+
+    /* A library the Hub has (HARMONY_PLUGIN_LIB_DIR) is accepted */
+    sh("mkdir -p " ROOT "/lib && : > " ROOT "/lib/libok.so.0");
+    make_src("libuser", "1", "exec sleep 300");
+    write_file(SRC "/manifest.json",
+               "{\"id\": \"libuser\", \"version\": \"1\", \"entrypoint\": \"bin/drv\", \"requires_libs\": [\"libok.so.0\"]}", 0);
+    pack("/tmp/test_libuser.tar.gz");
+    rc = plugin_mgr_install_archive("/tmp/test_libuser.tar.gz", NULL, err, sizeof(err));
+    if (rc != 0) fprintf(stderr, "requires_libs install: rc=%d err=%s\n", rc, err);
+    assert(rc == 0);
+    plugin_mgr_uninstall("libuser");
+    unlink("/tmp/test_libuser.tar.gz");
+    sh("rm -rf " ROOT "/lib");
+    printf("[+] requires_libs with a library the Hub has: installed.\n");
 
     /* 3. Archives that write outside the unpack directory, or link, are refused before the
      * unpack. Python writes the entries: tar drops '../' when it packs. A hard link is
@@ -245,7 +265,7 @@ int main(void) {
      * foreground with the socket as argv[1] and the HARMONY_* environment. Its own child
      * (a helper) is in the same process group. */
     make_src("test-roku", "1.2.3",
-             "echo \"$1|$HARMONY_PLUGIN_ID|$HARMONY_SOCKET|$HARMONY_PLUGIN_DATA\" > /tmp/test_plug_env\n"
+             "echo \"$1|$HARMONY_PLUGIN_ID|$HARMONY_SOCKET|$HARMONY_PLUGIN_DATA|$LD_LIBRARY_PATH\" > /tmp/test_plug_env\n"
              "sleep 300 &\necho $! > /tmp/test_plug_child\nexec sleep 300");
     pack("/tmp/test_mock_plug.tar.gz");
     unlink("/tmp/test_plug_env");
@@ -278,6 +298,8 @@ int main(void) {
         assert(f && fgets(env, sizeof(env), f));
         fclose(f);
         assert(strstr(env, RUN "/test-roku.sock|test-roku|" RUN "/test-roku.sock|" ROOT "/plugin-data/test-roku"));
+        /* the shared libraries for plugins: the stock ld-uClibc ignores a binary's rpath */
+        assert(strstr(env, "|" ROOT "/lib"));
     }
     assert(access(ROOT "/plugins/test-roku/.source.json", F_OK) != 0); /* local archive: no source */
     /* no source: a pull would take the first catalog entry with this id, from any repository */

@@ -193,6 +193,22 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
     return this.postForm('/mqtt', data);
   }
 
+  /* HTTP(S) and TCP devices: connection settings (JSON: httpHeaders is a list) */
+  async saveDeviceNet(data) {
+    return this.postJson('/api/device-save', data);
+  }
+
+  async testDeviceNet(deviceId, command) {
+    const data = { id: String(deviceId) };
+    if (command) data.command = command;
+    // the Hub waits up to about 4 times netTimeoutMs (62 s at most): longer than the 12 s default
+    return this.postJson('/api/device-net-test', data, { timeout: 65000 });
+  }
+
+  async forgetDeviceNetPin(deviceId) {
+    return this.postJson('/api/device-net-pin-forget', { id: String(deviceId) });
+  }
+
   /* Network (Wi-Fi & Ethernet) */
   async getNetworkStatus() {
     const data = await this.request('/api/network-status');

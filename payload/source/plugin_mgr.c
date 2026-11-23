@@ -2,6 +2,7 @@
 #include "plugin_mgr.h"
 #include "http_util.h"
 #include "config_store.h"
+#include "cmd_range.h"
 #include "cJSON.h"
 #include "sha256.h"
 
@@ -95,9 +96,12 @@ static int is_safe_rel_path(const char *f) {
     return 1;
 }
 
-/* wget without a shell; the output is removed when the download failed */
+/* hub_fetch (certificate checked), or wget without a shell when the Hub has no hub_fetch,
+ * its library or the CA bundle (host tests); the output is removed when the download failed */
 static int fetch_url(const char *url, const char *out_path, long max_bytes, unsigned int max_ms) {
     if (!is_safe_url(url)) return -1;
+    int checked = fetch_url_checked(url, out_path, max_bytes, max_ms, 10);
+    if (checked != RUN_NO_FETCH) return checked;
     /* busybox with its wget applet on the Hub; a plain wget elsewhere (host tests) */
     static const char *const tools[][2] = {
         { "/cache/bin/busybox", "wget" }, { "/data/harmony/bin/busybox", "wget" },
@@ -251,6 +255,10 @@ static void busy_drop(const char *id) {
  * uClibc reads /etc/TZ, which the settings save keeps current. */
 static char **s_base_env;
 static char *s_env_path; /* "PATH=/cache/bin:/data/harmony/bin:<inherited PATH>" */
+/* "LD_LIBRARY_PATH=<HARMONY_PLUGIN_LIB_DIR>[:<inherited>]": the shared libraries for plugins
+ * (libbearssl.so.0). The stock ld-uClibc 0.9.30 ignores DT_RPATH, so -Wl,-rpath alone does
+ * not find them (checked on a Hub: "can't load library"). */
+static char *s_env_ldpath;
 
 static void snapshot_env(void) {
     if (s_base_env) return;
@@ -259,17 +267,23 @@ static void snapshot_env(void) {
     char **e = calloc(n + 1, sizeof(char *));
     if (!e) return;
     size_t k = 0;
-    const char *old_path = NULL;
+    const char *old_path = NULL, *old_ld = NULL;
     for (size_t i = 0; i < n; i++) {
         const char *v = environ[i];
         if (strncmp(v, "PATH=", 5) == 0) old_path = v + 5;
-        if (strncmp(v, "PATH=", 5) == 0 || strncmp(v, "HARMONY_", 8) == 0 || strncmp(v, "TZ=", 3) == 0) continue;
+        if (strncmp(v, "LD_LIBRARY_PATH=", 16) == 0) old_ld = v + 16;
+        if (strncmp(v, "PATH=", 5) == 0 || strncmp(v, "HARMONY_", 8) == 0 || strncmp(v, "TZ=", 3) == 0 ||
+            strncmp(v, "LD_LIBRARY_PATH=", 16) == 0) continue;
         if ((e[k] = strdup(v)) != NULL) k++;
     }
     /* sized to the inherited PATH: a fixed buffer cut a long one before /usr/bin */
     if (!old_path || !old_path[0]) old_path = "/bin:/sbin:/usr/bin:/usr/sbin";
     size_t path_len = strlen(old_path) + sizeof("PATH=/cache/bin:/data/harmony/bin:");
     if ((s_env_path = malloc(path_len)) != NULL) snprintf(s_env_path, path_len, "PATH=/cache/bin:/data/harmony/bin:%s", old_path);
+    size_t ld_len = (old_ld ? strlen(old_ld) : 0) + sizeof("LD_LIBRARY_PATH=" HARMONY_PLUGIN_LIB_DIR ":");
+    if ((s_env_ldpath = malloc(ld_len)) != NULL)
+        snprintf(s_env_ldpath, ld_len, "LD_LIBRARY_PATH=%s%s%s", HARMONY_PLUGIN_LIB_DIR,
+                 old_ld && old_ld[0] ? ":" : "", old_ld && old_ld[0] ? old_ld : "");
     s_base_env = e;
 }
 
@@ -557,14 +571,15 @@ static int do_start(const char *plugin_id) {
     snprintf(e_sock, sizeof(e_sock), "HARMONY_SOCKET=%s", sock_path);
     snprintf(e_data, sizeof(e_data), "HARMONY_PLUGIN_DATA=%s", data_dir);
     snapshot_env();
-    if (!s_env_path) return -1;
+    if (!s_env_path || !s_env_ldpath) return -1;
     size_t n_env = 0;
     while (s_base_env && s_base_env[n_env]) n_env++;
-    char **envp = calloc(n_env + 5, sizeof(char *));
+    char **envp = calloc(n_env + 6, sizeof(char *));
     if (!envp) return -1;
     size_t k = 0;
     for (size_t i = 0; i < n_env; i++) envp[k++] = s_base_env[i];
     envp[k++] = s_env_path;
+    envp[k++] = s_env_ldpath;
     envp[k++] = e_id;
     envp[k++] = e_sock;
     envp[k++] = e_data;
@@ -1207,6 +1222,29 @@ static int validate_manifest(const cJSON *m, const char *src_dir, char *err_msg,
             return -1;
         }
     }
+    /* Shared libraries the plugin links (e.g. "libbearssl.so.0", docs/PLUGINS.md): each must be
+     * in HARMONY_PLUGIN_LIB_DIR, else the plugin would be installed and then fail to start */
+    const cJSON *libs = cJSON_GetObjectItemCaseSensitive(m, "requires_libs");
+    if (libs) {
+        const cJSON *l = NULL;
+        if (!cJSON_IsArray(libs)) {
+            if (err_msg) snprintf(err_msg, err_msg_sz, "Manifest requires_libs must be an array");
+            return -1;
+        }
+        cJSON_ArrayForEach(l, libs) {
+            if (!cJSON_IsString(l) || !is_safe_rel_path(l->valuestring) || strchr(l->valuestring, '/')) {
+                if (err_msg) snprintf(err_msg, err_msg_sz, "Manifest requires_libs holds a bad library name");
+                return -1;
+            }
+            char lib_path[512];
+            snprintf(lib_path, sizeof(lib_path), "%s/%s", HARMONY_PLUGIN_LIB_DIR, l->valuestring);
+            if (access(lib_path, R_OK) != 0) {
+                if (err_msg) snprintf(err_msg, err_msg_sz, "The plugin needs %.60s, which this Hub does not have (update the Hub software)",
+                                      l->valuestring);
+                return -1;
+            }
+        }
+    }
     const cJSON *dd = cJSON_GetObjectItemCaseSensitive(m, "device_definition");
     if (dd && !cJSON_IsObject(dd)) {
         if (err_msg) snprintf(err_msg, err_msg_sz, "Manifest device_definition must be an object");
@@ -1225,6 +1263,15 @@ static int validate_manifest(const cJSON *m, const char *src_dir, char *err_msg,
                 if (err_msg) snprintf(err_msg, err_msg_sz, "Every config_fields entry needs a string key");
                 return -1;
             }
+        }
+    }
+    const cJSON *dc = dd ? cJSON_GetObjectItemCaseSensitive(dd, "default_commands") : NULL;
+    const cJSON *c = NULL;
+    cJSON_ArrayForEach(c, (cJSON_IsArray(dc) ? dc : NULL)) {
+        const cJSON *r = cJSON_GetObjectItemCaseSensitive(c, "range");
+        if (r && !cmd_range_valid(r)) {
+            if (err_msg) snprintf(err_msg, err_msg_sz, "A default_commands range must be [min, max] (integers, min <= max)");
+            return -1;
         }
     }
     return 0;
@@ -1380,8 +1427,8 @@ static int install_from_url_unlocked(const char *url, const char *sha256_hex, ch
         return -1;
     }
 
-    /* busybox wget does not check certificates: the SHA-256 (from the caller or the
-     * marketplace entry) is what tells a damaged archive. It is required. */
+    /* The SHA-256 (from the caller or the marketplace entry) is what tells a damaged or
+     * replaced archive (the busybox wget fallback checks no certificate). It is required. */
     char want[65] = {0}, cat_sha[65], repo[512];
     /* its repository is recorded (for a pull) only when that entry has this checksum */
     int listed = catalog_lookup(url, NULL, NULL, NULL, cat_sha, repo) == 0;
@@ -1611,7 +1658,11 @@ int plugin_mgr_pull(const char *plugin_id, char *err_msg, size_t err_msg_sz) {
 }
 
 cJSON *plugin_mgr_get_device_definition(const char *plugin_id) {
-    if (!plugin_id || !is_safe_plugin_id(plugin_id)) return NULL;
+    return plugin_mgr_get_manifest_item(plugin_id, "device_definition");
+}
+
+cJSON *plugin_mgr_get_manifest_item(const char *plugin_id, const char *key) {
+    if (!plugin_id || !is_safe_plugin_id(plugin_id) || !key) return NULL;
 
     char mpath[256];
     snprintf(mpath, sizeof(mpath), "%s/%s/manifest.json", HARMONY_PLUGINS_DIR, plugin_id);
@@ -1623,8 +1674,8 @@ cJSON *plugin_mgr_get_device_definition(const char *plugin_id) {
     free(mtxt);
     if (!manifest) return NULL;
 
-    cJSON *dev_def = cJSON_GetObjectItemCaseSensitive(manifest, "device_definition");
-    cJSON *copy = dev_def ? cJSON_Duplicate(dev_def, 1) : NULL;
+    cJSON *item = cJSON_GetObjectItemCaseSensitive(manifest, key);
+    cJSON *copy = item ? cJSON_Duplicate(item, 1) : NULL;
     cJSON_Delete(manifest);
     return copy;
 }

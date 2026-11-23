@@ -1897,6 +1897,9 @@ paths:
                 pronto: {type: string, description: "Pronto hex, or a Harmony code (also accepted as code or raw)"}
                 port: {type: integer, default: 7}
                 repeats: {type: integer, default: 1}
+                value:
+                  type: integer
+                  description: Numeric argument of a plugin command (a slider, a level), sent as the datagram's value. A command with a range refuses a value outside it with 400.
             examples:
               byDevice:
                 value:
@@ -1918,7 +1921,9 @@ paths:
                 deviceId: "70321456"
                 command: PowerToggle
         '400':
-          description: Neither deviceId with one command name nor a Pronto code
+          description: |
+            Neither deviceId with one command name nor a Pronto code; "value must be an integer"; "value out of
+            range" (a plugin command with a range); "value required (the command has a range)"
         '500':
           description: The send failed, or the device or the command is not known ("error":"IR transmit failed")
 
@@ -3649,6 +3654,54 @@ paths:
         '500':
           description: The settings could not be saved
 
+  /api/device-net-test:
+    post:
+      tags:
+        - Devices & Commands
+      summary: Run a command of an HTTP or TCP device now (admin)
+      description: |
+        Waits for the result, up to about 4 times netTimeoutMs. Without command only the
+        connection and the TLS handshake are tested (docs/API.md 3.x).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id: {type: string, description: "Also accepted as deviceId"}
+                command: {type: string}
+            example: {id: "50", command: Power}
+      responses:
+        '200':
+          description: The result (ok false with error when the request failed or answered 400 or more)
+          content:
+            application/json:
+              example: {ok: true, status: 200, response: '{"done":true}', tlsFingerprint: 9f86d081884c7d65, pinned: true}
+        '400':
+          description: Not an HTTP or TCP device
+        '404':
+          description: No device with that id, or no command of that name
+  /api/device-net-pin-forget:
+    post:
+      tags:
+        - Devices & Commands
+      summary: Forget the pinned TLS key of an HTTP or TCP device (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id: {type: string, description: "Also accepted as deviceId"}
+            example: {id: "50"}
+      responses:
+        '200':
+          description: removed is false when no key was pinned for the device's host and port
+          content:
+            application/json:
+              example: {ok: true, removed: true}
   /api/device-mqtt-test:
     post:
       tags:
@@ -4337,9 +4390,18 @@ paths:
         - Plugins
       summary: Pair a plugin with its device
       description: |
-        Starts the plugin daemon if needed, sends the pairing step to it and waits up to 15 s for its answer.
-        `action` `start` (default) asks the device to show a code; `pin` (or `finish_pair`) sends the code the user read from the device.
-        The answer is the status object the plugin writes; a missing answer gives `stage: error`.
+        Starts the plugin daemon if needed, sends the pairing step to it and waits for its answer: 15 s at most
+        for a start or PIN step (whatever `pairing.timeout_s` says), 1 s for a listen or confirm pairing (which
+        then runs for `timeout_s`). A plugin that cannot take the step (not running, no socket) answers `ok: false`
+        with `stage: error` after about 3 s.
+        `action` `start` (default) asks the device to show a code; `pin` (or `finish_pair`) sends the code the user read from the device;
+        `status` returns the plugin's current status and sends nothing.
+        A plugin whose manifest has `pairing.type: listen` hears its device itself: no `host` is needed, `start` answers
+        within 1 s (`stage: listening`, with `timeout_s`) and the client polls `status` until `stage` is `done` or `error`.
+        `pairing.type: confirm` (the user accepts the Hub on the device's screen) runs the same way with a `host`, no PIN,
+        and `stage: confirm_on_device`.
+        The answer is the status object the plugin writes; a missing answer gives `stage: error`. Its `config` object
+        (values the plugin learned) keeps only keys the manifest's `config_fields` declare, with string, number or bool values.
       requestBody:
         required: true
         content:
@@ -4348,7 +4410,6 @@ paths:
               type: object
               required:
                 - id
-                - host
               properties:
                 id:
                   type: string
@@ -4358,9 +4419,11 @@ paths:
                     - start
                     - pin
                     - finish_pair
+                    - status
                   default: start
                 host:
                   type: string
+                  description: Required unless the manifest's pairing has requires_host false (a listen pairing)
                 port:
                   type: integer
                   description: Optional; without it the plugin uses its own port

@@ -92,7 +92,21 @@ int main(void) {
     sanitize_devices_json(root);
     cmds = cJSON_GetObjectItemCaseSensitive(dev_of(root, 0), "commands");
     CHECK(num_of(cJSON_GetArrayItem(cmds, 0), "port") == 2, "a port set after that is kept");
-  
+    cJSON_Delete(root);
+
+    printf("[-] command range\n");
+    root = cJSON_Parse("{\"devices\":[{\"id\":\"2\",\"name\":\"Fan\",\"plugin\":\"mantra\",\"commands\":["
+                       "{\"name\":\"Speed\",\"keyCode\":\"PLUGIN:mantra:SPEED\",\"range\":[0,31]},"
+                       "{\"name\":\"Bad\",\"keyCode\":\"PLUGIN:mantra:X\",\"range\":[9,1]}]}]}");
+    sanitize_devices_json(root);
+    sanitize_devices_json(root);
+    cmds = cJSON_GetObjectItemCaseSensitive(dev_of(root, 0), "commands");
+    cJSON *rg = cJSON_GetObjectItemCaseSensitive(cJSON_GetArrayItem(cmds, 0), "range");
+    CHECK(cJSON_GetArraySize(rg) == 2 && cJSON_GetArrayItem(rg, 0)->valueint == 0 &&
+          cJSON_GetArrayItem(rg, 1)->valueint == 31, "valid range kept over two passes");
+    CHECK(cJSON_GetObjectItemCaseSensitive(cJSON_GetArrayItem(cmds, 1), "range") == NULL, "min > max range left out");
+    cJSON_Delete(root);
+
     printf("[-] hideOnRemote / hideInDevicesTab\n");
     root = cJSON_Parse("{\"devices\":[{\"id\":\"1\",\"name\":\"TV\",\"hideOnRemote\":true},"
                        "{\"id\":\"2\",\"name\":\"AVR\",\"hideOnRemote\":false,\"hideInDevicesTab\":true}]}");

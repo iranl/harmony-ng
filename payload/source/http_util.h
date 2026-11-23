@@ -37,6 +37,21 @@ int http_request_is_cross_site(const char *req);
 #define RUN_TOO_BIG (-2)
 #define RUN_TOO_SLOW (-3)
 int run_argv_limited(char *const argv[], const char *watch_path, long max_bytes, unsigned int max_ms);
+/* hub_fetch (hub_fetch.c): the Hub's one TLS client, dynamic against libbearssl.so.0. The
+ * stock ld-uClibc ignores rpath: hub_daemon and hub_rf set LD_LIBRARY_PATH=HUB_FETCH_LIB_DIR at
+ * start, so every program they run finds the library. */
+#define HUB_FETCH_BIN "/data/harmony/bin/hub_fetch"
+#define HUB_FETCH_LIB_DIR "/data/harmony/lib"
+const char *hub_fetch_path(void);
+/* 1 when hub_fetch and its library are installed */
+int hub_fetch_available(void);
+/* Downloads url to out_path with hub_fetch (server certificate checked against the CA
+ * bundle), run through run_argv_limited. RUN_NO_FETCH when hub_fetch, its library or the
+ * bundle is missing: only then may a caller fall back to busybox wget, which checks no
+ * certificate. */
+#define RUN_NO_FETCH (-4)
+int fetch_url_checked(const char *url, const char *out_path, long max_bytes, unsigned int max_ms,
+                      int timeout_s);
 int is_proc_running(const char *proc_name);
 
 #ifdef __cplusplus

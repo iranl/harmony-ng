@@ -525,9 +525,9 @@ int http_api_custom_icons_handle(int client_fd, const char *method, const char *
             return 1;
         }
         close(tmp_fd);
-        int fetched = -1;
+        int fetched = fetch_url_checked(decoded_url, tmp_path, PROXY_FETCH_MAX_BYTES, PROXY_FETCH_MAX_MS, 6);
         static const char *const wget_paths[] = { "/cache/bin/busybox", "/data/harmony/bin/busybox" };
-        for (size_t wi = 0; wi < sizeof(wget_paths) / sizeof(wget_paths[0]); wi++) {
+        for (size_t wi = 0; fetched == RUN_NO_FETCH && wi < sizeof(wget_paths) / sizeof(wget_paths[0]); wi++) {
             char *argv[] = { (char *)wget_paths[wi], "wget", "-q", "--no-check-certificate", "-T", "6",
                              "-O", tmp_path, decoded_url, NULL };
             if (access(wget_paths[wi], X_OK) != 0) continue;
