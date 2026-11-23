@@ -41,7 +41,8 @@ static int s_sends;
 
 int http_post_local(int port, const char *path, const char *body) {
     (void)port;
-    if (path && (strcmp(path, "/api/ir-send") == 0 || strcmp(path, "/api/activity") == 0) && body) {
+    if (path && (strcmp(path, "/api/ir-send") == 0 || strcmp(path, "/api/activity") == 0 ||
+                 strcmp(path, "/api/activity/help") == 0) && body) {
         snprintf(s_last_send, sizeof(s_last_send), "%s", body);
         s_sends++;
     }
@@ -165,6 +166,15 @@ int main(void) {
     const char *flat_two =
         "{\"10\":{\"VolumeUp\":" BTN("1", "VolUp") "},\"20\":{\"DirectionUp\":" BTN("2", "Up") "},\"devices\":{\"1\":{}}}";
     check("flat map, two activities: not sent", flat_two, "-1\n", "VolumeUp", NULL, NULL);
+
+    /* A key mapped to Help (a remote without the Help screen sends the raw key) */
+    write_file(s_map_path, "{\"activities\":{\"10\":{\"Info\":{\"type\":\"help\"}},\"20\":{}}}");
+    write_file(s_act_path, "10\n");
+    rf_keymap_invalidate_map(1);
+    s_sends = 0;
+    dispatch_remote_button(1, "Info", "press", NULL);
+    printf("[%s] key mapped to Help: Help runs for the activity (sends=%d)\n", s_sends == 1 ? "+" : "-", s_sends);
+    if (s_sends != 1) failures++;
 
     unlink(s_map_path);
     unlink(s_act_path);

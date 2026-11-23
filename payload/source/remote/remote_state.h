@@ -165,12 +165,13 @@ typedef struct {
     uint8_t total_steps;
     uint16_t delay_ms;
     char name[32];
+    uint8_t warm_dev; /* a Warmup step: 1 + index into g_rf_devices of the device it waits for */
 } rf_act_step_t;
 
 typedef struct {
     char button_name[16];
     uint16_t rf_key_code;
-    uint8_t atype; /* 0x02 = start, 0x03 = stop */
+    uint8_t atype; /* 0x02 = start, 0x03 = stop, 0x04 = Help (target_act_id: its activity) */
     char target_act_id[12];
 } activity_trigger_btn_t;
 
@@ -236,6 +237,11 @@ extern char g_switching_target_id[16];
 extern char g_switching_target_name[48];
 extern uint64_t g_switching_start_ms;
 extern uint32_t g_switching_total_ms;
+/* The Hub announced the shown switch (RF_ACT_SYNC_STARTING): its end notice closes the switch
+ * screen, whatever activity it names */
+extern volatile bool g_switch_hub_started;
+/* When the Hub last said a switch runs (start notice or mid-switch query answer) */
+extern volatile uint64_t g_switch_hub_heard_ms;
 
 extern volatile bool g_is_syncing_config;
 extern uint64_t g_sync_start_ms;

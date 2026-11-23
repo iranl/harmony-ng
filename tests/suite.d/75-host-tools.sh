@@ -6,3 +6,5 @@ python3 "$SCRIPT_DIR/test_migrate_stock_repeats.py"
 python3 "$SCRIPT_DIR/test_migrate_device_ids.py"
 # Host tools check SSH host keys: accept-new, project known_hosts, --reset-host-key (fake ssh)
 python3 "$SCRIPT_DIR/test_ssh_host_keys.py"
+# tools/clean_stock_resources.py: empties /data/resources only after the stock import, never globs ".."
+python3 "$SCRIPT_DIR/test_clean_stock_resources.py"

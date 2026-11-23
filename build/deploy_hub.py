@@ -126,6 +126,8 @@ class HubDeployer:
         dry_run: bool = False,
         no_backup: bool = False,
         stage_remote_ota: bool = False,
+        dev_btstack: bool = False,
+        clean_stock_resources: bool = False,
     ):
         self.hub_host = hub_host
         self.hub_user = hub_user
@@ -136,6 +138,8 @@ class HubDeployer:
         self.dry_run = dry_run
         self.no_backup = no_backup
         self.stage_remote_ota = stage_remote_ota
+        self.dev_btstack = dev_btstack
+        self.clean_stock_resources = clean_stock_resources
 
         self.deploy_failures: list[str] = []
         self.remote_hashes: dict[str, str] = {}
@@ -147,6 +151,8 @@ class HubDeployer:
         self.script_dir = pathlib.Path(__file__).resolve().parent
         self.repo_root = self.script_dir.parent
         self.bundle_layout = (self.script_dir / "bin").is_dir()
+        # Dev BTstack build with info logs (build/build_btstack.sh), only in the repository layout
+        self.dev_btstack_bin = self.script_dir / "output" / "hub_btstack_dev"
 
         if self.bundle_layout:
             # Release bundle layout
@@ -196,6 +202,48 @@ class HubDeployer:
 
     def run_ssh(self, cmd_str: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(self.get_ssh_cmd(cmd_str), capture_output=True, text=True)
+
+    def empty_stock_resources(self, imported_now: bool) -> None:
+        """--clean-stock-resources: the steps of tools/clean_stock_resources.py, over this deploy's SSH."""
+        # The files are the import's source: never in the run that imported them (its scp results
+        # are not checked), so the next run deletes them once the import is known to be there
+        if imported_now:
+            print("[!] The stock configuration was imported in this run: /data/resources NOT emptied. "
+                  "Check the devices and activities, then run again with --clean-stock-resources.")
+            return
+        tools_dir = (self.script_dir if self.bundle_layout else self.repo_root) / "tools"
+        if str(tools_dir) not in sys.path:
+            sys.path.insert(0, str(tools_dir))
+        try:
+            import clean_stock_resources as csr
+            files, total = csr.scan_stock_resources(self.run_ssh)
+            if not files:
+                print("[+] /data/resources is already empty.")
+                return
+            reason, _ = csr.refusal(self.run_ssh, csr.backup_hub.default_backup_dir())
+            if reason and reason.startswith(csr.NO_COPY) and self.dry_run and not self.no_backup:
+                # The dry run skipped the backup that saves them
+                print("    [dry-run] would empty /data/resources once the backup has saved the stock files "
+                      f"({len(files)} file(s), {total:,} bytes before compression)")
+                return
+        except (ImportError, RuntimeError, subprocess.SubprocessError) as e:
+            reason = str(e)
+        if reason:
+            print(f"[!] /data/resources NOT emptied: {reason}.")
+            self.deploy_failures.append("/data/resources (--clean-stock-resources)")
+            return
+        if self.dry_skip(f"empty /data/resources ({len(files)} file(s), {total:,} bytes before compression)"):
+            return
+        print(f"[*] Emptying /data/resources ({len(files)} file(s), {total:,} bytes before compression)...")
+        try:
+            err = csr.empty_stock_resources(self.run_ssh)
+        except (RuntimeError, subprocess.SubprocessError) as e:
+            err = str(e)
+        if err:
+            print(f"[!] Emptying /data/resources failed: {err}")
+            self.deploy_failures.append("/data/resources (--clean-stock-resources)")
+        else:
+            print("[+] /data/resources emptied.")
 
     def dry_skip(self, msg: str) -> bool:
         if self.dry_run:
@@ -335,6 +383,15 @@ class HubDeployer:
         print(f"Target Hub: {self.hub_host}")
         print(f"SSH key: {self.ssh_key or '(ssh defaults)'}")
         print("Mode: Extended BusyBox & Harmony Runtime")
+        if self.dev_btstack:
+            if not self.dev_btstack_bin.is_file() or elf_machine(self.dev_btstack_bin) != ELF_MACHINE_MIPS:
+                hint = ("a release bundle has no dev build: take hub_btstack_dev from the release's "
+                        "hub_btstack_dev_v<version>.tar.gz into output/" if self.bundle_layout
+                        else "Run build/compile_all.sh btstack first.")
+                print(f"[-] --dev-btstack: {self.dev_btstack_bin} is missing or not a MIPS binary. {hint}",
+                      file=sys.stderr)
+                return False
+            print(f"hub_btstack: dev build with info logs ({self.dev_btstack_bin})")
 
         # Connection check
         if self.dry_run:
@@ -461,6 +518,7 @@ class HubDeployer:
             # Stock config conversion via migrate_hub_configs.py if needed
             has_dev_res = self.run_ssh("[ -f /data/harmony/config/devices.json ] && echo 1 || echo 0")
             has_dev = has_dev_res.stdout.strip() == "1"
+            imported_now = False
             if not has_dev:
                 has_stock_res = self.run_ssh("[ -f /data/resources/DeviceList.json ] && echo 1 || echo 0")
                 has_stock = has_stock_res.stdout.strip() == "1"
@@ -472,7 +530,11 @@ class HubDeployer:
 
                 if has_stock and not mig_script:
                     print("[!] Stock configuration found but migrate_hub_configs.py missing: configs NOT migrated.")
-                elif has_stock and mig_script and not self.dry_skip("migrate stock configuration and upload"):
+                elif has_stock and mig_script and self.dry_run:
+                    imported_now = True
+                    print("    [dry-run] would migrate stock configuration and upload")
+                elif has_stock and mig_script:
+                    imported_now = True
                     print("[*] Migrating stock Logitech configurations to canonical v2.0 format...")
                     with tempfile.TemporaryDirectory() as tmp_dir:
                         tmp_p = pathlib.Path(tmp_dir)
@@ -499,6 +561,9 @@ class HubDeployer:
                             print(f"[!] Stock configuration conversion failed: {mig_res.stderr.strip() or 'devices.json missing'}")
             elif self.dry_run:
                 print("    [dry-run] /data/harmony/config/devices.json exists: stock config would not be imported")
+
+            if self.clean_stock_resources:
+                self.empty_stock_resources(imported_now)
 
             # Query remote hashes for core binaries and configs
             self.query_remote_hashes(
@@ -552,6 +617,8 @@ class HubDeployer:
                 ]
             for b in core_bins:
                 src = self.bin_dir / b
+                if b == "hub_btstack" and self.dev_btstack:
+                    src = self.dev_btstack_bin
                 if src.is_file():
                     self.deploy_file_if_changed(src, f"/data/harmony/bin/{b}", "755")
 
@@ -808,12 +875,21 @@ def main() -> None:
     parser.add_argument("--dry-run", "-n", action="store_true", help="Read Hub state and report changes without modifying Hub")
     parser.add_argument("--no-backup", action="store_true", help="Skip pre-deployment backup")
     parser.add_argument("--stage-remote-ota", action="store_true", help="Stage local remote_ui.ota.gz into Hub /tmp/remote_ui.ota.gz (RAM tmpfs) for offline testing")
+    parser.add_argument("--dev-btstack", action="store_true", help="Install the hub_btstack dev build with BTstack info logs (build/output/hub_btstack_dev) instead of the release build")
     ssh_hostkeys.add_reset_option(parser, "the Hub")
+    parser.add_argument("--clean-stock-resources", action="store_true",
+                        help="Empty /data/resources (stock Logitech files) on a Hub whose stock configuration was "
+                             "imported in an earlier run and whose files are saved in backups/stock_resources_<hub>.tar "
+                             "(the pre-deployment backup saves them)")
 
     args = parser.parse_args()
     target_host = args.flag_host or args.host
     if not target_host:
         parser.error("HUB_ADDRESS is required (pass as first argument or --host=IP)")
+    if args.dev_btstack and args.webui_only:
+        parser.error("--dev-btstack installs a binary: it cannot be combined with --webui-only")
+    if args.clean_stock_resources and args.webui_only:
+        parser.error("--clean-stock-resources does not run with --webui-only")
     # Before any USB or device work: a stop here leaves the device untouched
     ssh_hostkeys.require_known_hosts()
     if args.reset_host_key:
@@ -837,6 +913,8 @@ def main() -> None:
         dry_run=args.dry_run,
         no_backup=args.no_backup,
         stage_remote_ota=args.stage_remote_ota,
+        dev_btstack=args.dev_btstack,
+        clean_stock_resources=args.clean_stock_resources,
     )
     success = deployer.deploy()
     sys.exit(0 if success else 1)

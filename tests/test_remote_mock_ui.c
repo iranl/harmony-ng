@@ -255,6 +255,52 @@ int main(void) {
     assert(test_steps[5].delay_ms == 0);
     printf("[+] Switch -1 -> 2 timing verified: %ums across %d steps\n", total_b, count_b);
 
+    /* Test C: a switch shorter than 1.5 s shows for 2 s (an older Hub sends no Warmup step) */
+    strncpy(g_rf_steps[g_rf_step_count].act_id, "3", 11);
+    g_rf_steps[g_rf_step_count].step_idx = 0;
+    g_rf_steps[g_rf_step_count].delay_ms = 800;
+    strncpy(g_rf_steps[g_rf_step_count++].name, "InputHdmi3", 15);
+    uint32_t total_c = 0;
+    build_combined_activity_sequence("", "3", test_steps, 32, &total_c);
+    assert(total_c == 2000);
+    printf("[+] Short switch raised to %ums\n", total_c);
+
+    /* Test D: one Warmup step, the longest of the devices the leaving activity does not use */
+    strncpy(g_rf_steps[g_rf_step_count].act_id, "4", 11);
+    g_rf_steps[g_rf_step_count].step_idx = 0;
+    g_rf_steps[g_rf_step_count].delay_ms = 9000;
+    g_rf_steps[g_rf_step_count].warm_dev = 1; /* device 0 */
+    strncpy(g_rf_steps[g_rf_step_count++].name, "Warmup", 15);
+    strncpy(g_rf_steps[g_rf_step_count].act_id, "4", 11);
+    g_rf_steps[g_rf_step_count].step_idx = 1;
+    g_rf_steps[g_rf_step_count].delay_ms = 3000;
+    g_rf_steps[g_rf_step_count].warm_dev = 2; /* device 1 */
+    strncpy(g_rf_steps[g_rf_step_count++].name, "Warmup", 15);
+    strncpy(g_rf_steps[g_rf_step_count].act_id, "4", 11);
+    g_rf_steps[g_rf_step_count].step_idx = 2;
+    g_rf_steps[g_rf_step_count].delay_ms = 2000;
+    strncpy(g_rf_steps[g_rf_step_count++].name, "InputHdmi1", 15);
+    int saved_act_count = g_rf_activity_count;
+    rf_activity_t saved_act = g_rf_activities[0];
+    g_rf_activity_count = 1;
+    snprintf(g_rf_activities[0].id, sizeof(g_rf_activities[0].id), "5");
+    g_rf_activities[0].dev_count = 1;
+    g_rf_activities[0].devs[0] = 0; /* activity 5 uses device 0: it is on already */
+    uint32_t total_d = 0;
+    int count_d = build_combined_activity_sequence("", "4", test_steps, 32, &total_d);
+    assert(count_d == 3 && strcmp(test_steps[0].name, "Warmup") == 0 && test_steps[0].delay_ms == 9000);
+    assert(total_d == 11000);
+    build_combined_activity_sequence("5", "4", test_steps, 32, &total_d);
+    assert(strcmp(test_steps[1].name, "Warmup") == 0 && test_steps[1].delay_ms == 3000); /* after "Stop old act" */
+    assert(total_d == 1500 + 3000 + 2000);
+    g_rf_activities[0].devs[0] = 1; /* now both devices are off before the switch */
+    g_rf_activities[0].dev_count = 0;
+    build_combined_activity_sequence("5", "4", test_steps, 32, &total_d);
+    assert(total_d == 1500 + 9000 + 2000);
+    g_rf_activities[0] = saved_act;
+    g_rf_activity_count = saved_act_count;
+    printf("[+] Warmup kept only for devices that are off before the switch\n");
+
     /* 9. A device name longer than its list chunk arrives whole in RF_MSG_NAME_TAIL_CHUNK frames */
     const char *long_name = "Marantz AV Receiver in the Living Room!"; /* 39 bytes: chunk 16 + tails 22 + 1 */
     assert(strlen(long_name) == RF_NAME_SIZE - 1);

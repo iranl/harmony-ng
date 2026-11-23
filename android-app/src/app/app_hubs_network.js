@@ -291,6 +291,60 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
     }
   }
 
+  async cleanStockResources() {
+    const disk = await this.client.getSystemDisk().catch(() => null);
+    const kb = disk?.stock_resources_kb ?? 0;
+    const msg = tf('clean_stock_resources_confirm', { kb });
+    if (!await showConfirm(msg, {
+      title: t('clean_stock_resources_title', 'Empty Stock Resources'),
+      okText: t('empty_resources', 'Empty Resources'),
+      danger: true
+    })) return;
+
+    try {
+      const res = await this.client.cleanStockResources();
+      showToast(tf('freed_stock_resources_toast', { kb: res?.freed_kb ?? kb }), 'success');
+      await this.refreshStockResources();
+      if (typeof this.refreshDiskSpace === 'function') await this.refreshDiskSpace();
+    } catch (err) {
+      showToast(t('clean_resources_failed', 'Failed to empty stock resources: ') + err.message, 'error');
+    }
+  }
+
+  async refreshStockResources() {
+    const card = document.getElementById('cardStockResources');
+    const badge = document.getElementById('stockResourcesBadge');
+    const detail = document.getElementById('stockResourcesDetail');
+    const btn = document.getElementById('btnCleanStockResources');
+    if (!card) return;
+    if (btn) btn.disabled = true;
+
+    try {
+      const disk = await this.client.getSystemDisk();
+      const kb = disk?.stock_resources_kb;
+      // Firmware without the stock resources delete: no card
+      card.hidden = typeof kb !== 'number';
+      if (card.hidden) return;
+      const canEmpty = disk.can_empty_stock_resources === true;
+      if (badge) {
+        badge.textContent = `${kb} kB`;
+        badge.className = `badge ${kb > 0 ? 'warn' : 'ok'}`;
+      }
+      if (detail) {
+        detail.textContent = kb === 0 ? t('stock_resources_empty')
+          : canEmpty ? tf('stock_resources_used', { kb })
+          : !disk.stock_resources_saved ? t('stock_resources_not_saved') : t('stock_resources_not_imported');
+      }
+      if (btn) {
+        // style, not the hidden attribute: .btn sets display, which wins over [hidden]
+        btn.style.display = kb === 0 ? 'none' : '';
+        btn.disabled = !canEmpty;
+      }
+    } catch {
+      if (badge) badge.textContent = t('unknown');
+    }
+  }
+
   setupFactoryResetModal() {
     const modal = document.getElementById('factoryResetModal');
     const btnOpen = document.getElementById('btnFactoryResetHub');

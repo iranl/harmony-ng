@@ -22,6 +22,7 @@ int rf_send_frame_acked(uint8_t pipe, uint8_t msg_type, uint8_t flags, const uin
     (void)pipe; (void)msg_type; (void)flags; (void)payload; (void)len; (void)retries; return 0;
 }
 void rf_send_hub_activity_sync(void) {}
+int is_activity_transitioning(void) { return 0; }
 void rf_send_settings_push_slot(uint8_t slot, int bright, int timeout, int touch, int gyro,
                                int nav_key, int nav_mode, int confirm_act, int touch_sens,
                                int remote_mode, int gyro_rate, int btn_backlight,
@@ -37,6 +38,7 @@ void rf_notify_update_available(int slot) { (void)slot; }
 void rf_push_custom_icon(const char *id, const char *type) { (void)id; (void)type; }
 void record_config_diff(void) {}
 void rf_sync_cache_invalidate(void) {}
+void rf_config_version_bump(void) { g_config_version++; }
 int rf_wake_remote(uint8_t slot, int attempts) { (void)slot; (void)attempts; return 0; }
 void *config_push_worker(void *arg) { (void)arg; return NULL; }
 void *rf_ota_sender_worker(void *arg) { (void)arg; return NULL; }
