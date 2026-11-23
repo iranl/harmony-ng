@@ -46,7 +46,8 @@ if [ -n "$PYTHON" ] && [ -f "$REPO_ROOT/scripts/bump_version.py" ]; then
     "$PYTHON" "$REPO_ROOT/scripts/bump_version.py" --sync
 fi
 
-CFLAGS="-Wall -Os -static -s -DNDEBUG"
+# Section GC: each function and object in its own section, the unreferenced ones dropped at link
+CFLAGS="-Wall -Os -static -s -DNDEBUG -ffunction-sections -fdata-sections -Wl,--gc-sections"
 # The commit the Hub reports (/api/status and the OTA status said "dev" for every release)
 GIT_COMMIT=$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo dev)
 CFLAGS="$CFLAGS -DHARMONY_COMMIT=\"$GIT_COMMIT\""
@@ -64,7 +65,7 @@ TARGET="${1:-all}"
 build_util() {
     echo "[-] Building hub_util..."
     # unused functions are left out (the Wi-Fi code shares http_util.c with hub_daemon)
-    "$CC" $CFLAGS $OTA_KEY_CFLAGS -ffunction-sections -fdata-sections -Wl,--gc-sections -Ipayload/source -o "$BIN/hub_util" payload/source/hub_util.c payload/source/hub_ntp.c payload/source/ota_verify.c payload/source/tweetnacl.c payload/source/sha256.c payload/source/cJSON.c payload/source/usb_wifi.c payload/source/wifi_config.c payload/source/http_util.c $COMPAT_SRC -lm
+    "$CC" $CFLAGS $OTA_KEY_CFLAGS -Ipayload/source -o "$BIN/hub_util" payload/source/hub_util.c payload/source/hub_ntp.c payload/source/ota_verify.c payload/source/tweetnacl.c payload/source/sha256.c payload/source/cJSON.c payload/source/usb_wifi.c payload/source/wifi_config.c payload/source/http_util.c $COMPAT_SRC -lm
     for app in hub_sync sync mknod register_ehci eth_fix hub_sntp hub_usbwifi; do
         ln -sf hub_util "$BIN/$app"
     done
