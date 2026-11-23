@@ -79,10 +79,11 @@ export AR="mips-buildroot-linux-uclibc-gcc-ar" RANLIB="mips-buildroot-linux-ucli
 CFLAGS="-D_FORTIFY_SOURCE=2 -fno-strict-overflow -Wno-pointer-sign -Os -flto -fno-unwind-tables -fno-asynchronous-unwind-tables -ffunction-sections -fdata-sections"
 LDFLAGS="-Os -flto -static -Wl,--gc-sections -Wl,-z,norelro -Wl,--build-id=none -Wl,--hash-style=sysv"
 
+# syslog stays on (about 3 KB): the Hub runs syslogd, and a refused key or a missing host key
+# would otherwise leave no trace there
 ./configure --host=mips-buildroot-linux-uclibc \
     --prefix=/ \
     --disable-zlib \
-    --disable-syslog \
     --disable-lastlog \
     --disable-utmp \
     --disable-utmpx \
