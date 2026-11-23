@@ -4,6 +4,7 @@
 #include "config_store.h"
 #include "resource_cache.h"
 #include "bt_common.h"
+#include "hub_cmd.h"
 #include "cJSON.h"
 
 #include <stdio.h>
@@ -369,6 +370,7 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
          * is refused rather than written past the end (it was 16 for 21 possible files) */
         struct import_file files[28];
         const int files_max = (int)(sizeof(files) / sizeof(files[0]));
+        int slot_map_restored = 0; /* the bundle carried rf_slot_map: hub_rf restarts after the import */
         int nfiles = 0;
         const char *refused = NULL; /* the section that is not valid */
         int write_failed = 0;
@@ -445,7 +447,10 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
                             if (strcmp(b_files[i].key, "hub_id") == 0 && !cJSON_IsString(sec)) continue;
                             int pr = import_prepare(b_files[i].key, b_files[i].path, sec, &files[nfiles]);
                             if (pr < 0) refused = b_files[i].key;
-                            else if (pr > 0) nfiles++;
+                            else if (pr > 0) {
+                                nfiles++;
+                                if (strcmp(b_files[i].key, "rf_slot_map") == 0) slot_map_restored = 1;
+                            }
                         }
                     }
 
@@ -478,6 +483,9 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
                             config_store_init();
                             notify_rf_push_config();
                             hub_send_btstack_cmd("reload_map");
+                            /* hub_rf reads the slot table at its start: it restarts once idle */
+                            if (slot_map_restored && hub_rf_request("POST", "/api/rf/restart", "{}") != 202)
+                                printf("[-] Import: hub_rf not reached, the slot table applies at its next start\n");
                             struct user_account tmp_u[MAX_HTTP_USERS];
                             int tmp_en = 0;
                             int tmp_c = load_user_accounts(tmp_u, MAX_HTTP_USERS, &tmp_en);

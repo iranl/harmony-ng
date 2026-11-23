@@ -2165,8 +2165,11 @@ Exports complete hub configuration bundle or individual configuration elements.
   - `bluetooth`
   - `bt_remote_map` (also `remote-mapping`)
   - `remote_slot1_map` to `remote_slot6_map`
-  - `rf_slot_map` (text: which radio pipe each slot is). `hub_rf` reads it at its start, so a
-    restored table applies from the next start (reboot or `init.sh restart`). It names the pipes
+  - `rf_slot_map` (text: which radio pipe each slot is). `hub_rf` reads it at its start: after an
+    import that carries it, hub_daemon asks hub_rf to restart (`POST /api/rf/restart` on its
+    loopback API), which it does once no config push, update or pairing runs; `init.sh` starts it
+    again within seconds, and the remotes are off the air for that time. When hub_rf is not
+    running the table applies at its next start. It names the pipes
     of this Hub's radio: on another Hub, or after remotes were paired again, it puts the maps on
     other remotes.
   - `users` (the web UI accounts)

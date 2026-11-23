@@ -10,9 +10,11 @@ Also: text sections stay text (hub_id and the slot table were cut to their first
 import base64
 import json
 import os
+import socket
 import subprocess
 import sys
 import tempfile
+import threading
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from hub_harness import BUILD_DIR, MOCK_LIB, HubHarness, build_hub_daemon_test, build_mock_lib  # noqa: E402
@@ -43,6 +45,41 @@ def write(path, text):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
         f.write(text)
+
+
+class FakeHubRf:
+    """hub_rf's loopback API port (8092, as hub_cmd.c): records the request lines it gets"""
+
+    def __init__(self):
+        self.lines = []
+        self.srv = socket.socket()
+        self.srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            self.srv.bind(("127.0.0.1", 8092))
+        except OSError:
+            self.srv.close()
+            self.srv = None
+            return
+        self.srv.listen(4)
+        threading.Thread(target=self.run, daemon=True).start()
+
+    def run(self):
+        while True:
+            try:
+                c, _ = self.srv.accept()
+            except OSError:
+                return
+            with c:
+                c.settimeout(2)
+                try:
+                    self.lines.append(c.recv(4096).split(b"\r\n", 1)[0].decode())
+                    c.sendall(b"HTTP/1.1 202 Accepted\r\nConnection: close\r\n\r\n{}")
+                except OSError:
+                    pass
+
+    def close(self):
+        if self.srv:
+            self.srv.close()
 
 
 def main():
@@ -80,8 +117,14 @@ def main():
         # change what the import must put back
         write(os.path.join(d, "remote_slot6_map.json"), json.dumps({"remote": {"name": "changed"}}))
         write(os.path.join(d, "rf_slot_map.txt"), "1 2 3 4 5 6\n")
+        rf = FakeHubRf()
         st, r = hub.http_post("/import", {"target": "bundle", "payload": bundle, "restore_network": True}, timeout=15)
         check(st == 200, "bundle with every section imported", "%s %s" % (st, r))
+        if rf.srv:
+            check(any(l.startswith("POST /api/rf/restart ") for l in rf.lines),
+                  "hub_rf asked to restart for the restored slot table", str(rf.lines))
+        else:
+            print("  SKIP hub_rf restart request (port 8092 in use)")
         st2, _ = hub.http_get("/api/status")
         check(st2 == 200, "daemon still answers after the import", str(st2))
         with open(os.path.join(d, "remote_slot6_map.json")) as f:
@@ -92,8 +135,12 @@ def main():
         # a bundle from before text sections stayed text: hub_id as a number is skipped
         old = dict(bundle)
         old["hub_id"] = 20130507121425
+        rf.lines.clear()
+        old.pop("rf_slot_map", None)
         st, r = hub.http_post("/import", {"target": "bundle", "payload": old}, timeout=15)
         check(st == 200, "old bundle imported", "%s %s" % (st, r))
+        check(not any("/api/rf/restart" in l for l in rf.lines), "no hub_rf restart without a slot table", str(rf.lines))
+        rf.close()
         with open(os.path.join(d, "hub_id")) as f:
             check(f.read() == "20130507121425-002126\n", "a cut numeric hub_id is not restored")
 

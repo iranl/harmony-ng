@@ -395,6 +395,12 @@ void handle_rf_frame(const rf_frame_t *f) {
     }
 }
 
+/* A restart was asked for (POST /api/rf/restart) and nothing runs that it would cut short */
+bool rf_restart_due(void) {
+    return g_restart_requested && !g_config_push_running && !is_ota_busy() && g_rf_ota.status_code != 3 &&
+           !g_pairing_mode;
+}
+
 static void sig_handler(int sig) {
     (void)sig;
     g_running = false;
@@ -559,6 +565,12 @@ int main(int argc, char **argv) {
     int push_failing = 0;
     while (g_running) {
         sleep(1);
+        if (rf_restart_due()) {
+            /* the same way out as SIGTERM: /dev/rfspi is closed below, init.sh starts hub_rf again */
+            printf("[*] hub_rf restarts to read the restored slot table\n");
+            g_running = false;
+            break;
+        }
         rf_battery_fix_times(); /* a report from before the clock was set gets its reported_at */
         char key[8192]; /* 6 slots */
         if (rf_build_status_json(key, sizeof(key), RF_STATUS_STABLE_ONLY) < 0) continue;

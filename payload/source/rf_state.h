@@ -121,6 +121,11 @@ typedef struct {
 
 /* Globals */
 extern volatile bool g_running;
+/* Set by POST /api/rf/restart (hub_daemon, after a backup import that restored the slot table):
+ * the main loop exits once no config push, update or pairing runs, and init.sh starts hub_rf
+ * again, which reads the slot table, the slot state and the pipe table afresh */
+extern volatile bool g_restart_requested;
+bool rf_restart_due(void); /* rf_main.c */
 extern int g_rf_fd;
 extern pthread_mutex_t g_rf_mutex;
 extern uint8_t g_paired_addr[4];

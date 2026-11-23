@@ -395,6 +395,13 @@ void *api_server_worker(void *arg) {
                     const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"unpaired\",\"ok\":true}";
                     write(cli, res, strlen(res));
                 }
+            } else if (route_is(buf, "POST /api/rf/restart")) {
+                /* hub_daemon after a backup import with the slot table (rf_slot_map): a table
+                 * changed under a running hub_rf leaves its slot state on the wrong pipes, so
+                 * hub_rf starts again and reads it all, once no push, update or pairing runs */
+                g_restart_requested = true;
+                const char *res = "HTTP/1.1 202 Accepted\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"ok\":true,\"status\":\"restart_scheduled\"}";
+                write(cli, res, strlen(res));
             } else if (route_is(buf, "GET /api/rf/pull-config") || route_is(buf, "POST /api/rf/pull-config")) {
                 if (is_ota_busy()) {
                     const char *res = "HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"RF OTA in progress\",\"ok\":false}";

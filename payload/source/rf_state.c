@@ -18,6 +18,8 @@
 #include <sys/select.h>
 
 volatile bool g_running = true;
+/* POST /api/rf/restart: exit once idle, init.sh starts hub_rf again */
+volatile bool g_restart_requested = false;
 int g_rf_fd = -1;
 pthread_mutex_t g_rf_mutex = PTHREAD_MUTEX_INITIALIZER;
 uint8_t g_paired_addr[4] = {0};

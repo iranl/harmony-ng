@@ -97,7 +97,7 @@ static cJSON *ack(const cJSON *req, const char *action, int ok, int code, const 
 }
 
 /* Request to hub_rf on the loopback; returns the HTTP status or -1 (hub_rf not running) */
-static int rf_request(const char *method, const char *path, const char *body) {
+int hub_rf_request(const char *method, const char *path, const char *body) {
     int s = socket(AF_INET, SOCK_STREAM, 0);
     if (s < 0) return -1;
     struct timeval tv = { .tv_sec = 0, .tv_usec = 600000 };
@@ -605,7 +605,7 @@ cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin) {
         if (slot < 1 || slot > REMOTE_SLOT_MAX) return ack(req, action, 0, 400, "slot: 1 to 6");
         char path[64];
         snprintf(path, sizeof(path), "/api/rf/%s?slot=%d", strcmp(action, "rf_wake") == 0 ? "wake" : "sleep", slot);
-        int st = rf_request("POST", path, "{}");
+        int st = hub_rf_request("POST", path, "{}");
         if (st < 0) return ack(req, action, 0, 503, "hub_rf not running");
         if (st >= 200 && st < 300) return ack(req, action, 1, 200, NULL);
         return ack(req, action, 0, st, st == 409 ? "busy" : "hub_rf refused");
