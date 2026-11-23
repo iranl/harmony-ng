@@ -6,7 +6,9 @@ payload/scripts/usb_storage.sh scan in a host sandbox (fake sysfs, insmod/mount 
   reported present with the missing modules, and nothing is loaded or mounted;
 - with the modules installed they are loaded in order (scsi_mod, sd_mod, usb-storage), the
   partition gets a /dev node and is mounted on /mnt/usb;
-- no stick: nothing is reported present.
+- no stick: nothing is reported present;
+- offload with a mounted stick copies the icons and the plugins (with subfolders) to it, removes
+  the flash copies and bind-mounts the plugin folder from the stick.
 
 GET/POST /api/usb-storage on the host test daemon:
 - the state file is reported (present, mounted, device, fs, missing, free space, offload);
@@ -38,7 +40,7 @@ class UsbStorageScript(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def run_scan(self, stick: bool, modules: bool):
+    def run_scan(self, stick: bool, modules: bool, action: str = "scan", setup=None):
         root = self.root
         usb = root / "sys" / "bus" / "usb" / "devices"
         usb.mkdir(parents=True)
@@ -53,8 +55,12 @@ class UsbStorageScript(unittest.TestCase):
             part.mkdir(parents=True)
             (part / "dev").write_text("8:1\n")
             (root / "sys" / "block" / "sda" / "dev").write_text("8:0\n")
-        for d in ("tmp", "dev", "mnt", "cache/modules", "data/harmony/config", "data/harmony/custom_icons"):
+        for d in ("tmp", "dev", "mnt", "proc", "cache/modules", "data/harmony/config", "data/harmony/custom_icons"):
             (root / d).mkdir(parents=True, exist_ok=True)
+        # a fake /proc as well: mounts, and no plugin process of the host is ever signalled
+        (root / "proc" / "mounts").write_text("")
+        if setup:
+            setup(root)
         if modules:
             for m in ("scsi_mod", "sd_mod", "usb-storage"):
                 (root / "cache" / "modules" / f"{m}.ko").write_text("")
@@ -72,12 +78,12 @@ class UsbStorageScript(unittest.TestCase):
             p.chmod(0o755)
         text = SCRIPT.read_text(encoding="utf-8").replace("BB=/cache/bin/busybox\n", "BB=@STUB@\n")
         text = text.replace('[ -x "$BB" ] || BB=busybox\n', "")
-        text = re.sub(r"(?<![\w./$-])/(data|sys|cache|tmp|dev|mnt)(?=[/ \n])", lambda m: f"{root}/{m.group(1)}", text)
+        text = re.sub(r"(?<![\w./$-])/(data|sys|cache|tmp|dev|mnt|proc)(?=[/ \n])", lambda m: f"{root}/{m.group(1)}", text)
         text = text.replace("@STUB@", f"{stub}/busybox")
         script = root / "usb_storage.sh"
         script.write_text(text)
         env = dict(os.environ, PATH=f"{stub}:/usr/bin:/bin")
-        subprocess.run(["sh", str(script), "scan"], env=env, capture_output=True, text=True, timeout=30)
+        self.out = subprocess.run(["sh", str(script), action], env=env, capture_output=True, text=True, timeout=30)
         state = root / "tmp" / "usb_storage_state"
         st = dict(l.split("=", 1) for l in state.read_text().splitlines()) if state.exists() else {}
         calls = log.read_text().splitlines() if log.exists() else []
@@ -102,6 +108,29 @@ class UsbStorageScript(unittest.TestCase):
         st, calls = self.run_scan(stick=False, modules=True)
         self.assertEqual(st.get("present"), "0")
         self.assertFalse([c for c in calls if c.startswith("insmod")], calls)
+
+    def test_offload_moves_icons_and_plugins(self):
+        def setup(root):
+            (root / "proc" / "mounts").write_text(f"/dev/sda1 {root}/mnt/usb vfat rw,noatime 0 0\n")
+            (root / "mnt" / "usb").mkdir(parents=True, exist_ok=True)
+            (root / "cache" / "icons.tar.gz").write_bytes(b"archive")
+            (root / "data" / "harmony" / "custom_icons" / "tv.png").write_bytes(b"png")
+            plug = root / "data" / "harmony" / "plugins" / "roku-ecp"
+            (plug / "bin").mkdir(parents=True)
+            (plug / "manifest.json").write_text("{}")
+            (plug / "bin" / "roku").write_bytes(b"\x7fELF")
+            (plug / ".source").write_text("x")
+        st, calls = self.run_scan(stick=True, modules=True, action="offload", setup=setup)
+        usb = self.root / "mnt" / "usb" / "harmony"
+        self.assertIn("Icons and plugins moved", self.out.stdout, self.out.stdout + self.out.stderr)
+        self.assertEqual((usb / "plugins" / "roku-ecp" / "bin" / "roku").read_bytes(), b"\x7fELF")
+        self.assertTrue((usb / "plugins" / "roku-ecp" / ".source").exists())
+        self.assertEqual((usb / "icons.tar.gz").read_bytes(), b"archive")
+        self.assertEqual(list((self.root / "data" / "harmony" / "plugins").iterdir()), [])
+        self.assertFalse((self.root / "cache" / "icons.tar.gz").exists())
+        self.assertTrue((self.root / "data" / "harmony" / "config" / "usb_offload").exists())
+        self.assertIn(f"mount -o bind {usb}/plugins {self.root}/data/harmony/plugins", calls)
+        self.assertEqual(st.get("offload"), "1")
 
 
 class UsbStorageApi(unittest.TestCase):

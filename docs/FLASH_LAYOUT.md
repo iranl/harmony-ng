@@ -2,7 +2,7 @@
 
 This is a study, not a procedure. The repository has no tool that changes the partition table, and none should be used without a serial console on the Hub.
 
-**Short answer:** yes, but only by patching and reflashing the kernel and moving the root file system. The gain is about 960 KB, or about 1.4 MB at most. A USB stick for the icons (see [USB storage](#option-c-usb-stick-recommended)) frees more space (about 1.6 MB) with no flash risk.
+**Short answer:** yes, but only by patching and reflashing the kernel and moving the root file system. The gain is about 960 KB, or about 1.4 MB at most. A USB stick for the icons and plugins (see [USB storage](#option-c-usb-stick-recommended)) frees more space (about 1.6 MB) with no flash risk.
 
 ---
 
@@ -79,7 +79,7 @@ Any later stock root image that is bigger no longer fits. HarmonyNG does not ref
 
 ### Option C: USB stick (recommended)
 
-This release can keep the icon archive and the custom icons on a USB stick (System page, **USB Storage**, or `POST /api/usb-storage`). That frees about 1.6 MB of `/cache` plus the custom icons on `/data`. Nothing is reflashed. When the stick is pulled out, only the icons are missing.
+This release can keep the icon archive, the custom icons and the plugins on a USB stick (System page, **USB Storage**, or `POST /api/usb-storage`). That frees about 1.6 MB of `/cache` plus the custom icons and the plugins on `/data`. Nothing is reflashed. When the stick is pulled out, only the icons and the plugins are missing; plugin settings (`plugin-data`) and the shared libraries stay on flash.
 
 It needs the USB storage modules (`scsi_mod`, `sd_mod`, `usb-storage`, built by `build/build_kmods.sh`), which still have to be tested on a Hub (see the script's header).
 

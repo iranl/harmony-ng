@@ -1,17 +1,19 @@
 #!/bin/sh
-# usb_storage.sh - a USB stick for files the Hub can run without (icon archive, custom icons)
+# usb_storage.sh - a USB stick for files the Hub can run without (icon archive, custom icons,
+# plugins)
 #
 #   scan            find a USB stick (also behind a USB hub), load its modules, mount it on
-#                   /mnt/usb and use the icons on it when they were moved there; a stick that is
-#                   gone is unmounted. Writes /tmp/usb_storage_state for the web UI.
+#                   /mnt/usb and use the icons and plugins on it when they were moved there; a
+#                   stick that is gone is unmounted (its plugins are stopped). Writes /tmp/usb_storage_state for the web UI.
 #   install         download the USB storage modules (update.sh fetch-module), then scan
 #   eject           write everything to the stick and unmount it
-#   offload         move the icon archive and the custom icons to the stick
+#   offload         move the icon archive, the custom icons and the plugins to the stick
 #   restore         move them back to flash
 #
 # Essential files (programs, scripts, settings, web UI) never move: the Hub must run the same
 # with the stick pulled out. Without the stick the icons are missing (the web UI downloads the
-# archive online) until it is back.
+# archive online) and the plugins are not installed until it is back. Plugin settings and state
+# (plugin-data) and the shared libraries stay on flash.
 
 BB=/cache/bin/busybox
 [ -x "$BB" ] || BB=busybox
@@ -22,6 +24,7 @@ FLAG=/data/harmony/config/usb_offload
 ICONS=/data/harmony/custom_icons
 ARCHIVE_LINK=/data/harmony/icons.tar.gz
 ARCHIVE_FLASH=/cache/icons.tar.gz
+PLUGINS=/data/harmony/plugins
 MODS="scsi_mod sd_mod usb-storage"
 MODULE_DIRS="/data/harmony/modules /cache/modules"
 USB_DEVICES=/sys/bus/usb/devices
@@ -86,12 +89,40 @@ find_blockdev() {
   return 1
 }
 
-# the icons on the stick replace the flash ones: custom icons by a bind mount over their
-# folder, the archive by a link (dangling while the stick is out: the Hub then reports it missing)
+# running plugins (hub_daemon starts them with HARMONY_SOCKET=/tmp/plugins/<id>.sock, as
+# init.sh finds them)
+plugin_pids() {
+  for _e in /proc/[0-9]*/environ; do
+    _p=${_e#/proc/}
+    _p=${_p%/environ}
+    tr '\000' '\n' < "$_e" 2>/dev/null | grep -q '^HARMONY_SOCKET=/tmp/plugins/' && echo "$_p"
+  done
+}
+
+# stop the plugins so none runs from the folder that is switched; hub_daemon reaps them and
+# its watchdog starts those it finds in the plugin folder again (within about 20 s)
+stop_plugins() {
+  _left=$(plugin_pids)
+  [ -n "$_left" ] || return 0
+  kill -15 $_left 2>/dev/null
+  sleep 1
+  _left=$(plugin_pids)
+  [ -n "$_left" ] && kill -9 $_left 2>/dev/null
+  return 0
+}
+
+# the icons and plugins on the stick replace the flash ones: custom icons and plugins by a bind
+# mount over their folder, the archive by a link (dangling while the stick is out: the Hub then
+# reports it missing)
 use_offload() {
   [ -f "$FLAG" ] && is_mounted "$MNT" || return 0
-  mkdir -p "$DIR/custom_icons" "$ICONS" 2>/dev/null
+  mkdir -p "$DIR/custom_icons" "$ICONS" "$DIR/plugins" "$PLUGINS" 2>/dev/null
   is_mounted "$ICONS" || $BB mount -o bind "$DIR/custom_icons" "$ICONS" 2>/dev/null
+  if ! is_mounted "$PLUGINS"; then
+    # plugins installed on flash while the stick was out stay there, hidden below the mount
+    stop_plugins
+    $BB mount -o bind "$DIR/plugins" "$PLUGINS" 2>/dev/null
+  fi
   if [ -f "$DIR/icons.tar.gz" ] && [ ! -L "$ARCHIVE_LINK" ]; then
     rm -f "$ARCHIVE_LINK" 2>/dev/null
     ln -sf "$DIR/icons.tar.gz" "$ARCHIVE_LINK" 2>/dev/null
@@ -100,6 +131,10 @@ use_offload() {
 
 release_stick() {
   is_mounted "$ICONS" && $BB umount -l "$ICONS" 2>/dev/null
+  if is_mounted "$PLUGINS"; then
+    $BB umount -l "$PLUGINS" 2>/dev/null
+    stop_plugins
+  fi
   is_mounted "$MNT" && $BB umount -l "$MNT" 2>/dev/null
 }
 
@@ -191,6 +226,19 @@ copy_verified() {
   mv -f "$2.new" "$2"
 }
 
+# copy_tree SRC DST: a folder with its subfolders, each file checked
+copy_tree() {
+  mkdir -p "$2" || return 1
+  for _t in "$1"/* "$1"/.[!.]*; do
+    [ -e "$_t" ] || continue
+    if [ -d "$_t" ]; then
+      ( copy_tree "$_t" "$2/${_t##*/}" ) || return 1
+    else
+      copy_verified "$_t" "$2/${_t##*/}" || { echo "[-] Could not copy $_t"; return 1; }
+    fi
+  done
+}
+
 do_offload() {
   is_mounted "$MNT" || { echo "[-] No USB stick mounted"; return 1; }
   mkdir -p "$DIR/custom_icons" || return 1
@@ -203,6 +251,12 @@ do_offload() {
       copy_verified "$_f" "$DIR/custom_icons/${_f##*/}" || { echo "[-] Could not copy ${_f##*/} to the stick"; return 1; }
     done
   fi
+  if ! is_mounted "$PLUGINS" && [ -d "$PLUGINS" ]; then
+    rm -rf "$DIR/plugins.new" 2>/dev/null
+    ( copy_tree "$PLUGINS" "$DIR/plugins.new" ) || { rm -rf "$DIR/plugins.new"; echo "[-] Could not copy the plugins to the stick"; return 1; }
+    rm -rf "$DIR/plugins" 2>/dev/null
+    mv "$DIR/plugins.new" "$DIR/plugins" || return 1
+  fi
   # everything is on the stick: only now the flash copies go
   flush
   touch "$FLAG" || return 1
@@ -210,9 +264,13 @@ do_offload() {
   if ! is_mounted "$ICONS"; then
     rm -f "$ICONS"/* 2>/dev/null
   fi
+  if ! is_mounted "$PLUGINS"; then
+    stop_plugins
+    rm -rf "$PLUGINS"/* "$PLUGINS"/.[!.]* 2>/dev/null
+  fi
   use_offload
   write_state 1 "$(awk -v m="$MNT" '$2 == m {sub("/dev/", "", $1); print $1; exit}' /proc/mounts)" "$(awk -v m="$MNT" '$2 == m {print $3; exit}' /proc/mounts)" ""
-  echo "[+] Icons moved to the USB stick"
+  echo "[+] Icons and plugins moved to the USB stick"
 }
 
 do_restore() {
@@ -228,18 +286,28 @@ do_restore() {
       [ -f "$_f" ] || continue
       copy_verified "$_f" "$ICONS/${_f##*/}" || { echo "[-] No room on flash for ${_f##*/}"; use_offload; return 1; }
     done
+    if [ -d "$DIR/plugins" ]; then
+      is_mounted "$PLUGINS" && { stop_plugins; $BB umount "$PLUGINS" 2>/dev/null; }
+      ( copy_tree "$DIR/plugins" "$PLUGINS" ) || { echo "[-] No room on flash for the plugins"; use_offload; return 1; }
+    fi
   else
     # no stick: the icons stay on it; the flash gets the archive again with the next update
     rm -f "$ARCHIVE_LINK" 2>/dev/null
   fi
   rm -f "$FLAG"
   flush
+  # the plugins start again from flash (hub_daemon watchdog)
+  stop_plugins
   do_scan >/dev/null
-  echo "[+] Icons kept on flash again"
+  echo "[+] Icons and plugins kept on flash again"
 }
 
 do_eject() {
   is_mounted "$ICONS" && $BB umount "$ICONS" 2>/dev/null
+  if is_mounted "$PLUGINS"; then
+    stop_plugins
+    $BB umount "$PLUGINS" 2>/dev/null
+  fi
   flush
   if is_mounted "$MNT" && ! $BB umount "$MNT" 2>/dev/null; then
     echo "[-] The stick is in use; try again"

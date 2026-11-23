@@ -3851,12 +3851,13 @@ paths:
     get:
       tags:
         - System & Status
-      summary: USB stick for the icons
+      summary: USB stick for the icons and plugins
       description: |
         A USB stick (Hub USB port in host mode) for files the Hub can run without: the icon
-        archive and the custom icons. present/mounted come from the last scan (boot and every USB
-        plug in or out); missing lists USB storage modules that are not installed; offload is true
-        while the icons are kept on the stick (without it they answer 404 until it is back).
+        archive, the custom icons and the plugins. present/mounted come from the last scan (boot
+        and every USB plug in or out); missing lists USB storage modules that are not installed;
+        offload is true while the icons and plugins are kept on the stick (without it the icons
+        answer 404 and no plugin is installed until it is back).
       responses:
         '200':
           description: USB storage state

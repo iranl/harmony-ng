@@ -90,7 +90,7 @@ export function createView() {
     h('div', { className: 'card-header' }, [
       h('h3', { className: 'card-title', text: t('usb_storage_title', 'USB Storage') }),
     ]),
-    h('div', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '10px' }, text: t('usb_storage_desc', "A USB stick (through a USB hub cable on the Hub's port) can hold the icon archive and the custom icons to free flash. The Hub keeps working when the stick is pulled out; only the icons are missing until it is back.") }),
+    h('div', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '10px' }, text: t('usb_storage_desc', "A USB stick (through a USB hub cable on the Hub's port) can hold the icon archive, the custom icons and the plugins to free flash. The Hub keeps working when the stick is pulled out; only the icons and plugins are missing until it is back.") }),
     usbStatus,
     usbActions,
   ]);
@@ -115,9 +115,9 @@ export function createView() {
     const buttons = [];
     if (!st.present) {
       text = st.offload
-        ? t('usb_storage_gone_offload', 'The USB stick with the icons is not connected: icons are missing until it is back.')
+        ? t('usb_storage_gone_offload', 'The USB stick with the icons and plugins is not connected: they are missing until it is back.')
         : t('usb_storage_none', 'No USB stick connected.');
-      if (st.offload) buttons.push(['restore', t('usb_storage_restore_btn', 'Keep icons on flash')]);
+      if (st.offload) buttons.push(['restore', t('usb_storage_restore_btn', 'Keep icons and plugins on flash')]);
     } else if (st.missing && st.missing.length) {
       text = t('usb_storage_missing', 'USB stick found: the USB storage drivers are not installed.');
       buttons.push(['install', t('usb_storage_install_btn', 'Download drivers')]);
@@ -128,10 +128,10 @@ export function createView() {
       buttons.push(['scan', t('usb_storage_mount_btn', 'Mount')]);
     } else {
       text = t('usb_storage_mounted', '{device} ({fs}): {free} MB free of {total} MB.', { device: st.device, fs: st.fs, free: mb(st.free_kb), total: mb(st.total_kb) });
-      if (st.offload) text += ' ' + t('usb_storage_offload_on', 'The icons are kept on the USB stick.');
+      if (st.offload) text += ' ' + t('usb_storage_offload_on', 'The icons and plugins are kept on the USB stick.');
       buttons.push(st.offload
-        ? ['restore', t('usb_storage_restore_btn', 'Keep icons on flash')]
-        : ['offload', t('usb_storage_offload_btn', 'Move icons to USB stick')]);
+        ? ['restore', t('usb_storage_restore_btn', 'Keep icons and plugins on flash')]
+        : ['offload', t('usb_storage_offload_btn', 'Move icons and plugins to USB stick')]);
       buttons.push(['eject', t('usb_storage_eject_btn', 'Eject')]);
     }
     if (st.failed && st.message) text += ' ' + t('usb_storage_failed', 'Last action failed: {message}', { message: st.message });

@@ -226,8 +226,10 @@ always stay on flash.
     in or out). `missing`: USB storage modules (`scsi_mod`, `sd_mod`, `usb-storage`) that are not
     installed; they are downloaded on demand like the Ethernet drivers.
   - `mounted`: the first partition is mounted on `/mnt/usb` (FAT or ext2).
-  - `offload`: the icons are kept on the stick. Without the stick, `/api/icons/archive` and the
-    custom icons answer 404, and the web UI loads the archive online, until the stick is back.
+  - `offload`: the icons and the plugins are kept on the stick. Without the stick,
+    `/api/icons/archive` and the custom icons answer 404 (the web UI loads the archive online),
+    and the plugins are not installed (`/api/plugins` lists none), until the stick is back.
+    Plugin settings and state (`plugin-data`) stay on flash.
   - `busy`: an action is running; `failed` (only when `true`) and `message` (the last output
     line) describe the last one.
 
