@@ -480,7 +480,9 @@ int remote_maps_drop_section(const char *section, const char *id) {
         usleep(2000);
         waited_ms += 2;
     }
-    static const char *const files[] = { "remote_slot1_map.json", "remote_slot2_map.json", "bt_remote_map.json" };
+    static const char *const files[] = { "remote_slot1_map.json", "remote_slot2_map.json", "remote_slot3_map.json",
+                                         "remote_slot4_map.json", "remote_slot5_map.json", "remote_slot6_map.json",
+                                         "bt_remote_map.json" };
     for (size_t i = 0; i < sizeof(files) / sizeof(files[0]); i++) {
         char path[256];
         snprintf(path, sizeof(path), "%s", config_store_path(files[i]));

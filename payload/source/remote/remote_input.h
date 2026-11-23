@@ -28,6 +28,11 @@ bool remote_release_held_rf_key(int code);
  * KEY_HELD_AWAKE_MAX_MS no longer counts: a key pressed in a sofa cushion must not drain the
  * battery. */
 bool remote_key_held(void);
+/* A key release was read: the next hold counts from its own press, not from an earlier hold
+ * that no idle check saw end */
+void remote_key_held_reset(void);
+/* The kernel says this hard key is down now */
+bool remote_hard_key_down(int code);
 
 #ifdef __cplusplus
 }

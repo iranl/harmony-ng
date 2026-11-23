@@ -72,7 +72,8 @@ static int push_stream(uint8_t slot, push_queue_t *q) {
         }
     }
     s_stream_slot = 0;
-    rf_set_power_mode(RF_PM_ACTIVE);
+    /* an OTA that started meanwhile keeps its transfer mode */
+    if (!is_ota_busy()) rf_set_power_mode(RF_PM_ACTIVE);
     if (rc == 0) {
         printf("[+] Streamed push to slot %d: %d frames in %llu ms (%d resends from a gap)\n", slot, n,
                (unsigned long long)(get_monotonic_ms() - t0), rewinds);

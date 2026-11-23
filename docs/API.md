@@ -1670,7 +1670,16 @@ Opens the Hub's pairing window for Harmony touchscreen remotes (Elite, Ultimate)
   pipe had takes the chosen slot's empty pipe. Maps, settings, the API and the logs use the slot;
   only the radio frames name the pipe. The table is kept in `/data/harmony/rf_slot_map.txt` (the
   pipe of slots 1 to 6, `1 2 3 4 5 6` until a pairing changes it; a broken file counts as that).
-  The choice holds for 45 s, or 15 s after the radio reports the pairing.
+  The pipe-table reply after the pairing decides: the pipe that holds a remote now and held none
+  when the window opened goes to the slot. A second request while the window is open changes the
+  slot; a cancel or a timeout drops the choice. The choice holds for 45 s, or 15 s after the
+  radio reports the pairing. A Hub that goes back to an older firmware ignores
+  `rf_slot_map.txt`: such a remote then shows up in the slot of its pipe. The slot table is part
+  of the backup bundle (`rf_slot_map`).
+- **Slots 3 to 6 after the update to six slots**: the Hub now reads the whole pipe table, so a
+  remote paired by an earlier owner, or a replaced Companion, shows up there. Unpair what you do
+  not know. Such a slot gets no config push until its remote has sent a frame since `hub_rf`
+  started.
 - **Without `slot`** (or `0` / `all`): the remote takes the slot of the pipe the radio picks. The
   Hub's pairing button pairs into the lowest slot without a remote.
 - **Response `200 OK`**: `{"status": "pairing_started"}` (also when the window is already open)

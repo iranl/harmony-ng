@@ -26,6 +26,7 @@ uint8_t g_remote_slot = 0x01;
 bool g_has_paired_device = false;
 uint8_t g_fw_version = 0;
 volatile bool g_pairing_mode = false;
+volatile bool g_config_push_running = false;
 uint8_t g_config_version = 1;
 int g_log_level = LOG_LEVEL_INFO;
 int g_debug_logging = 0;
@@ -182,6 +183,7 @@ void rf_slot_forget(uint8_t slot) {
     int i = slot - 1;
     paired_remote_t *p = &g_paired_remotes[i];
     p->active = false;
+    p->heard = false;
     memset(p->rf_addr, 0, sizeof(p->rf_addr));
     p->name[0] = '\0';
     p->equad_id = 0;
@@ -233,7 +235,6 @@ static uint8_t s_slot_of_pipe[MAX_PAIRED_REMOTES + 1]; /* [pipe] = slot */
 static pthread_mutex_t s_slot_map_lock = PTHREAD_MUTEX_INITIALIZER;
 static uint8_t s_pair_target;            /* 0: no chosen slot */
 static uint64_t s_pair_target_until_ms;  /* the chosen slot is dropped after this */
-static bool s_pair_succeeded;
 
 /* s_slot_map_lock held */
 static void slot_map_set_locked(const uint8_t *pipes) {
@@ -293,18 +294,28 @@ void rf_slot_map_load(void) {
         if (pipes[s - 1] != s) printf("[*] Slot %d is CC2544 pipe %d\n", s, pipes[s - 1]);
 }
 
-void rf_slot_map_set_pair_target(uint8_t slot) {
+/* [pipe]: the last pipe-table reply showed a remote; and the same when the window opened */
+static bool s_pipe_has_remote[MAX_PAIRED_REMOTES + 1];
+static bool s_pipe_had_remote[MAX_PAIRED_REMOTES + 1];
+
+void rf_slot_map_note_table(uint8_t pipe, bool has_remote) {
+    if (pipe < 1 || pipe > MAX_PAIRED_REMOTES) return;
+    pthread_mutex_lock(&s_slot_map_lock);
+    s_pipe_has_remote[pipe] = has_remote;
+    pthread_mutex_unlock(&s_slot_map_lock);
+}
+
+void rf_slot_map_set_pair_target(uint8_t slot, bool new_window) {
     pthread_mutex_lock(&s_slot_map_lock);
     s_pair_target = (slot >= 1 && slot <= MAX_PAIRED_REMOTES) ? slot : 0;
-    s_pair_target_until_ms = get_monotonic_ms() + 45000; /* the 30 s window and the first frames */
-    s_pair_succeeded = false;
+    s_pair_target_until_ms = get_monotonic_ms() + 45000; /* the 30 s window and the table reply */
+    if (new_window) memcpy(s_pipe_had_remote, s_pipe_has_remote, sizeof(s_pipe_had_remote));
     pthread_mutex_unlock(&s_slot_map_lock);
 }
 
 void rf_slot_map_note_pair_success(void) {
     pthread_mutex_lock(&s_slot_map_lock);
     if (s_pair_target) {
-        s_pair_succeeded = true;
         s_pair_target_until_ms = get_monotonic_ms() + 15000;
     }
     pthread_mutex_unlock(&s_slot_map_lock);
@@ -312,13 +323,19 @@ void rf_slot_map_note_pair_success(void) {
 
 uint8_t rf_slot_map_claim_pipe(uint8_t pipe, bool from_pipe_table) {
     if (pipe < 1 || pipe > MAX_PAIRED_REMOTES) return pipe;
+    char text[4 * MAX_PAIRED_REMOTES + 2] = "";
+    uint8_t moved_to = 0;
     pthread_mutex_lock(&s_slot_map_lock);
     slot_map_ensure_locked();
     uint8_t slot = s_slot_of_pipe[pipe];
     uint8_t target = s_pair_target;
     if (target && get_monotonic_ms() > s_pair_target_until_ms) target = s_pair_target = 0;
-    if (target && (from_pipe_table || s_pair_succeeded) && !g_paired_remotes[slot - 1].active) {
+    /* Only the pipe table decides, not the order of the radio events: the remote that paired is
+     * the pipe that holds a remote now and held none when the window opened. A frame (which can
+     * come before the 4A) or a lock closing without a pairing moves nothing. */
+    if (target && from_pipe_table && !s_pipe_had_remote[pipe]) {
         s_pair_target = 0;
+        s_pipe_had_remote[pipe] = true;
         if (target != slot && !g_paired_remotes[target - 1].active) {
             /* the pipe goes to the chosen slot; the chosen slot's pipe (no remote) to the old one */
             uint8_t other = s_pipe_of_slot[target];
@@ -326,19 +343,25 @@ uint8_t rf_slot_map_claim_pipe(uint8_t pipe, bool from_pipe_table) {
             s_slot_of_pipe[pipe] = target;
             s_pipe_of_slot[slot] = other;
             s_slot_of_pipe[other] = slot;
-            char text[4 * MAX_PAIRED_REMOTES + 2];
+            /* the old slot held no remote (its pipe was empty): only the new one's frames marked it */
+            g_paired_remotes[slot - 1].active = false;
             size_t n = 0;
             for (int s = 1; s <= MAX_PAIRED_REMOTES; s++)
                 n += (size_t)snprintf(text + n, sizeof(text) - n, s > 1 ? " %d" : "%d", s_pipe_of_slot[s]);
             snprintf(text + n, sizeof(text) - n, "\n");
-            if (atomic_file_write_str(g_rf_slot_map_path, text) != 0)
-                printf("[-] Slot table not saved to %s: slot %d holds pipe %d until hub_rf restarts\n",
-                       g_rf_slot_map_path, target, pipe);
-            printf("[+] Paired remote on CC2544 pipe %d goes to the chosen slot %d\n", pipe, target);
+            moved_to = target;
             slot = target;
         }
     }
     pthread_mutex_unlock(&s_slot_map_lock);
+    /* the flash write after the unlock: every frame in and out takes this lock, and a waiter
+     * spins (no futex on the Hub) */
+    if (moved_to) {
+        if (atomic_file_write_str(g_rf_slot_map_path, text) != 0)
+            printf("[-] Slot table not saved to %s: slot %d holds pipe %d until hub_rf restarts\n",
+                   g_rf_slot_map_path, moved_to, pipe);
+        printf("[+] Paired remote on CC2544 pipe %d goes to the chosen slot %d\n", pipe, moved_to);
+    }
     return slot;
 }
 
@@ -460,6 +483,7 @@ void rf_note_slot_family(uint8_t slot, remote_model_t family) {
 
 void rf_slot_saw_protocol_frame(uint8_t slot) {
     if (slot < 1 || slot > MAX_PAIRED_REMOTES) return;
+    g_paired_remotes[slot - 1].heard = true;
     if (g_paired_remotes[slot - 1].equad_id == 0) rf_note_slot_family(slot, REMOTE_MODEL_JUNIPER);
 }
 

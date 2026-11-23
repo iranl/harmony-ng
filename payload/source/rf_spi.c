@@ -424,7 +424,8 @@ static void handle_rf_packet(const uint8_t *raw, size_t len) {
                 printf("[+] CC2544 Pairing SUCCESS! Remote paired to Hub!\n");
                 rf_slot_map_note_pair_success();
                 query_paired_devices();
-                stop_pairing_mode();
+                /* the chosen slot stays until the table replies above are read */
+                stop_pairing_after_success();
             } else if (pair_code >= 0x01 && pair_status == 0x00) {
                 printf("[+] CC2544 Pairing lock is OPEN (listening for remotes on slot=%d)...\n", pair_code);
             } else {
@@ -460,6 +461,7 @@ static void handle_rf_packet(const uint8_t *raw, size_t len) {
             }
             if (pipe >= 0x20 && pipe <= 0x25) {
                 uint16_t equad_id = ((uint16_t)pkt[7] << 8) | pkt[8];
+                rf_slot_map_note_table((uint8_t)(pipe - 0x20 + 1), equad_id != 0);
                 int sidx = (equad_id != 0 ? rf_slot_map_claim_pipe((uint8_t)(pipe - 0x20 + 1), true)
                                           : rf_pipe_to_slot((uint8_t)(pipe - 0x20 + 1))) - 1;
                 if (sidx < MAX_PAIRED_REMOTES && equad_id != 0) {

@@ -335,7 +335,6 @@ export default {
     "github_token": "GitHub Token (Private repos only)",
     "green_play": "Green Play",
     "guide": "Guide",
-    "gyro_rate": "Gyro Poll Rate",
     "hardware_services_control": "Hardware Services Control",
     "harmony_compact_code": "Harmony Compact Code",
     "harmony_remote": "Harmony (RF) Remote",

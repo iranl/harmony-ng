@@ -8,7 +8,10 @@ extern "C" {
 #endif
 
 void start_pairing_mode(int slot);
+/* A cancel: the lock closes and the chosen slot is dropped */
 void stop_pairing_mode(void);
+/* The radio reported a pairing: the lock closes, the chosen slot stays for the pipe-table reply */
+void stop_pairing_after_success(void);
 void unpair_device(int slot);
 /* The Hub light: a state for an event, back to the led_mode setting, or slow red
    for 5 s and then back to led_mode, unless the light changed again by then */

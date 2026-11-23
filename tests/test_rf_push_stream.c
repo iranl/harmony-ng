@@ -30,6 +30,7 @@ static int s_taken_idx[4096];
 static uint8_t s_mode = RF_PM_ACTIVE, s_mode_during = 0;
 
 int rf_set_power_mode(uint8_t mode) { s_mode = mode; return 0; }
+bool is_ota_busy(void) { return false; }
 int rf_send_frame_acked(rf_frame_t *frame, int timeout_ms) { (void)frame; (void)timeout_ms; return 0; }
 
 int rf_send_frame(rf_frame_t *f) {

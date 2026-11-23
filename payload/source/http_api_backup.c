@@ -27,6 +27,8 @@ struct import_file {
 static int import_is_json_section(const char *key) {
     static const char *const json_keys[] = { "devices", "activities", "settings", "mqtt", "bluetooth",
                                              "bt_remote_map", "remote_slot1_map", "remote_slot2_map",
+                                             "remote_slot3_map", "remote_slot4_map", "remote_slot5_map",
+                                             "remote_slot6_map",
                                              "ui_remote_layout", "users", NULL };
     for (int i = 0; json_keys[i]; i++) {
         if (strcmp(key, json_keys[i]) == 0) return 1;
@@ -168,6 +170,13 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
                 { "bt_remote_map", "/data/harmony/bt_remote_map.json" },
                 { "remote_slot1_map", "/data/harmony/remote_slot1_map.json" },
                 { "remote_slot2_map", "/data/harmony/remote_slot2_map.json" },
+                { "remote_slot3_map", "/data/harmony/remote_slot3_map.json" },
+                { "remote_slot4_map", "/data/harmony/remote_slot4_map.json" },
+                { "remote_slot5_map", "/data/harmony/remote_slot5_map.json" },
+                { "remote_slot6_map", "/data/harmony/remote_slot6_map.json" },
+                /* which CC2544 pipe each slot is (pairing into a chosen slot): without it a
+                 * restored Hub has the maps but its remotes in other slots */
+                { "rf_slot_map", "/data/harmony/rf_slot_map.txt" },
                 { "ui_remote_layout", "/data/harmony/web_remote_layouts.json" },
                 { "auth", "/data/harmony/webui_auth.conf" },
                 { "users", HARMONY_USERS_JSON },
@@ -180,7 +189,9 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
                 size_t flen = 0;
                 char *txt = read_file_text_alloc(use_path, 2000000, &flen);
                 if (txt) {
-                    cJSON *parsed = cJSON_Parse(txt);
+                    /* text files stay text: cJSON_Parse read "1 2 3 4 5 6" (rf_slot_map) or a
+                     * hub_id like "20130507121425-002126" as just their first number */
+                    cJSON *parsed = import_is_json_section(b_files[i].key) ? cJSON_Parse(txt) : NULL;
                     if (parsed) {
                         cJSON_AddItemToObject(bundle, b_files[i].key, parsed);
                     } else {
@@ -287,6 +298,22 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
             file_to_send = config_store_path("remote_slot2_map.json");
             download_name = "remote_slot2_map.json";
             fallback_content = "{\"remote\":{\"name\":\"Harmony Slot 2\"},\"activities\":{},\"devices\":{}}\n";
+        } else if (strcmp(tgt, "remote_slot3_map") == 0) {
+            file_to_send = config_store_path("remote_slot3_map.json");
+            download_name = "remote_slot3_map.json";
+            fallback_content = "{\"remote\":{\"name\":\"Harmony Slot 3\"},\"activities\":{},\"devices\":{}}\n";
+        } else if (strcmp(tgt, "remote_slot4_map") == 0) {
+            file_to_send = config_store_path("remote_slot4_map.json");
+            download_name = "remote_slot4_map.json";
+            fallback_content = "{\"remote\":{\"name\":\"Harmony Slot 4\"},\"activities\":{},\"devices\":{}}\n";
+        } else if (strcmp(tgt, "remote_slot5_map") == 0) {
+            file_to_send = config_store_path("remote_slot5_map.json");
+            download_name = "remote_slot5_map.json";
+            fallback_content = "{\"remote\":{\"name\":\"Harmony Slot 5\"},\"activities\":{},\"devices\":{}}\n";
+        } else if (strcmp(tgt, "remote_slot6_map") == 0) {
+            file_to_send = config_store_path("remote_slot6_map.json");
+            download_name = "remote_slot6_map.json";
+            fallback_content = "{\"remote\":{\"name\":\"Harmony Slot 6\"},\"activities\":{},\"devices\":{}}\n";
         } else if (strcmp(tgt, "ui-remote-layout") == 0 || strcmp(tgt, "ui_remote_layout") == 0) {
             file_to_send = config_store_path("web_remote_layouts.json");
             download_name = "web_remote_layouts.json";
@@ -379,6 +406,11 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
                         { "bt_remote_map", "/data/harmony/bt_remote_map.json", 0 },
                         { "remote_slot1_map", "/data/harmony/remote_slot1_map.json", 0 },
                         { "remote_slot2_map", "/data/harmony/remote_slot2_map.json", 0 },
+                        { "remote_slot3_map", "/data/harmony/remote_slot3_map.json", 0 },
+                        { "remote_slot4_map", "/data/harmony/remote_slot4_map.json", 0 },
+                        { "remote_slot5_map", "/data/harmony/remote_slot5_map.json", 0 },
+                        { "remote_slot6_map", "/data/harmony/remote_slot6_map.json", 0 },
+                        { "rf_slot_map", "/data/harmony/rf_slot_map.txt", 0 },
                         { "ui_remote_layout", "/data/harmony/web_remote_layouts.json", 0 },
                         { "auth", "/data/harmony/webui_auth.conf", 0 },
                         { "users", HARMONY_USERS_JSON, 0 },
@@ -468,6 +500,10 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
                 else if (strcmp(tgt, "remote-mapping") == 0 || strcmp(tgt, "bt_remote_map") == 0) { file_to_write = "/data/harmony/bt_remote_map.json"; key = "bt_remote_map"; }
                 else if (strcmp(tgt, "remote_slot1_map") == 0) { file_to_write = "/data/harmony/remote_slot1_map.json"; }
                 else if (strcmp(tgt, "remote_slot2_map") == 0) { file_to_write = "/data/harmony/remote_slot2_map.json"; }
+                else if (strcmp(tgt, "remote_slot3_map") == 0) { file_to_write = "/data/harmony/remote_slot3_map.json"; }
+                else if (strcmp(tgt, "remote_slot4_map") == 0) { file_to_write = "/data/harmony/remote_slot4_map.json"; }
+                else if (strcmp(tgt, "remote_slot5_map") == 0) { file_to_write = "/data/harmony/remote_slot5_map.json"; }
+                else if (strcmp(tgt, "remote_slot6_map") == 0) { file_to_write = "/data/harmony/remote_slot6_map.json"; }
                 else if (strcmp(tgt, "ui-remote-layout") == 0 || strcmp(tgt, "ui_remote_layout") == 0) { file_to_write = "/data/harmony/web_remote_layouts.json"; key = "ui_remote_layout"; }
                 else if (strcmp(tgt, "auth") == 0) { file_to_write = "/data/harmony/webui_auth.conf"; }
                 else if (strcmp(tgt, "users") == 0) { file_to_write = HARMONY_USERS_JSON; }
@@ -484,7 +520,8 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
                     if (success) {
                         invalidate_device_list_cache();
                         config_store_init();
-                        if (strcmp(tgt, "devices") == 0 || strcmp(tgt, "activities") == 0 || strcmp(tgt, "remote_slot1_map") == 0 || strcmp(tgt, "remote_slot2_map") == 0) {
+                        if (strcmp(tgt, "devices") == 0 || strcmp(tgt, "activities") == 0 ||
+                                (strncmp(tgt, "remote_slot", 11) == 0 && strcmp(tgt + 12, "_map") == 0)) {
                             notify_rf_push_config();
                         }
                         if (strcmp(tgt, "remote-mapping") == 0 || strcmp(tgt, "bt_remote_map") == 0) {

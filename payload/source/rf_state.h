@@ -66,6 +66,9 @@ typedef struct {
     char name[16];
     bool active;
     bool link_lost;
+    /* a harmony-ng frame came from the slot since hub_rf started: a pipe table entry alone can be
+     * an old pairing (a used Hub, a replaced Companion) that no remote answers on */
+    bool heard;
     uint64_t last_seen_ms;
     remote_model_t model;
     uint16_t equad_id;
@@ -183,7 +186,12 @@ uint8_t rf_slot_to_pipe(uint8_t slot);
 uint8_t rf_pipe_to_slot(uint8_t pipe);
 void rf_slot_map_load(void);
 /* The next remote that pairs goes to this slot (0: the slot of the pipe the radio picks) */
-void rf_slot_map_set_pair_target(uint8_t slot);
+/* The slot a pairing should land in (0: none). new_window: the pairing window opens now, so
+ * the pipes that hold a remote are noted; a second request in the same window only changes
+ * the slot. */
+void rf_slot_map_set_pair_target(uint8_t slot, bool new_window);
+/* A pipe-table reply: whether the pipe holds a remote (EquadID), or an unpair emptied it */
+void rf_slot_map_note_table(uint8_t pipe, bool has_remote);
 /* The CC2544 reported a completed pairing: the first frame from a pipe without a remote is the
  * new remote's */
 void rf_slot_map_note_pair_success(void);
@@ -192,6 +200,8 @@ void rf_slot_map_note_pair_success(void);
  * the chosen slot. Returns the pipe's slot. */
 uint8_t rf_slot_map_claim_pipe(uint8_t pipe, bool from_pipe_table);
 bool is_ota_busy(void);
+/* A config push is running (config_push_worker): an OTA start waits for it to end */
+extern volatile bool g_config_push_running;
 /* POST json_body to 127.0.0.1:port; returns the HTTP status, -1 when nothing came back */
 int http_post_local(int port, const char *endpoint, const char *json_body);
 

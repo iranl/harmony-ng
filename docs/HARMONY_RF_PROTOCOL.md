@@ -170,14 +170,17 @@ Query command: `10 FF 83 B5 <pipe> 00 00`:
 - **Open Pairing Lock (Hub)**: `10 FF 80 B2 01 00 <duration>` (e.g. `0x1E` = 30 seconds). Opens pairing window on Hub.
   The command has no slot: the CC2544 picks the pipe of the new remote. For a pairing into a
   chosen slot (`POST /api/rf/pair?slot=N`) `hub_rf` maps that pipe to the slot afterwards
-  (`rf_slot_map_claim_pipe()`, table in `/data/harmony/rf_slot_map.txt`). Byte 1 of every frame,
+  (`rf_slot_map_claim_pipe()`, table in `/data/harmony/rf_slot_map.txt`): the pipe that holds an
+  EquadID in the pipe-table reply after the pairing and held none when the window opened. The
+  order of the radio events does not matter (a frame of the new remote can come before the
+  `4A`); a lock that closes without a pairing, a cancel or a timeout places nothing. Byte 1 of every frame,
   link status, NAK and pipe-table reply names the pipe; `rf_spi.c` turns it into the slot and back.
 - **Request Pairing (Remote)**: `10 FF 80 B2 01 01 00`. Initiates bidirectional handshake from Remote.
 - **Close Pairing Lock (Hub)**: `10 FF 80 B2 02 00 00`. Closes pairing window.
-- **Unpair Slot**: `10 FF 80 B2 03 <pipe> 00` (`0x01` to `0x06`; `0x00` = All). The CC2544
-  has six pipes (pipe table `0x20..0x25`). `hub_rf` sends the pipe of the slot, and for "every
-  remote" one command per slot (after an `RF_MSG_UNPAIR_NOTIFY` to it), never `0x00`: some Hub
-  firmware NAKs it.
+- **Unpair Slot**: `10 FF 80 B2 03 <pipe> 00` (`0x01` to `0x06`). The CC2544 has six pipes
+  (pipe table `0x20..0x25`). `hub_rf` sends the pipe of the slot, and for "every remote" one
+  command per pipe, as the stock `libhal_rf_command_unpair` does (it never sends index `0x00`
+  either). An `RF_MSG_UNPAIR_NOTIFY` goes first, only to slots that hold a remote.
 - **Clear Bonding (Remote)**: when it is unpaired, `remote_ui` writes `10 FF 80 D0 01 00 00`, then the 20-byte reports `11 FF 82 B5 20 00 ...` and `11 FF 82 B5 30 00 ...` (zeroed pipe entries), then `10 FF 80 D0 00 00 00`, 50 ms apart (`cc2544_clear_bonding()`).
 
 ### 4.5 Hardware Link Events & Notifications
@@ -190,7 +193,7 @@ Query command: `10 FF 83 B5 <pipe> 00 00`:
   - `status != 0x00`: TX failure / drop (`0x01` while the link is lost).
 - **Pairing Notification** (`10 <slot> 4A <code> <status> ...`):
   - Hub: `code == 0x00` and `status == 0x00` means a remote was paired (`hub_rf` then reads the pipe table and closes the pairing lock); `code >= 0x01` with `status == 0x00` means the pairing lock is open.
-  - Remote: `status == 0x00` completes pairing on the slot in byte 1; the remote then asks for a full config. `status == 0x01` is still in progress and must not stop pairing retries. Any other status ends the pairing attempt as failed.
+  - Remote: `status == 0x00` completes pairing on the slot in byte 1; the remote then asks for a full config. `status == 0x01` means the attempt did not complete (the stock Hub `hal` logs a non-zero status as an error code); the remote does not stop there and asks again. Any other status ends the pairing attempt as failed.
 - **Error / NAK** (`10 <slot> 8F <sub-id of the refused send> .. <err> ..`, error code in byte 5): the CC2544 refused a write. `hub_rf` counts them per slot (`naks` in `slots[].link` of `GET /api/rf/status`).
 
 ### 4.6 Readable Registers (no RSSI)

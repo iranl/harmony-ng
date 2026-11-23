@@ -335,7 +335,6 @@ export default {
     "github_token": "GitHub Token (alleen privé-repositories)",
     "green_play": "Groen Play",
     "guide": "Gids",
-    "gyro_rate": "Gyroscoop meetsnelheid",
     "hardware_services_control": "Hardware services-beheer",
     "harmony_compact_code": "Harmony compacte code",
     "harmony_remote": "Harmony (RF)-afstandsbediening",

@@ -335,7 +335,6 @@ export default {
     "github_token": "Token de GitHub (solo repositorios privados)",
     "green_play": "Verde reproducción",
     "guide": "Guía",
-    "gyro_rate": "Tasa muestreo giroscopio",
     "hardware_services_control": "Control de servicios de hardware",
     "harmony_compact_code": "Código compacto de Harmony",
     "harmony_remote": "Mando Harmony (RF)",

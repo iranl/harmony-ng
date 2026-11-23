@@ -556,10 +556,15 @@ int main(int argc, char **argv) {
         }
 
         if (s_nav_hold_code != 0 && now_ms >= s_nav_hold_next_ms) {
-            if (!g_screen_on || g_menu_open) {
+            /* the kernel's key state ends it too: a release that was never read would move the
+             * selection (and keep the screen on) until the next key */
+            if (!g_screen_on || g_menu_open || ui_help_active() || !remote_hard_key_down(s_nav_hold_code)) {
                 s_nav_hold_code = 0; /* the release can come while the screen is dark or the menu open */
-            } else {
+            } else if (!g_is_switching_activity && !g_is_syncing_config && !g_is_ota_updating) {
+                /* the gates a key event passes: an overlay pauses the steps */
                 handle_navigation_key(s_nav_hold_code, 2);
+                s_nav_hold_next_ms = now_ms + NAV_HOLD_REPEAT_MS;
+            } else {
                 s_nav_hold_next_ms = now_ms + NAV_HOLD_REPEAT_MS;
             }
         }
@@ -794,6 +799,7 @@ int main(int argc, char **argv) {
                     /* The release of the key held over RF always goes out: an overlay, a view
                      * change or a blank screen would drop it below, and the hold repeats would
                      * go on until the next key */
+                    if (ev.value == 0) remote_key_held_reset();
                     if (ev.value == 0 && remote_release_held_rf_key(ev.code)) continue;
                     if (ev.value == 0 && ev.code == s_nav_hold_code) s_nav_hold_code = 0;
 
@@ -923,6 +929,7 @@ int main(int argc, char **argv) {
         if (g_touch_fd >= 0 && FD_ISSET(g_touch_fd, &rfds)) {
             struct input_event ev;
             while (read(g_touch_fd, &ev, sizeof(ev)) == sizeof(ev)) {
+                if (ev.type == EV_KEY && ev.value == 0 && (ev.code == 102 || ev.code == 364)) remote_key_held_reset();
                 if (!g_screen_on) {
                     bool should_wake = false;
                     if (ev.type == EV_KEY && ev.value == 1) {

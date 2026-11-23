@@ -890,8 +890,11 @@ void *api_server_worker(void *arg) {
                 } else {
                     int started = 0;
                     int busy_slot = 0;
+                    int pushing = g_config_push_running;
                     pthread_mutex_lock(&g_ota_lock);
-                    if (!g_rf_ota.in_progress && g_rf_ota.status_code != 3) {
+                    if (pushing) {
+                        busy_slot = -1;
+                    } else if (!g_rf_ota.in_progress && g_rf_ota.status_code != 3) {
                         g_rf_ota.in_progress = false;
                         g_rf_ota.target_slot = slot;
                         g_rf_ota.status_code = 3;
@@ -912,6 +915,10 @@ void *api_server_worker(void *arg) {
                         int rlen = snprintf(res, sizeof(res),
                             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"started\",\"slot\":%d,\"ok\":true}", slot);
                         write(cli, res, rlen);
+                    } else if (busy_slot < 0) {
+                        const char *res = "HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n"
+                                          "{\"status\":\"config_push_running\",\"error\":\"A config push is running: start the update when it ends\",\"ok\":false}";
+                        write(cli, res, strlen(res));
                     } else {
                         char res[256];
                         int rlen = snprintf(res, sizeof(res),

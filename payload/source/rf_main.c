@@ -98,7 +98,10 @@ void handle_rf_frame(const rf_frame_t *f) {
         case RF_MSG_ACK: {
             ota_note_chunk_ack(f->dev_slot, f->payload);
             push_note_stream_ack(f->dev_slot, f->payload);
-            rf_signal_ack_from(f->dev_slot, f->payload[0], f->payload[1], f->payload);
+            /* a stream ACK belongs to the streamed push only: its 4-bit index would complete
+             * another thread's acked send to the same remote */
+            if (f->payload[4] != RF_PUSH_STREAMED)
+                rf_signal_ack_from(f->dev_slot, f->payload[0], f->payload[1], f->payload);
             break;
         }
 

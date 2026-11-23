@@ -335,7 +335,6 @@ export default {
     "github_token": "Jeton GitHub (dépôts privés uniquement)",
     "green_play": "Vert Play",
     "guide": "Guide",
-    "gyro_rate": "Taux capteur gyroscope",
     "hardware_services_control": "Contrôle des services matériels",
     "harmony_compact_code": "Code compact Harmony",
     "harmony_remote": "Télécommande Harmony (RF)",

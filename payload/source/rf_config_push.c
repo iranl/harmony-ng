@@ -54,6 +54,7 @@ void *config_push_worker(void *arg) {
         pthread_mutex_unlock(&push_lock);
         return NULL;
     }
+    g_config_push_running = true;
     rf_keymap_invalidate_map(0);
     rf_keymap_invalidate_devices_cache();
     rf_keymap_invalidate_activities_cache();
@@ -79,7 +80,9 @@ void *config_push_worker(void *arg) {
     for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {
         uint8_t s = g_paired_remotes[i].slot;
         if (is_companion_slot(s)) continue;
-        if (g_paired_remotes[i].active && !g_paired_remotes[i].link_lost) {
+        /* slots 3 to 6 only once their remote spoke since the start: after the update to six
+         * slots, old pipe-table entries showed as remotes and every push waited for them */
+        if (g_paired_remotes[i].active && !g_paired_remotes[i].link_lost && (s <= 2 || g_paired_remotes[i].heard)) {
             target_slots[num_targets++] = s;
         }
     }
@@ -110,6 +113,7 @@ void *config_push_worker(void *arg) {
         printf("[*] Config push skipped: no active touchscreen remotes\n");
         unlink("/data/harmony/rf_sync_pending.flag");
         unlink("/data/harmony/rf_sync_pending_details.json");
+        g_config_push_running = false;
         pthread_mutex_unlock(&push_lock);
         return NULL;
     }
@@ -962,6 +966,7 @@ void *config_push_worker(void *arg) {
         }
     }
 
+    g_config_push_running = false;
     pthread_mutex_unlock(&push_lock);
     return NULL;
 }
