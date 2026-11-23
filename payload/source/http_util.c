@@ -427,6 +427,38 @@ int run_argv_limited(char *const argv[], const char *watch_path, long max_bytes,
     }
 }
 
+const char *hub_fetch_path(void) {
+#ifdef TEST_HARNESS
+    /* a host build of hub_fetch (tests/hub_harness.py) */
+    const char *p = getenv("HARMONY_HUB_FETCH");
+    if (p && p[0]) return p;
+#endif
+    return HUB_FETCH_BIN;
+}
+
+int hub_fetch_available(void) {
+    if (access(hub_fetch_path(), X_OK) != 0) return 0;
+#ifndef TEST_HARNESS
+    if (access(HUB_FETCH_LIB_DIR "/libbearssl.so.0", R_OK) != 0) return 0;
+#endif
+    return 1;
+}
+
+int fetch_url_checked(const char *url, const char *out_path, long max_bytes, unsigned int max_ms,
+                      int timeout_s) {
+    static const char ca[] = "/data/harmony/cacert.pem";
+    struct stat st;
+    if (!hub_fetch_available() || stat(ca, &st) != 0 || st.st_size == 0) return RUN_NO_FETCH;
+    char tsec[12], maxb[24];
+    snprintf(tsec, sizeof(tsec), "%d", timeout_s > 0 ? timeout_s : 10);
+    snprintf(maxb, sizeof(maxb), "%ld", max_bytes);
+    char *argv[] = { (char *)hub_fetch_path(), "-T", tsec, "--max", maxb, "--ca", (char *)ca,
+                     "-o", (char *)out_path, (char *)url, NULL };
+    int rc = run_argv_limited(argv, out_path, max_bytes, max_ms);
+    if (rc != 0) unlink(out_path);
+    return rc;
+}
+
 int is_proc_running(const char *proc_name) {
     static int s_rf_running = 0;
     static time_t s_rf_time = 0;

@@ -5,6 +5,8 @@
 #include "bt_common.h"
 #include "json_number.h"
 #include "plugin_mgr.h"
+#include "cmd_range.h"
+#include "net_device.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,6 +26,182 @@ static const char *clean_display_name(const char *in, char *out, size_t out_sz) 
     }
     out[j] = '\0';
     return out;
+}
+
+/* ---- HTTP and TCP devices (net_device.h) ---- */
+
+static const char *net_str(const cJSON *o, const char *key) {
+    const cJSON *j = cJSON_GetObjectItemCaseSensitive(o, key);
+    return cJSON_IsString(j) && j->valuestring ? j->valuestring : NULL;
+}
+
+/* Text without control characters (newlines too when !multiline), at most max bytes */
+static int net_text_ok(const char *s, size_t max, int multiline) {
+    if (!s || strlen(s) > max) return 0;
+    for (const unsigned char *p = (const unsigned char *)s; *p; p++) {
+        if (*p == 0x7f) return 0;
+        if (*p < 0x20 && !(*p == '\t' || (multiline && (*p == '\n' || *p == '\r')))) return 0;
+    }
+    return 1;
+}
+
+/* Host name, IPv4 or IPv6 address: letters, digits, '.', '-', '_', ':'. Not the Hub itself
+ * (loopback: a device there would let a device test call the Hub's own API as admin), and not
+ * starting with '-' (hub_fetch would read it as an option). */
+int net_host_valid(const char *h) {
+    size_t n = h ? strlen(h) : 0;
+    if (n == 0 || n > 253 || h[0] == '-') return 0;
+#ifndef TEST_HARNESS /* the host tests run their devices on 127.0.0.1 */
+    if (strcasecmp(h, "localhost") == 0 || strcasecmp(h, "localhost.") == 0 || strncmp(h, "127.", 4) == 0 ||
+            strcmp(h, "::1") == 0 || strcmp(h, "0.0.0.0") == 0 || strcmp(h, "::") == 0) return 0;
+#endif
+    for (const char *p = h; *p; p++) {
+        if (!isalnum((unsigned char)*p) && *p != '.' && *p != '-' && *p != '_' && *p != ':') return 0;
+    }
+    return 1;
+}
+
+/* An HTTP header name (RFC 9110 token); the client sets Host, Connection, Content-Length */
+int net_header_name_ok(const char *n) {
+    size_t len = n ? strlen(n) : 0;
+    if (len == 0 || len > 64) return 0;
+    if (strcasecmp(n, "Host") == 0 || strcasecmp(n, "Connection") == 0 ||
+            strcasecmp(n, "Content-Length") == 0 || strcasecmp(n, "Transfer-Encoding") == 0) return 0;
+    for (const char *p = n; *p; p++) {
+        if (!isalnum((unsigned char)*p) && !strchr("!#$%&'*+-.^_`|~", *p)) return 0;
+    }
+    return 1;
+}
+
+static void sanitize_net_device(const cJSON *src, cJSON *cdev, int kind) {
+    const char *host = net_str(src, "netHost");
+    cJSON_AddStringToObject(cdev, "netHost", net_host_valid(host) ? host : "");
+
+    const cJSON *jtls = cJSON_GetObjectItemCaseSensitive(src, "netTls");
+    int tls = cJSON_IsTrue(jtls) || (cJSON_IsNumber(jtls) && jtls->valueint == 1);
+    cJSON_AddBoolToObject(cdev, "netTls", tls);
+
+    const cJSON *jport = cJSON_GetObjectItemCaseSensitive(src, "netPort");
+    int port = cJSON_IsNumber(jport) ? json_number_int(jport, 0, 65535, 0) : 0;
+    if (port <= 0 && kind == NET_KIND_HTTP) port = tls ? 443 : 80;
+    cJSON_AddNumberToObject(cdev, "netPort", port > 0 ? port : 0);
+
+    const char *verify = net_str(src, "netTlsVerify");
+    if (!verify || (strcmp(verify, "pin") != 0 && strcmp(verify, "insecure") != 0)) verify = "verify";
+    cJSON_AddStringToObject(cdev, "netTlsVerify", verify);
+
+    const cJSON *jto = cJSON_GetObjectItemCaseSensitive(src, "netTimeoutMs");
+    int to = cJSON_IsNumber(jto) ? json_number_int(jto, 0, NET_TIMEOUT_MAX_MS, NET_TIMEOUT_DEFAULT_MS)
+                                 : NET_TIMEOUT_DEFAULT_MS;
+    if (to < NET_TIMEOUT_MIN_MS) to = NET_TIMEOUT_MIN_MS;
+    cJSON_AddNumberToObject(cdev, "netTimeoutMs", to);
+
+    if (kind != NET_KIND_HTTP) return;
+
+    cJSON *hdrs = cJSON_AddArrayToObject(cdev, "httpHeaders");
+    const cJSON *sh = cJSON_GetObjectItemCaseSensitive(src, "httpHeaders");
+    const cJSON *h = NULL;
+    int nh = 0;
+    cJSON_ArrayForEach(h, sh) {
+        const char *hn = net_str(h, "name"), *hv = net_str(h, "value");
+        if (nh >= NET_MAX_HEADERS || !net_header_name_ok(hn) || !net_text_ok(hv ? hv : "", 1024, 0)) continue;
+        cJSON *o = cJSON_CreateObject();
+        cJSON_AddStringToObject(o, "name", hn);
+        cJSON_AddStringToObject(o, "value", hv ? hv : "");
+        cJSON_AddItemToArray(hdrs, o);
+        nh++;
+    }
+
+    const char *auth = net_str(src, "httpAuthType");
+    if (!auth || (strcmp(auth, "basic") != 0 && strcmp(auth, "bearer") != 0)) auth = "none";
+    cJSON_AddStringToObject(cdev, "httpAuthType", auth);
+    const char *user = net_str(src, "httpUser");
+    const char *pass = net_str(src, "httpPassword");
+    const char *token = net_str(src, "httpToken");
+    /* Credentials of the other auth types are dropped: only the chosen one is stored */
+    if (strcmp(auth, "basic") == 0) {
+        cJSON_AddStringToObject(cdev, "httpUser", net_text_ok(user, 128, 0) && !strchr(user, ':') ? user : "");
+        cJSON_AddStringToObject(cdev, "httpPassword", net_text_ok(pass, 256, 0) ? pass : "");
+    } else if (strcmp(auth, "bearer") == 0) {
+        cJSON_AddStringToObject(cdev, "httpToken", net_text_ok(token, 1024, 0) ? token : "");
+    }
+}
+
+static void set_string(cJSON *o, const char *key, const char *val) {
+    if (cJSON_GetObjectItemCaseSensitive(o, key))
+        cJSON_ReplaceItemInObjectCaseSensitive(o, key, cJSON_CreateString(val));
+    else
+        cJSON_AddStringToObject(o, key, val);
+}
+
+static int hex_payload_ok(const char *s) {
+    int digits = 0;
+    for (const char *p = s; *p; p++) {
+        if (isxdigit((unsigned char)*p)) digits++;
+        else if (*p != ' ' && *p != ':') return 0;
+    }
+    return digits > 0 && digits % 2 == 0;
+}
+
+static void sanitize_net_command(const cJSON *src, cJSON *ccmd, int kind, const char *name) {
+    char kc[160];
+    snprintf(kc, sizeof(kc), "%s:%s", kind == NET_KIND_HTTP ? "HTTP" : "TCP", name);
+    set_string(ccmd, "keyCode", kc);
+    set_string(ccmd, "raw", kc);
+    if (kind == NET_KIND_HTTP) {
+        static const char *const methods[] = { "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", NULL };
+        const char *m = net_str(src, "httpMethod");
+        const char *method = "GET";
+        for (int i = 0; m && methods[i]; i++) {
+            if (strcasecmp(m, methods[i]) == 0) method = methods[i];
+        }
+        cJSON_AddStringToObject(ccmd, "httpMethod", method);
+        const char *path = net_str(src, "httpPath");
+        int path_ok = path && path[0] == '/' && net_text_ok(path, 1024, 0) && !strchr(path, ' ');
+        cJSON_AddStringToObject(ccmd, "httpPath", path_ok ? path : "/");
+        const char *body = net_str(src, "httpBody");
+        cJSON_AddStringToObject(ccmd, "httpBody", net_text_ok(body, NET_BODY_MAX, 1) ? body : "");
+        const char *ct = net_str(src, "httpContentType");
+        cJSON_AddStringToObject(ccmd, "httpContentType", net_text_ok(ct, 128, 0) ? ct : "");
+    } else {
+        const char *fmt = net_str(src, "tcpFormat");
+        int hex = fmt && strcmp(fmt, "hex") == 0;
+        const char *pl = net_str(src, "tcpPayload");
+        int ok = hex ? (pl && strlen(pl) <= NET_BODY_MAX * 3 && hex_payload_ok(pl))
+                     : net_text_ok(pl, NET_BODY_MAX, 1);
+        cJSON_AddStringToObject(ccmd, "tcpFormat", hex ? "hex" : "text");
+        cJSON_AddStringToObject(ccmd, "tcpPayload", ok ? pl : "");
+    }
+}
+
+/* GET /api/devices and /api/inventory: stored secrets as "" plus has* flags. Returns the
+ * number of devices changed (0: nothing to hide, the caller can send the original). */
+int config_mask_device_secrets(cJSON *root) {
+    int changed = 0;
+    cJSON *devs = root ? cJSON_GetObjectItemCaseSensitive(root, "devices") : NULL;
+    cJSON *d = NULL;
+    cJSON_ArrayForEach(d, devs) {
+        static const char *const keys[][2] = { { "httpPassword", "hasHttpPassword" },
+                                               { "httpToken", "hasHttpToken" } };
+        for (int i = 0; i < 2; i++) {
+            const char *v = net_str(d, keys[i][0]);
+            if (!v) continue;
+            int has = v[0] != '\0';
+            set_string(d, keys[i][0], "");
+            cJSON_AddBoolToObject(d, keys[i][1], has);
+            changed++;
+        }
+    }
+    return changed;
+}
+
+int config_devices_have_secrets(const cJSON *root) {
+    const cJSON *devs = root ? cJSON_GetObjectItemCaseSensitive(root, "devices") : NULL;
+    const cJSON *d = NULL;
+    cJSON_ArrayForEach(d, devs) {
+        if (net_str(d, "httpPassword") || net_str(d, "httpToken")) return 1;
+    }
+    return 0;
 }
 
 /* Sanitize devices JSON:
@@ -95,19 +273,25 @@ void sanitize_devices_json(cJSON *root) {
         char res_plug_id[64] = {0};
         int is_plugin = plugin_mgr_device_plugin_id(src_d, res_plug_id, sizeof(res_plug_id));
 
+        /* HTTP and TCP only by their exact type names; they win over the MQTT and
+         * Bluetooth guesses (a device named "MQTT bridge" that is driven over HTTP) */
+        int net_kind = is_plugin ? NET_KIND_NONE : net_device_kind(src_d);
+
         cJSON *jmqtt_en = cJSON_GetObjectItemCaseSensitive(src_d, "mqttEnabled");
-        int is_mqtt = !is_plugin && (strcasecmp(type_str, "MQTT") == 0 ||
+        int is_mqtt = !is_plugin && !net_kind && (strcasecmp(type_str, "MQTT") == 0 ||
                        (jmqtt_en && (cJSON_IsTrue(jmqtt_en) || (cJSON_IsNumber(jmqtt_en) && jmqtt_en->valueint == 1))));
 
         cJSON *jtrans = cJSON_GetObjectItemCaseSensitive(src_d, "transport");
-        int is_bt = !is_plugin && !is_mqtt && ((jtrans && cJSON_IsNumber(jtrans) && jtrans->valueint == 32) ||
+        int is_bt = !is_plugin && !net_kind && !is_mqtt && ((jtrans && cJSON_IsNumber(jtrans) && jtrans->valueint == 32) ||
                        strcasecmp(type_str, "BT") == 0 || strcasecmp(type_str, "Bluetooth") == 0 ||
                        strcasestr(type_str, "bluetooth") != NULL || strcasestr(mfg_str, "bluetooth") != NULL ||
                        strcasecmp(type_str, "BTHID") == 0);
 
         const char *final_type = "IR";
         char plug_type_buf[128] = {0};
-        if (is_mqtt) {
+        if (net_kind) {
+            final_type = net_kind == NET_KIND_HTTP ? "HTTP" : "TCP";
+        } else if (is_mqtt) {
             final_type = (type_str && type_str[0]) ? type_str : "MQTT";
         } else if (is_bt) {
             /* A device that is Bluetooth only by "transport": 32 must say so in its type: the
@@ -138,7 +322,7 @@ void sanitize_devices_json(cJSON *root) {
             else if (cJSON_IsNumber(jicon)) cJSON_AddNumberToObject(cdev, "icon", jicon->valueint);
         }
 
-        if (!is_bt && !is_mqtt && !is_plugin) {
+        if (!is_bt && !is_mqtt && !is_plugin && !net_kind) {
             cJSON *jcp = cJSON_GetObjectItemCaseSensitive(src_d, "controlPort");
             int cp_val = (jcp && cJSON_IsNumber(jcp)) ? jcp->valueint : 7;
             cJSON_AddNumberToObject(cdev, "controlPort", (cp_val >= 0 && cp_val <= 7) ? cp_val : 7);
@@ -237,6 +421,8 @@ void sanitize_devices_json(cJSON *root) {
             cJSON_AddNumberToObject(cdev, "mqttPulseMs", (jpul && cJSON_IsNumber(jpul)) ? jpul->valueint : 1000);
         }
 
+        if (net_kind) sanitize_net_device(src_d, cdev, net_kind);
+
         /* Plugin */
         if (res_plug_id[0]) {
             cJSON_AddStringToObject(cdev, "plugin", res_plug_id);
@@ -304,7 +490,7 @@ void sanitize_devices_json(cJSON *root) {
                 cJSON_AddStringToObject(ccmd, "keyCode", kc_val);
                 cJSON_AddStringToObject(ccmd, "raw", raw_val);
 
-                if (!is_bt && !is_mqtt && !is_plugin) {
+                if (!is_bt && !is_mqtt && !is_plugin && !net_kind) {
                     cJSON *cp_item = cJSON_GetObjectItemCaseSensitive(c, "port");
                     cJSON *dev_cp = cJSON_GetObjectItemCaseSensitive(cdev, "controlPort");
                     /* ports are the same 0..7 as controlPort; the sender keeps repeats in 8 bits */
@@ -321,6 +507,8 @@ void sanitize_devices_json(cJSON *root) {
 
                 cJSON *cmacro = cJSON_GetObjectItemCaseSensitive(c, "isMacro");
                 if (cmacro && cJSON_IsTrue(cmacro)) cJSON_AddBoolToObject(ccmd, "isMacro", 1);
+                cmd_range_copy(ccmd, c);
+                if (net_kind && !(cmacro && cJSON_IsTrue(cmacro))) sanitize_net_command(c, ccmd, net_kind, cmd_name);
 
                 cJSON_AddItemToArray(clean_cmds, ccmd);
             }

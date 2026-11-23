@@ -85,6 +85,7 @@ static void wake_key_schedule(uint16_t cid, const bd_addr_t addr) {
 }
 #include "bt_cmd.h"
 #include "bt_remote.h"
+#include "bt_listen.h"
 
 static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size) {
     UNUSED(channel);
@@ -149,6 +150,7 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
             break;
 
         case GAP_EVENT_ADVERTISING_REPORT: {
+            bt_listen_on_report(packet);
             if (app_state != APP_SCANNING) break;
             bd_addr_t adv_addr;
             gap_event_advertising_report_get_address(packet, adv_addr);
@@ -232,7 +234,10 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                 match = true;
             }
 
-            if (match) {
+            /* The pinned remote advertises (a key pressed, it wants its link): a plugin's listen
+             * ends for it, and a renewal waits until the remote is connected (bt_listen.c) */
+            if (match && g_adv_listen_active && bt_listen_remote_may_end()) bt_listen_end_for_remote();
+            if (match && !g_adv_listen_active) {
                 memcpy(remote_device.addr, adv_addr, 6);
                 remote_device.addr_type = adv_addr_type;
                 char log_buf[160];
@@ -320,8 +325,8 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                 update_status(app_state == APP_READY ? "ready" : "standby");
                 update_bthid_status();
             }
-            if (app_state == APP_SCANNING && !g_user_scan_active) {
-                gap_start_scan();
+            if ((app_state == APP_SCANNING && !g_user_scan_active) || g_adv_listen_active) {
+                gap_start_scan(); /* paused for the page */
             }
             break;
         }
@@ -552,8 +557,8 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                     update_status(app_state == APP_READY ? "ready" : "standby");
                     update_bthid_status();
 
-                    if (app_state == APP_SCANNING && !g_user_scan_active) {
-                        gap_start_scan();
+                    if ((app_state == APP_SCANNING && !g_user_scan_active) || g_adv_listen_active) {
+                        gap_start_scan(); /* paused for the page */
                     }
 
                     wake_key_schedule(cid, conn_addr);

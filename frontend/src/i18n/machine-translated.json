@@ -631,7 +631,20 @@
     "plg_action_failed",
     "plg_restart_failed",
     "plg_repo_remove_failed",
-    "plg_repo_add_failed"
+    "plg_repo_add_failed",
+    "plg_connecting",
+    "plg_device_pairing",
+    "plg_listen_done",
+    "plg_listen_failed",
+    "plg_listen_running",
+    "plg_pair_device",
+    "plg_pair_host_required",
+    "plg_pair_prompt",
+    "plg_paired_toast",
+    "plg_pairing_failed",
+    "plg_verify_code",
+    "plg_confirm_running",
+    "plg_confirm_timeout"
   ],
   "fr": [
     "map_action_help",
@@ -1264,7 +1277,20 @@
     "plg_action_failed",
     "plg_restart_failed",
     "plg_repo_remove_failed",
-    "plg_repo_add_failed"
+    "plg_repo_add_failed",
+    "plg_connecting",
+    "plg_device_pairing",
+    "plg_listen_done",
+    "plg_listen_failed",
+    "plg_listen_running",
+    "plg_pair_device",
+    "plg_pair_host_required",
+    "plg_pair_prompt",
+    "plg_paired_toast",
+    "plg_pairing_failed",
+    "plg_verify_code",
+    "plg_confirm_running",
+    "plg_confirm_timeout"
   ],
   "nl": [
     "map_action_help",
@@ -1897,7 +1923,20 @@
     "plg_action_failed",
     "plg_restart_failed",
     "plg_repo_remove_failed",
-    "plg_repo_add_failed"
+    "plg_repo_add_failed",
+    "plg_connecting",
+    "plg_device_pairing",
+    "plg_listen_done",
+    "plg_listen_failed",
+    "plg_listen_running",
+    "plg_pair_device",
+    "plg_pair_host_required",
+    "plg_pair_prompt",
+    "plg_paired_toast",
+    "plg_pairing_failed",
+    "plg_verify_code",
+    "plg_confirm_running",
+    "plg_confirm_timeout"
   ],
   "es": [
     "map_action_help",
@@ -2530,7 +2569,20 @@
     "plg_action_failed",
     "plg_restart_failed",
     "plg_repo_remove_failed",
-    "plg_repo_add_failed"
+    "plg_repo_add_failed",
+    "plg_connecting",
+    "plg_device_pairing",
+    "plg_listen_done",
+    "plg_listen_failed",
+    "plg_listen_running",
+    "plg_pair_device",
+    "plg_pair_host_required",
+    "plg_pair_prompt",
+    "plg_paired_toast",
+    "plg_pairing_failed",
+    "plg_verify_code",
+    "plg_confirm_running",
+    "plg_confirm_timeout"
   ],
   "it": [
     "map_action_help",
@@ -3163,6 +3215,19 @@
     "plg_action_failed",
     "plg_restart_failed",
     "plg_repo_remove_failed",
-    "plg_repo_add_failed"
+    "plg_repo_add_failed",
+    "plg_connecting",
+    "plg_device_pairing",
+    "plg_listen_done",
+    "plg_listen_failed",
+    "plg_listen_running",
+    "plg_pair_device",
+    "plg_pair_host_required",
+    "plg_pair_prompt",
+    "plg_paired_toast",
+    "plg_pairing_failed",
+    "plg_verify_code",
+    "plg_confirm_running",
+    "plg_confirm_timeout"
   ]
 }

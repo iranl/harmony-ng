@@ -43,6 +43,7 @@ STAGING_DIR = REPO_ROOT / "build" / "ota_staging"
 HUB_BINARIES = [
     "hub_util",
     "hub_daemon",
+    "hub_fetch",
     "hub_rf",
     "hub_btstack",
     "hub_sntp",
@@ -50,6 +51,11 @@ HUB_BINARIES = [
     "mknod",
     "register_ehci",
     "eth_fix",
+]
+
+# Shared libraries for plugins, installed to /data/harmony/lib by update.sh
+HUB_LIBRARIES = [
+    "libbearssl.so.0",
 ]
 
 REMOTE_BINARIES = [
@@ -116,6 +122,24 @@ def package_ota(output_dir: Path, version: str):
             }
         else:
             print(f"[-] Warning: Hub binary {bname} not found in search paths")
+
+    # Shared libraries also as files of their own: "update.sh repair-tls" fetches a missing one
+    # of the installed release (an update from v2.5.3 or older installs no lib/)
+    lib_target = output_dir / "lib"
+    for lname in HUB_LIBRARIES:
+        src = find_candidate_file(lname, MIPS_SEARCH_PATHS + [REPO_ROOT / "payload" / "lib"])
+        if src and src.exists():
+            import shutil
+            lib_target.mkdir(parents=True, exist_ok=True)
+            dst = lib_target / lname
+            shutil.copy2(src, dst)
+            md5, sha = get_file_hashes(dst)
+            manifest_files[f"lib/{lname}"] = {"size": dst.stat().st_size, "md5": md5, "sha256": sha}
+        else:
+            # without it a Hub updated from v2.5.3 or older can never repair its TLS (repair-tls)
+            print(f"[-] {lname} not found: this release has no TLS library for repair-tls or the update")
+            if "--require-signature" in sys.argv:
+                sys.exit(1)
 
     # 3. ARM binaries (remote)
     arm_target = output_dir / "bin" / "arm"
@@ -216,6 +240,14 @@ def package_ota(output_dir: Path, version: str):
             for f in config_dir.iterdir():
                 if f.is_file():
                     tar.add(f, arcname=f"config/{f.name}")
+        # Shared libraries for plugins (built by compile_all.sh into payload/lib; the release
+        # workflow brings them in the hub-binaries artifact)
+        for lname in HUB_LIBRARIES:
+            src = find_candidate_file(lname, MIPS_SEARCH_PATHS + [REPO_ROOT / "payload" / "lib"])
+            if src and src.exists():
+                tar.add(src, arcname=f"lib/{lname}")
+            else:
+                print(f"[-] Warning: {lname} not found: plugins that need it will not start")
         # WebUI
         if www_src and www_src.is_dir():
             for root, _, files in os.walk(www_src):

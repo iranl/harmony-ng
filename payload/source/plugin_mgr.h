@@ -18,6 +18,8 @@
 /* Per-plugin state kept across updates (passed as HARMONY_PLUGIN_DATA) */
 #define HARMONY_PLUGINS_DATA_DIR    HARMONY_PLUGIN_ROOT "/plugin-data"
 #define HARMONY_REPOSITORIES_FILE   HARMONY_PLUGIN_ROOT "/config/repositories.json"
+/* Shared libraries for plugins (libbearssl.so.0), passed as LD_LIBRARY_PATH (no rpath on uClibc 0.9.30) */
+#define HARMONY_PLUGIN_LIB_DIR      HARMONY_PLUGIN_ROOT "/lib"
 #define HARMONY_DEFAULT_REPO_URL    "https://raw.githubusercontent.com/iranl/harmony-ng-plugins/main/repository.json"
 
 /* Error codes besides -1: another install is running (HTTP 409), no such plugin (404) */
@@ -82,6 +84,9 @@ int plugin_mgr_pull(const char *plugin_id, char *err_msg, size_t err_msg_sz);
 
 /* Retrieve cloned device_definition cJSON from an installed plugin. Caller frees with cJSON_Delete. Returns NULL if none. */
 cJSON *plugin_mgr_get_device_definition(const char *plugin_id);
+/* A copy of one top-level manifest item of an installed plugin (e.g. "pairing"), or NULL;
+ * the caller deletes it */
+cJSON *plugin_mgr_get_manifest_item(const char *plugin_id, const char *key);
 
 /* Check if a plugin is currently in use by any configured device */
 int plugin_mgr_is_in_use_by_device(const char *plugin_id, char *device_name_out, size_t dev_name_sz);

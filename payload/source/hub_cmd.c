@@ -485,11 +485,28 @@ cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin) {
         if (!j_hold) j_hold = cJSON_GetObjectItemCaseSensitive(req, "hold");
         double hold_secs = (j_hold && cJSON_IsNumber(j_hold)) ? j_hold->valuedouble : 0.0;
 
-        if (cmd_count == 1 && num_repeats <= 1 && hold_secs <= 0.0 && !hub_mqtt_queue_busy()) {
-            int rc = hw_device_command_send_action(dev_buf, 0, cmd_list[0], btn_action);
+        /* "value": the number for a plugin command (one with a range needs it); one command only */
+        const cJSON *j_val = cJSON_GetObjectItemCaseSensitive(req, "value");
+        if (j_val && (!cJSON_IsNumber(j_val) || j_val->valuedouble != (double)(int)j_val->valuedouble ||
+                      j_val->valueint == HW_VALUE_NONE))
+            return ack(req, action, 0, 400, "value must be an integer");
+        if (j_val && (cmd_count != 1 || num_repeats > 1 || hold_secs > 0.0))
+            return ack(req, action, 0, 400, "value takes a single command");
+
+        if (cmd_count == 1 && num_repeats <= 1 && hold_secs <= 0.0 && (j_val || !hub_mqtt_queue_busy())) {
+            int rc = j_val ? hw_device_command_send_value(dev_buf, 0, cmd_list[0], btn_action, j_val->valueint)
+                           : hw_device_command_send_action(dev_buf, 0, cmd_list[0], btn_action);
             if (rc == -5) return ack(req, action, 0, 404, "Device not found");
             if (rc == -6) return ack(req, action, 0, 404, "Command not found");
+            if (rc == HW_ERR_VALUE_RANGE) return ack(req, action, 0, 400, "value out of range");
+            if (rc == HW_ERR_VALUE_MISSING) return ack(req, action, 0, 400, "value required (the command has a range)");
             return (rc == 0) ? ack(req, action, 1, 200, NULL) : ack(req, action, 0, 500, "IR transmit failed");
+        }
+        /* queued commands carry no value: a ranged plugin command among them is refused now,
+         * not acked and dropped later with a log line */
+        for (int ci = 0; ci < cmd_count; ci++) {
+            if (hw_device_command_needs_value(dev_buf, 0, cmd_list[ci]))
+                return ack(req, action, 0, 400, "value required (the command has a range)");
         }
         int waiting = hub_mqtt_queue_busy();
         int rc = hub_mqtt_queue_commands(dev_buf, 0, cmd_list, cmd_count, num_repeats, btn_action, delay_secs, hold_secs);

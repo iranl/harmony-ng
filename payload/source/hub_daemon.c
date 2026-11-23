@@ -22,6 +22,7 @@
 #include "hub_key_channel.h"
 #include "harmony_version.h"
 #include "wifi_config.h"
+#include "http_util.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -171,6 +172,14 @@ static void sntp_tick_async(const char *host) {
 }
 
 int main(int argc, char **argv) {
+    /* hub_fetch (run for every TLS download and HTTPS device command) and the plugins load
+     * libbearssl.so.0 from here: the stock ld-uClibc ignores rpath. Set before any thread. */
+    {
+        const char *old = getenv("LD_LIBRARY_PATH");
+        char ld[512];
+        snprintf(ld, sizeof(ld), "%s%s%s", HUB_FETCH_LIB_DIR, old && old[0] ? ":" : "", old && old[0] ? old : "");
+        setenv("LD_LIBRARY_PATH", ld, 1);
+    }
     int port = 8089;
     const char *mfg_file = NULL; /* test harness: a file with the mfg partition layout */
     int mdns_port = MDNS_PORT;   /* test harness: --mdns-port N */

@@ -163,10 +163,11 @@ The `manifest.json` file defines the plugin identity and how it appears in the W
 | `homepage` | `string` | URL to source repository or documentation. |
 | `entrypoint` | `string` | **Required.** Relative path of the binary or script the Hub runs (it must be in the archive). |
 | `files` | `array` | *(Dev installs)* Relative paths the dev install downloads next to `manifest.json`. |
-| `pairing` | `object` | *(Optional)* Pairing dialog texts (`supported`, `title`, `button_label`, `host_label`, `prompt`, `pin_length`). |
-| `device_definition` | `object` | *(Optional)* Schema for devices created using this plugin. `config_fields`, when present, is an array of objects, each with a string `key`. |
+| `pairing` | `object` | *(Optional)* Pairing: `supported`, `type` (`pin_display`, the default, `confirm` or `listen`), `requires_host` (default true; false for `listen`), `timeout_s` (default 15, at most 60) and the dialog texts (`title`, `button_label`, `description`, `instructions`, `host_label`, `prompt`, `pin_length`). See [Pairing Protocol](#pairing-protocol). |
+| `device_definition` | `object` | *(Optional)* Schema for devices created using this plugin. `config_fields`, when present, is an array of objects, each with a string `key`. A `default_commands` entry may have `"range": [min, max]`: the integer values the command takes (see `value` below). |
+| `requires_libs` | `array` | *(Optional)* File names of the Hub's shared libraries the binary links, e.g. `["libbearssl.so.0"]` (see "Using TLS: the shared BearSSL" below). |
 
-The Hub refuses an install whose manifest has no safe `id`, no `version`, no valid `entrypoint` (or one not in the archive), or a malformed `config_fields`.
+The Hub refuses an install whose manifest has no safe `id`, no `version`, no valid `entrypoint` (or one not in the archive), a malformed `config_fields`, a `default_commands` range that is not two integers with min <= max, or a `requires_libs` entry that is not in `/data/harmony/lib` (a Hub on older firmware: update it first).
 
 #### Config Field Types
 
@@ -246,7 +247,7 @@ When a user triggers an action (via WebUI, touchscreen remote, Companion remote,
 | `device_name` | `string` | User-defined display name of the device. |
 | `command` | `string` | Command name to execute (e.g. `Home`, `PowerOff`, `VolumeUp`). |
 | `action` | `string` | Action lifecycle verb: `"tap"`, `"press"`, `"repeat"`, or `"release"`. |
-| `value` | `number` | Optional numeric argument (e.g. slider position 0–100). |
+| `value` | `number` | Numeric argument of the command, 0 when none was given. Set by `POST /api/ir-send` (`"value"`) and by an MQTT `command/<device>/<command>` payload that is a plain integer. A command with `"range": [min, max]` only receives values in that range: the Hub refuses others. |
 | `ts` | `number` | When `hub_daemon` queued the datagram: `CLOCK_MONOTONIC` in milliseconds (same clock in the plugin). A plugin may drop a `repeat` that waited too long. |
 | `config` | `object` | Configuration dictionary defined by the user in Device Studio. A device without a `config` object sends its own fields here, except `commands`. |
 
@@ -281,12 +282,35 @@ A plugin device in `devices.json` (and in `POST /api/device-save`) has `"plugin"
 
 The route returns this object, with HTTP 400 when `ok` is false. Keep pairing keys in `HARMONY_PLUGIN_DATA`.
 
+The datagram also carries `timeout_s`, the manifest's `pairing.timeout_s` (default 15, at most 60): how long the Hub waits.
+
+#### Pairing without a host (`"type": "listen"`)
+A plugin that finds its device itself (it hears the device's own radio packets, for example with `adv_listen` below) declares `"pairing": {"supported": true, "type": "listen", "requires_host": false, "timeout_s": 30}`. Then:
+
+- `POST /api/plugins/pair {"id", "action": "start"}` needs no `host`. The datagram has no `host` either. The route waits at most 1 s for a first status and answers `{"ok": true, "stage": "listening", "timeout_s": 30}` when there is none, or `ok: false`, `stage: error` at once when the plugin is not running or its socket takes no datagram. A start or PIN step of a `pin_display` pairing waits 15 s at most, whatever `timeout_s` says. The status file is read up to 4,096 bytes: a longer one reads as `waiting`.
+- `{"id", "action": "status"}` returns the current status file and sends nothing (`stage: waiting` while there is none). The UIs poll it every second.
+- The plugin ends with `stage: done` (or `ok: false` and `stage: error`). A `config` object in the status holds what it learned: the UIs fill the device's config fields with it, and the user saves the device. Only keys the manifest's `config_fields` declare, with string, number or bool values, are returned.
+
+```json
+{ "ok": true, "action": "start_pair", "stage": "done", "message": "Switch 2 found", "config": { "switch_mac": "98:E2:55:99:1F:97", "controller_mac": "11:22:33:44:55:66" } }
+```
+
+#### Pairing confirmed on the device (`"type": "confirm"`)
+For a device that asks the user to accept the Hub on its own screen (a Samsung or LG TV) and then gives the plugin a token: `"pairing": {"supported": true, "type": "confirm", "timeout_s": 45}`. It runs as `listen` above (the route answers within 1 s, here with `stage: confirm_on_device`, and the UIs poll `status`), but a `host` is needed (the device's `host` config field) and no PIN is asked. Keep the token the device gives in `HARMONY_PLUGIN_DATA`, not in the status `config`: `config` is for values the user may see and edit.
+
 ---
 
 ### Bluetooth Helpers (`BLEADV:`, `adv`, `bt_page`)
 
 - **`BLEADV:<hex>`** keyCode: a command whose keyCode is `BLEADV:` and up to 31 bytes of legacy advertising data (AD structures, hex) is broadcast by `hub_btstack`; `hub_daemon` checks the payload and sends `adv <hex>` to it. No plugin process is involved.
-- **`adv <hex>`** and **`bt_page <target_mac> [spoof_mac]`**: text datagrams a plugin may send to `/tmp/hub_btstack.sock`. `bt_page` pages the target (optionally from a spoofed BD_ADDR, restored afterwards) and disconnects at once. One page runs at a time; a page with no answer ends after 10 s.
+- **`adv <hex> [ms] [addr=AA:BB:CC:DD:EE:FF]`**: a text datagram a plugin may send to `/tmp/hub_btstack.sock`. Non-connectable, 100 ms interval (the shortest Bluetooth 4.0 allows), for `ms` (200 to 10000, default 1200). Broadcasts run one after another (8 queued at most). With `addr=` the packet goes out from that address, set as the LE random address while it is on air, then the Hub's public address is back; meanwhile the BLE remote does not connect (it does once the broadcast ends).
+- **`adv_listen <plugin_id> <seconds> [hex_filter]`**: a passive LE scan for `seconds` (1 to 60; `0` stops early). Each advertising report whose data contains `hex_filter` (at most 16 bytes, anywhere in the data; none: every report) is sent to `/tmp/plugins/<plugin_id>.sock`:
+  ```json
+  { "plugin_id": "switch2-wake", "command": "adv_report", "action": "tap", "value": 0, "addr": "AA:BB:CC:DD:EE:FF", "addr_type": 0, "event_type": 3, "rssi": -60, "data": "0201061BFF5305..." }
+  ```
+  Repeats are not filtered: the plugin drops what it saw already. The scan runs at 50 % (interval 60 ms, window 30 ms) and pauses while a Bluetooth host is paged. One plugin listens at a time; a listen is refused while a remote scan or pairing runs, and a remote scan or pairing started by the user ends a listen. Meanwhile the BLE remote reconnect waits; when the paired remote advertises (a key pressed), the listen ends so it can connect, and a new listen is refused until it is connected (15 s at most).
+- **Older firmware** answers neither: it ignores `adv_listen`, and sends an `adv ... addr=` from the Hub's own address. With `addr=` the address must be six hex pairs with `:` (not all zero); a broadcast from another address waits while the BLE remote connects or a remote pairing window is open.
+- **`bt_page <target_mac> [spoof_mac]`**: a text datagram a plugin may send to `/tmp/hub_btstack.sock`. `bt_page` pages the target (optionally from a spoofed BD_ADDR, restored afterwards) and disconnects at once. One page runs at a time; a page with no answer ends after 10 s.
 - **`/tmp/hub_btstack.lock`**: a helper that needs the radio alone (the `ps5-wake` cold wake restarts the CSR8811) creates this file; while it exists the `init.sh` supervisor does not restart `hub_btstack`. Remove it when done. A lock older than 120 s is taken as stale and removed.
 
 ---
@@ -323,6 +347,40 @@ mips-buildroot-linux-uclibc-gcc -Wall -Os -s -o my_daemon main.c -lm
 2. **Symbols missing from the stock uClibc 0.9.30**: the toolchain's headers are uClibc-ng 1.0.24, so some calls link but are not on the Hub. `<ctype.h>` functions (`isdigit`, `tolower`, ...) import `__ctype_b_loc` / `__ctype_tolower_loc`, which the Hub lacks: the plugin starts and dies at the first call. Write these checks by hand; `build_plugins.sh` refuses a binary that imports `__ctype_`. Link statically only when a symbol you need is missing and cannot be avoided.
 3. **No futex on the Hub kernel**: a thread waiting on a condition variable, a semaphore, a contended mutex or `pthread_join` spins at 100 % CPU (#211). Use one thread and a `poll()` loop (socket, timers as poll timeouts); if a second thread is unavoidable, wake it through a pipe it `poll()`s.
 4. **Prefer POSIX shell scripts** using BusyBox applets (`sed`, `awk`, `wget`, `nc`) when network protocols allow (such as HTTP REST APIs). A script entrypoint must also stay in the foreground (`exec` the last command).
+5. **TLS: link the Hub's BearSSL**, do not bundle one (next section).
+
+#### Using TLS: the shared BearSSL
+The Hub firmware ships BearSSL once, as `/data/harmony/lib/libbearssl.so.0` (about 165 KB, needs
+only `libc.so.0`). The firmware's own TLS client (`hub_fetch`, for updates and HTTPS devices) uses
+it too. A plugin links it instead of a static copy of its own:
+
+```bash
+# BearSSL sources at the pinned commit, then the firmware build makes payload/lib/libbearssl.so.0
+sh build/fetch_bearssl.sh
+sh build/compile_all.sh bearssl
+
+mips-buildroot-linux-uclibc-gcc -Wall -Os -s -I build/tmp/bearssl/inc -o bin/my_daemon main.c \
+    -L payload/lib -l:libbearssl.so.0
+```
+
+and lists it in the manifest: `"requires_libs": ["libbearssl.so.0"]`. The Hub starts every
+plugin with `LD_LIBRARY_PATH=/data/harmony/lib`: the stock `ld-uClibc` 0.9.30 ignores a
+binary's rpath (`-Wl,-rpath` does not help). A plugin binary started by hand needs the same
+variable. The `android-tv` plugin linked this way is 34 KB instead of 100 KB.
+
+- **The commit is part of the ABI.** BearSSL contexts (`br_ssl_client_context`, ...) are structs
+  the caller allocates, so their size and layout must match the library. The library is built
+  from the commit pinned in `build/fetch_bearssl.sh`: compile against the headers of that commit.
+  A new commit gets a new name (`libbearssl.so.1`), and the old one stays until the plugins that
+  need it are rebuilt.
+- **Certificates.** The Hub's CA bundle is `/data/harmony/cacert.pem` (PEM; strip CR before
+  feeding it to `br_pem_decoder`, a copy from a Windows checkout has CRLF line ends). A device on
+  the LAN with a self-signed certificate is better served by pinning its key on first use, as
+  the `android-tv` plugin does.
+- The library exports only the functions in `build/bearssl_exports.txt`: the TLS 1.2 client,
+  certificate and PEM decoding, hashes, HMAC, HKDF, HMAC-DRBG, RSA and EC keys and signatures,
+  raw AES/GCM/ChaCha20. A plugin that needs more asks for it in that list (a new name keeps the
+  SONAME; removing one needs a new SONAME).
 
 ---
 
@@ -363,7 +421,7 @@ To make your plugin visible to all HarmonyNG users out-of-the-box:
 3. Open a Pull Request: CI builds it for the Hub and runs the host tests. Once merged, the release workflow publishes `<plugin_id>-v<version>` and adds the plugin, with its SHA-256, to `repository.json`. Bump `version` in `manifest.json` to release a change.
 
 #### Checksums and URLs
-BusyBox `wget` on the Hub does not verify TLS certificates. Every install that is not marked `dev` needs a SHA-256: the request's `sha256`, or the `sha256` of the marketplace entry for that `download_url`. Without one the install is refused, and an archive whose SHA-256 differs is refused. A `sha256` sent with a `dev` URL install is refused (the raw files cannot be checked). `build_plugins.sh` in `harmony-ng-plugins` writes `repository.json` with the checksum of each archive it builds: upload those exact archives. A pull installs the current marketplace entry of the plugin's id (checked the same way), from the repository it was installed from (two repositories may list the same id), or a dev plugin again from its dev URL. A plugin whose repository is not known (uploaded, or installed by an older version whose archive no catalog lists now) cannot be pulled: install it again from the marketplace.
+Downloads use `hub_fetch`, which checks the server certificate against the Hub's CA bundle (BusyBox `wget`, which checks none, only when `hub_fetch` or the bundle is missing). Every install that is not marked `dev` needs a SHA-256: the request's `sha256`, or the `sha256` of the marketplace entry for that `download_url`. Without one the install is refused, and an archive whose SHA-256 differs is refused. A `sha256` sent with a `dev` URL install is refused (the raw files cannot be checked). `build_plugins.sh` in `harmony-ng-plugins` writes `repository.json` with the checksum of each archive it builds: upload those exact archives. A pull installs the current marketplace entry of the plugin's id (checked the same way), from the repository it was installed from (two repositories may list the same id), or a dev plugin again from its dev URL. A plugin whose repository is not known (uploaded, or installed by an older version whose archive no catalog lists now) cannot be pulled: install it again from the marketplace.
 
 URLs (repositories, downloads) must be `http://` or `https://` with plain characters only (letters, digits, `-._~:/?#@&+,=%`). File names in a manifest's `files` list must be relative paths of letters, digits, `.`, `_`, `-` and `/`, without `..`. An archive with an absolute path, a `..` entry, or a symbolic or hard link entry is refused.
 
@@ -407,7 +465,7 @@ Users can simply paste your repository URL into the **Repositories** tab in thei
 
 - A plugin runs as root. Installing one runs its code as root, so the install, pull and repository routes need authentication to be on and the admin role.
 - **What the authentication gate does not stop**: while authentication is off, any client on the LAN can turn it on with an account of its own (`POST /api/system-action`, action `auth`), sign in and install a plugin. The gate makes that visible (the owner is locked out of the Hub afterwards), it does not prevent it. Turn authentication on yourself before the Hub is on a network you do not control. Real protection against an untrusted LAN needs signed catalogs and archives (roadmap task 1.3).
-- **What the SHA-256 protects against, and what not**: the checksum catches a damaged or cut download. It does not prove the archive is the published one: `repository.json`, which carries the checksums, comes over the same unverified channel (`wget` without certificate checks, `http://` accepted). Someone who can change the traffic between the Hub and the repository can replace both. Signing `repository.json` in the release workflow and verifying it on the Hub (as firmware updates are verified) is planned (roadmap task 1.3); until then, add only repositories you trust, on a network you trust.
+- **What the SHA-256 protects against, and what not**: the checksum catches a damaged or cut download. It does not prove the archive is the published one: `repository.json`, which carries the checksums, comes over the same channel (`http://` is accepted, and an `https://` certificate is only as good as the CAs in the bundle). Someone who can change the traffic between the Hub and the repository can replace both. Signing `repository.json` in the release workflow and verifying it on the Hub (as firmware updates are verified) is planned (roadmap task 1.3); until then, add only repositories you trust, on a network you trust.
 
 ---
 

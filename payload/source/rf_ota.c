@@ -216,7 +216,7 @@ bool rf_ota_verify_manifest(const uint8_t *digest, char *err_buf, size_t err_sz)
     }
 
     /* The manifest must carry a valid release signature (ota_verify.c): the download server
-     * and TLS are not trusted, so an unsigned or altered manifest is refused. */
+     * and TLS are not relied on, so an unsigned or altered manifest is refused. */
     char sig_err[160];
     char *mbuf = ota_load_signed_manifest(manifest_path, sig_path, sig_err, sizeof(sig_err));
     unlink(sig_path);
@@ -334,10 +334,10 @@ void *rf_ota_sender_worker(void *arg) {
         if (rc != 0 || access(ota_path, R_OK) != 0) {
             char wget_cmd[1400];
             snprintf(wget_cmd, sizeof(wget_cmd),
-                     "/cache/bin/busybox wget -q -T 10 -O /tmp/remote_manifest.json '%s/manifest.json' 2>/dev/null; "
-                     "/cache/bin/busybox wget -q -T 10 -O /tmp/remote_manifest.json.sig '%s/manifest.json.sig' 2>/dev/null; "
-                     "/cache/bin/busybox wget -q -T 20 -O /tmp/remote_ui.ota.gz '%s/bin/arm/remote_ui.ota.gz' 2>/dev/null || "
-                     "/cache/bin/busybox wget -q -T 20 -O /tmp/remote_ui.ota.gz '%s/bin/arm/elite_ui.ota.gz' 2>/dev/null",
+                     "LD_LIBRARY_PATH=/data/harmony/lib /data/harmony/bin/hub_fetch -T 10 -o /tmp/remote_manifest.json '%s/manifest.json' 2>/dev/null; "
+                     "LD_LIBRARY_PATH=/data/harmony/lib /data/harmony/bin/hub_fetch -T 10 -o /tmp/remote_manifest.json.sig '%s/manifest.json.sig' 2>/dev/null; "
+                     "LD_LIBRARY_PATH=/data/harmony/lib /data/harmony/bin/hub_fetch -T 20 -o /tmp/remote_ui.ota.gz '%s/bin/arm/remote_ui.ota.gz' 2>/dev/null || "
+                     "LD_LIBRARY_PATH=/data/harmony/lib /data/harmony/bin/hub_fetch -T 20 -o /tmp/remote_ui.ota.gz '%s/bin/arm/elite_ui.ota.gz' 2>/dev/null",
                      repo, repo, repo, repo);
             system(wget_cmd);
         }

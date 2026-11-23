@@ -700,6 +700,14 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
       btn.addEventListener('click', () => {
         const pId = btn.getAttribute('data-plugin-id');
         const inpId = btn.getAttribute('data-input-id');
+        if (pairingDef?.type === 'listen' || pairingDef?.type === 'confirm') {
+          const editing = inpId.startsWith('edit_');
+          const host = pairingDef.type === 'confirm' ? (document.getElementById(inpId)?.value || '').trim() : '';
+          this.runListenPairing(pId, editing ? 'edit_plug_cfg_' : 'plug_cfg_',
+            editing ? 'edit_plug_pair_status' : 'new_plug_pair_status', btn, pairingDef.timeout_s,
+            pairingDef.type === 'confirm', host);
+          return;
+        }
         const hostVal = document.getElementById(inpId)?.value || '';
         this.openPluginPairingModal(pId, hostVal);
       });
@@ -804,10 +812,71 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
       btn.addEventListener('click', () => {
         const pId = btn.getAttribute('data-plugin-id');
         const inpId = btn.getAttribute('data-input-id');
+        if (pairingDef?.type === 'listen' || pairingDef?.type === 'confirm') {
+          const editing = inpId.startsWith('edit_');
+          const host = pairingDef.type === 'confirm' ? (document.getElementById(inpId)?.value || '').trim() : '';
+          this.runListenPairing(pId, editing ? 'edit_plug_cfg_' : 'plug_cfg_',
+            editing ? 'edit_plug_pair_status' : 'new_plug_pair_status', btn, pairingDef.timeout_s,
+            pairingDef.type === 'confirm', host);
+          return;
+        }
         const hostVal = document.getElementById(inpId)?.value || '';
         this.openPluginPairingModal(pId, hostVal);
       });
     });
+  }
+
+  // A "listen" pairing: the plugin hears its device itself (no address to give). A "confirm"
+  // pairing: the user accepts a prompt on the device (a TV) at the host given. The Hub answers at
+  // once; the status is polled until the plugin reports the end, and the values it returns fill
+  // the device fields (fieldPrefix + key). The user saves the device as usual.
+  async runListenPairing(pluginId, fieldPrefix, statusId, btn, timeoutS, confirm = false, host = '') {
+    const show = (txt) => {
+      const el = document.getElementById(statusId);
+      if (el) el.textContent = txt;
+    };
+    if (confirm && !host) {
+      show(t('plg_pair_host_required'));
+      return;
+    }
+    const ask = async (action) => {
+      try {
+        return await this.client.pairPlugin(pluginId, action, host);
+      } catch (err) {
+        return { ok: false, stage: 'error', message: err.message };
+      }
+    };
+    if (btn) btn.disabled = true;
+    try {
+      let res = await ask('start');
+      const end = Date.now() + ((Number(res?.timeout_s) || Number(timeoutS) || 30) + 2) * 1000;
+      for (;;) {
+        if (res?.ok === false || res?.stage === 'error' || res?.error) {
+          const error = res?.message || res?.error || '';
+          show(confirm ? tf('plg_pairing_failed', { error }) : tf('plg_listen_failed', { error }));
+          return;
+        }
+        if (res?.stage === 'done') {
+          Object.entries(res.config || {}).forEach(([key, val]) => {
+            const inp = document.getElementById(fieldPrefix + key);
+            if (inp) inp.value = String(val);
+          });
+          show(res.message || (confirm ? t('plg_paired_toast') : t('plg_listen_done')));
+          return;
+        }
+        const left = Math.round((end - Date.now()) / 1000);
+        if (left <= 0) {
+          show(confirm ? tf('plg_pairing_failed', { error: t('plg_confirm_timeout') }) : tf('plg_listen_failed', { error: '' }));
+          return;
+        }
+        show(res?.message ? `${res.message} (${left} s)`
+          : (confirm ? tf('plg_confirm_running', { s: left }) : tf('plg_listen_running', { s: left })));
+        await new Promise(r => setTimeout(r, 1000));
+        res = await ask('status');
+      }
+    } finally {
+      if (btn) btn.disabled = false;
+    }
   }
 
   openPluginPairingModal(pluginId, initialHost = '') {
