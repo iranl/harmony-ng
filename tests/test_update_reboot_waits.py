@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""payload/scripts/update.sh apply holds its reboot while an activity switch runs (as agreed in #220).
+"""payload/scripts/update.sh apply holds its services restart while an activity switch runs (as agreed in #220).
 
 Same host sandbox as test_update_apply.py (paths moved into a temporary root, fake busybox, wget
 serving a local package). The fake busybox also answers GET http://127.0.0.1:8089/api/activity
-from a list of replies, one per call, and the reboot script records how many replies were read.
-Checks: the reboot comes only after two replies in a row that show no switch (busy, sending and a
+from a list of replies, one per call, and init.sh records how many replies were read at the restart.
+Checks: the restart comes only after two replies in a row that show no switch (busy, sending and a
 queued request all count as a switch; one idle reply between two switches is not enough); a switch
-that does not end lets the update reboot after UPDATE_ACTIVITY_WAIT_SECS with a message; a failed
+that does not end lets the update restart after UPDATE_ACTIVITY_WAIT_SECS with a message; a failed
 query is "unknown": with hub_daemon running it keeps waiting until UPDATE_ACTIVITY_FAIL_SECS, with
-hub_daemon not running it reboots at once; a cap that is not a number keeps the default; the caps
+hub_daemon not running it restarts at once; a cap that is not a number keeps the default; the caps
 are real seconds from /proc/uptime (slow queries count), and an idle answer at the cap is not called a running
 switch.
 """
@@ -57,9 +57,8 @@ class RebootWaitsForSwitch(base.UpdateApply):
         self.write(bb, ACT_BUSYBOX, 0o755)
         # the new busybox of the package must keep answering too (it replaces this one)
         self.new_files["bin/busybox"] = ACT_BUSYBOX
-        reboot = f"#!/bin/sh\ncat {self.act}/calls > {self.root}/tmp/rebooted 2>/dev/null || echo 0 > {self.root}/tmp/rebooted\n"
-        self.write(self.data / "safe_reboot.sh", reboot, 0o755)
-        self.new_files["scripts/safe_reboot.sh"] = reboot
+        restart = f"#!/bin/sh\ncat {self.act}/calls > {self.root}/tmp/restarted 2>/dev/null || echo 0 > {self.root}/tmp/restarted\n"
+        self.new_files["scripts/init.sh"] = restart
         # time passes only in the fake sleep and in a slow query: a fake /proc/uptime
         self.uptime = self.root / "uptime"
         self.uptime.write_text("100.00 50.00\n")
@@ -92,11 +91,11 @@ class RebootWaitsForSwitch(base.UpdateApply):
                                 timeout=60, env=env)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("applied successfully", r.stdout)
-        for _ in range(50):  # safe_reboot.sh runs in the background
-            if (self.root / "tmp" / "rebooted").exists():
+        for _ in range(50):  # init.sh restart runs in the background
+            if (self.root / "tmp" / "restarted").exists():
                 break
             base.subprocess.run(["sleep", "0.1"])
-        return r, int((self.root / "tmp" / "rebooted").read_text().strip() or 0)
+        return r, int((self.root / "tmp" / "restarted").read_text().strip() or 0)
 
     def test_reboot_after_the_switch(self):
         r, calls_at_reboot = self.run_with([BUSY, BUSY, SENDING, QUEUED, IDLE])
@@ -116,7 +115,7 @@ class RebootWaitsForSwitch(base.UpdateApply):
     def test_switch_that_does_not_end(self):
         r, calls_at_reboot = self.run_with([BUSY], wait_secs=6)
         self.assertEqual(calls_at_reboot, 3, r.stdout)
-        self.assertIn("rebooting anyway", r.stdout)
+        self.assertIn("restarting anyway", r.stdout)
 
     def test_cap_not_a_number_keeps_the_default(self):
         r, calls_at_reboot = self.run_with([IDLE], wait_secs="abc")

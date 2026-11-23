@@ -4,6 +4,7 @@
 #include "ir_i2s.h"
 #include "hw_action.h"
 #include "http_server.h"
+#include "plugin_mgr.h"
 #include "ws_server.h"
 #include "state_watch.h"
 #include "hub_events.h"
@@ -17,6 +18,7 @@
 #include "hub_ntp.h"
 #include "http_api_system.h"
 #include "http_api_remotes.h"
+#include "http_api_ota.h"
 #include "hub_key_channel.h"
 #include "harmony_version.h"
 #include "wifi_config.h"
@@ -215,6 +217,7 @@ int main(int argc, char **argv) {
 
     /* 1. Hardware, Config Store & Orchestrator Core */
     config_store_init();
+    ota_update_state_init();
     /* a Wi-Fi test (web UI or USB setup) cut short by a kill or a power cut: previous files back */
     wifi_config_recover();
     /* Rewrite VERSION only when it differs: every daemon start wrote it to flash */
@@ -284,6 +287,9 @@ int main(int argc, char **argv) {
 
     /* 3. MQTT Client */
     hub_mqtt_init();
+
+    /* 4. Plugin Lifecycle Manager */
+    plugin_mgr_init();
 
     printf("[+] Entering master non-blocking event loop...\n");
 
@@ -377,9 +383,21 @@ int main(int argc, char **argv) {
         /* Tick MQTT client packet reader, keepalive, and periodic state poll */
         hub_mqtt_tick();
         hub_cmd_poll();     /* replies of slow command-channel actions (update_check) */
+
+        static time_t s_last_plug_tick = 0;
+        if (time(NULL) != s_last_plug_tick) {
+            s_last_plug_tick = time(NULL);
+            plugin_mgr_tick();
+        }
+        static time_t s_last_plug_wd = 0;
+        if (time(NULL) - s_last_plug_wd >= 10) {
+            s_last_plug_wd = time(NULL);
+            plugin_mgr_watchdog_tick();
+        }
     }
 
     printf("\n[*] Shutting down hub_daemon...\n");
+    plugin_mgr_shutdown();
     orch_cancel();
     hub_mdns_shutdown();
     hub_ssdp_shutdown();

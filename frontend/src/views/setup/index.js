@@ -16,6 +16,7 @@ export const SETUP_ITEMS = [
   { id: 'network', icon: '📶', label: () => t('setup_network', 'Network (WiFi / Eth)'), desc: () => t('setup_desc_network', 'Wi-Fi scanner, Ethernet configuration & IP'), module: () => import('./network.js') },
   { id: 'backup', icon: '💾', label: () => t('backup_restore', 'Backup & Restore'), desc: () => t('setup_desc_backup', 'Export / import full hub configurations'), module: () => import('./backup.js') },
   { id: 'system', icon: '⚙️', label: () => t('setup_system_admin', 'System Admin'), desc: () => t('setup_desc_system', 'Dashboard, disk space, services, logs & update'), module: () => import('./system.js') },
+  { id: 'plugins', icon: '🧩', label: () => t('setup_plugins', 'Plugins & Marketplace'), desc: () => t('setup_desc_plugins', 'Install and manage hardware device integrations'), module: () => import('./plugins.js') },
   { id: 'users', icon: '👤', label: () => t('setup_users_auth', 'Users & Auth'), desc: () => t('setup_desc_users', 'User accounts, passwords & API tokens'), module: () => import('./users.js') },
   { id: 'hubs', icon: '🏠', label: () => t('multi_hub', 'Hub Management'), desc: () => t('setup_desc_hubs', 'Discover and switch between multiple Hubs'), module: () => import('./hubs.js') },
 ];

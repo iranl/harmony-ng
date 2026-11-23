@@ -4,7 +4,7 @@
 The script's /data, /cache, /etc and /tmp paths are moved into a temporary root. wget, tar and the
 signature check are fakes that serve a local package; cp fails on one chosen file, or past a byte
 budget for /data, to stand in for a full flash. Checks that a failed copy leaves every installed
-file whole (old or new, never cut) and VERSION old, with no leftover and no reboot, so a later run
+file whole (old or new, never cut) and VERSION old, with no leftover and no restart, so a later run
 installs everything; that a /data with room for one changed file but not for all of them still
 installs; that a web UI copy failure does not record the new version; and that the modular
 fallback installs only when every binary the release lists was downloaded.
@@ -128,7 +128,9 @@ class UpdateApply(unittest.TestCase):
         self.write(self.data / "cacert.pem", "old ca\n")
         self.write(self.root / "cache/icons.tar.gz", "old icons\n")
         self.write(self.root / "cache/www/index.html.gz", "old index\n")
-        self.write(self.data / "safe_reboot.sh", self.reboot_script(), 0o755)
+        self.write(self.data / "safe_reboot.sh", self.restart_script(), 0o755)
+        # the end of a good update: init.sh restart (old and new init.sh record the call)
+        self.write(self.data / "init.sh", self.restart_script(), 0o755)
 
         # New release in the served directory
         serve = self.root / "serve"
@@ -141,18 +143,27 @@ class UpdateApply(unittest.TestCase):
             "icons.tar.gz": "new icons\n",
             "www/index.html.gz": "new index\n",
             "www/assets/index-new.js.gz": "new js\n",
-            "scripts/safe_reboot.sh": self.reboot_script(),
+            "scripts/safe_reboot.sh": self.restart_script(),
         }
         for b in BINS[1:]:
             self.new_files[f"bin/{b}"] = f"new {b}\n" * 6000
         for s in SCRIPTS:
             self.new_files[f"scripts/{s}"] = f"#!/bin/sh\n# new {s}\n"
+        self.new_files["scripts/init.sh"] = self.restart_script("new ")
 
     def tearDown(self):
         self.tmp.cleanup()
 
-    def reboot_script(self) -> str:
-        return f"#!/bin/sh\necho rebooted > {self.root}/tmp/rebooted\n"
+    def restart_script(self, tag: str = "") -> str:
+        return f"#!/bin/sh\necho \"{tag}$0 $*\" > {self.root}/tmp/restarted\n"
+
+    def restarted(self) -> str:
+        """What ended the update (it runs in the background), or '' when nothing did"""
+        for _ in range(50):
+            if (self.root / "tmp" / "restarted").exists():
+                return (self.root / "tmp" / "restarted").read_text().strip()
+            subprocess.run(["sleep", "0.1"])
+        return ""
 
     @staticmethod
     def write(path: pathlib.Path, text: str, mode: int = 0o644) -> None:
@@ -213,12 +224,24 @@ class UpdateApply(unittest.TestCase):
 
     def test_bundle_installs_everything(self):
         self.serve_bundle()
+        # what a reboot cleared: old extracted icons and a kept remote image of the old version
+        stale = ["tmp/www/assets/icons/tv.png", "tmp/remote_ui.ota.gz", "tmp/remote_manifest.json",
+                 "tmp/remote_manifest.json.sig"]
+        for rel in stale + ["tmp/www/index.html"]:
+            self.write(self.root / rel, "old\n")
         r = self.run_apply()
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assert_new_installed()
         self.assertEqual((self.root / "cache/www/index.html.gz").read_text(), "new index\n")
         self.assertEqual(self.version(), NEW_VER)
-        self.assertTrue((self.root / "tmp" / "rebooted").exists() or "safe Hub reboot" in r.stdout)
+        # services restarted with the new init.sh, no reboot
+        self.assertEqual(self.restarted(), f"new {self.data}/init.sh restart")
+        for rel in stale:
+            self.assertFalse((self.root / rel).exists(), rel)
+        self.assertFalse((self.root / "tmp/www/assets/icons").exists())
+        self.assertTrue((self.root / "tmp/www/index.html").exists(), "the rest of /tmp/www stays")
+        self.assertIn("Restarting Hub services", r.stdout)
+        self.assertRegex((self.root / "tmp" / "hub_update.state").read_text(), f"^state=restarting\nversion={re.escape(NEW_VER)}\nsince=[0-9]+\n$")
         self.assertTrue((self.data / "bin" / "mknod").is_symlink())
         self.assertTrue((self.data / "bin" / "dropbear").is_symlink())
         self.assertTrue((self.data / "bin" / "dropbearkey").is_symlink())
@@ -274,7 +297,7 @@ class UpdateApply(unittest.TestCase):
                 for path, (old, new) in pairs.items():
                     self.assertIn(path.read_text(), (old, new), f"{path.name} cut")
                 self.assertEqual(self.leftovers(), [])
-                self.assertFalse((self.root / "tmp" / "rebooted").exists())
+                self.assertFalse((self.root / "tmp" / "restarted").exists())
                 # Space freed: the same update can be run again and installs everything
                 r = self.run_apply()
                 self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
@@ -305,7 +328,7 @@ class UpdateApply(unittest.TestCase):
         r = self.run_apply(fail_cp="www")
         self.assertNotEqual(r.returncode, 0, r.stdout)
         self.assertEqual(self.version(), OLD_VER)
-        self.assertFalse((self.root / "tmp" / "rebooted").exists())
+        self.assertFalse((self.root / "tmp" / "restarted").exists())
         self.assertEqual(self.leftovers(), [])
         # The retry is not refused as "not newer"
         r = self.run_apply()

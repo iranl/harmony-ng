@@ -73,6 +73,9 @@ void init_gyro_interrupt(void);
 void remote_wdt_init(void);
 void remote_wdt_ping(void);
 void remote_wdt_close(void);
+/* Saves the usage counts, closes the watchdog and releases the input, RF and framebuffer
+ * devices: before the process ends or restarts itself */
+void remote_hardware_cleanup(void);
 
 #ifdef __cplusplus
 }
