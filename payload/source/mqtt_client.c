@@ -460,6 +460,7 @@ int mqtt_connect_async(void) {
     pthread_attr_t attr;
     pthread_attr_init(&attr);
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    pthread_attr_setstacksize(&attr, 128 * 1024);
     if (pthread_create(&tid, &attr, mqtt_async_connect_worker, NULL) != 0) {
         __sync_lock_release(&s_connecting);
         pthread_attr_destroy(&attr);

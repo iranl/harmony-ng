@@ -230,7 +230,7 @@ void handle_rf_frame(const rf_frame_t *f) {
                 rf_keymap_invalidate_map(0);
                 usleep(50000);
                 pthread_t push_th;
-                if (pthread_create(&push_th, NULL, config_push_worker, NULL) == 0) pthread_detach(push_th);
+                if (rf_create_thread(&push_th, 128 * 1024, config_push_worker, NULL) == 0) pthread_detach(push_th);
                 else printf("[-] Config push not started (the remote asks again)\n");
             } else {
                 usleep(10000);
@@ -342,7 +342,7 @@ void handle_rf_frame(const rf_frame_t *f) {
                 g_rf_ota.status_code = 3;
                 snprintf(g_rf_ota.error_msg, sizeof(g_rf_ota.error_msg), "Preparing OTA update...");
                 pthread_t ota_th;
-                if (pthread_create(&ota_th, NULL, rf_ota_sender_worker, (void *)(uintptr_t)slot) == 0) {
+                if (rf_create_thread(&ota_th, 64 * 1024, rf_ota_sender_worker, (void *)(uintptr_t)slot) == 0) {
                     pthread_detach(ota_th);
                     rf_frame_t ack;
                     rf_build_ack(&ack, slot, f->seq, 0x00);
@@ -500,21 +500,21 @@ int main(int argc, char **argv) {
     usleep(50000);
 
     pthread_t rx_th;
-    if (pthread_create(&rx_th, NULL, rx_worker, NULL) != 0) {
+    if (rf_create_thread(&rx_th, 64 * 1024, rx_worker, NULL) != 0) {
         perror("pthread_create rx_worker");
         rf_spi_close();
         return 1;
     }
 
     pthread_t disp_th;
-    if (pthread_create(&disp_th, NULL, dispatch_worker, NULL) != 0) {
+    if (rf_create_thread(&disp_th, 64 * 1024, dispatch_worker, NULL) != 0) {
         perror("pthread_create dispatch_worker");
         rf_spi_close();
         return 1;
     }
 
     pthread_t sync_th;
-    if (pthread_create(&sync_th, NULL, activity_sync_worker, NULL) != 0) {
+    if (rf_create_thread(&sync_th, 64 * 1024, activity_sync_worker, NULL) != 0) {
         perror("pthread_create activity_sync_worker");
         rf_spi_close();
         return 1;
@@ -531,14 +531,14 @@ int main(int argc, char **argv) {
 
     /* Start local REST API thread and Hub button listener */
     pthread_t api_th;
-    if (pthread_create(&api_th, NULL, api_server_worker, NULL) != 0) {
+    if (rf_create_thread(&api_th, 64 * 1024, api_server_worker, NULL) != 0) {
         perror("pthread_create api_server_worker");
     } else {
         printf("[+] RF API listening on http://127.0.0.1:%d/api/rf/...\n", RF_API_PORT);
     }
 
     pthread_t btn_th;
-    if (pthread_create(&btn_th, NULL, hub_button_worker, NULL) != 0) {
+    if (rf_create_thread(&btn_th, 64 * 1024, hub_button_worker, NULL) != 0) {
         perror("pthread_create hub_button_worker");
     }
 

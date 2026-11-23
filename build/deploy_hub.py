@@ -722,7 +722,7 @@ class HubDeployer:
                 bb_setup = (
                     "ln -sf /cache/bin/busybox /data/harmony/bin/busybox 2>/dev/null; "
                     "/cache/bin/busybox --install -s /cache/bin 2>/dev/null || true; "
-                    'for _app in $(/cache/bin/busybox --list 2>/dev/null); do [ ! -e "/bin/$_app" ] && [ ! -e "/usr/bin/$_app" ] && ln -sf /cache/bin/busybox "/usr/bin/$_app" 2>/dev/null || true; done; '
+                    "for _l in /usr/bin/*; do [ -L \"$_l\" ] && [ \"$(readlink \"$_l\" 2>/dev/null)\" = \"/cache/bin/busybox\" ] && rm -f \"$_l\" 2>/dev/null || true; done; "
                     "mkdir -p /etc/profile.d 2>/dev/null; echo 'export PATH=/cache/bin:/data/harmony/bin:$PATH' > /etc/profile.d/00-harmony.sh 2>/dev/null; chmod 644 /etc/profile.d/00-harmony.sh 2>/dev/null || true"
                 )
                 if not self.dry_skip("install BusyBox applet links and /etc/profile.d/00-harmony.sh"):

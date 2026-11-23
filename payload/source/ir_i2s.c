@@ -584,7 +584,11 @@ static int ir_rx_session_open(ir_rx_session_t *s, char *err, size_t errlen) {
     ioctl(s->fd, I2S_START, 0);
     s->watch.target = pthread_self();
     ir_wake_open(&s->watch.wake);
-    s->watching = pthread_create(&s->watch_thread, NULL, ir_rx_watch, &s->watch) == 0;
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr, 64 * 1024);
+    s->watching = pthread_create(&s->watch_thread, &attr, ir_rx_watch, &s->watch) == 0;
+    pthread_attr_destroy(&attr);
     if (!s->watching) ir_wake_close(&s->watch.wake);
     return 0;
 }
@@ -931,7 +935,12 @@ static int capture_mode_set(int enable, ir_rx_signal_cb cb, void *user, char *er
     s_mode_error[0] = '\0';
     s_mode_exited = 0;
     ir_wake_open(&s_mode_wake);
-    if (pthread_create(&s_mode_thread, NULL, ir_mode_thread, NULL) != 0) {
+    pthread_attr_t mode_attr;
+    pthread_attr_init(&mode_attr);
+    pthread_attr_setstacksize(&mode_attr, 64 * 1024);
+    int mode_th_rc = pthread_create(&s_mode_thread, &mode_attr, ir_mode_thread, NULL);
+    pthread_attr_destroy(&mode_attr);
+    if (mode_th_rc != 0) {
         ir_wake_close(&s_mode_wake);
         pthread_mutex_unlock(&s_rx_lock);
         if (err) snprintf(err, errlen, "Could not start the capture thread");
