@@ -142,7 +142,10 @@ Returns the flash space of `/data` (of root `/` when `/data` cannot be read) and
     "cache_total_kb": 8192,
     "cache_free_kb": 2048,
     "cache_used_kb": 6144,
-    "cache_percent_free": 25
+    "cache_percent_free": 25,
+    "stock_resources_kb": 251,
+    "stock_resources_saved": true,
+    "can_empty_stock_resources": true
   }
   ```
 
@@ -373,11 +376,27 @@ Answers of the actions below:
   or the services restart after it (`updating` of `GET /api/update-status`, 2.1).
 - `factory_reset`: `{"ok": true, "message": "Factory reset initiated. Reverting to stock firmware and rebooting."}`;
   `400` without `"confirm": "RESET"`.
+- `clean_stock_resources`: empties `/data/resources`, the stock Logitech files. Needs
+  `"confirm": "EMPTY"` (`400` without). `409` while `/data/harmony/config/devices.json` is missing or empty
+  (the stock import still needs the files), when `/data/resources` is a link, and while no saved copy of
+  the files as they are exists: `/data/harmony/stock_resources_saved` holds `<copy name> <count>:<hex>`,
+  written by `tools/backup_hub.py` once `backups/stock_resources_<hub>*.tar` holds exactly the files (every
+  `deploy_hub.py` run makes that backup). `<hex>` is the XOR of sha256(`"<size> <path>"`) over every
+  entry under `/data/resources` but directories (path relative to it, a link counts as size 0); the
+  route computes it again and refuses when it differs. `500` when a file could
+  not be removed or the directory not read. Answers
+  `{"ok": true, "freed_kb": 48, "stock_resources_kb": 0, "message": "..."}`: `freed_kb` is the free space
+  of `/data` gained. In `GET /api/disk-space`, `stock_resources_kb` is the files' own size; `/data` is
+  JFFS2, which compresses, so the flash space they take (and `freed_kb`) is smaller.
+  `stock_resources_saved` says whether the mark matches the files there now (false when there are
+  none), `can_empty_stock_resources` whether the action would run. The stock firmware needs these
+  files: `tools/restore_stock.py` puts the saved copy back on a stock restore whose archive holds none,
+  and refuses without it.
 - `mqtt_publish`: only `topic` and `payload` are read. `retain` is ignored: the message goes out
   with QoS 0 and is not retained. An empty `payload` is sent as `cmd`. The answer is
   `{"ok": true}` also when MQTT is off or `topic` is empty, so it does not tell whether anything
   was published.
-- A fourth action, `auth`, turns authentication on or off and sets the admin account (11.6).
+- A fifth action, `auth`, turns authentication on or off and sets the admin account (11.6).
 - An unknown or missing `action` answers `200` `{"ok": true}` and does nothing.
 
 #### `POST /api/system-action` or `POST /system`

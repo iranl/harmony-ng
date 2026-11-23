@@ -45,6 +45,7 @@ case "$last" in
   *"--help"*) exit "${FAKE_TAR_HELP_RC:-0}" ;;
   "uname -m") echo "$FAKE_MACHINE" ;;
   *ath0/address*) echo "$FAKE_MAC" ;;
+  *"walk()"*) echo "2 99914b932bd37a50b983c5e7c90ae93b /data/resources/DeviceList.json" ;;  # stock files on the Hub
   *) exit 0 ;;
 esac
 """

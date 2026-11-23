@@ -3525,6 +3525,7 @@
                 <option value="command" selected data-i18n="send_device_command_title">Send Device Command</option>
                 <option value="activity_start" data-i18n="start_change_activity">Start / Change Activity</option>
                 <option value="activity_stop" data-i18n="stop_activity_power_off">Stop Activity (Power Off)</option>
+                <option value="help" data-i18n="map_action_help">Activity Help (Repair)</option>
                 <option value="sequence" data-i18n="opt_run_sequence">Run Sequence</option>
                 <option value="script" data-i18n="opt_custom_script">Custom Script</option>
               </select>
@@ -4625,6 +4626,21 @@ harmony_send_command:
             style="width: 100%; height: 6px; background: var(--bg-dark); border-radius: 3px; overflow: hidden; border: 1px solid var(--border);">
             <div id="iconSyncProgressBar"
               style="width: 0%; height: 100%; background: var(--accent); transition: width 0.2s ease;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stock Resources Storage Optimization -->
+      <div id="cardStockResources" class="card" style="margin-bottom: 14px;" hidden>
+        <h3 style="font-size: 15px; margin-bottom: 6px;" data-i18n="stock_resources_title">Stock Resources & Storage Optimization</h3>
+        <div class="help" data-i18n="stock_resources_desc">Logitech stock device and activity files in /data/resources, left over from the stock firmware. HarmonyNG does not use them after the stock import, but the stock firmware needs them: they can be removed only after a backup saved them (stock_resources_&lt;hub&gt;.tar, made by tools/backup_hub.py, which deploy_hub.py runs). tools/restore_stock.py puts them back.</div>
+        <div style="margin-top: 10px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+          <div>
+            <span id="stockResourcesBadge" class="badge">...</span>
+            <span id="stockResourcesDetail" class="subtle mini" style="margin-left: 8px;"></span>
+          </div>
+          <div>
+            <button id="btnCleanStockResources" type="button" class="btn btn-sm btn-secondary" data-i18n="empty_stock_resources" disabled>Empty Stock Resources</button>
           </div>
         </div>
       </div>

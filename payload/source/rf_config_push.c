@@ -241,6 +241,8 @@ void *config_push_worker(void *arg) {
         char icon_name[64];
         uint16_t icon_id;
         uint8_t icon_type;
+        int power_on_delay;    /* ms the Hub waits after powering it on (orchestrator warmup) */
+        int always_on;         /* isPowerAlwaysOn: the Hub never powers it on, so no warmup */
     } devs[16];
     cJSON *dev_cmds[16] = {0}; /* each device's "commands" array, owned by dev_root */
     cJSON *dev_root = NULL;
@@ -316,6 +318,11 @@ void *config_push_worker(void *arg) {
                                     devs[dev_count].icon_id = icon_id;
                                     strncpy(devs[dev_count].icon_name, custom_name, sizeof(devs[0].icon_name) - 1);
                                     devs[dev_count].icon_name[sizeof(devs[0].icon_name) - 1] = '\0';
+                                    /* Same default as config_store.c */
+                                    cJSON *jpod = cJSON_GetObjectItemCaseSensitive(d_obj, "powerOnDelay");
+                                    devs[dev_count].power_on_delay = cJSON_IsNumber(jpod) ? jpod->valueint : 1500;
+                                    cJSON *jpao = cJSON_GetObjectItemCaseSensitive(d_obj, "isPowerAlwaysOn");
+                                    devs[dev_count].always_on = cJSON_IsTrue(jpao) || (cJSON_IsNumber(jpao) && jpao->valueint > 0);
 
                                     dev_cmds[dev_count] = cJSON_GetObjectItem(d_obj, "commands");
                                     dev_count++;
@@ -443,8 +450,10 @@ void *config_push_worker(void *arg) {
             if (entries) {
                 pthread_mutex_lock(&g_map_lock);
                 cJSON *map = get_remote_map_unlocked(target_slot);
+                int help_keys = target_slot >= 1 && target_slot <= 2 &&
+                                (g_remote_versions[target_slot - 1].caps & RF_CAP_HELP_KEY);
                 n = rf_build_button_list(map ? cJSON_GetObjectItemCaseSensitive(map, "activities") : NULL,
-                                         entries, RF_BUTTON_LIST_MAX);
+                                         entries, RF_BUTTON_LIST_MAX, help_keys);
                 pthread_mutex_unlock(&g_map_lock);
             }
             for (int i = 0; i < n; i++) {
@@ -471,9 +480,17 @@ void *config_push_worker(void *arg) {
         uint8_t total_steps;
         uint16_t delay_ms;
         char name[16];
+        uint8_t warm_dev;   /* a Warmup step: 1 + index of its device in the device list */
+        uint8_t warm_count; /* this activity's Warmup steps in warm_steps[] */
+        uint8_t warm_first; /* index of the first of them */
     };
     struct rf_step_send act_steps[64];
+    memset(act_steps, 0, sizeof(act_steps)); /* the warm fields stay 0 outside the warmup code */
     int total_step_count = 0;
+    /* Warmup steps apart: only some remotes get them, and those get them only in the room the
+       other steps leave of the remote's 64 (MAX_RF_STEPS) */
+    struct rf_step_send warm_steps[64];
+    int warm_total = 0;
 
     FILE *fsteps = fopen("/data/harmony/config/activities.json", "r");
     if (fsteps) {
@@ -503,7 +520,7 @@ void *config_push_worker(void *arg) {
                             }
                             if (!act_id[0]) continue;
 
-                            struct rf_step_send local_steps[8];
+                            struct rf_step_send local_steps[16];
                             memset(local_steps, 0, sizeof(local_steps)); /* the default steps below copy ids and names without a terminator */
                             int local_count = 0;
 
@@ -512,7 +529,7 @@ void *config_push_worker(void *arg) {
                             if (start_seq && cJSON_IsArray(start_seq)) {
                                 cJSON *sitem = NULL;
                                 cJSON_ArrayForEach(sitem, start_seq) {
-                                    if (local_count >= 8) break;
+                                    if (local_count >= 15) break;
                                     cJSON *cname = cJSON_GetObjectItem(sitem, "command");
                                     cJSON *ctype = cJSON_GetObjectItem(sitem, "type");
                                     cJSON *cdelay = cJSON_GetObjectItem(sitem, "delay");
@@ -540,9 +557,17 @@ void *config_push_worker(void *arg) {
                                         if (d > 20000) d = 20000;
                                         local_steps[local_count].delay_ms = (uint16_t)d;
                                         local_count++;
-                                    } else if (ctype && cJSON_IsString(ctype) && strcmp(ctype->valuestring, "Delay") == 0) {
+                                    } else if (ctype && cJSON_IsString(ctype) && strcasecmp(ctype->valuestring, "Delay") == 0) {
+                                        if (d > 20000) d = 20000;
                                         if (local_count > 0 && d > 0) {
-                                            local_steps[local_count - 1].delay_ms += (uint16_t)d;
+                                            int sum = local_steps[local_count - 1].delay_ms + d;
+                                            local_steps[local_count - 1].delay_ms = (uint16_t)(sum > 60000 ? 60000 : sum);
+                                        } else if (d > 0) {
+                                            /* A delay before the first command is waited for too */
+                                            strncpy(local_steps[0].act_id, act_id, 11);
+                                            strncpy(local_steps[0].name, "Delay", 15);
+                                            local_steps[0].delay_ms = (uint16_t)d;
+                                            local_count = 1;
                                         }
                                     }
                                 }
@@ -565,10 +590,64 @@ void *config_push_worker(void *arg) {
                                 }
                             }
 
+                            /* The Hub waits the longest powerOnDelay of the devices it powers on
+                               (orchestrator_queue.c warmup): devices that are not always on, not
+                               powered on by the start sequence and not already on in the leaving
+                               activity. Only the last is known at switch time, so every candidate
+                               gets a Warmup step with its device; the remote keeps the longest one
+                               whose device the leaving activity does not use. */
+                            struct rf_step_send warm[RF_WARMUP_STEPS_MAX];
+                            int warm_count = 0;
+                            for (int a = 0; a < act_count && strcmp(act_id, "-1") != 0; a++) {
+                                if (strcmp(acts[a].id, act_id) != 0) continue;
+                                for (int k = 0; k < acts[a].dev_id_count; k++) {
+                                    int dv = 0;
+                                    while (dv < dev_count && strcmp(acts[a].dev_ids[k], devs[dv].id) != 0) dv++;
+                                    if (dv == dev_count || devs[dv].always_on || devs[dv].power_on_delay <= 0) continue;
+                                    int powered_by_seq = 0;
+                                    cJSON *sitem = NULL;
+                                    cJSON_ArrayForEach(sitem, start_seq) {
+                                        cJSON *sdev = cJSON_GetObjectItemCaseSensitive(sitem, "deviceId");
+                                        cJSON *scmd = cJSON_GetObjectItem(sitem, "command");
+                                        char sdev_id[32] = {0};
+                                        if (cJSON_IsNumber(sdev)) snprintf(sdev_id, sizeof(sdev_id), "%d", sdev->valueint);
+                                        else if (cJSON_IsString(sdev)) snprintf(sdev_id, sizeof(sdev_id), "%s", sdev->valuestring);
+                                        if (strcmp(sdev_id, devs[dv].id) == 0 && cJSON_IsString(scmd) &&
+                                            (strcasecmp(scmd->valuestring, "PowerOn") == 0 ||
+                                             strcasecmp(scmd->valuestring, "PowerToggle") == 0 ||
+                                             strcasecmp(scmd->valuestring, "Power") == 0)) {
+                                            powered_by_seq = 1;
+                                            break;
+                                        }
+                                    }
+                                    if (powered_by_seq) continue;
+                                    int delay = devs[dv].power_on_delay > 60000 ? 60000 : devs[dv].power_on_delay;
+                                    /* Kept sorted, longest first: past the limit the shortest goes */
+                                    int pos = warm_count;
+                                    while (pos > 0 && warm[pos - 1].delay_ms < delay) pos--;
+                                    if (pos >= RF_WARMUP_STEPS_MAX) continue;
+                                    int keep = warm_count < RF_WARMUP_STEPS_MAX ? warm_count : RF_WARMUP_STEPS_MAX - 1;
+                                    memmove(&warm[pos + 1], &warm[pos], (size_t)(keep - pos) * sizeof(warm[0]));
+                                    memset(&warm[pos], 0, sizeof(warm[0]));
+                                    strncpy(warm[pos].act_id, act_id, 11);
+                                    strncpy(warm[pos].name, "Warmup", 15);
+                                    warm[pos].delay_ms = (uint16_t)delay;
+                                    warm[pos].warm_dev = (uint8_t)(dv + 1);
+                                    if (warm_count < RF_WARMUP_STEPS_MAX) warm_count++;
+                                }
+                                break;
+                            }
+                            if (warm_total + warm_count > 64) warm_count = 0;
+                            int warm_first = warm_total;
+                            memcpy(&warm_steps[warm_total], warm, (size_t)warm_count * sizeof(warm[0]));
+                            warm_total += warm_count;
+
                             for (int s = 0; s < local_count && total_step_count < 64; s++) {
                                 act_steps[total_step_count] = local_steps[s];
                                 act_steps[total_step_count].step_idx = (uint8_t)s;
                                 act_steps[total_step_count].total_steps = (uint8_t)local_count;
+                                act_steps[total_step_count].warm_count = (uint8_t)warm_count;
+                                act_steps[total_step_count].warm_first = (uint8_t)warm_first;
                                 total_step_count++;
                             }
 
@@ -579,7 +658,7 @@ void *config_push_worker(void *arg) {
                                 if (stop_seq && cJSON_IsArray(stop_seq)) {
                                     cJSON *st_item = NULL;
                                     cJSON_ArrayForEach(st_item, stop_seq) {
-                                        if (total_step_count >= 63 || stop_cnt >= 8) break;
+                                        if (total_step_count >= 63 || stop_cnt >= 16) break;
                                         cJSON *cname = cJSON_GetObjectItem(st_item, "command");
                                         cJSON *ctype = cJSON_GetObjectItem(st_item, "type");
                                         cJSON *cdelay = cJSON_GetObjectItem(st_item, "delay");
@@ -614,8 +693,20 @@ void *config_push_worker(void *arg) {
                                             total_step_count++;
                                             stop_cnt++;
                                         } else if (ctype && cJSON_IsString(ctype) && strcasecmp(ctype->valuestring, "Delay") == 0) {
+                                            if (d > 20000) d = 20000;
                                             if (total_step_count > 0 && stop_cnt > 0 && d > 0) {
-                                                act_steps[total_step_count - 1].delay_ms += (uint16_t)d;
+                                                int sum = act_steps[total_step_count - 1].delay_ms + d;
+                                                act_steps[total_step_count - 1].delay_ms = (uint16_t)(sum > 60000 ? 60000 : sum);
+                                            } else if (d > 0) {
+                                                /* A delay before the first command is waited for too */
+                                                memset(&act_steps[total_step_count], 0, sizeof(act_steps[0]));
+                                                strncpy(act_steps[total_step_count].act_id, act_id, 11);
+                                                strncpy(act_steps[total_step_count].name, "Delay", 15);
+                                                act_steps[total_step_count].delay_ms = (uint16_t)d;
+                                                act_steps[total_step_count].step_idx = 0x80 | (uint8_t)stop_cnt;
+                                                act_steps[total_step_count].total_steps = 1;
+                                                total_step_count++;
+                                                stop_cnt++;
                                             }
                                         }
                                     }
@@ -664,15 +755,43 @@ void *config_push_worker(void *arg) {
     for (int t = 0; t < num_targets; t++) {
         uint8_t target_slot = target_slots[t];
         if (is_slot_direct_mode(target_slot)) continue;
+        /* An older remote adds up every Warmup step and opens its switch screen only at the end
+           of the switch: it gets the list without them. A newer one gets an activity's Warmup
+           steps, all or none, while they fit next to the other steps. */
+        bool warm_ok = target_slot >= 1 && target_slot <= 2 &&
+                       (g_remote_versions[target_slot - 1].caps & RF_CAP_SWITCH_START);
+        struct rf_step_send out[64];
+        int out_count = 0, warm_room = 64 - total_step_count;
+        uint8_t add = 0;
         for (int i = 0; i < total_step_count; i++) {
+            const struct rf_step_send *s = &act_steps[i];
+            if (s->step_idx == 0) { /* the first start step of an activity */
+                add = (warm_ok && s->warm_count > 0 && s->warm_count <= warm_room) ? s->warm_count : 0;
+                warm_room -= add;
+                for (int w = 0; w < add; w++) {
+                    out[out_count] = warm_steps[s->warm_first + w];
+                    out[out_count].step_idx = (uint8_t)w;
+                    out[out_count].total_steps = (uint8_t)(s->total_steps + add);
+                    out_count++;
+                }
+            }
+            out[out_count] = *s;
+            if (!(s->step_idx & 0x80)) {
+                out[out_count].step_idx = (uint8_t)(s->step_idx + add);
+                out[out_count].total_steps = (uint8_t)(s->total_steps + add);
+            }
+            out_count++;
+        }
+        for (int i = 0; i < out_count; i++) {
             uint8_t payload[26] = {0};
             payload[0] = (uint8_t)i;
-            payload[1] = act_steps[i].step_idx;
-            payload[2] = act_steps[i].total_steps;
-            strncpy((char *)&payload[3], act_steps[i].act_id, 9);
-            payload[12] = (uint8_t)(act_steps[i].delay_ms & 0xFF);
-            payload[13] = (uint8_t)((act_steps[i].delay_ms >> 8) & 0xFF);
-            strncpy((char *)&payload[14], act_steps[i].name, 11);
+            payload[1] = out[i].step_idx;
+            payload[2] = out[i].total_steps;
+            strncpy((char *)&payload[3], out[i].act_id, 9);
+            payload[12] = (uint8_t)(out[i].delay_ms & 0xFF);
+            payload[13] = (uint8_t)((out[i].delay_ms >> 8) & 0xFF);
+            strncpy((char *)&payload[14], out[i].name, 11);
+            if (out[i].warm_dev) payload[21] = out[i].warm_dev; /* after "Warmup" and its NUL */
 
             rf_build_frame(&f, target_slot, RF_MSG_STEP_LIST_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 26);
             push_queue_add(&queue[t], &f);

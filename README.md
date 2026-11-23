@@ -120,6 +120,17 @@ HarmonyNG supports all major Logitech Harmony physical remotes:
    - Remote settings backup to Hub and over-the-air (OTA) firmware updating.
    - *Harmony Ultimate, Ultimate Home and Harmony Touch share this architecture and are supported by the same binaries (tested on a Harmony Ultimate, 2013).*
 
+   <div align="center">
+     <table>
+       <tr>
+         <td align="center"><b>Activities</b><br><br><img src="docs/images/remote_activities.png" alt="Activities Screen" width="160px"></td>
+         <td align="center"><b>Devices</b><br><br><img src="docs/images/remote_devices.png" alt="Devices Screen" width="160px"></td>
+         <td align="center"><b>Commands</b><br><br><img src="docs/images/remote_commands.png" alt="Commands Screen" width="160px"></td>
+         <td align="center"><b>Settings</b><br><br><img src="docs/images/remote_settings.png" alt="Settings Screen" width="160px"></td>
+       </tr>
+     </table>
+   </div>
+
 2. **Harmony Companion & Harmony Smart Control (Screenless Remotes)**:
    - **Native zero-rooting RF support**: Communicate directly with the Hub via CC2544 2.4 GHz eQuad protocol. No USB connection, rooting, or custom firmware installation required on the remote.
    - Simply put the remote in pairing mode to register it to Hub Remote Slot 1 or Slot 2.
@@ -257,7 +268,8 @@ the Python tools in `tools/`) need Python 3.13 or newer and stop with a message 
 and builds and copies the web UI. Options:
 `--ui legacy|new` (default `legacy`), `--webui-only`, `--reboot` (default is a hot restart),
 `--dry-run` / `-n` (reports what would change), `--no-backup`, `--stage-remote-ota`,
-`--key <private key>` and `--user`.
+`--dev-btstack` (installs `build/output/hub_btstack_dev`, the Bluetooth daemon with BTstack info logs;
+from a git checkout only), `--key <private key>` and `--user`.
 
 ### Running the tests
 

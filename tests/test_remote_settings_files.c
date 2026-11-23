@@ -19,10 +19,12 @@
 #include <signal.h>
 #include <sys/resource.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
 
 #include "remote/remote_state.h"
 #include "remote/remote_config.h"
 #include "remote/remote_rf_sync.h"
+#include "remote/remote_theme.h"
 
 static int s_fail;
 #define CHECK(cond, msg) do { if (!(cond)) { printf("[-] %s\n", msg); s_fail = 1; } else printf("[+] %s\n", msg); } while (0)
@@ -137,6 +139,20 @@ int main(void) {
     CHECK(g_gyro_rate_hz == 10 || g_gyro_rate_hz == 25 || g_gyro_rate_hz == 50 || g_gyro_rate_hz == 100,
           "an accelerometer rate the remote does not offer is not taken from the file");
     CHECK(g_log_level >= LOG_LEVEL_ERR && g_log_level <= LOG_LEVEL_DEBUG, "log level out of range is not taken");
+
+    /* 3. A settings file without a theme gives Colourful; a named theme is kept */
+    char theme_dir[400];
+    snprintf(theme_dir, sizeof(theme_dir), "%s/data/themes", s_mock);
+    mkdir(theme_dir, 0755);
+    snprintf(theme_dir, sizeof(theme_dir), "%s/data/themes/colourful", s_mock);
+    mkdir(theme_dir, 0755);
+    write_mock("themes/colourful/theme.json", "{\"name\": \"Colourful\"}");
+    write_mock("remote_settings.conf", "brightness=2\n");
+    load_settings_conf();
+    CHECK(strcmp(g_theme.name, "colourful") == 0, "settings without a theme load Colourful");
+    write_mock("remote_settings.conf", "theme=classic\n");
+    load_settings_conf();
+    CHECK(strcmp(g_theme.name, "classic") == 0, "a theme named in the settings is kept");
 
     g_gyro_rate_hz = 25;
     rf_frame_t f;

@@ -581,6 +581,7 @@ void handle_navigation_key(int code, int value) {
                 show_notice(NULL, 0);
                 activity_trigger_btn_t *matched_trig = NULL;
                 for (int t = 0; t < g_act_trigger_count; t++) {
+                    if (g_act_triggers[t].atype == 0x04) continue; /* Help needs no confirmation */
                     if ((g_act_triggers[t].rf_key_code != 0 && g_act_triggers[t].rf_key_code == pending_rf) ||
                         strcasecmp(g_act_triggers[t].button_name, rf_short_button_name(pending_rf)) == 0) {
                         matched_trig = &g_act_triggers[t];
