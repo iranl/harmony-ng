@@ -133,7 +133,7 @@ def _ed25519_only(pub: pathlib.Path) -> str:
     return text
 
 
-def resolve_ssh_key(pubkey_path: str | None = None) -> tuple[pathlib.Path, str]:
+def resolve_ssh_key(pubkey_path: str | None = None, authorize: bool = True) -> tuple[pathlib.Path, str]:
     """Find existing harmony_owner key or generate a new ED25519 keypair."""
     ssh_dir = pathlib.Path.home() / ".ssh"
     ssh_dir.mkdir(parents=True, exist_ok=True)
@@ -142,7 +142,7 @@ def resolve_ssh_key(pubkey_path: str | None = None) -> tuple[pathlib.Path, str]:
         p = pathlib.Path(pubkey_path)
         if not p.is_file():
             raise FileNotFoundError(f"Specified pubkey not found: {pubkey_path}")
-        return p, _ed25519_only(p)
+        return p, _ed25519_only(p) if authorize else p.read_text(encoding="utf-8").strip()
 
     # Look for existing harmony_owner keys
     existing_keys = sorted(
@@ -150,10 +150,14 @@ def resolve_ssh_key(pubkey_path: str | None = None) -> tuple[pathlib.Path, str]:
         key=lambda k: k.stat().st_mtime,
         reverse=True,
     )
+    if authorize:
+        # the newest Ed25519 one: an older RSA key next to it must not stop the tool
+        ed = [k for k in existing_keys if k.read_text(encoding="utf-8").startswith("ssh-ed25519 ")]
+        existing_keys = ed or existing_keys
     if existing_keys:
         chosen = existing_keys[0]
         print(f"[*] Using existing SSH key: {chosen}")
-        return chosen, _ed25519_only(chosen)
+        return chosen, _ed25519_only(chosen) if authorize else chosen.read_text(encoding="utf-8").strip()
 
     # Generate new ED25519 key
     new_priv = ssh_dir / "harmony_owner_ed25519"

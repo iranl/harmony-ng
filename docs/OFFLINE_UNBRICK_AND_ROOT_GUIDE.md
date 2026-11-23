@@ -282,9 +282,15 @@ mkdir -p /etc/dropbear /root/.ssh
 touch /etc/tdeenable
 
 # 4. Install your SSH public key
-# Dropbearmulti takes ED25519 keys only (ssh-keygen -t ed25519):
-echo "<YOUR_SSH_PUBLIC_KEY>" > /etc/dropbear/authorized_keys
-cp /etc/dropbear/authorized_keys /root/.ssh/authorized_keys
+# Dropbearmulti takes ED25519 keys only (ssh-keygen -t ed25519). The server reads
+# <root home>/.ssh/authorized_keys, and root's home in the Hub's /etc/passwd is /home/root:
+ROOT_HOME=$(awk -F: '$1=="root"{print $6}' /etc/passwd); ROOT_HOME=${ROOT_HOME:-/home/root}
+mkdir -p "$ROOT_HOME/.ssh" && chmod 700 "$ROOT_HOME/.ssh"
+echo "<YOUR_SSH_PUBLIC_KEY>" > "$ROOT_HOME/.ssh/authorized_keys"
+chmod 600 "$ROOT_HOME/.ssh/authorized_keys"
+# the same key where older tools look for it
+cp "$ROOT_HOME/.ssh/authorized_keys" /etc/dropbear/authorized_keys
+cp "$ROOT_HOME/.ssh/authorized_keys" /root/.ssh/authorized_keys
 
 # 5. (Optional) Set blank root password for direct console access (SSH still takes keys only)
 sed -i 's/^root:[^:]*:/root::/' /etc/passwd

@@ -104,8 +104,9 @@ def parse_space_reply(reply: str) -> tuple[int | None, int]:
 # The Hub's dropbearmulti takes Ed25519 user keys only: root's authorized_keys (dropbear reads
 # the one in root's home) must hold one before it is installed, or the next reboot locks root out
 ED25519_USER_KEY_CHECK = (
-    "h=$(awk -F: '$1==\"root\"{print $6}' /etc/passwd 2>/dev/null); "
-    "grep -q 'ssh-ed25519 ' \"${h:-/home/root}/.ssh/authorized_keys\" 2>/dev/null && echo yes || echo no"
+    "h=$(awk -F: '$1==\"root\"{print $6}' /etc/passwd 2>/dev/null); f=\"${h:-/home/root}/.ssh/authorized_keys\"; "
+    # not a comment, and an Ed25519 key blob (they all start with AAAAC3NzaC1lZDI1NTE5)
+    "[ -f \"$f\" ] && grep -v \"^[ \t]*#\" \"$f\" | grep -q 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5' && echo yes || echo no"
 )
 
 # Run on the uploaded dropbearmulti ($s) before it replaces the old one: a build that cannot start
@@ -214,12 +215,39 @@ class HubDeployer:
     def run_ssh(self, cmd_str: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(self.get_ssh_cmd(cmd_str), capture_output=True, text=True)
 
+    def ed25519_login_problem(self) -> str | None:
+        """Why the Ed25519-only server would lock this PC out, or None. root's authorized_keys must
+        hold an Ed25519 key, and this PC must log in with one (an Ed25519 line of another PC lets
+        the deploy in over RSA, and this PC out after the restart)."""
+        res = self.run_ssh(ED25519_USER_KEY_CHECK)
+        answer = res.stdout.strip()
+        if res.returncode != 0 or answer not in ("yes", "no"):
+            return f"the Hub's authorized_keys could not be checked ({res.stderr.strip() or 'no answer'})."
+        if answer == "no":
+            return ("root's authorized_keys on the Hub has no Ed25519 key, and the new SSH server takes\n"
+                    "    Ed25519 keys only (the next restart would lock you out). Add one, e.g.\n"
+                    "    ssh-keygen -t ed25519 -f ~/.ssh/harmony_owner_ed25519, append the .pub line to\n"
+                    "    /home/root/.ssh/authorized_keys on the Hub, then deploy again.")
+        cmd = self.get_ssh_cmd("true")
+        cmd[1:1] = ["-o", "PubkeyAcceptedKeyTypes=ssh-ed25519"]
+        try:
+            probe = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.SubprocessError) as e:
+            return f"the Ed25519 login test did not run ({e})."
+        if probe.returncode != 0:
+            return ("this PC cannot log in to the Hub with an Ed25519 key (the Hub holds another PC's),\n"
+                    "    and the new SSH server takes Ed25519 keys only. Pass --key with this PC's Ed25519\n"
+                    "    key, or add its .pub line to /home/root/.ssh/authorized_keys, then deploy again.")
+        return None
+
     def ensure_ed25519_host_key(self) -> None:
         """The server loads only an Ed25519 host key. Create a missing one now (not at the first
         login with -R) and record it next to the key this connection was checked against, so a
         client that knows only the Hub's RSA key sees no changed key."""
         res = self.run_ssh(
             "k=/etc/dropbear/dropbear_ed25519_host_key; "
+            # an empty file: dropbearkey answers "File exists" and the server exits on it
+            "[ -f \"$k\" ] && [ ! -s \"$k\" ] && rm -f \"$k\"; "
             "[ -s \"$k\" ] || /data/harmony/bin/dropbearmulti dropbearkey -t ed25519 -f \"$k\" >/dev/null 2>&1; "
             "/data/harmony/bin/dropbearmulti dropbearkey -y -f \"$k\" 2>/dev/null | grep '^ssh-ed25519 '"
         )
@@ -605,13 +633,10 @@ class HubDeployer:
             elif (self.repo_root / "tools" / "bin" / "dropbearmulti_mips").is_file():
                 dropbear_src = self.repo_root / "tools" / "bin" / "dropbearmulti_mips"
 
-            if dropbear_src and self.run_ssh(ED25519_USER_KEY_CHECK).stdout.strip() != "yes":
-                # The server only takes Ed25519 user keys: the Hub keeps its current one
-                print("[!] dropbearmulti NOT updated: root's authorized_keys on the Hub has no Ed25519 key, and the\n"
-                      "    new SSH server takes Ed25519 keys only (the next reboot would lock you out). Add one, e.g.\n"
-                      "    ssh-keygen -t ed25519 -f ~/.ssh/harmony_owner_ed25519, append the .pub line to\n"
-                      "    /home/root/.ssh/authorized_keys on the Hub, then deploy again.")
-                self.deploy_failures.append("/data/harmony/bin/dropbearmulti (no Ed25519 user key)")
+            key_problem = self.ed25519_login_problem() if dropbear_src else None
+            if key_problem:
+                print(f"[!] dropbearmulti NOT updated: {key_problem}")
+                self.deploy_failures.append("/data/harmony/bin/dropbearmulti (no Ed25519 login)")
                 dropbear_src = None
             if dropbear_src:
                 dropbear_md5 = get_file_md5(dropbear_src)

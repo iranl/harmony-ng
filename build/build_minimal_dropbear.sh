@@ -15,8 +15,9 @@ DB_SHA256="e098034a843699200c8c977a991fff73159735bf795d5f72ef672c41a6b1ae81"
 BUILD_DIR="$DB_DIR/dropbear-$DB_VERSION"
 
 cd "$DB_DIR"
+# the tarball is checked on every build, not only the first unpack
+echo "$DB_SHA256  dropbear-$DB_VERSION.tar.bz2" | sha256sum -c -
 if [ ! -d "$BUILD_DIR" ]; then
-    echo "$DB_SHA256  dropbear-$DB_VERSION.tar.bz2" | sha256sum -c -
     tar -xjf "dropbear-$DB_VERSION.tar.bz2"
 fi
 

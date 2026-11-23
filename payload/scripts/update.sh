@@ -171,14 +171,19 @@ install_bundle() {
   fi
   # B. Application binaries -> /data/harmony/bin/
   for _b in hub_util $BUNDLE_BINS; do
-    if [ "$_b" = dropbearmulti ] && [ -f "$_pkg/bin/$_b" ] && ! has_ed25519_user_key; then
-      # The package's SSH server takes Ed25519 user keys only: the current one stays, or the
-      # next reboot would lock root out
-      echo "[!] dropbearmulti not updated: root's authorized_keys has no Ed25519 key (the new SSH server takes Ed25519 keys only)."
-      continue
+    _src="$_pkg/bin/$_b"
+    if [ "$_b" = dropbearmulti ]; then
+      # bin/dropbearmulti_ed25519: a name the update.sh of v2.5.3 and older does not install
+      _src=$(pkg_dropbear "$_pkg")
+      if [ -n "$_src" ] && ! has_ed25519_user_key; then
+        # The package's SSH server takes Ed25519 user keys only: the current one stays, or the
+        # next restart would lock root out
+        echo "[!] dropbearmulti not updated: root's authorized_keys has no Ed25519 key (the new SSH server takes Ed25519 keys only)."
+        continue
+      fi
     fi
-    if [ -f "$_pkg/bin/$_b" ]; then
-      install_file "$_pkg/bin/$_b" "/data/harmony/bin/$_b" 755 || return 1
+    if [ -n "$_src" ] && [ -f "$_src" ]; then
+      install_file "$_src" "/data/harmony/bin/$_b" 755 || return 1
     fi
   done
   # C. BusyBox -> /cache/bin/
@@ -200,10 +205,23 @@ link_hub_util() {
   done
 }
 
-# Root's authorized_keys (dropbear reads the one in root's home) holds an Ed25519 key
+# The package's SSH server: bin/dropbearmulti_ed25519, or bin/dropbearmulti of an older package
+pkg_dropbear() {
+  if [ -f "$1/bin/dropbearmulti_ed25519" ]; then
+    echo "$1/bin/dropbearmulti_ed25519"
+  elif [ -f "$1/bin/dropbearmulti" ]; then
+    echo "$1/bin/dropbearmulti"
+  fi
+}
+
+# Root's authorized_keys (dropbear reads the one in root's home) holds an Ed25519 key: a line
+# that is not a comment and has an Ed25519 key blob (they all start with AAAAC3NzaC1lZDI1NTE5),
+# options in front allowed. "ssh-ed25519" in a comment or in another key's comment does not count.
 has_ed25519_user_key() {
   _home=$(awk -F: '$1=="root"{print $6}' /etc/passwd 2>/dev/null)
-  grep -q 'ssh-ed25519 ' "${_home:-/home/root}/.ssh/authorized_keys" 2>/dev/null
+  _ak="${_home:-/home/root}/.ssh/authorized_keys"
+  [ -f "$_ak" ] || return 1
+  grep -v "^[ 	]*#" "$_ak" 2>/dev/null | grep -q 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5'
 }
 
 # link_dropbear [PKG_BINARY]: the multi-call links. Given the package's dropbearmulti (checked
@@ -229,7 +247,10 @@ link_dropbear() {
     if [ -n "$_harm_m" ] && { [ "$_harm_m" = "$_data_m" ] || [ "$_harm_m" = "$_pkg_m" ]; }; then
       rm -f /data/dropbearmulti /usr/sbin/dropbearmulti 2>/dev/null || true
     fi
-    # the server loads only an Ed25519 host key: made now, not at the first login (-R)
+    # the server loads only an Ed25519 host key: made now, not at the first login (-R). An empty
+    # file is removed first: dropbearkey answers "File exists" and the server exits on it.
+    [ -f /etc/dropbear/dropbear_ed25519_host_key ] && [ ! -s /etc/dropbear/dropbear_ed25519_host_key ] && \
+      rm -f /etc/dropbear/dropbear_ed25519_host_key
     [ -s /etc/dropbear/dropbear_ed25519_host_key ] || \
       /data/harmony/bin/dropbearmulti dropbearkey -t ed25519 -f /etc/dropbear/dropbear_ed25519_host_key >/dev/null 2>&1 || true
   fi
@@ -492,7 +513,7 @@ do_apply() {
       if [ -f "$TMPDIR/pkg/bin/hub_util" ]; then
         link_hub_util
       fi
-      link_dropbear "$TMPDIR/pkg/bin/dropbearmulti"
+      link_dropbear "$(pkg_dropbear "$TMPDIR/pkg")"
       # The package no longer has the recovery access point: its script, settings and the
       # hub_util links it used go (one still running stops at the next reboot)
       rm -f /data/harmony/recovery_ap.sh /data/harmony/scripts/recovery_ap.sh /data/harmony/bin/recovery_ap.sh \
