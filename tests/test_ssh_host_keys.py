@@ -36,7 +36,8 @@ import ssh_hostkeys  # noqa: E402
 
 # Every host tool that runs ssh or scp
 TOOLS = ["build/deploy_hub.py", "remote/deploy_remote.py", "remote/setup_remote.py", "tools/backup_hub.py",
-         "tools/factory_reset.py", "tools/restore_stock.py", "tools/root_hub_usb.py"]
+         "tools/capture_remote_fb.py", "tools/clean_stock_resources.py", "tools/factory_reset.py",
+         "tools/restore_stock.py", "tools/root_hub_usb.py"]
 # tools/sync_remote_to_hub.py is removed by another change (#220, legacy leftovers): not covered here
 NOT_COVERED = {"tools/sync_remote_to_hub.py"}
 
@@ -358,6 +359,7 @@ class ToolRuns(unittest.TestCase):
         "restore_stock": (["tools/restore_stock.py", "--backup", "BASE/stock.tar", "--force", "--skip-usb-root",
                            "--hub-ip", "192.168.1.20", "--pubkey", "BASE/owner.pub"], "192.168.1.20"),
         "deploy_remote": (["remote/deploy_remote.py", "--check"], "192.168.2.1"),
+        "capture_remote_fb": (["tools/capture_remote_fb.py", "-o", "BASE/shot.png"], "192.168.2.1"),
     }
 
     def prepare(self, args):

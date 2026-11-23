@@ -65,31 +65,8 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
         this.client.getRfStatus().catch(() => ({}))
       ]);
 
-      let remoteVer = '';
-      try {
-        const ghRes = await fetch('https://api.github.com/repos/iranl/harmony-ng/releases/latest', {
-          headers: { 'Accept': 'application/vnd.github.v3+json' }
-        });
-        if (ghRes.ok) {
-          const ghData = await ghRes.json();
-          if (ghData.tag_name) {
-            remoteVer = ghData.tag_name.startsWith('v') ? ghData.tag_name : `v${ghData.tag_name}`;
-          }
-        }
-      } catch (_) { }
-
-      if (!remoteVer) {
-        try {
-          let rawRes = await fetch(`https://raw.githubusercontent.com/iranl/harmony-ng/ota/v2/VERSION?_=${Date.now()}`);
-          if (!rawRes.ok) {
-            rawRes = await fetch(`https://raw.githubusercontent.com/iranl/harmony-ng/ota/VERSION_V2?_=${Date.now()}`);
-          }
-          if (rawRes.ok) {
-            const v = (await rawRes.text()).trim();
-            if (v) remoteVer = v.startsWith('v') ? v : `v${v}`;
-          }
-        } catch (_) { }
-      }
+      const online = await this.fetchOnlineHubVersion();
+      let remoteVer = online ? `v${online}` : '';
 
       if (!remoteVer && stat.remote_version) {
         const clean = stat.remote_version.replace(/^v/, '').trim();
@@ -119,7 +96,7 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
           tf('ver_build', { value: stat.build_time || sys.build_time || 'Release' }) + '\n' +
           remotesInfo +
           tf('ver_local_hub', { value: localVer }) + '\n' +
-          tf('ver_online', { value: remoteVer || t('up_to_date') }) + '\n' +
+          tf('ver_online', { value: remoteVer || t('unknown_lc') }) + '\n' +
           tf('ver_status', { value: hasUpdate ? `⚠️ ${t('update_available_short')}` : `✓ ${t('up_to_date')}` });
       }
     } catch (err) {
@@ -133,27 +110,8 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
     const tokenInput = document.getElementById('updateToken')?.value.trim() || '';
     try {
       if (log) log.textContent = t('checking_update_repo');
-      let remoteVer = '';
-      try {
-        const ghHeaders = { 'Accept': 'application/vnd.github.v3+json' };
-        if (tokenInput) ghHeaders['Authorization'] = `token ${tokenInput}`;
-        const ghRes = await fetch('https://api.github.com/repos/iranl/harmony-ng/releases/latest', { headers: ghHeaders });
-        if (ghRes.ok) {
-          const ghData = await ghRes.json();
-          remoteVer = (ghData.tag_name || '').replace(/^v/, '');
-        }
-      } catch (_) {
-        try {
-          let rawRes = await fetch(`https://raw.githubusercontent.com/iranl/harmony-ng/ota/v2/VERSION?_=${Date.now()}`);
-          if (!rawRes.ok) {
-            rawRes = await fetch(`https://raw.githubusercontent.com/iranl/harmony-ng/ota/VERSION_V2?_=${Date.now()}`);
-          }
-          if (rawRes.ok) {
-            const rawVer = await rawRes.text();
-            remoteVer = rawVer.trim().replace(/^v/, '');
-          }
-        } catch (_) { }
-      }
+      // A custom repo: the Hub reads its VERSION itself (the official one says nothing about it)
+      const remoteVer = repoInput ? '' : await this.fetchOnlineHubVersion(tokenInput);
 
       const res = await this.client.checkUpdate(true, repoInput, tokenInput, remoteVer);
       const stat = await this.client.getUpdateStatus().catch(() => ({}));
@@ -175,56 +133,138 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
     const token = document.getElementById('updateToken')?.value.trim();
     const log = document.getElementById('updateLog');
     if (!await showConfirm(t('update_confirm', 'Download and apply update? Hub services will restart.'), { title: t('software_update'), okText: t('update_btn') })) return;
+    const before = await this.client.getUpdateStatus().catch(() => ({}));
     try {
       this.showUpdatingOverlay(t('hub_downloading_update'));
-      if (log) log.textContent = t('update_applying', 'Applying software update...\nHub is downloading package and will reboot automatically.');
-
+      if (log) log.textContent = t('update_applying', 'Applying software update...');
       await this.client.applyUpdate(token, repo);
-
-      const statusEl = document.getElementById('hubUpdatingStatusText');
-      if (statusEl) statusEl.textContent = t('hub_updated_rebooting');
-      if (log) log.textContent = t('hub_updated_rebooting_wait');
-
-      this.pollTimerActive = true;
-      let attempts = 0;
-      let sawDrop = false;
-
-      const pollTimer = setInterval(async () => {
-        attempts++;
-        if (attempts > 60) {
-          clearInterval(pollTimer);
-          this.pollTimerActive = false;
-          this.hideUpdatingOverlay();
-          if (log) log.textContent += '\n' + t('update_wait_timed_out');
-          return;
-        }
-
-        try {
-          const stat = await this.client.getUpdateStatus();
-          if (!stat || stat.updating) {
-            sawDrop = true;
-            if (statusEl) statusEl.textContent = t('hub_is_rebooting');
-            return;
-          }
-          if (sawDrop || attempts >= 5) {
-            clearInterval(pollTimer);
-            this.pollTimerActive = false;
-            this.hideUpdatingOverlay();
-            if (log) log.textContent = tf('hub_updated_reboot_complete_ver', { version: stat.current_version || stat.version || '' });
-            showToast(t('hub_updating_status', 'Hub is updated and reboot complete!'), 'success', 5000);
-            await this.refreshData();
-          }
-        } catch (_) {
-          sawDrop = true;
-          if (statusEl) statusEl.textContent = t('hub_rebooting_reconnecting');
-        }
-      }, 3000);
     } catch (err) {
+      // "busy": an update started elsewhere (another tab) runs already: follow that one
+      if (err.status !== 409 || err.data?.status !== 'busy') {
+        this.hideUpdatingOverlay();
+        if (log) log.textContent = t('update_failed', 'Install failed: ') + err.message;
+        showToast(t('update_failed', 'Install failed: ') + err.message, 'error');
+        return;
+      }
+    }
+    this.watchHubUpdate(before.current_version || before.version || '');
+  }
+
+  /* Follows a Hub update to its end from GET /api/update-status: update_state running (download
+   * and install), restarting or unreachable (the services restart; a Hub before update_state
+   * reboots instead), failed (update_error), then idle with the version the Hub runs. A Hub older
+   * than update_state reports only "updating", which ends before the restart and also on a
+   * failure: there only a restart or a newer version counts as done. With login on, the session
+   * ends with the restart (it is in RAM): a 401 means the Hub is back, and the watch waits for a
+   * new login without asking again (each 401 reopened the login dialog). */
+  watchHubUpdate(fromVer = '') {
+    if (this.pollTimerActive) return;
+    this.pollTimerActive = true;
+    const log = document.getElementById('updateLog');
+    let started = Date.now();
+    let base = fromVer; // the version before the update; unknown: the first answer while it runs
+    let target = '';    // update_target of "restarting": the version installed
+    let dropAt = 0;     // first sign of a restart (one failed request will do); "running" clears it
+    let restartSeen = false; // "restarting", a 401, or two failed requests in a row (one is a blip)
+    let failStreak = 0;
+    let lastTry = false; // past a limit with no answer: one more request before giving up
+    let idleSince = 0;  // reachable, not updating, no restart seen
+    let loginToken = null; // the token a 401 refused: no request until a login replaces it
+    let timer = null;
+    const finish = (msg, kind) => {
+      clearTimeout(timer);
       this.pollTimerActive = false;
       this.hideUpdatingOverlay();
-      if (log) log.textContent = t('update_failed', 'Install failed: ') + err.message;
-      showToast(t('update_failed', 'Install failed: ') + err.message, 'error');
-    }
+      if (log) log.textContent = msg;
+      showToast(msg, kind, 6000);
+    };
+    const tick = async () => {
+      if (loginToken !== null) {
+        if ((this.client.token || '') === loginToken) return;
+        // logged in again: the limits count from now
+        loginToken = null;
+        started = dropAt = Date.now();
+        lastTry = false;
+        this.showUpdatingOverlay(t('hub_update_reconnecting'));
+      }
+      let st = null;
+      let unauthorized = false;
+      try {
+        st = await this.client.getUpdateStatus();
+      } catch (err) {
+        unauthorized = err?.status === 401;
+      }
+      if (!this.pollTimerActive) return;
+      // the limits after the answer: a page suspended past them still asks once
+      const now = Date.now();
+      if (unauthorized) {
+        if (!dropAt) dropAt = now;
+        restartSeen = true;
+        loginToken = this.client.token || '';
+        this.hideUpdatingOverlay(); // the login dialog must be usable
+        if (log) log.textContent = t('hub_update_login_again');
+        showToast(t('hub_update_login_again'), 'warning', 8000); // the log is on the System page only
+        return;
+      }
+      const state = !st ? 'unreachable' : (st.update_state || (st.updating ? 'running' : 'idle'));
+      const cur = st?.current_version || st?.version || '';
+      if (state === 'running' || state === 'restarting') {
+        idleSince = 0;
+        if (!base) base = cur; // the old daemon still answers: its version is the one before
+      }
+      failStreak = state === 'unreachable' ? failStreak + 1 : 0;
+      if (state === 'running') {
+        // a request that failed during the install was a blip
+        dropAt = 0;
+        restartSeen = false;
+      } else if (state === 'restarting' || state === 'unreachable') {
+        if (st?.update_target) target = st.update_target;
+        if (!dropAt) dropAt = now;
+        if (state === 'restarting' || failStreak >= 2) restartSeen = true;
+      }
+      if (state === 'running' || state === 'restarting' || state === 'unreachable') {
+        // install: the Hub's own limit for a running update (30 min); restart: 5 min
+        if (now - started > 30 * 60000 || (dropAt && now - dropAt > 5 * 60000)) {
+          // the first request after a long suspend can fail (network not up yet): try once more
+          if (state !== 'unreachable' || lastTry) {
+            finish(t('update_wait_timed_out'), 'warning');
+            return;
+          }
+          lastTry = true;
+        } else lastTry = false;
+        if (state === 'running') {
+          const step = (st.update_step || '').replace(/^\[.\]\s*/, '');
+          this.showUpdatingOverlay(step || t('hub_downloading_update'));
+          if (log && st.update_step) log.textContent = st.update_step;
+        } else {
+          this.showUpdatingOverlay(t(state === 'restarting' ? 'hub_update_restarting' : 'hub_update_reconnecting'));
+        }
+        return;
+      }
+      if (state === 'failed') {
+        finish(tf('hub_update_failed_msg', { error: st.update_error || t('unknown_lc') }), 'error');
+        return;
+      }
+      if (cur && ((base && this.isVersionOlder(base, cur)) || (target && !this.isVersionOlder(cur, target)))) {
+        finish(tf('hub_update_complete_ver', { version: cur }), 'success');
+        await this.refreshData();
+        return;
+      }
+      if (restartSeen) {
+        // without the version before, "still the old one" cannot be told
+        if (base || target) finish(tf('hub_update_version_unchanged', { version: cur }), 'warning');
+        else finish(tf('hub_update_ended_ver', { version: cur }), 'warning');
+        return;
+      }
+      if (!idleSince) idleSince = now;
+      if (now - idleSince > 60000) finish(t('hub_update_no_restart'), 'error');
+    };
+    // one request at a time: one can take its full timeout while the Hub restarts
+    const loop = async () => {
+      await tick();
+      if (this.pollTimerActive) timer = setTimeout(loop, 3000);
+    };
+    timer = setTimeout(loop, 3000);
   }
 
   async rediscoverMqtt() {
@@ -248,6 +288,60 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
       alert(t('reboot_sent', 'Reboot command sent to hub. Reconnecting in 30 seconds...'));
     } catch (err) {
       alert(t('reboot_failed', 'Reboot failed: ') + err.message);
+    }
+  }
+
+  async cleanStockResources() {
+    const disk = await this.client.getSystemDisk().catch(() => null);
+    const kb = disk?.stock_resources_kb ?? 0;
+    const msg = tf('clean_stock_resources_confirm', { kb });
+    if (!await showConfirm(msg, {
+      title: t('clean_stock_resources_title', 'Empty Stock Resources'),
+      okText: t('empty_resources', 'Empty Resources'),
+      danger: true
+    })) return;
+
+    try {
+      const res = await this.client.cleanStockResources();
+      showToast(tf('freed_stock_resources_toast', { kb: res?.freed_kb ?? kb }), 'success');
+      await this.refreshStockResources();
+      if (typeof this.refreshDiskSpace === 'function') await this.refreshDiskSpace();
+    } catch (err) {
+      showToast(t('clean_resources_failed', 'Failed to empty stock resources: ') + err.message, 'error');
+    }
+  }
+
+  async refreshStockResources() {
+    const card = document.getElementById('cardStockResources');
+    const badge = document.getElementById('stockResourcesBadge');
+    const detail = document.getElementById('stockResourcesDetail');
+    const btn = document.getElementById('btnCleanStockResources');
+    if (!card) return;
+    if (btn) btn.disabled = true;
+
+    try {
+      const disk = await this.client.getSystemDisk();
+      const kb = disk?.stock_resources_kb;
+      // Firmware without the stock resources delete: no card
+      card.hidden = typeof kb !== 'number';
+      if (card.hidden) return;
+      const canEmpty = disk.can_empty_stock_resources === true;
+      if (badge) {
+        badge.textContent = `${kb} kB`;
+        badge.className = `badge ${kb > 0 ? 'warn' : 'ok'}`;
+      }
+      if (detail) {
+        detail.textContent = kb === 0 ? t('stock_resources_empty')
+          : canEmpty ? tf('stock_resources_used', { kb })
+          : !disk.stock_resources_saved ? t('stock_resources_not_saved') : t('stock_resources_not_imported');
+      }
+      if (btn) {
+        // style, not the hidden attribute: .btn sets display, which wins over [hidden]
+        btn.style.display = kb === 0 ? 'none' : '';
+        btn.disabled = !canEmpty;
+      }
+    } catch {
+      if (badge) badge.textContent = t('unknown');
     }
   }
 

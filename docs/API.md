@@ -6,7 +6,7 @@
 
 **Requests from web pages.** Port 8089 refuses requests and WebSocket upgrades that a browser sends on behalf of another web site: an `Origin` header that is not the Hub's own clients answers `403`, and so does a request without `Origin` that the browser marks `Sec-Fetch-Site: cross-site` or `same-site`. A WebSocket upgrade refused this way gets no answer: the connection is closed. Allowed origins: the Hub itself (the `Origin` host matches the request's `Host`, or `X-Forwarded-Host` behind a reverse proxy), `http://` and `https://` with `localhost`, `127.0.0.1` or `[::1]` on any port (the Android app, local development servers), `capacitor://localhost` and `ionic://localhost`. Clients outside a browser (the Home Assistant integration, scripts, `curl`) send neither header and are not affected. A CORS preflight (`OPTIONS`) from any other origin is answered `403`. On port 8088 (Logitech protocol) only the WebSocket upgrade is checked: one with an `Origin` other than the request's own `Host` is answered `403`; its two HTTP routes (1.12) are not checked.
 
-**Request size.** A request body may be at most 64 KB, except `POST /api/rf-mapping-save`, `POST /api/remote-mapping-save` and `POST /api/ui-remote-layout` (a whole button map or the web remote layouts, up to 256 KB), and `POST /import` and `POST /api/custom-icons` (up to 2 MB; the icon image itself may be at most 16 KB, see 1.8). A larger `Content-Length` is answered `413` before the body is read.
+**Request size.** A request body may be at most 64 KB, except `POST /api/rf-mapping-save`, `POST /api/remote-mapping-save` and `POST /api/ui-remote-layout` (a whole button map or the web remote layouts, up to 256 KB), and `POST /import`, `POST /api/custom-icons` and `POST /api/plugins/install` (up to 2 MB; the icon image itself may be at most 16 KB, see 1.8). A larger `Content-Length` is answered `413` before the body is read.
 
 **Request bodies.** Most `POST` routes take a JSON object, or a form-encoded body (`a=1&b=2`; every value is then a string). JSON only: activity start, power off, Help and its answer, `activity-progress`, `pronto-blast`, `ir-raw`, `ir-capture`, `button-press` and `custom-icons`.
 
@@ -75,7 +75,7 @@ Returns high-level hub status, firmware, identity, active activity, flash space,
     and `commit`: this firmware, as in `/api/system-info`.
   - `total_kb`, `free_kb`: size and free space of the `/data` flash partition, in KB (not memory);
     `cache_total_kb`, `cache_free_kb`: the same for `/cache`.
-  - `updating`: `true` while a firmware update runs (`/tmp/hub_updating.flag` exists).
+  - `updating`: `true` while a firmware update runs or the services restart after it, as in `GET /api/update-status` (2.1).
   - `auth_enabled`: whether authentication is on. `role` (`"admin"` or `"user"`) and `user` are the
     caller's own: the account name, `pat:<token name>` for a personal access token, `"admin"` when
     authentication is off or the request comes from the Hub itself.
@@ -142,7 +142,10 @@ Returns the flash space of `/data` (of root `/` when `/data` cannot be read) and
     "cache_total_kb": 8192,
     "cache_free_kb": 2048,
     "cache_used_kb": 6144,
-    "cache_percent_free": 25
+    "cache_percent_free": 25,
+    "stock_resources_kb": 251,
+    "stock_resources_saved": true,
+    "can_empty_stock_resources": true
   }
   ```
 
@@ -370,14 +373,30 @@ Triggers on-demand Bluetooth host reconnection supervision. `target` (also accep
 ### 1.10 System Actions
 Answers of the actions below:
 - `reboot`: `{"ok": true, "message": "Rebooting hub now"}`; `409` while a firmware update runs
-  (`/tmp/hub_updating.flag` exists).
+  or the services restart after it (`updating` of `GET /api/update-status`, 2.1).
 - `factory_reset`: `{"ok": true, "message": "Factory reset initiated. Reverting to stock firmware and rebooting."}`;
   `400` without `"confirm": "RESET"`.
+- `clean_stock_resources`: empties `/data/resources`, the stock Logitech files. Needs
+  `"confirm": "EMPTY"` (`400` without). `409` while `/data/harmony/config/devices.json` is missing or empty
+  (the stock import still needs the files), when `/data/resources` is a link, and while no saved copy of
+  the files as they are exists: `/data/harmony/stock_resources_saved` holds `<copy name> <count>:<hex>`,
+  written by `tools/backup_hub.py` once `backups/stock_resources_<hub>*.tar` holds exactly the files (every
+  `deploy_hub.py` run makes that backup). `<hex>` is the XOR of sha256(`"<size> <path>"`) over every
+  entry under `/data/resources` but directories (path relative to it, a link counts as size 0); the
+  route computes it again and refuses when it differs. `500` when a file could
+  not be removed or the directory not read. Answers
+  `{"ok": true, "freed_kb": 48, "stock_resources_kb": 0, "message": "..."}`: `freed_kb` is the free space
+  of `/data` gained. In `GET /api/disk-space`, `stock_resources_kb` is the files' own size; `/data` is
+  JFFS2, which compresses, so the flash space they take (and `freed_kb`) is smaller.
+  `stock_resources_saved` says whether the mark matches the files there now (false when there are
+  none), `can_empty_stock_resources` whether the action would run. The stock firmware needs these
+  files: `tools/restore_stock.py` puts the saved copy back on a stock restore whose archive holds none,
+  and refuses without it.
 - `mqtt_publish`: only `topic` and `payload` are read. `retain` is ignored: the message goes out
   with QoS 0 and is not retained. An empty `payload` is sent as `cmd`. The answer is
   `{"ok": true}` also when MQTT is off or `topic` is empty, so it does not tell whether anything
   was published.
-- A fourth action, `auth`, turns authentication on or off and sets the admin account (11.6).
+- A fifth action, `auth`, turns authentication on or off and sets the admin account (11.6).
 - An unknown or missing `action` answers `200` `{"ok": true}` and does nothing.
 
 #### `POST /api/system-action` or `POST /system`
@@ -512,10 +531,31 @@ Returns running version, commit hash, build date, architecture, and whether an u
     "bt_version": "BTstack v1.5 (UART)",
     "arch": "mips (AR9344)",
     "update_available": false,
-    "updating": false
+    "updating": false,
+    "update_state": "idle"
   }
   ```
-  `updating` is `true` while an update is being installed (`/tmp/hub_updating.flag` exists).
+  `update_state` is the state of the last `POST /api/update-apply` since the Hub started:
+  - `running`: `update.sh apply` downloads and installs (`/tmp/hub_updating.flag` exists and the
+    run started less than 30 minutes ago, counted on the uptime clock, which SNTP does not step).
+    `update_step` is the last line of its output, untranslated, when it has one.
+  - `restarting`: the update is installed and the Hub services restart (`init.sh restart`, no
+    reboot); until then the old daemon answers. `update_target` is the version installed. The
+    state ends when the new daemon starts, or after 10 minutes of uptime when none starts: from
+    then on `current_version` tells whether the new
+    version runs.
+  - `failed`: the update ended with an error and nothing or not all was installed. `update_error`
+    is its first error line (`[-] ...`, the cause), untranslated. Every failed run ends with
+    `[-] The software update ended with exit code N.`, which is the only one when the run was
+    killed.
+  - `idle`: no update since the Hub started, or the update ended (compare `current_version` with
+    the version before). An `update.sh` from a release before `update_state` writes no state (it
+    runs the first update to this release, and reboots the Hub at its end): there the update
+    reports `running` while it runs and `idle` after it, whether it failed or not.
+
+  `updating` is `true` for `running` and `restarting`, here and in `GET /api/status`. While it is
+  `true`, a second `POST /api/update-apply` gets `409` with `"status": "busy"` and a reboot through
+  `POST /api/system-action` gets `409`.
   `fw_version` and `firmware` are the Logitech base firmware read from `/etc/version`.
 
 ### 2.2 Check for Updates
@@ -552,12 +592,13 @@ Executes `/data/harmony/update.sh` in the background and restarts services.
   route that changes the Hub this one is for admins once authentication is on (11.5). With
   authentication off (the default after install) any client on the LAN may call it.
 - **Signed releases only**: the update source (the official `ota` branch, or `repo`) must publish `manifest.json` and `manifest.json.sig`, the Ed25519 signature of the manifest by a release key built into the Hub firmware (`payload/source/ota_keys.h`). `update.sh` checks the signature with `hub_util ota-verify`, takes the version from the signed manifest, and installs a file only when its SHA-256 matches the manifest. Without a valid signature nothing is changed, whatever server `repo` names. TLS is not relied on: the Hub's `wget` does not verify certificates.
-- **Not during an activity switch**: the update ends with a reboot, which must not cut an activity switch in the middle. While a switch runs, a request is queued behind it, or the steps after the switch point are still being sent, the request is refused with **`409 Conflict`** and starts nothing:
+- **Services restart, no reboot**: once every file is installed, `update.sh` restarts the Hub services with `init.sh restart`, as `build/deploy_hub.py` does by default. An update has no kernel modules. Waiting for the next boot: a new `rcS.local`, the running SSH server (it keeps its old binary) and the USB port mode chosen at boot. `update.sh` removes what a reboot used to clear and the new daemon would reuse: the icons extracted from the old `icons.tar.gz` (`/tmp/www/assets/icons`) and a remote image kept for a resume (`/tmp/remote_ui.ota.gz`, `/tmp/remote_manifest.json*`). Without an executable `init.sh` it reboots the Hub (`safe_reboot.sh`) instead.
+- **Not during an activity switch**: the update ends with a services restart, which must not cut an activity switch in the middle. While a switch runs, a request is queued behind it, or the steps after the switch point are still being sent, the request is refused with **`409 Conflict`** and starts nothing:
   ```json
   {"ok": false, "status": "activity_switch", "error": "An activity switch is running: start the update again when it has finished",
    "busy": true, "sending": true, "queued": null}
   ```
-  Send it again when `GET /api/activity` shows `busy` and `sending` false and `queued` null. A switch that starts while the update downloads holds the reboot: `update.sh` waits until `GET /api/activity` shows no switch twice in a row, 1 s apart (at most 10 minutes, then it reboots anyway, the new files being installed already). A query that fails counts as unknown: `update.sh` keeps asking, and reboots only when `hub_daemon` is not running or has not answered for 60 s. Both limits are real time from `/proc/uptime` (a query can take 3 s; a clock set by SNTP during the wait does not end it). Not covered: the fallback without an executable `update.sh` (`init.sh restart` 1 s after the request, so only the 409 at the request protects it); the first update to this version, which the old `update.sh` runs (the wait starts with the update after it); a switch started in the second between the last idle answer and the reboot; `build/deploy_hub.py` and `POST /api/system-action` `reboot`, which do not look at a running switch.
+  Send it again when `GET /api/activity` shows `busy` and `sending` false and `queued` null. A switch that starts while the update downloads holds the restart: `update.sh` waits until `GET /api/activity` shows no switch twice in a row, 1 s apart (at most 10 minutes, then it restarts anyway, the new files being installed already). A query that fails counts as unknown: `update.sh` keeps asking, and restarts only when `hub_daemon` is not running or has not answered for 60 s. Both limits are real time from `/proc/uptime` (a query can take 3 s; a clock set by SNTP during the wait does not end it). Not covered: the fallback without an executable `update.sh` (`init.sh restart` 1 s after the request, so only the 409 at the request protects it); the first update to this version, which the old `update.sh` runs (the wait starts with the update after it); a switch started in the second between the last idle answer and the restart; `build/deploy_hub.py` and `POST /api/system-action` `reboot`, which do not look at a running switch.
 - **Response `200 OK`**:
   ```json
   {
@@ -566,7 +607,7 @@ Executes `/data/harmony/update.sh` in the background and restarts services.
     "message": "Software update triggered. Hub services downloading and applying in background."
   }
   ```
-- **Response `409 Conflict`**: `{"ok": false, "status": "busy", "error": "A software update is already running"}` while an update started earlier is still running (its flag is less than 30 minutes old). `update.sh apply` also runs only once at a time.
+- **Response `409 Conflict`**: `{"ok": false, "status": "busy", "error": "A software update is already running"}` while an update started earlier is still running or the services restart after it (`update_state` `running` or `restarting`, 2.1). `update.sh apply` also runs only once at a time.
 
 ---
 
@@ -642,6 +683,15 @@ gets `"Generic"`, and without `name` is named after its id. `powerOnDelay` is 0 
 `controlPort`, its commands are stored without `port` and `repeats`, and they go out as MQTT pulses
 on `mqttTopic` (default `{base_topic}/button/{device}/{command}`). Leave the MQTT fields out for an
 infrared or Bluetooth device.
+
+`"plugin": "<id>"` (or `type` `plugin:<id>`) makes the device a plugin device (docs/PLUGINS.md): no
+`controlPort`, its commands go to the plugin, and `config` (an object, or that object as a JSON
+string) holds the values of the plugin's `config_fields`. The id must be a safe plugin id (letters,
+digits, `-`, `_`), or the save is refused with `400`. A device's `type` text never makes it a
+plugin device, even when it matches a plugin's name. A top-level key is copied into `config` only
+for a plugin device and only when the plugin's `config_fields` declare it. The plugin choice comes
+before the MQTT and Bluetooth guesses from `type` and `manufacturer`. A save without `plugin` keeps
+the stored one; `"plugin": ""` makes the device a non-plugin device again.
 - **Request Body**:
   ```json
   {

@@ -13,10 +13,11 @@ extern "C" {
 
 /* One RF_MSG_BUTTON_LIST_CHUNK entry of the config push */
 typedef struct {
-    char ctx[12];        /* activity of an on-screen button ("-1" = idle), or a trigger's target */
+    char ctx[12];        /* activity of an on-screen button ("-1" = idle), a trigger's target, or
+                            the activity a Help key belongs to */
     char label[16];
     uint8_t ctype;       /* 0x01 on-screen button, 0x00 hard key */
-    uint8_t atype;       /* 0x01 device command, 0x02 activity start, 0x03 activity stop */
+    uint8_t atype;       /* 0x01 device command, 0x02 activity start, 0x03 activity stop, 0x04 Help */
     uint8_t idx;         /* position in the activity's on-screen list or hard-key map */
 } rf_button_entry_t;
 
@@ -30,9 +31,11 @@ typedef struct {
  * RF_BUTTON_TRIGGERS_MAX, the remote keeps 16) and a PwrOff stop key when no activity maps PwrOff,
  * then the on-screen buttons of every activity; at most max entries. A limit therefore only ever
  * cuts on-screen buttons, also on a remote with an older firmware that keeps 48 entries.
- * Returns the number of entries written.
+ * help_keys (the remote reports RF_CAP_HELP_KEY) adds the hard keys mapped to Help, with the
+ * activity they belong to; an older remote would take such a key for an activity start, and the
+ * Hub then runs Help from the raw key. Returns the number of entries written.
  */
-int rf_build_button_list(const cJSON *acts_map, rf_button_entry_t *out, int max);
+int rf_build_button_list(const cJSON *acts_map, rf_button_entry_t *out, int max, int help_keys);
 
 #ifdef __cplusplus
 }

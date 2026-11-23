@@ -11,6 +11,7 @@
 #include "http_api_ota.h"
 #include "http_api_backup.h"
 #include "http_api_system.h"
+#include "http_api_plugins.h"
 #include "hub_ws.h"
 #include "ws_server.h"
 #include "cJSON.h"
@@ -198,6 +199,8 @@ static long http_body_limit(const char *req) {
     static const struct { const char *route; long max; } limits[] = {
         { "POST /import", HTTP_BODY_MAX_LARGE },
         { "POST /api/custom-icons", HTTP_BODY_MAX_LARGE },
+        /* a plugin archive sent as base64 JSON: the android-tv archive alone is over 64 KB */
+        { "POST /api/plugins/install", HTTP_BODY_MAX_LARGE },
         { "POST /api/rf-mapping-save", HTTP_BODY_MAX_MAP },
         { "POST /api/remote-mapping-save", HTTP_BODY_MAX_MAP },
         { "POST /api/ui-remote-layout", HTTP_BODY_MAX_MAP },
@@ -555,6 +558,7 @@ static void http_process_request(int client_fd, const char *req) {
     if (http_api_remotes_handle(client_fd, method, clean_path, query, body, req)) return;
     if (http_api_ota_handle(client_fd, method, clean_path, query, body, req)) return;
     if (http_api_backup_handle(client_fd, method, clean_path, query, body, req)) return;
+    if (http_api_plugins_handle(client_fd, method, clean_path, query, body, req)) return;
     if (http_api_system_handle(client_fd, method, clean_path, query, body, req, auth_role, auth_user)) return;
 
     /* Unmatched route: 404 */

@@ -112,7 +112,7 @@
       <h3 id="hubUpdatingTitle" style="margin: 0; font-size: 18px; font-weight: 700; color: #fff;"
         data-i18n="hub_updating_title">Hub Software Update</h3>
       <p id="hubUpdatingDesc" style="margin: 0; font-size: 14px; color: rgba(255, 255, 255, 0.75); line-height: 1.4;"
-        data-i18n="hub_updating_desc">Hub is updated and is rebooting. Please wait...</p>
+        data-i18n="hub_updating_desc">The Hub installs the update and restarts its services. Please wait...</p>
       <div class="updating-progress-badge">
         <span class="updating-pulse-dot"></span>
         <span id="hubUpdatingStatusText" data-i18n="hub_updating_status">Applying update...</span>
@@ -133,8 +133,7 @@
       </div>
       <div class="update-banner-text">
         <strong id="hubUpdateTitle" data-i18n="update_available_banner">Hub Software Update Available</strong>
-        <span id="hubUpdateDesc" class="update-subtext" data-i18n="update_available_sub">A newer release is available.
-          Tap to view and install.</span>
+        <span id="hubUpdateDesc" class="update-subtext" data-i18n="update_available_sub">A newer release is available.</span>
       </div>
     </div>
     <div class="update-banner-actions">
@@ -333,6 +332,10 @@
         <span class="drawer-icon">S</span>
         <div><strong data-i18n="system">System</strong><small data-i18n="nav_system_sub">Logs, update & reboot</small>
         </div>
+      </button>
+      <button type="button" class="drawer-item" data-view-target="plugins">
+        <span class="drawer-icon">P</span>
+        <div><strong data-i18n="plg_nav_title">Plugins & Marketplace</strong><small data-i18n="plg_nav_desc">Community drivers & add-ons</small></div>
       </button>
       <button type="button" class="drawer-item" data-view-target="hubs" data-native-only="true">
         <span class="drawer-icon">HB</span>
@@ -583,6 +586,23 @@
               <span class="muted mini" data-i18n="card_services_logs">RF/BT Toggles • Logs</span>
               <span style="font-size: 12px; font-weight: 600; color: var(--accent);"
                 data-i18n="card_footer_open_sys">Open System →</span>
+            </div>
+          </div>
+
+          <!-- Plugins & Marketplace Shortcut -->
+          <div class="card settings-nav-card" data-view-target="plugins"
+            style="cursor: pointer; display: flex; flex-direction: column; justify-content: space-between; gap: 10px;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+              <div>
+                <strong style="font-size: 15px; color: var(--accent);" data-i18n="plg_nav_title">Plugins & Marketplace</strong>
+                <div class="muted mini" style="margin-top: 3px;" data-i18n="plugins_desc">Install and configure community drivers</div>
+              </div>
+              <span class="badge" data-i18n="plg_addons_badge">Add-ons</span>
+            </div>
+            <div
+              style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border); padding-top: 8px;">
+              <span class="muted mini" id="ovPluginsCount" data-i18n="plg_extensions">Extensions</span>
+              <span style="font-size: 12px; font-weight: 600; color: var(--accent);" data-i18n="plg_manage">Manage →</span>
             </div>
           </div>
 
@@ -1107,7 +1127,7 @@
               </div>
 
               <!-- Device Timings & Power Config -->
-              <div style="margin-top: 10px; border-top: 1px dotted var(--border); padding-top: 8px;">
+              <div id="devEditTimingsBox" style="margin-top: 10px; border-top: 1px dotted var(--border); padding-top: 8px;">
                 <strong
                   style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--accent);" data-i18n="device_timings_power">Device
                   Timings & Power</strong>
@@ -1288,7 +1308,6 @@
               </div>
             </div>
 
-            </div>
           </div>
 
           <!-- Existing Commands Header & List -->
@@ -1335,6 +1354,15 @@
             style="display: none; gap: 6px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">
             <button type="button" id="tabAddMqtt" class="btn btn-sm btn-primary mqtt-add-tab active"
               data-mqtt-mode="mqtt" data-i18n="add_mqtt_command_btn">Add MQTT Command</button>
+          </div>
+
+          <!-- Tabs for Plugin Mode -->
+          <div id="pluginAddTabsRow"
+            style="display: none; gap: 6px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">
+            <button type="button" id="tabAddPluginPresets" class="btn btn-sm btn-primary plug-add-tab active"
+              data-plug-mode="presets" data-i18n="plg_tab_commands">Plugin Commands</button>
+            <button type="button" id="tabAddPluginCustom" class="btn btn-sm btn-ghost plug-add-tab"
+              data-plug-mode="custom" data-i18n="plg_tab_custom">Custom Command</button>
           </div>
 
           <!-- Mode 1: Learn from Remote -->
@@ -1692,6 +1720,55 @@
                 <button id="btnTestNewMqttCmd" type="button" class="btn btn-sm btn-secondary" data-i18n="test_publish_btn">▶ Test Publish</button>
                 <button id="btnSaveNewMqttCmd" type="button" class="btn btn-sm btn-primary" data-i18n="save_cmd_to_device">Save Command to
                   Device</button>
+              </div>
+            </form>
+          </div>
+
+          <!-- Mode 7: Plugin Standard Key Presets -->
+          <div id="addModePluginPresets" class="plug-add-panel" style="display: none;">
+            <div class="callout" style="margin-bottom: 12px;">
+              <strong data-i18n="plg_catalog_title">Plugin Command Catalog.</strong>
+              <span data-i18n="plg_catalog_desc">Commands defined by the plugin for this device. Click "+ Add" on any command or "+ Add All" to import them into your device.</span>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; gap: 8px;">
+              <input type="text" id="plugPresetsFilter" class="form-control form-control-sm"
+                placeholder="Filter commands..." data-i18n-placeholder="plg_filter_cmds" style="flex: 1; font-size: 11px;">
+              <button type="button" id="btnPlugAddAllPresets" class="btn btn-xs btn-secondary" style="font-size: 11px; white-space: nowrap;" data-i18n="plg_add_all">+ Add All</button>
+            </div>
+
+            <div id="plugPresetsContainer"
+              style="max-height: 380px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 4px;">
+              <!-- Populated dynamically by HarmonyAppDevicesStudio -->
+            </div>
+          </div>
+
+          <!-- Mode 8: Custom Plugin Command -->
+          <div id="addModePluginCustom" class="plug-add-panel" style="display: none;">
+            <div class="callout" style="margin-bottom: 12px;">
+              <strong data-i18n="plg_custom_title">Custom Plugin Command.</strong>
+              <span data-i18n="plg_custom_desc">Add a custom key or endpoint parameter supported by the plugin, for example:</span> <code>PLUGIN:roku-ecp:KeyPress/Home</code>
+            </div>
+
+            <form id="plugCustomForm" onsubmit="return false;">
+              <div class="row">
+                <div style="flex: 1;">
+                  <label for="plugCustomCmdName" data-i18n="cmd_name_lbl">Command Name</label>
+                  <input id="plugCustomCmdName" class="form-control" required
+                    placeholder="e.g. Home, Netflix, Hdmi1" data-i18n-placeholder="plg_custom_name_ph">
+                </div>
+                <div style="flex: 1;">
+                  <label for="plugCustomCmdCode" data-i18n="plg_custom_code_lbl">Plugin KeyCode / Action</label>
+                  <input id="plugCustomCmdCode" class="form-control" required
+                    placeholder="e.g. PLUGIN:roku-ecp:Home or Home" data-i18n-placeholder="plg_custom_code_ph">
+                </div>
+              </div>
+
+              <div id="plugCustomStatus" class="subtle" style="margin-top: 8px;"></div>
+
+              <div class="actions" style="margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px;">
+                <button id="btnTestPlugCustom" type="button" class="btn btn-sm btn-secondary" data-i18n="plg_test_cmd">▶ Test Command</button>
+                <button id="btnSavePlugCustom" type="button" class="btn btn-sm btn-primary" data-i18n="plg_save_cmd">Save Command to Device</button>
               </div>
             </form>
           </div>
@@ -3312,6 +3389,7 @@
                 <option value="command" selected data-i18n="send_device_command_title">Send Device Command</option>
                 <option value="activity_start" data-i18n="start_change_activity">Start / Change Activity</option>
                 <option value="activity_stop" data-i18n="stop_activity_power_off">Stop Activity (Power Off)</option>
+                <option value="help" data-i18n="map_action_help">Activity Help (Repair)</option>
                 <option value="sequence" data-i18n="opt_run_sequence">Run Sequence</option>
                 <option value="script" data-i18n="opt_custom_script">Custom Script</option>
               </select>
@@ -3888,6 +3966,84 @@ harmony_send_command:
       </div>
     </section>
 
+    <!-- Plugins & Marketplace View -->
+    <section id="view-plugins" class="view-panel">
+      <button type="button" class="btn btn-sm btn-ghost btn-back-settings"
+        style="display: inline-flex; align-items: center; gap: 6px; margin-bottom: 12px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <path d="M19 12H5M12 19l-7-7 7-7" />
+        </svg>
+        <span data-i18n="back_to_settings">Back to Settings</span>
+      </button>
+      <div class="section-head" style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 10px;">
+        <div>
+          <h2 data-i18n="plg_nav_title">Plugins & Marketplace</h2>
+          <div class="section-lead" data-i18n="plugins_lead">Community drivers and device integrations.</div>
+        </div>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <input type="file" id="pluginArchiveFileInput" accept=".tar.gz,.tgz" style="display: none;">
+          <button type="button" class="btn btn-sm btn-outline" id="btnDevDownloadPlugin" data-i18n="plg_dev_download_short">📥 Dev Download</button>
+          <button type="button" class="btn btn-sm btn-outline" id="btnUploadPluginArchive" data-i18n="plg_upload_archive">Upload Archive (.tar.gz)</button>
+          <button type="button" class="btn btn-sm btn-secondary" id="btnRefreshPlugins" data-i18n="plg_refresh">↻ Refresh</button>
+        </div>
+      </div>
+
+      <!-- Segmented Navigation for Plugins View -->
+      <div class="segmented-nav" style="margin-bottom: 16px;">
+        <button type="button" class="segmented-btn active" data-plugin-tab="installed">
+          <span data-i18n="plg_tab_installed_short">Installed</span>
+        </button>
+        <button type="button" class="segmented-btn" data-plugin-tab="marketplace">
+          <span data-i18n="plg_tab_marketplace_short">Marketplace</span>
+        </button>
+        <button type="button" class="segmented-btn" data-plugin-tab="repos">
+          <span data-i18n="plg_tab_repositories_short">Repositories</span>
+        </button>
+      </div>
+
+      <!-- Tab 1: Installed Plugins -->
+      <div id="pluginPanelInstalled">
+        <div id="pluginStorageBanner" class="card" style="display: none; margin-bottom: 12px; padding: 10px 14px; background: var(--bg-card); border: 1px solid var(--border);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 13px;">
+            <span>💾 <strong data-i18n="plg_hub_storage_lbl">Hub Storage (/data):</strong> <span id="pluginStorageFreeText">--</span> <span data-i18n="plg_of">of</span> <span id="pluginStorageTotalText">--</span></span>
+            <span id="pluginStoragePctText" class="muted mini">--%</span>
+          </div>
+          <div style="width: 100%; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden;">
+            <div id="pluginStorageProgressBar" style="width: 0%; height: 100%; background: var(--primary);"></div>
+          </div>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <h3 style="font-size: 14px; margin: 0; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);" data-i18n="plg_installed_daemons">Installed Daemons</h3>
+          <span id="pluginsStatusBadge" class="badge" data-i18n="loading">Loading...</span>
+        </div>
+        <div id="installedPluginsList"></div>
+      </div>
+
+      <!-- Tab 2: Marketplace Catalog -->
+      <div id="pluginPanelMarketplace" style="display: none;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <h3 style="font-size: 14px; margin: 0; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);" data-i18n="plg_available_plugins">Available Community Plugins</h3>
+        </div>
+        <div id="marketplaceCatalogList"></div>
+      </div>
+
+      <!-- Tab 3: Repositories -->
+      <div id="pluginPanelRepos" style="display: none;">
+        <div class="card" style="margin-bottom: 14px; padding: 14px;">
+          <h3 style="font-size: 15px; margin-bottom: 6px;" data-i18n="plg_add_community_repo">Add Community Repository</h3>
+          <div class="muted mini" style="margin-bottom: 10px;" data-i18n="plg_add_repo_hint">Enter a URL pointing to a community repository.json manifest catalog.</div>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <input type="url" id="newRepoUrlInput" class="form-control" style="flex: 1; min-width: 240px;" placeholder="https://raw.githubusercontent.com/.../repository.json"> <!-- i18n-ok: example URL -->
+            <button type="button" class="btn btn-sm btn-primary" id="btnAddRepoBtn" data-i18n="plg_add_repo_short">+ Add Repo</button>
+          </div>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <h3 style="font-size: 14px; margin: 0; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);" data-i18n="plg_repos_title">Configured Repositories</h3>
+        </div>
+        <div id="pluginReposList"></div>
+      </div>
+    </section>
+
     <!-- 12. System View (Logs, Debug, Sign-in, Updates & Reboot) -->
     <section id="view-system" class="view-panel">
       <button type="button" class="btn btn-sm btn-ghost btn-back-settings"
@@ -4334,6 +4490,21 @@ harmony_send_command:
             style="width: 100%; height: 6px; background: var(--bg-dark); border-radius: 3px; overflow: hidden; border: 1px solid var(--border);">
             <div id="iconSyncProgressBar"
               style="width: 0%; height: 100%; background: var(--accent); transition: width 0.2s ease;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stock Resources Storage Optimization -->
+      <div id="cardStockResources" class="card" style="margin-bottom: 14px;" hidden>
+        <h3 style="font-size: 15px; margin-bottom: 6px;" data-i18n="stock_resources_title">Stock Resources & Storage Optimization</h3>
+        <div class="help" data-i18n="stock_resources_desc">Logitech stock device and activity files in /data/resources, left over from the stock firmware. HarmonyNG does not use them after the stock import, but the stock firmware needs them: they can be removed only after a backup saved them (stock_resources_&lt;hub&gt;.tar, made by tools/backup_hub.py, which deploy_hub.py runs). tools/restore_stock.py puts them back.</div>
+        <div style="margin-top: 10px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+          <div>
+            <span id="stockResourcesBadge" class="badge">...</span>
+            <span id="stockResourcesDetail" class="subtle mini" style="margin-left: 8px;"></span>
+          </div>
+          <div>
+            <button id="btnCleanStockResources" type="button" class="btn btn-sm btn-secondary" data-i18n="empty_stock_resources" disabled>Empty Stock Resources</button>
           </div>
         </div>
       </div>

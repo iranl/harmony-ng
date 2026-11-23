@@ -65,6 +65,7 @@ void get_current_activity(char *out, size_t outlen) {
     if (out && outlen > 0) snprintf(out, outlen, "1");
 }
 int is_activity_transitioning(void) { return 0; }
+int get_activity_target(char *out, size_t outlen) { if (outlen) out[0] = '\0'; return 0; }
 
 static void write_file(const char *path, const char *content) {
     FILE *f = fopen(path, "w");
