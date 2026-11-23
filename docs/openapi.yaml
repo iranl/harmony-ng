@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Harmony Hub Control API
-  version: 2.5.2
+  version: 2.5.3
   description: |
     REST and WebSocket API for the open-source **Harmony Hub** firmware and **Harmony remote** RF daemon.
     
@@ -38,8 +38,8 @@ info:
 
     ### Replies every route can give
     These are not repeated under each operation: `401` and `403` as above; `413`
-    `Request body too large` for a body over 64 KB (2 MB for `POST /import` and
-    `POST /api/custom-icons`, 256 KB for `/api/rf-mapping-save`, `/api/remote-mapping-save` and
+    `Request body too large` for a body over 64 KB (2 MB for `POST /import`,
+    `POST /api/custom-icons` and `POST /api/plugins/install`, 256 KB for `/api/rf-mapping-save`, `/api/remote-mapping-save` and
     `POST /api/ui-remote-layout`); `400` `Bad request` for a body shorter than its
     `Content-Length`; `404` `{"ok":false,"error":"Not Found"}` for an unknown route or a method
     the route does not take. These replies are JSON objects with `ok: false` and `error`.
@@ -79,7 +79,7 @@ tags:
   - name: Bluetooth HID
     description: Bluetooth host pairing, connection management, and BLE remotes
   - name: RF & Remote
-    description: 'CC2544 2.4GHz RF transceiver and Harmony remote management. On every /api/rf/* route that takes a slot, the slot may be given in the query (?slot=1) or in a JSON body ({"slot": 1}); a value other than 1 or 2 is answered 400 (0 or all are accepted only by pair, unpair, sleep and push-icon, where they mean every remote).'
+    description: 'CC2544 2.4GHz RF transceiver and Harmony remote management. On every /api/rf/* route that takes a slot, the slot may be given in the query (?slot=1) or in a JSON body ({"slot": 1}); a value other than 1 to 6 is answered 400 (0 or all are accepted only by pair, unpair, sleep and push-icon, where they mean every remote).'
   - name: Network & MQTT
     description: Wi-Fi, USB Ethernet, and MQTT broker configuration
   - name: Updates & Maintenance
@@ -92,6 +92,8 @@ tags:
     description: Upload, crop, store, and RF-sync custom PNG icons for activities, devices, and commands
   - name: UI Remote Layout
     description: Web and touch UI button mapping and custom layout configuration
+  - name: Plugins
+    description: Community plugin daemons, the plugin marketplace and plugin repositories (docs/PLUGINS.md)
 
 paths:
   /health:
@@ -164,8 +166,8 @@ paths:
           bt_mouse: {reply: ack, fields: [dx, dy, buttons, wheel, mouseAction, button, target]}
           ir_raw: {reply: ack, fields: [frequency, timings, port, repeats], description: As POST /api/ir-raw}
           ir_capture: {reply: ack, fields: [enabled]}
-          rf_wake: {reply: ack, fields: [slot], description: "As POST /api/rf/wake (slot 1 or 2, default 1)"}
-          rf_sleep: {reply: ack, fields: [slot], description: "As POST /api/rf/sleep (slot 1 or 2, default 1)"}
+          rf_wake: {reply: ack, fields: [slot], description: "As POST /api/rf/wake (slot 1 to 6, default 1)"}
+          rf_sleep: {reply: ack, fields: [slot], description: "As POST /api/rf/sleep (slot 1 to 6, default 1)"}
           sync: {reply: ack, description: As POST /api/sync}
           update_check: {reply: ack, fields: [repo, token, remote_version], description: As POST /api/update-check}
           update_apply: {reply: ack, fields: [repo, token], description: As POST /api/update-apply}
@@ -309,6 +311,9 @@ paths:
                 cache_free_kb: 1824
                 cache_used_kb: 3296
                 cache_percent_free: 35
+                stock_resources_kb: 251
+                stock_resources_saved: true
+                can_empty_stock_resources: true
 
   /api/network-status:
     get:
@@ -1107,10 +1112,10 @@ paths:
               properties:
                 action:
                   type: string
-                  enum: [reboot, factory_reset, mqtt_publish, auth]
+                  enum: [reboot, factory_reset, clean_stock_resources, mqtt_publish, auth]
                 confirm:
                   type: string
-                  description: Required confirmation string ('RESET') for factory_reset
+                  description: Required confirmation string ('RESET') for factory_reset, ('EMPTY') for clean_stock_resources
                 topic:
                   type: string
                   description: MQTT topic for mqtt_publish action
@@ -1132,6 +1137,8 @@ paths:
                 value: {action: reboot}
               factoryReset:
                 value: {action: factory_reset, confirm: RESET}
+              cleanStockResources:
+                value: {action: clean_stock_resources, confirm: EMPTY}
               mqttPublish:
                 value: {action: mqtt_publish, topic: harmony/hub/notify, payload: "{\"event\":\"ready\"}"}
               auth:
@@ -1148,11 +1155,11 @@ paths:
                 ok: true
                 message: Rebooting hub now
         '400':
-          description: "factory_reset without confirm RESET; auth: a name of 32 bytes or more or with ':' or a line break, a password over 128 bytes, renaming the admin without the password, or turning authentication on with no admin account and no password"
+          description: "factory_reset without confirm RESET; clean_stock_resources without confirm EMPTY; auth: a name of 32 bytes or more or with ':' or a line break, a password over 128 bytes, renaming the admin without the password, or turning authentication on with no admin account and no password"
         '409':
-          description: "reboot while a software update runs (Software update in progress. Manual reboot blocked.); auth: the admin name is taken by another account"
+          description: "reboot while a software update runs (Software update in progress. Manual reboot blocked.); clean_stock_resources: the stock configuration is not imported yet (no or an empty /data/harmony/config/devices.json), no saved copy of the stock files as they are now (the fingerprint in /data/harmony/stock_resources_saved, written by tools/backup_hub.py, does not match), or /data/resources is a link; auth: the admin name is taken by another account"
         '500':
-          description: "factory_reset: the reset script is not installed on this Hub; auth: the accounts could not be saved, or the admin name has access tokens left by a deleted account and the token file cannot be changed"
+          description: "factory_reset: the reset script is not installed on this Hub; clean_stock_resources: some files in /data/resources could not be removed, or it could not be read; auth: the accounts could not be saved, or the admin name has access tokens left by a deleted account and the token file cannot be changed"
         '503':
           description: "auth: the token list is busy, try again"
 
@@ -1252,6 +1259,8 @@ paths:
                 icon: {oneOf: [{type: string}, {type: integer}]}
                 powerOnDelay: {type: integer}
                 isPowerAlwaysOn: {type: boolean}
+                hideOnRemote: {type: boolean, description: "left out of the remote's device lists at the next config push; activity buttons and keys still send its commands"}
+                hideInDevicesTab: {type: boolean, description: "left out of the Devices tab of the web UIs; the remote and the device editor still list it"}
                 powerOnSequence: {type: array, items: {type: object}}
                 powerOffSequence: {type: array, items: {type: object}}
                 bdaddr: {type: string, description: "Bluetooth host address of a Bluetooth device (older name btHost)"}
@@ -1260,6 +1269,8 @@ paths:
                 btReconnectDelaySec: {type: integer, description: "Seconds before the reconnect starts after the trigger command (2 when missing)"}
                 btTriggerDeviceId: {type: string, description: "Device whose command starts the reconnect"}
                 btTriggerCommandName: {type: string, description: "Command that starts the reconnect (also deviceId:Command)"}
+                plugin: {type: string, description: "Id of the plugin this device belongs to (a safe id: letters, digits, - and _; 400 otherwise). Only this field or a type plugin:<id> makes a device a plugin device; it then has no controlPort."}
+                config: {oneOf: [{type: object}, {type: string}], description: "Plugin device settings (the plugin's config_fields), an object or that object as a JSON string. A top-level key is copied into config only for a plugin device and only when its config_fields declare it."}
             example:
               deviceId: "70321456"
               name: LG OLED TV
@@ -1786,8 +1797,8 @@ paths:
         - Activities
       summary: Delete activity
       description: >-
-        Also removes the activity's sections (activities/<id>) from remote_slot1_map.json,
-        remote_slot2_map.json and bt_remote_map.json.
+        Also removes the activity's sections (activities/<id>) from remote_slot1_map.json to
+        remote_slot6_map.json and bt_remote_map.json.
       requestBody:
         required: true
         content:
@@ -1890,6 +1901,9 @@ paths:
                 pronto: {type: string, description: "Pronto hex, or a Harmony code (also accepted as code or raw)"}
                 port: {type: integer, default: 7}
                 repeats: {type: integer, default: 1}
+                value:
+                  type: integer
+                  description: Numeric argument of a plugin command (a slider, a level), sent as the datagram's value. A command with a range refuses a value outside it with 400.
             examples:
               byDevice:
                 value:
@@ -1911,7 +1925,9 @@ paths:
                 deviceId: "70321456"
                 command: PowerToggle
         '400':
-          description: Neither deviceId with one command name nor a Pronto code
+          description: |
+            Neither deviceId with one command name nor a Pronto code; "value must be an integer"; "value out of
+            range" (a plugin command with a range); "value required (the command has a range)"
         '500':
           description: The send failed, or the device or the command is not known ("error":"IR transmit failed")
 
@@ -2124,7 +2140,7 @@ paths:
                 action: {type: string, enum: [press, hold, release], description: "press and release give a button event on the WebSocket; hold repeats do not"}
                 topic: {type: string, description: "Ignored (kept for old clients)"}
                 pulseMs: {type: integer, description: "Ignored (kept for old clients)"}
-                slot: {type: integer, enum: [1, 2], description: "RF remote slot of the key. No default: without it the event has no slot and goes to <base>/button on MQTT, not <base>/remote/<slot>/button"}
+                slot: {type: integer, enum: [1, 2, 3, 4, 5, 6], description: "RF remote slot of the key. No default: without it the event has no slot and goes to <base>/button on MQTT, not <base>/remote/<slot>/button"}
             example:
               deviceId: "70321456"
               command: VolumeUp
@@ -2729,15 +2745,15 @@ paths:
       tags:
         - RF & Remote
       summary: Start RF pairing beacon
-      description: Opens the radio's pairing lock for 30 s. The slot has no effect; the radio gives the remote a free slot itself.
+      description: Opens the radio's pairing lock for 30 s. With slot 1 to 6 the remote that pairs goes to that slot (hub_rf maps the radio pipe it lands on to the slot); without it, it takes the slot of the pipe the radio picks.
       parameters:
         - name: slot
           in: query
           required: false
           schema:
             type: integer
-            enum: [0, 1, 2]
-          description: Accepted (0, all, 1 or 2) but not used
+            enum: [0, 1, 2, 3, 4, 5, 6]
+          description: The slot the remote pairs into (0 or all, or none, for the radio's choice)
       responses:
         '200':
           description: Pairing started
@@ -2746,9 +2762,9 @@ paths:
               example:
                 status: pairing_started
         '400':
-          description: slot is not 0, all, 1 or 2
+          description: slot is not 0, all or 1 to 6
         '409':
-          description: RF OTA update in progress
+          description: RF OTA update in progress, or the slot holds a remote (unpair it first)
     post:
       tags:
         - RF & Remote
@@ -2760,8 +2776,8 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [0, 1, 2]
-          description: Accepted (0, all, 1 or 2) but not used
+            enum: [0, 1, 2, 3, 4, 5, 6]
+          description: The slot the remote pairs into (0 or all, or none, for the radio's choice)
       responses:
         '200':
           description: Pairing started
@@ -2770,23 +2786,23 @@ paths:
               example:
                 status: pairing_started
         '400':
-          description: slot is not 0, all, 1 or 2
+          description: slot is not 0, all or 1 to 6
         '409':
-          description: RF OTA update in progress
+          description: RF OTA update in progress, or the slot holds a remote (unpair it first)
 
   /api/rf/sleep:
     get:
       tags:
         - RF & Remote
       summary: Put paired remote to sleep (Suspend-to-RAM)
-      description: Broadcasts or directs RF_MSG_SLEEP_REQ (0x1D) command over CC2544 RF to trigger immediate Suspend-to-RAM on battery-powered touchscreen remotes. Companion slots are skipped (sent is then 0). 400 for a slot other than 0, all, 1 or 2.
+      description: Broadcasts or directs RF_MSG_SLEEP_REQ (0x1D) command over CC2544 RF to trigger immediate Suspend-to-RAM on battery-powered touchscreen remotes. Companion slots are skipped (sent is then 0). 400 for a slot other than 0, all or 1 to 6.
       parameters:
         - name: slot
           in: query
           required: false
           schema:
             type: integer
-            enum: [0, 1, 2]
+            enum: [0, 1, 2, 3, 4, 5, 6]
             default: 0
           description: Remote slot (0 for all active remotes, 1 for slot 1, 2 for slot 2)
       responses:
@@ -2811,7 +2827,7 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [0, 1, 2]
+            enum: [0, 1, 2, 3, 4, 5, 6]
             default: 0
       responses:
         '200':
@@ -2838,7 +2854,7 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [1, 2]
+            enum: [1, 2, 3, 4, 5, 6]
             default: 1
           description: Remote slot
       responses:
@@ -2852,7 +2868,7 @@ paths:
                 alreadyWaking:
                   value: {status: already_waking, slot: 1, ok: true}
         '400':
-          description: The remote in this slot is a Companion (no screen), or slot is not 1 or 2
+          description: The remote in this slot is a Companion (no screen), or slot is not 1 to 6
         '409':
           description: RF OTA update in progress
         '500':
@@ -2887,7 +2903,7 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [0, 1, 2]
+            enum: [0, 1, 2, 3, 4, 5, 6]
             default: 0
       responses:
         '202':
@@ -2900,7 +2916,7 @@ paths:
                 slot: 0
                 ok: true
         '400':
-          description: id or type not 1..19 of A-Z a-z 0-9 _ -, or slot not 0, 1 or 2
+          description: id or type not 1..19 of A-Z a-z 0-9 _ -, or slot not 0 to 6
         '409':
           description: RF OTA update in progress
         '500':
@@ -2926,7 +2942,7 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [0, 1, 2]
+            enum: [0, 1, 2, 3, 4, 5, 6]
             default: 0
       responses:
         '202':
@@ -2939,7 +2955,7 @@ paths:
                 slot: 0
                 ok: true
         '400':
-          description: id or type not 1..19 of A-Z a-z 0-9 _ -, or slot not 0, 1 or 2
+          description: id or type not 1..19 of A-Z a-z 0-9 _ -, or slot not 0 to 6
         '409':
           description: RF OTA update in progress
         '500':
@@ -2956,7 +2972,7 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [1, 2]
+            enum: [1, 2, 3, 4, 5, 6]
             default: 1
       responses:
         '200':
@@ -2968,7 +2984,7 @@ paths:
                 slot: 1
                 ok: true
         '400':
-          description: The remote in this slot is a Companion (Companion remotes do not support config pull), or slot is not 1 or 2
+          description: The remote in this slot is a Companion (Companion remotes do not support config pull), or slot is not 1 to 6
         '409':
           description: RF OTA update in progress
     post:
@@ -2981,7 +2997,7 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [1, 2]
+            enum: [1, 2, 3, 4, 5, 6]
             default: 1
       responses:
         '200':
@@ -2993,7 +3009,7 @@ paths:
                 slot: 1
                 ok: true
         '400':
-          description: The remote in this slot is a Companion (Companion remotes do not support config pull), or slot is not 1 or 2
+          description: The remote in this slot is a Companion (Companion remotes do not support config pull), or slot is not 1 to 6
         '409':
           description: RF OTA update in progress
 
@@ -3009,7 +3025,7 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [1, 2]
+            enum: [1, 2, 3, 4, 5, 6]
             default: 1
       responses:
         '200':
@@ -3031,7 +3047,7 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [1, 2]
+            enum: [1, 2, 3, 4, 5, 6]
             default: 1
       requestBody:
         required: true
@@ -3159,9 +3175,9 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [0, 1, 2]
+            enum: [0, 1, 2, 3, 4, 5, 6]
             default: 0
-          description: 1 or 2 unpairs that slot; 0, all or no slot unpairs every remote
+          description: 1 to 6 unpairs that slot; 0, all or no slot unpairs every remote
       responses:
         '200':
           description: Slot unpaired
@@ -3171,7 +3187,7 @@ paths:
                 status: unpaired
                 ok: true
         '400':
-          description: slot is not 0, all, 1 or 2
+          description: slot is not 0, all or 1 to 6
         '409':
           description: RF OTA update in progress
     get:
@@ -3184,9 +3200,9 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [0, 1, 2]
+            enum: [0, 1, 2, 3, 4, 5, 6]
             default: 0
-          description: 1 or 2 unpairs that slot; 0, all or no slot unpairs every remote
+          description: 1 to 6 unpairs that slot; 0, all or no slot unpairs every remote
       responses:
         '200':
           description: Slot unpaired
@@ -3196,7 +3212,7 @@ paths:
                 status: unpaired
                 ok: true
         '400':
-          description: slot is not 0, all, 1 or 2
+          description: slot is not 0, all or 1 to 6
         '409':
           description: RF OTA update in progress
 
@@ -3209,7 +3225,7 @@ paths:
         Returns the stored remote_slot<N>_config.json as it is (written by the last POST, or
         from the settings the remote reported), else the defaults shown here. Every setting is
         there twice: under the name shown and under an older snake_case name with a number
-        value (touch, physical_nav, cap_buttons, gyro, gyro_rate, btn_backlight, night_start,
+        value (touch, physical_nav, cap_buttons, gyro, btn_backlight, night_start,
         night_end, nav_key, nav_mode, usbeth, confirm_act, touch_sensitivity, remote_mode,
         no_screen, debug_logging, power_debug). theme and layout are present only when set.
         For a Companion slot the reply is
@@ -3220,7 +3236,7 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [1, 2]
+            enum: [1, 2, 3, 4, 5, 6]
             default: 1
       responses:
         '200':
@@ -3235,7 +3251,6 @@ paths:
                 physicalNavEnabled: false
                 capButtonsEnabled: true
                 gyroEnabled: true
-                gyroRate: 50
                 btnBacklight: 2
                 nightStart: 22
                 nightEnd: 7
@@ -3264,7 +3279,7 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [1, 2]
+            enum: [1, 2, 3, 4, 5, 6]
             default: 1
       requestBody:
         required: true
@@ -3273,13 +3288,12 @@ paths:
             schema:
               type: object
               properties:
-                slot: {type: integer, enum: [1, 2], description: "Overrides the slot of the query"}
+                slot: {type: integer, enum: [1, 2, 3, 4, 5, 6], description: "Overrides the slot of the query"}
                 brightness: {type: integer, default: 2}
                 timeout: {type: integer, default: 10, minimum: 5, maximum: 600, description: "Screen timeout in seconds; values outside 5..600 are brought into the range"}
                 touchEnabled: {type: boolean, default: false, description: "Off when left out"}
                 capButtonsEnabled: {type: boolean, default: true}
                 gyroEnabled: {type: boolean, default: true}
-                gyroRate: {type: integer, default: 50}
                 btnBacklight: {type: integer, default: 2, minimum: 0, maximum: 2}
                 nightStart: {type: integer, default: 22, minimum: 0, maximum: 23}
                 nightEnd: {type: integer, default: 7, minimum: 0, maximum: 23}
@@ -3301,7 +3315,6 @@ paths:
               touchEnabled: true
               capButtonsEnabled: true
               gyroEnabled: true
-              gyroRate: 50
               btnBacklight: 2
               nightStart: 22
               nightEnd: 7
@@ -3320,7 +3333,7 @@ paths:
                 status: saved_and_pushed
                 ok: true
         '400':
-          description: The remote in this slot is a Companion (no screen or motion settings), or slot is not 1 or 2
+          description: The remote in this slot is a Companion (no screen or motion settings), or slot is not 1 to 6
         '409':
           description: RF OTA update in progress
         '500':
@@ -3407,7 +3420,7 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [1, 2]
+            enum: [1, 2, 3, 4, 5, 6]
             default: 1
       responses:
         '200':
@@ -3428,7 +3441,7 @@ paths:
                 error: Companion remotes do not support OTA
                 ok: false
         '409':
-          description: Update or download already in progress
+          description: Update or download already in progress, or a config push is running (status config_push_running)
           content:
             application/json:
               example:
@@ -3492,9 +3505,9 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [1, 2]
+            enum: [1, 2, 3, 4, 5, 6]
             default: 1
-          description: Remote slot number (1 or 2); any other value means slot 1
+          description: Remote slot number (1 to 6); any other value means slot 1
       responses:
         '200':
           description: 'The stored remote_slot<N>_map.json, as it was saved (an object, no ok field is added). While no map is stored: {"ok": true, "mappings": []}.'
@@ -3519,9 +3532,9 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [1, 2]
+            enum: [1, 2, 3, 4, 5, 6]
             default: 1
-          description: 'Remote slot number (1 or 2). "slot": 2 in the body selects slot 2 as well.'
+          description: 'Remote slot number (1 to 6). A "slot" of 2 to 6 in the body selects that slot as well.'
       requestBody:
         required: true
         content:
@@ -3553,7 +3566,7 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [1, 2]
+            enum: [1, 2, 3, 4, 5, 6]
             default: 1
           description: Source remote slot
         - name: to
@@ -3561,7 +3574,7 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [1, 2]
+            enum: [1, 2, 3, 4, 5, 6]
             default: 2
           description: Destination remote slot
       responses:
@@ -3645,6 +3658,54 @@ paths:
         '500':
           description: The settings could not be saved
 
+  /api/device-net-test:
+    post:
+      tags:
+        - Devices & Commands
+      summary: Run a command of an HTTP or TCP device now (admin)
+      description: |
+        Waits for the result, up to about 4 times netTimeoutMs. Without command only the
+        connection and the TLS handshake are tested (docs/API.md 3.x).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id: {type: string, description: "Also accepted as deviceId"}
+                command: {type: string}
+            example: {id: "50", command: Power}
+      responses:
+        '200':
+          description: The result (ok false with error when the request failed or answered 400 or more)
+          content:
+            application/json:
+              example: {ok: true, status: 200, response: '{"done":true}', tlsFingerprint: 9f86d081884c7d65, pinned: true}
+        '400':
+          description: Not an HTTP or TCP device
+        '404':
+          description: No device with that id, or no command of that name
+  /api/device-net-pin-forget:
+    post:
+      tags:
+        - Devices & Commands
+      summary: Forget the pinned TLS key of an HTTP or TCP device (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id: {type: string, description: "Also accepted as deviceId"}
+            example: {id: "50"}
+      responses:
+        '200':
+          description: removed is false when no key was pinned for the device's host and port
+          content:
+            application/json:
+              example: {ok: true, removed: true}
   /api/device-mqtt-test:
     post:
       tags:
@@ -3930,6 +3991,26 @@ paths:
                 arch: "mips (AR9344)"
                 update_available: false
                 updating: false
+                update_state: idle
+              schema:
+                type: object
+                properties:
+                  updating:
+                    type: boolean
+                    description: true while update_state is running or restarting
+                  update_state:
+                    type: string
+                    enum: [idle, running, restarting, failed]
+                    description: State of the last update-apply since the Hub started (see docs/API.md 2.1)
+                  update_step:
+                    type: string
+                    description: Last output line of update.sh (running only, when it has one; untranslated)
+                  update_target:
+                    type: string
+                    description: Version installed, while the services restart (restarting only)
+                  update_error:
+                    type: string
+                    description: First error line of update.sh, the cause (failed only, untranslated)
 
   /api/update-check:
     get:
@@ -3993,7 +4074,9 @@ paths:
       description: >-
         Refused with 409 and status activity_switch (fields busy, sending, queued) while an
         activity switch runs, a request is queued behind it, or its last steps are still being
-        sent: the update ends with a reboot, which must not cut a switch in the middle.
+        sent: the update ends with a services restart, which must not cut a switch in the
+        middle. Refused with 409 and status busy while an update runs or the services restart
+        after one (update_state running or restarting).
       responses:
         '200':
           description: Update started in background
@@ -4040,7 +4123,7 @@ paths:
         A single target returns the stored file: JSON, except network (ethernet), wifi and auth,
         which are text/plain. bundle returns one JSON object with version, timestamp and a
         section per stored file: devices, activities, settings, mqtt, network, wifi, bluetooth,
-        bt_remote_map, remote_slot1_map, remote_slot2_map, ui_remote_layout, auth, users, hub_id,
+        bt_remote_map, remote_slot1_map to remote_slot6_map, rf_slot_map, ui_remote_layout, auth, users, hub_id,
         plus btstack_keys (the Bluetooth key store, base64). The bundle holds secrets: the MQTT
         broker password (mqtt), the Wi-Fi password (wifi), the account password hashes (users)
         and the Bluetooth link keys (btstack_keys). Its reply carries the header
@@ -4051,7 +4134,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [bundle, devices, activities, settings, mqtt, network, ethernet, wifi, bluetooth, bt_remote_map, remote-mapping, remote_slot1_map, remote_slot2_map, ui_remote_layout, ui-remote-layout, auth, users]
+            enum: [bundle, devices, activities, settings, mqtt, network, ethernet, wifi, bluetooth, bt_remote_map, remote-mapping, remote_slot1_map, remote_slot2_map, remote_slot3_map, remote_slot4_map, remote_slot5_map, remote_slot6_map, ui_remote_layout, ui-remote-layout, auth, users]
           description: Any other target answers 404. hub_id is only a section of bundle.
           example: bundle
       responses:
@@ -4078,7 +4161,7 @@ paths:
       description: |
         target is required (there is no default): bundle, or one of devices, activities,
         settings, mqtt, network (ethernet), wifi, bluetooth, bt_remote_map (remote-mapping),
-        remote_slot1_map, remote_slot2_map, ui_remote_layout (ui-remote-layout), auth, users.
+        remote_slot1_map to remote_slot6_map, ui_remote_layout (ui-remote-layout), auth, users.
         For bundle the payload may be the bundle object, the bundle as a JSON string, or left
         out: the body itself is then taken as the bundle. Every section is checked first; when
         one is not valid nothing is changed. The body may be up to 2 MB.
@@ -4118,6 +4201,377 @@ paths:
           description: Body over 2 MB
         '500':
           description: 'The files could not be written (Import failed: could not write the files)'
+
+  /api/plugins:
+    get:
+      tags:
+        - Plugins
+      summary: List installed plugins and plugin storage
+      description: 'Every plugin in /data/harmony/plugins with its manifest, state and size, plus the free space of /data. Admin role only. pid (of the process hub_daemon started) is present only while the plugin runs. stopped is true after a stop request (the watchdog does not restart it). docs/PLUGINS.md.'
+      responses:
+        '200':
+          description: Installed plugins
+          content:
+            application/json:
+              example:
+                ok: true
+                plugins:
+                  - id: roku-ecp
+                    name: Roku ECP
+                    version: 1.1.0
+                    description: Roku External Control Protocol driver
+                    enabled: true
+                    running: true
+                    stopped: false
+                    restarts: 0
+                    pid: 1234
+                    manifest: {}
+                    size_bytes: 24576
+                    size_formatted: 24.0 KB
+                storage:
+                  total_bytes: 16777216
+                  free_bytes: 8388608
+                  used_bytes: 8388608
+                  total_formatted: 16.0 MB
+                  free_formatted: 8.0 MB
+                  used_formatted: 8.0 MB
+    delete:
+      tags:
+        - Plugins
+      summary: Uninstall a plugin
+      description: 'Same as POST /api/plugins/uninstall. The plugin id is read from a JSON body ({"id": "roku-ecp"}) or from the query (?id=roku-ecp).'
+      parameters:
+        - name: id
+          in: query
+          required: false
+          schema:
+            type: string
+          example: roku-ecp
+      responses:
+        '200':
+          description: Plugin stopped and removed
+          content:
+            application/json:
+              example:
+                ok: true
+                id: roku-ecp
+                message: Plugin uninstalled
+        '400':
+          description: "Missing id, a device still uses the plugin (Cannot delete plugin 'roku-ecp': currently in use by device '12'), or the uninstall failed (Failed to uninstall plugin)"
+        '404':
+          description: Plugin not installed
+        '409':
+          description: A plugin install is running
+
+  /api/plugins/uninstall:
+    post:
+      tags:
+        - Plugins
+      summary: Uninstall a plugin
+      description: Stops the plugin and removes its folder, its state in /data/harmony/plugin-data/<id> (pairing keys) and its log. Refused while a device in devices.json uses the plugin.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - id
+              properties:
+                id:
+                  type: string
+            example:
+              id: roku-ecp
+      responses:
+        '200':
+          description: Plugin stopped and removed
+          content:
+            application/json:
+              example:
+                ok: true
+                id: roku-ecp
+                message: Plugin uninstalled
+        '400':
+          description: "Missing id, a device still uses the plugin (Cannot delete plugin 'roku-ecp': currently in use by device '12'), or the uninstall failed (Failed to uninstall plugin)"
+        '404':
+          description: Plugin not installed
+        '409':
+          description: A plugin install is running
+
+  /api/plugins/marketplace:
+    get:
+      tags:
+        - Plugins
+      summary: List plugins offered by the configured repositories
+      description: The plugins of every repository.json in the repository list, as the repositories give them (id, name, version, author, description, download_url, sha256, device_definition), plus repository (the list it came from). Entries without an id are left out. Cached 10 minutes; refresh=1 fetches the repositories again.
+      parameters:
+        - name: refresh
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [1]
+      responses:
+        '200':
+          description: Marketplace catalog
+          content:
+            application/json:
+              example:
+                ok: true
+                marketplace:
+                  - id: roku-ecp
+                    name: Roku ECP
+                    version: 1.1.0
+                    author: harmony-ng
+                    description: Roku External Control Protocol driver
+                    download_url: https://github.com/iranl/harmony-ng-plugins/releases/download/roku-ecp-v1.1.0/roku-ecp-plugin.tar.gz
+                    sha256: 0000000000000000000000000000000000000000000000000000000000000000
+
+  /api/plugins/repositories:
+    get:
+      tags:
+        - Plugins
+      summary: List plugin repository URLs
+      responses:
+        '200':
+          description: Repository URLs
+          content:
+            application/json:
+              example:
+                ok: true
+                repositories:
+                  - https://raw.githubusercontent.com/iranl/harmony-ng-plugins/main/repository.json
+    post:
+      tags:
+        - Plugins
+      summary: Add or remove a plugin repository URL
+      description: "Admin role only. Refused with 403 while authentication is off: a plugin runs as root."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - action
+                - url
+              properties:
+                action:
+                  type: string
+                  enum:
+                    - add
+                    - remove
+                url:
+                  type: string
+            example:
+              action: add
+              url: https://raw.githubusercontent.com/user/repo/main/repository.json
+      responses:
+        '200':
+          description: The repository list after the change
+          content:
+            application/json:
+              example:
+                ok: true
+                repositories:
+                  - https://raw.githubusercontent.com/iranl/harmony-ng-plugins/main/repository.json
+                  - https://raw.githubusercontent.com/user/repo/main/repository.json
+        '400':
+          description: Invalid JSON body, or an unknown action or a URL that could not be added or removed (Failed to update repositories)
+        '403':
+          description: Authentication is off
+
+  /api/plugins/install:
+    post:
+      tags:
+        - Plugins
+      summary: Install a plugin from a URL or an uploaded archive
+      description: |
+        Admin role only. Refused with 403 while authentication is off: a plugin runs as root.
+
+        One of:
+        - `url`: the Hub downloads the .tar.gz (at most 1 MB) and checks it against `sha256` (from the request, or from the marketplace entry of that URL). Without either the install is refused. With `dev: true` the URL is a raw manifest.json (or its folder) and the files the manifest lists are installed without an archive (development only); `sha256` is then refused, as raw files cannot be checked.
+        - `archive_base64`: the .tar.gz archive itself, base64 encoded, at most 1 MB (an upload, or the browser download used when the Hub could not download the URL). It needs `sha256`, or `dev: true` for a local build.
+
+        The upload is base64 inside JSON only. The archive is checked before it is unpacked (no absolute paths, no `..`, no symbolic or hard links), the manifest is validated (safe id, version, an entrypoint in the archive, config_fields an array of objects with a key), and the unpacked size is compared with the free space of /tmp and of /data (256 KB stay free). The new version is copied next to the installed one and replaces it only when every file was written; on any error the installed version stays.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url:
+                  type: string
+                sha256:
+                  type: string
+                dev:
+                  type: boolean
+                  default: false
+                archive_base64:
+                  type: string
+            example:
+              url: https://github.com/iranl/harmony-ng-plugins/releases/download/roku-ecp-v1.1.0/roku-ecp-plugin.tar.gz
+      responses:
+        '200':
+          description: Plugin installed
+          content:
+            application/json:
+              example:
+                ok: true
+                message: Plugin installed successfully
+        '400':
+          description: No sha256 known, the checksum, the archive check, the manifest, the space check or the install failed; error says which
+        '403':
+          description: Authentication is off
+        '409':
+          description: Another plugin install is running
+        '413':
+          description: Body over 2 MB, or archive over 1 MB
+        '502':
+          description: The Hub could not download the URL (the web UIs may then download it in the browser and upload it with the catalog sha256)
+
+  /api/plugins/pull:
+    post:
+      tags:
+        - Plugins
+      summary: Update an installed plugin from where it came from
+      description: "A plugin installed with dev: true is installed again from its dev URL. Any other plugin gets the current marketplace entry of its id, checked against that entry's sha256. Admin role only. Refused with 403 while authentication is off: a plugin runs as root."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - id
+              properties:
+                id:
+                  type: string
+            example:
+              id: roku-ecp
+      responses:
+        '200':
+          description: Plugin files updated
+          content:
+            application/json:
+              example:
+                ok: true
+                message: Plugin files updated directly from repository
+        '400':
+          description: Invalid JSON body, Missing plugin id, no repository lists the plugin, or the download failed
+        '403':
+          description: Authentication is off
+        '409':
+          description: Another plugin install is running
+
+  /api/plugins/pair:
+    post:
+      tags:
+        - Plugins
+      summary: Pair a plugin with its device
+      description: |
+        Starts the plugin daemon if needed, sends the pairing step to it and waits for its answer: 15 s at most
+        for a start or PIN step (whatever `pairing.timeout_s` says), 1 s for a listen or confirm pairing (which
+        then runs for `timeout_s`). A plugin that cannot take the step (not running, no socket) answers `ok: false`
+        with `stage: error` after about 3 s.
+        `action` `start` (default) asks the device to show a code; `pin` (or `finish_pair`) sends the code the user read from the device;
+        `status` returns the plugin's current status and sends nothing.
+        A plugin whose manifest has `pairing.type: listen` hears its device itself: no `host` is needed, `start` answers
+        within 1 s (`stage: listening`, with `timeout_s`) and the client polls `status` until `stage` is `done` or `error`.
+        `pairing.type: confirm` (the user accepts the Hub on the device's screen) runs the same way with a `host`, no PIN,
+        and `stage: confirm_on_device`.
+        The answer is the status object the plugin writes; a missing answer gives `stage: error`. Its `config` object
+        (values the plugin learned) keeps only keys the manifest's `config_fields` declare, with string, number or bool values.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - id
+              properties:
+                id:
+                  type: string
+                action:
+                  type: string
+                  enum:
+                    - start
+                    - pin
+                    - finish_pair
+                    - status
+                  default: start
+                host:
+                  type: string
+                  description: Required unless the manifest's pairing has requires_host false (a listen pairing)
+                port:
+                  type: integer
+                  description: Optional; without it the plugin uses its own port
+                pin:
+                  type: string
+            example:
+              id: android-tv
+              action: pin
+              host: 192.168.1.50
+              pin: 1A2B3C
+      responses:
+        '200':
+          description: The plugin's answer with ok true
+          content:
+            application/json:
+              example:
+                ok: true
+                stage: paired
+                message: Paired
+        '400':
+          description: 'Invalid JSON body, Missing or invalid plugin id, host or port, or the plugin answer with ok false. Without an answer in 15 s: {"ok": false, "stage": "error", "message": "Device did not respond or pairing timed out"}'
+
+  /api/plugins/action:
+    post:
+      tags:
+        - Plugins
+      summary: Start, stop, restart, enable or disable a plugin
+      description: enable and disable are kept across reboots; stop holds the daemon down until start or restart (the watchdog does not restart it).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - id
+                - action
+              properties:
+                id:
+                  type: string
+                action:
+                  type: string
+                  enum:
+                    - start
+                    - stop
+                    - restart
+                    - enable
+                    - disable
+            example:
+              id: roku-ecp
+              action: restart
+      responses:
+        '200':
+          description: Action done
+          content:
+            application/json:
+              example:
+                ok: true
+                id: roku-ecp
+                action: restart
+                running: true
+        '400':
+          description: Invalid JSON body, or Action failed or invalid plugin ID
+        '404':
+          description: Plugin not installed
+        '409':
+          description: A start, stop, restart or install of this plugin is already running
 
 components:
   securitySchemes:

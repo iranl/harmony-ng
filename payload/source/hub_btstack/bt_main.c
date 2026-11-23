@@ -85,6 +85,7 @@ static void wake_key_schedule(uint16_t cid, const bd_addr_t addr) {
 }
 #include "bt_cmd.h"
 #include "bt_remote.h"
+#include "bt_listen.h"
 
 static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size) {
     UNUSED(channel);
@@ -149,6 +150,7 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
             break;
 
         case GAP_EVENT_ADVERTISING_REPORT: {
+            bt_listen_on_report(packet);
             if (app_state != APP_SCANNING) break;
             bd_addr_t adv_addr;
             gap_event_advertising_report_get_address(packet, adv_addr);
@@ -232,7 +234,10 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                 match = true;
             }
 
-            if (match) {
+            /* The pinned remote advertises (a key pressed, it wants its link): a plugin's listen
+             * ends for it, and a renewal waits until the remote is connected (bt_listen.c) */
+            if (match && g_adv_listen_active && bt_listen_remote_may_end()) bt_listen_end_for_remote();
+            if (match && !g_adv_listen_active) {
                 memcpy(remote_device.addr, adv_addr, 6);
                 remote_device.addr_type = adv_addr_type;
                 char log_buf[160];
@@ -292,6 +297,8 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
             char msg[128];
             snprintf(msg, sizeof(msg), "Classic BT: Connection Complete: %s handle=0x%04x status=0x%02x", bd_addr_to_str(conn_addr), handle, status);
             log_msg(msg);
+            /* Generic bt_page: restore spoof, disconnect if needed */
+            bt_page_on_complete(conn_addr, status, handle);
             if (status == 0) {
                 /* A host table entry only for a known host, or for a device that may be pairing:
                  * every ACL link of any device used to take one of the four entries for good,
@@ -318,8 +325,8 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                 update_status(app_state == APP_READY ? "ready" : "standby");
                 update_bthid_status();
             }
-            if (app_state == APP_SCANNING && !g_user_scan_active) {
-                gap_start_scan();
+            if ((app_state == APP_SCANNING && !g_user_scan_active) || g_adv_listen_active) {
+                gap_start_scan(); /* paused for the page */
             }
             break;
         }
@@ -550,8 +557,8 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                     update_status(app_state == APP_READY ? "ready" : "standby");
                     update_bthid_status();
 
-                    if (app_state == APP_SCANNING && !g_user_scan_active) {
-                        gap_start_scan();
+                    if ((app_state == APP_SCANNING && !g_user_scan_active) || g_adv_listen_active) {
+                        gap_start_scan(); /* paused for the page */
                     }
 
                     wake_key_schedule(cid, conn_addr);
@@ -747,7 +754,8 @@ static void sig_handler(int sig) {
 /* A crash used to leave only "Segmentation fault" in the init log (the binary is stripped, no
  * core). Log the signal, the faulting address and the program counter / return address to the
  * Bluetooth log, then die as before; resolve them with
- * mips-linux-addr2line -f -e build/output/hub_btstack.debug <pc> <ra> from the same build. */
+ * mips-linux-addr2line -f -e build/output/hub_btstack.debug <pc> <ra> from the same build
+ * (build/output/hub_btstack_dev.debug for the dev build, which logs "dev build" at start). */
 static char g_crash_stack[16384];
 
 static void crash_handler(int sig, siginfo_t *si, void *ctx) {
@@ -807,6 +815,9 @@ int main(int argc, const char *argv[]) {
     if (pf) { fprintf(pf, "%d\n", (int)getpid()); fclose(pf); }
 
     log_msg("=== Starting Hub BTstack Daemon ===");
+#ifdef HUB_BT_DEBUG_LOGS
+    log_msg("dev build: BTstack info logs on (crash addresses: hub_btstack_dev.debug)");
+#endif
     bt_hosts_load_before_restart(); /* before the status writes below update the file */
     update_status("starting");
     update_bthid_status();

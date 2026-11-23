@@ -17,6 +17,7 @@ Usage:
     python tools/restore_stock.py --backup backups/stock_hub_backup_latest.tar
     python tools/restore_stock.py --wifi-ssid "MyNetwork"   # asks for the Wi-Fi password
     python tools/restore_stock.py --pure-stock   # Completely removes Dropbear SSH
+    python tools/restore_stock.py --stock-resources backups/stock_resources_<hub>.tar  # emptied Hub
     python tools/restore_stock.py --force        # Bypass confirmation prompt
 """
 
@@ -58,6 +59,7 @@ from tools.root_hub_usb import (
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.append(str(SCRIPT_DIR))
 import ssh_hostkeys  # noqa: E402
+import backup_hub  # noqa: E402
 
 
 def get_ssh_opts(priv_key_path: pathlib.Path | None, host: str) -> list[str]:
@@ -263,11 +265,86 @@ def gain_root_over_usb(
         hid.close()
 
 
+NOT_CHANGED = "The Hub's files were not changed (a root over USB done in this run stays)."
+
+
+def needs_stock_resources(members: list[str]) -> bool:
+    """True for a restore of the stock firmware whose archive brings no stock files
+    (/data/resources). An archive with /data/harmony restores HarmonyNG, which does not need them."""
+    names = [n.lstrip("/") for n in members]
+    if any(n.startswith("data/harmony/") for n in names):
+        return False
+    return not any(n.startswith("data/resources/") and n != "data/resources/" for n in names)
+
+
+def usable_stock_copy(path: pathlib.Path) -> bool:
+    return bool(backup_hub.archive_stock_files(path))
+
+
+def stock_resources_to_add(target: str, ssh_opts: list[str], members: list[str],
+                           explicit: pathlib.Path | None) -> pathlib.Path | None:
+    """The stock firmware needs /data/resources. On a stock restore whose archive brings none, while
+    the Hub has none (they were emptied), the newest copy backups/stock_resources_<hub>*.tar goes
+    back too; --stock-resources names it. Raises, before anything is changed, without a copy."""
+    if explicit:
+        return explicit
+    if not needs_stock_resources(members):
+        return None
+    run = lambda cmd: run_ssh_cmd(target, cmd, ssh_opts)  # noqa: E731
+    if backup_hub.hub_stock_files(run):
+        return None
+    mac = backup_hub.hub_mac(run)
+    if not mac:
+        raise RuntimeError("the archive holds no stock files (data/resources), the Hub has none, and its MAC "
+                           "cannot be read to find its saved copy: name it with --stock-resources "
+                           f"backups/stock_resources_<hub>.tar. {NOT_CHANGED}")
+    copy = next((p for p in backup_hub.stock_copies(BACKUP_DIR, mac) if usable_stock_copy(p)), None)
+    if copy:
+        return copy
+    raise RuntimeError(
+        f"the archive holds no stock files (data/resources) and the Hub has none, so the stock firmware "
+        f"would not start. Put stock_resources_{mac}.tar (saved by tools/backup_hub.py before the files were "
+        f"removed) in {BACKUP_DIR}, name it with --stock-resources, or restore an archive that holds "
+        f"data/resources. {NOT_CHANGED}"
+    )
+
+
+def extract_archive(target: str, ssh_opts: list[str], bb_bin: str, archive: pathlib.Path, hub_ip: str) -> None:
+    """Stream archive into tar on the Hub, extracted at / (plain tar, no gzip on the Hub)."""
+    print(f"    + Extracting {archive.name} ({archive.stat().st_size / (1024*1024):.2f} MB) to Hub root filesystem...")
+    extract_cmd = f"{bb_bin} tar -xf - -C /"
+    open_func = gzip.open if archive.name.endswith(".gz") else open
+    with open_func(archive, "rb") as f_in:
+        proc = subprocess.Popen(
+            ["ssh"] + ssh_opts + [target, extract_cmd],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        try:
+            shutil.copyfileobj(f_in, proc.stdin)
+        except BrokenPipeError:
+            # tar (or ssh) stopped reading: its exit code and message below say why
+            pass
+        # communicate() flushes and closes stdin itself (and ignores a broken pipe); closing it
+        # here first makes Python 3.11 and older raise "flush of closed file"
+        stdout, stderr = proc.communicate(timeout=180)
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"Extracting {archive.name} failed (tar exit code {proc.returncode}: "
+                f"{stderr.decode('utf-8', errors='ignore').strip()}). /cache was emptied; the Hub was not "
+                "rebooted and Dropbear SSH is still running. Fix the cause and run the restore again with "
+                f"--skip-usb-root --hub-ip {hub_ip}."
+            )
+
+
 def restore_stock_configuration(
     hub_ip: str,
     priv_key_path: pathlib.Path,
     backup_file: pathlib.Path,
     pure_stock: bool = False,
+    members: list[str] | None = None,
+    stock_copy: pathlib.Path | None = None,
 ) -> None:
     ssh_opts = get_ssh_opts(priv_key_path, hub_ip)
     target = f"root@{hub_ip}"
@@ -279,6 +356,9 @@ def restore_stock_configuration(
     machine = arch.stdout.strip()
     if arch.returncode != 0 or not machine.startswith("mips"):
         raise RuntimeError(f"{hub_ip} is not a Harmony Hub (uname -m: {machine or 'no answer'}); nothing was changed")
+    stock_extra = stock_resources_to_add(target, ssh_opts, members or [], stock_copy)
+    if stock_extra:
+        print(f"[+] The stock files go back too: {stock_extra.name}")
 
     # Step 2: Kill all processes, except dropbear
     print("\n[*] [Step 2/5] Stopping all background daemons (preserving Dropbear SSH)...")
@@ -334,33 +414,9 @@ def restore_stock_configuration(
     run_ssh_cmd(target, "rm -rf /cache/* 2>/dev/null || true", ssh_opts)
 
     # Stream and extract backup archive to / (plain tar, no gzip on Hub)
-    print(f"    + Extracting {backup_file.name} ({backup_file.stat().st_size / (1024*1024):.2f} MB) to Hub root filesystem...")
     t0 = time.time()
-    extract_cmd = f"{bb_bin} tar -xf - -C /"
-
-    open_func = gzip.open if backup_file.name.endswith(".gz") else open
-    with open_func(backup_file, "rb") as f_in:
-        proc = subprocess.Popen(
-            ["ssh"] + ssh_opts + [target, extract_cmd],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        try:
-            shutil.copyfileobj(f_in, proc.stdin)
-        except BrokenPipeError:
-            # tar (or ssh) stopped reading: its exit code and message below say why
-            pass
-        # communicate() flushes and closes stdin itself (and ignores a broken pipe); closing it
-        # here first makes Python 3.11 and older raise "flush of closed file"
-        stdout, stderr = proc.communicate(timeout=180)
-        if proc.returncode != 0:
-            raise RuntimeError(
-                f"Extracting the backup failed (tar exit code {proc.returncode}: "
-                f"{stderr.decode('utf-8', errors='ignore').strip()}). /cache was emptied; the Hub was not "
-                "rebooted and Dropbear SSH is still running. Fix the cause and run the restore again with "
-                f"--skip-usb-root --hub-ip {hub_ip}."
-            )
+    for archive in (backup_file, stock_extra) if stock_extra else (backup_file,):
+        extract_archive(target, ssh_opts, bb_bin, archive, hub_ip)
 
     print(f"    + Partitions /cache and /data restored successfully in {time.time() - t0:.1f}s.")
 
@@ -429,6 +485,9 @@ def main() -> None:
     parser.add_argument("--hub-ip", help="Known Hub LAN IP address")
     parser.add_argument("--pure-stock", action="store_true", help="Remove Dropbear SSH to return to 100%% factory state")
     parser.add_argument("--force", action="store_true", help="Bypass interactive confirmation prompt")
+    parser.add_argument("--stock-resources", type=pathlib.Path,
+                        help="Copy of the stock files (backups/stock_resources_<hub>.tar) to restore as well; by "
+                             "default it is added only on a stock restore whose archive has no data/resources")
     parser.add_argument("--skip-usb-root", action="store_true", help="Skip USB HID root (use if Hub SSH is already online)")
     ssh_hostkeys.add_reset_option(parser, "the Hub")
     args = parser.parse_args()
@@ -447,6 +506,11 @@ def main() -> None:
         print(f"[-] Error locating backup archive: {e}")
         sys.exit(1)
 
+    # Before the USB root
+    if args.stock_resources and not usable_stock_copy(args.stock_resources):
+        print(f"[-] {args.stock_resources} is no complete tar holding data/resources. Nothing was changed.")
+        sys.exit(1)
+
     size_mb = backup_path.stat().st_size / (1024 * 1024)
     print(f"[+] Selected Backup: {backup_path.name} ({size_mb:.2f} MB, {len(members)} entries)")
 
@@ -457,7 +521,8 @@ def main() -> None:
 
     # 2. Resolve SSH keys
     try:
-        pub_path, pub_str = resolve_ssh_key(args.pubkey)
+        # --skip-usb-root only logs in: any key the Hub's current server takes will do
+        pub_path, pub_str = resolve_ssh_key(args.pubkey, authorize=not args.skip_usb_root)
         priv_key_path = private_key_path(pub_path)
     except (OSError, ValueError) as e:
         print(f"[-] SSH key: {e}")
@@ -485,7 +550,8 @@ def main() -> None:
 
     # 4. Restore configuration
     try:
-        restore_stock_configuration(hub_ip, priv_key_path, backup_path, args.pure_stock)
+        restore_stock_configuration(hub_ip, priv_key_path, backup_path, args.pure_stock, members,
+                                    args.stock_resources)
     except Exception as e:
         print(f"[-] Restoration failed: {e}")
         sys.exit(1)

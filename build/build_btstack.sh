@@ -79,7 +79,7 @@ cd "$REPO_ROOT"
 
 INCLUDES="-Ipayload/source/hub_btstack -Ipayload/source -Ibuild/tmp/btstack/src -Ibuild/tmp/btstack/platform/posix -Ibuild/tmp/btstack/3rd-party/micro-ecc -Ibuild/tmp/btstack/3rd-party/rijndael -Ibuild/tmp/btstack/3rd-party/bluedroid/encoder/include -Ibuild/tmp/btstack/3rd-party/bluedroid/decoder/include -Ibuild/tmp/btstack/3rd-party/yxml"
 
-CFLAGS="-Os -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -static -DNDEBUG"
+CFLAGS="-Os -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -static -DNDEBUG -ffunction-sections -fdata-sections -Wl,--gc-sections"
 
 BTSTACK_SRCS="
 build/tmp/btstack/src/ad_parser.c
@@ -126,6 +126,8 @@ payload/source/hub_btstack/bt_pairing.c
 payload/source/hub_btstack/bt_status_json.c
 payload/source/hub_btstack/bt_hid.c
 payload/source/hub_btstack/bt_cmd.c
+payload/source/hub_btstack/bt_adv.c
+payload/source/hub_btstack/bt_listen.c
 payload/source/hub_btstack/bt_remote.c
 payload/source/hub_btstack/bt_main.c
 payload/source/hub_btstack/bt_reconnect_queue.c
@@ -139,6 +141,13 @@ cp -f "$BIN/hub_btstack" "$OUT/hub_btstack.debug"
 $STRIP "$BIN/hub_btstack"
 cp -f "$BIN/hub_btstack" "$OUT/hub_btstack"
 
+# Dev build with BTstack info logs, for debugging only. It stays in build/output
+# (never in payload/bin, so no release or OTA ships it); deploy_hub.py --dev-btstack installs it.
+$CC $CFLAGS -DHUB_BT_DEBUG_LOGS $INCLUDES -o "$OUT/hub_btstack_dev" $BTSTACK_SRCS $HUB_BT_SRCS -lm
+# its addresses differ from the release build: a dev CRASH: line needs this .debug file
+cp -f "$OUT/hub_btstack_dev" "$OUT/hub_btstack_dev.debug"
+$STRIP "$OUT/hub_btstack_dev"
+
 echo "Binary built successfully:"
-ls -lh "$BIN/hub_btstack"
+ls -lh "$BIN/hub_btstack" "$OUT/hub_btstack_dev"
 file "$BIN/hub_btstack"

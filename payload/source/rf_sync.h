@@ -11,23 +11,30 @@ void record_config_diff(int slot, const char *old_json_str, cJSON *norm);
 void save_remote_config_backup(uint8_t slot, const uint8_t *p);
 void rf_build_settings_push(rf_frame_t *f, uint8_t slot, int bright, int timeout, int touch, int gyro,
                             int nav_key, int nav_mode, int confirm_act, int touch_sens,
-                            int remote_mode, int gyro_rate, int btn_backlight,
+                            int remote_mode, int btn_backlight,
                             int night_start, int night_end, int usbeth, int no_screen,
                             int cap_buttons, int power_debug, int language, int theme, int layout,
                             int physical_nav);
 int rf_send_settings_push_slot(uint8_t slot, int bright, int timeout, int touch, int gyro,
                                int nav_key, int nav_mode, int confirm_act, int touch_sens,
-                               int remote_mode, int gyro_rate, int btn_backlight,
+                               int remote_mode, int btn_backlight,
                                int night_start, int night_end, int usbeth, int no_screen,
                                int cap_buttons, int power_debug, int language, int theme, int layout,
                                int physical_nav);
-void rf_send_hub_activity_sync_slot(const char *act_id, uint8_t seq, uint8_t slot, uint8_t is_query_reply);
+/* state: payload[24], RF_ACT_SYNC_COMPLETE, _QUERY or _STARTING (rf_proto.h) */
+void rf_send_hub_activity_sync_slot(const char *act_id, uint8_t seq, uint8_t slot, uint8_t state);
 void rf_send_hub_activity_sync_seq(const char *act_id, uint8_t seq);
+void rf_send_hub_activity_sync_state(const char *act_id, uint8_t seq, uint8_t state);
 void rf_send_hub_activity_sync(const char *act_id);
+/* Answer to a remote's RF_MSG_SYNC_REQUEST: the running activity, or the target of the running
+   switch (RF_ACT_SYNC_QUERY_SWITCHING) for a remote that reports RF_CAP_SWITCH_START */
+void rf_send_hub_activity_query_reply(uint8_t seq, uint8_t slot);
 uint8_t rf_check_update_flags(uint8_t slot);
 void rf_notify_update_available(uint8_t target_slot);
 void rf_send_hub_time_sync_slot_if_due(uint8_t slot);
 void rf_sync_cache_invalidate(void);
+/* A new config version: every remote that reports another one asks for the push */
+void rf_config_version_bump(void);
 int rf_push_custom_icon(int target_slot, const char *type_str, const char *id_str);
 int rf_push_custom_icon_file(int target_slot, const char *file_path, const char *id_str);
 void *activity_sync_worker(void *arg);

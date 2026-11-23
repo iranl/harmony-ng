@@ -40,7 +40,7 @@ static void test_issue96(void) {
     snprintf(json, sizeof(json), "{%s,\"-1\":{\"screen_buttons\":[{\"label\":\"A\"},{\"label\":\"B\"},{\"label\":\"C\"},{\"label\":\"D\"},{\"label\":\"E\"}]}}",
              hard_activity("1", 50, "\"PwrOff\":{\"type\":\"command\",\"action\":\"activity_stop\"}"));
     cJSON *a = acts(json);
-    int n = rf_build_button_list(a, g_out, RF_BUTTON_LIST_MAX);
+    int n = rf_build_button_list(a, g_out, RF_BUTTON_LIST_MAX, 0);
     CHECK(n == 6, "5 idle buttons and the PwrOff stop key, none of the 50 device-command keys (%d entries)", n);
     CHECK(n == 6 && g_out[0].ctype == 0x00 && g_out[0].atype == 0x03 && strcmp(g_out[0].label, "PwrOff") == 0 && g_out[0].idx == 50,
           "PwrOff first, as a stop key (its position in the activity's map, %d)", n == 6 ? g_out[0].idx : -1);
@@ -58,7 +58,7 @@ static void test_triggers_with_screen_buttons(void) {
                     "\"Menu\":{\"type\":\"command\",\"action\":\"device_cmd\",\"deviceId\":\"2\",\"command\":\"Home\"},"
                     "\"Red\":{\"type\":\"command\",\"action\":\"activity_start\",\"activityId\":\"11\"}},"
                     "\"11\":{\"screen_buttons\":[{\"label\":\"Guide\"}]}}");
-    int n = rf_build_button_list(a, g_out, RF_BUTTON_LIST_MAX);
+    int n = rf_build_button_list(a, g_out, RF_BUTTON_LIST_MAX, 0);
     CHECK(n == 4, "two on-screen buttons, the start key, the PwrOff fallback (%d entries)", n);
     CHECK(n == 4 && g_out[0].atype == 0x02 && strcmp(g_out[0].ctx, "11") == 0 && strcmp(g_out[0].label, "Red") == 0,
           "the start key is sent although the activity has on-screen buttons, targeting activity 11");
@@ -78,7 +78,7 @@ static void test_cap(void) {
     snprintf(json + w, cap - (size_t)w, "],\"PwrOff\":{\"action\":\"activity_stop\"}}}");
     cJSON *a = acts(json);
     free(json);
-    int n = rf_build_button_list(a, g_out, RF_BUTTON_LIST_MAX);
+    int n = rf_build_button_list(a, g_out, RF_BUTTON_LIST_MAX, 0);
     int all_screen = 1;
     for (int i = 0; i < n; i++) if (g_out[i].ctype != 0x01) all_screen = 0;
     int screen = 0;
@@ -86,7 +86,7 @@ static void test_cap(void) {
     (void)all_screen;
     CHECK(n == RF_BUTTON_LIST_MAX && screen == RF_BUTTON_LIST_MAX - 1 && g_out[0].atype == 0x03 && strcmp(g_out[0].label, "PwrOff") == 0,
           "300 on-screen buttons: %d of them fit, the PwrOff stop key keeps its place (%d entries)", RF_BUTTON_LIST_MAX - 1, n);
-    n = rf_build_button_list(a, g_out, 3);
+    n = rf_build_button_list(a, g_out, 3, 0);
     CHECK(n == 3 && g_out[0].atype == 0x03, "max is honoured, the stop key still in (%d entries)", n);
     cJSON_Delete(a);
     CHECK(RF_BUTTON_LIST_MAX <= 255, "the limit fits the one-byte entry index");
@@ -99,7 +99,7 @@ static void test_many_triggers(void) {
     for (int i = 0; i < 20; i++) w += snprintf(json + w, sizeof(json) - (size_t)w, "%s\"K%d\":{\"action\":\"activity_start\",\"activityId\":\"11\"}", i ? "," : "", i);
     snprintf(json + w, sizeof(json) - (size_t)w, ",\"screen_buttons\":[{\"label\":\"X\"}]}}");
     cJSON *a = acts(json);
-    int n = rf_build_button_list(a, g_out, RF_BUTTON_LIST_MAX);
+    int n = rf_build_button_list(a, g_out, RF_BUTTON_LIST_MAX, 0);
     CHECK(n == RF_BUTTON_TRIGGERS_MAX + 2, "%d start keys sent, plus the PwrOff fallback and the on-screen button (%d entries)", RF_BUTTON_TRIGGERS_MAX, n);
     cJSON_Delete(a);
 }
@@ -110,7 +110,7 @@ static void test_keymap_spellings(void) {
                     "\"Music\":{\"type\":\"command\",\"action\":\"change_activity\",\"activityId\":\"12\"},"
                     "\"Green\":{\"type\":\"command\",\"action\":\"activity_start\",\"deviceId\":\"13\"},"
                     "\"PowerOffActivity\":{\"type\":\"command\",\"action\":\"poweroff\"}}}");
-    int n = rf_build_button_list(a, g_out, RF_BUTTON_LIST_MAX);
+    int n = rf_build_button_list(a, g_out, RF_BUTTON_LIST_MAX, 0);
     CHECK(n == 4, "three start keys and one stop key (%d entries)", n);
     CHECK(n >= 1 && g_out[0].atype == 0x02 && strcmp(g_out[0].label, "Red") == 0 && strcmp(g_out[0].ctx, "11") == 0,
           "targetActivity: Red starts activity 11 (entry: %s -> %s)", n >= 1 ? g_out[0].label : "-", n >= 1 ? g_out[0].ctx : "-");
@@ -125,12 +125,28 @@ static void test_keymap_spellings(void) {
 
 static void test_empty(void) {
     printf("No map\n");
-    int n = rf_build_button_list(NULL, g_out, RF_BUTTON_LIST_MAX);
+    int n = rf_build_button_list(NULL, g_out, RF_BUTTON_LIST_MAX, 0);
     CHECK(n == 1 && strcmp(g_out[0].label, "PwrOff") == 0 && g_out[0].atype == 0x03, "only the PwrOff stop key");
-    CHECK(rf_build_button_list(NULL, g_out, 0) == 0, "max 0: nothing");
+    CHECK(rf_build_button_list(NULL, g_out, 0, 0) == 0, "max 0: nothing");
+}
+
+static void test_help_keys(void) {
+    printf("Hard keys mapped to Help\n");
+    const char *json = "{\"10\":{\"Info\":{\"type\":\"help\",\"action\":\"help\"},"
+                       "\"Guide\":{\"type\":\"help\"}}}";
+    cJSON *a = acts(json);
+    int n = rf_build_button_list(a, g_out, RF_BUTTON_LIST_MAX, 1);
+    CHECK(n == 3 && g_out[0].atype == 0x04 && strcmp(g_out[0].ctx, "10") == 0 && strcmp(g_out[0].label, "Info") == 0,
+          "remote with Help keys: Info is a Help key of activity 10");
+    CHECK(n == 3 && g_out[1].atype == 0x04 && strcmp(g_out[1].label, "Guide") == 0,
+          "type without action: Guide is a Help key too");
+    n = rf_build_button_list(a, g_out, RF_BUTTON_LIST_MAX, 0);
+    CHECK(n == 1 && g_out[0].atype == 0x03, "older remote: no Help keys, only the PwrOff stop key (%d entries)", n);
+    cJSON_Delete(a);
 }
 
 int main(void) {
+    test_help_keys();
     test_issue96();
     test_triggers_with_screen_buttons();
     test_cap();

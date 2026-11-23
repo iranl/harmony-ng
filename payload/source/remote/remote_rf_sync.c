@@ -29,6 +29,12 @@ static inline void sync_touch_chunk(void) {
     pthread_mutex_unlock(&g_sync_lock);
 }
 
+/* The Hub sent RF_ACT_SYNC_STARTING once: it announces every switch it shows to this remote */
+static bool s_hub_sends_start = false;
+/* When the last start or end notice arrived: a query answer for a query sent before it was
+   built from the state before that notice */
+static uint64_t s_last_notice_ms = 0;
+
 static void sanitize_ascii(char *str, size_t max_len) {
     if (!str) return;
     for (size_t i = 0; i < max_len && str[i]; i++) {
@@ -37,6 +43,34 @@ static void sanitize_ascii(char *str, size_t max_len) {
     }
     str[max_len - 1] = '\0';
 }
+
+/* Streamed config push (RF_CAP_STREAM_PUSH), set up by CONFIG_END clear: frames carry
+ * RF_FLAG_STREAM and their index mod 16 in f->seq. One is handled only when it is the next in
+ * order (go-back-N: the Hub resends from the first missing one); an ACK request is answered
+ * with the count of frames received in order. Kept on after CONFIG_END complete so a resend
+ * after a lost last ACK is answered; ended by remote_stream_tick() when the Hub goes quiet. */
+#define STREAM_QUIET_MS 3000
+static volatile bool s_stream_active;
+static volatile uint16_t s_stream_contig;
+static volatile uint64_t s_stream_last_ms;
+
+static void stream_start(void) {
+    s_stream_contig = 0;
+    s_stream_last_ms = get_monotonic_ms();
+    if (!s_stream_active) {
+        s_stream_active = true;
+        remote_rf_set_power_mode(RF_PM_TRANSFER);
+    }
+}
+
+void remote_stream_tick(uint64_t now_ms) {
+    if (!s_stream_active || ms_since(now_ms, s_stream_last_ms) < STREAM_QUIET_MS) return;
+    s_stream_active = false;
+    if (!g_is_ota_updating) remote_rf_set_power_mode(RF_PM_ACTIVE);
+    printf("[*] Streamed config push ended (%u frames in order)\n", (unsigned)s_stream_contig);
+}
+
+static void handle_hub_frame_body(const rf_frame_t *f);
 
 void handle_hub_frame_remote(const rf_frame_t *f) {
     if (f->dev_slot & 0x0F) g_remote_slot = f->dev_slot & 0x0F;
@@ -48,9 +82,41 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
     if (ota_frame) return;
     if (handle_icon_frame(f)) return;
 
+    if (f->flags & RF_FLAG_STREAM) {
+        if (!s_stream_active) return; /* left over from a push that ended */
+        s_stream_last_ms = get_monotonic_ms();
+        if ((f->seq & 0x0F) == (s_stream_contig & 0x0F)) {
+            s_stream_contig++;
+            g_rf_mute_acks = true;
+            handle_hub_frame_body(f);
+            g_rf_mute_acks = false;
+        }
+        if (f->flags & RF_FLAG_ACK_REQ) {
+            rf_frame_t ack;
+            rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
+            ack.payload[2] = (uint8_t)(s_stream_contig & 0xFF);
+            ack.payload[3] = (uint8_t)(s_stream_contig >> 8);
+            ack.payload[4] = RF_PUSH_STREAMED;
+            rf_send_frame(&ack);
+        }
+        return;
+    }
+    handle_hub_frame_body(f);
+}
+
+static void handle_hub_frame_body(const rf_frame_t *f) {
     switch (f->msg_type) {
         case RF_MSG_ACTIVITY_SYNC: {
-            if (f->payload[24] == 1) link_note_reply(f->seq, get_monotonic_ms()); /* answer to a sync query */
+            if (f->payload[24] == RF_ACT_SYNC_QUERY || f->payload[24] == RF_ACT_SYNC_QUERY_SWITCHING) {
+                uint64_t asked_ms = link_note_reply(f->seq, get_monotonic_ms()); /* answer to a sync query */
+                /* The Hub reads the state, then sends; a notice can go out in between */
+                if (asked_ms && asked_ms < s_last_notice_ms) {
+                    printf("[*] Sync answer older than the last switch notice: ignored\n");
+                    break;
+                }
+            } else {
+                s_last_notice_ms = get_monotonic_ms();
+            }
             char act_id[13] = {0};
             char act_name[24] = {0};
             /* The name ends before payload[24], the query-reply flag (rf_send_hub_activity_sync_slot()
@@ -71,18 +137,49 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
 
             /* While config sync or OTA update is running, do not clobber sync screen with activity view */
             if (g_is_syncing_config || g_is_ota_updating) {
+                if (f->payload[24] == RF_ACT_SYNC_STARTING || f->payload[24] == RF_ACT_SYNC_QUERY_SWITCHING) break; /* not running yet */
                 strncpy(g_active_activity_id, act_id, sizeof(g_active_activity_id) - 1);
                 strncpy(g_active_activity_name, act_name, sizeof(g_active_activity_name) - 1);
                 break;
             }
 
-            /* If remote is currently displaying the switching progress bar, and Hub confirms switch */
-            if (g_is_switching_activity && strcmp(act_id, g_switching_target_id) == 0) {
+            uint8_t sync_state = f->payload[24];
+
+            /* The Hub started a switch: the switch screen follows it until its end notice. A sync
+               query answered mid-switch says the same (a remote that woke or restarted). */
+            if (sync_state == RF_ACT_SYNC_STARTING || sync_state == RF_ACT_SYNC_QUERY_SWITCHING) {
+                s_hub_sends_start = true;
+                /* A query sent on a wake with the screen off (alarm wake): no switch state, it
+                   would block the suspend, and no queries go out to end it. The first query with
+                   the screen on shows the switch. */
+                if (sync_state == RF_ACT_SYNC_QUERY_SWITCHING && !g_screen_on) break;
+                g_switch_hub_heard_ms = now_ms;
+                if (g_is_switching_activity && strcmp(act_id, g_switching_target_id) == 0) {
+                    g_switch_hub_started = true; /* the switch this remote asked for */
+                } else if (g_is_switching_activity || remote_view_follows_hub()) {
+                    printf("[*] Hub started a switch to '%s' (%s)\n", act_name, act_id);
+                    trigger_activity_switch_external(act_id, act_name);
+                    g_switch_hub_started = true;
+                } else if (sync_state == RF_ACT_SYNC_STARTING) {
+                    printf("[*] Hub started a switch while view %d is open: screen kept\n", (int)g_current_view);
+                }
+                break;
+            }
+
+            /* The end of the shown switch: its target, or any activity once the Hub announced it
+               (a switch that failed ends on the old one). That Hub answers a sync query with
+               RF_ACT_SYNC_QUERY_SWITCHING while the switch runs: a plain answer means it is over,
+               also when the end notice was lost. */
+            if (g_is_switching_activity && (strcmp(act_id, g_switching_target_id) == 0 ||
+                                            (g_switch_hub_started && (sync_state == RF_ACT_SYNC_COMPLETE ||
+                                                                      sync_state == RF_ACT_SYNC_QUERY)))) {
                 strncpy(g_active_activity_id, act_id, sizeof(g_active_activity_id) - 1);
                 strncpy(g_active_activity_name, act_name, sizeof(g_active_activity_name) - 1);
                 printf("[*] Hub confirmed switch complete to '%s' (%s), unlocking screen\n", act_name, act_id);
                 g_is_switching_activity = false;
+                g_switch_hub_started = false;
                 g_last_switch_completed_ms = now_ms;
+                snprintf(g_switching_target_id, sizeof(g_switching_target_id), "%s", act_id);
                 strncpy(g_last_switch_target_id, g_switching_target_id, sizeof(g_last_switch_target_id) - 1);
                 remote_show_switch_target();
                 g_selected_device_cmd = 0;
@@ -120,7 +217,12 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             printf("[*] Hub Activity Sync (live change): id=%s name=%s\n", act_id, act_name);
             bool is_recent_same_switch = (strcmp(g_last_switch_target_id, act_id) == 0 && (now_ms - g_last_switch_completed_ms < 20000));
             if (!g_is_switching_activity && !is_recent_same_switch) {
-                if (remote_view_follows_hub()) {
+                if (s_hub_sends_start) {
+                    /* This Hub announces its switches: one that was not shown is over now */
+                    strncpy(g_last_switch_target_id, act_id, sizeof(g_last_switch_target_id) - 1);
+                    g_last_switch_completed_ms = now_ms;
+                    remote_follow_hub_activity(act_id);
+                } else if (remote_view_follows_hub()) {
                     trigger_activity_switch_external(act_id, act_name);
                 } else {
                     /* Settings, pairing or the device browser stay on screen: no progress bar over
@@ -139,6 +241,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
         }
 
         case RF_MSG_CONFIG_END: {
+            bool start_stream = false;
             uint8_t phase = f->payload[0];
             uint8_t version = f->payload[1];
             printf("[*] CONFIG_END: phase=%s version=%d\n", phase == 0 ? "clear" : "complete", version);
@@ -157,6 +260,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                 init_act_triggers();
                 pthread_mutex_unlock(&g_sync_lock);
                 g_screen_dirty = true;
+                start_stream = (f->payload[4] == 1); /* the rest of the push comes streamed */
             } else {
                 /* Tested under the lock: the main loop gives up on a stalled sync under it too,
                    and then restores the saved config; the new version must not be stamped on it */
@@ -186,6 +290,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             rf_frame_t ack;
             rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
             rf_send_frame(&ack);
+            if (start_stream) stream_start(); /* after the ACK: the Hub waits for it in RF_PM_ACTIVE */
             break;
         }
 
@@ -359,27 +464,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                 g_rf_buttons[idx].action_type = f->payload[24];
                 if (idx >= g_rf_button_count) g_rf_button_count = idx + 1;
 
-                /* Check if this button is mapped to an activity start or stop */
-                if (f->payload[2] == 0x00 && (f->payload[24] == 0x02 || f->payload[24] == 0x03)) {
-                    /* a chunk sent again after a lost ACK must not add the trigger a second time */
-                    bool known = false;
-                    for (int t = 0; t < g_act_trigger_count && !known; t++) {
-                        known = g_act_triggers[t].atype == f->payload[24] &&
-                                strcmp(g_act_triggers[t].button_name, g_rf_buttons[idx].label) == 0 &&
-                                strcmp(g_act_triggers[t].target_act_id, g_rf_buttons[idx].context_id) == 0;
-                    }
-                    if (!known && g_act_trigger_count < MAX_ACT_TRIGGERS) {
-                        strncpy(g_act_triggers[g_act_trigger_count].button_name, g_rf_buttons[idx].label, sizeof(g_act_triggers[0].button_name) - 1);
-                        g_act_triggers[g_act_trigger_count].atype = f->payload[24];
-                        strncpy(g_act_triggers[g_act_trigger_count].target_act_id, g_rf_buttons[idx].context_id, sizeof(g_act_triggers[0].target_act_id) - 1);
-                        g_act_triggers[g_act_trigger_count].rf_key_code = 0;
-                        if (strcasecmp(g_act_triggers[g_act_trigger_count].button_name, "PwrOff") == 0 ||
-                            strcasecmp(g_act_triggers[g_act_trigger_count].button_name, "PowerOff") == 0) {
-                            g_act_triggers[g_act_trigger_count].rf_key_code = 0x01EC;
-                        }
-                        g_act_trigger_count++;
-                    }
-                }
+                add_act_trigger(&g_rf_buttons[idx]);
             }
             rf_frame_t ack;
             rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
@@ -405,6 +490,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                 st->delay_ms = (uint16_t)f->payload[12] | ((uint16_t)f->payload[13] << 8);
                 strncpy(st->name, (char *)&f->payload[14], 11);
                 st->name[11] = '\0';
+                st->warm_dev = strcmp(st->name, "Warmup") == 0 ? f->payload[21] : 0;
                 if (chunk_idx >= g_rf_step_count) g_rf_step_count = chunk_idx + 1;
                 printf("[*] Step chunk %d: act=%s step=%d/%d del=%d name='%s'\n",
                        chunk_idx, st->act_id, st->step_idx, st->total_steps, st->delay_ms, st->name);
@@ -421,17 +507,16 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             if (g_brightness_val < 1) g_brightness_val = 1;
             if (g_brightness_val > 5) g_brightness_val = 5;
             g_touch_enabled = (f->payload[1] != 0);
+            bool prev_gyro = g_gyro_enabled;
             g_gyro_enabled = (f->payload[2] != 0);
+            if (g_gyro_enabled != prev_gyro && g_gyro_fd >= 0) init_gyro_interrupt();
             g_timeout_seconds = rf_clamp_screen_timeout(((int)f->payload[3] << 8) | f->payload[4]);
             /* payload[5..7]: the NAV toggle key and mode of older firmware, ignored */
             g_confirm_activity = (f->payload[8] != 0);
             if (f->payload[9] >= 1 && f->payload[9] <= 3) g_touch_sensitivity = f->payload[9];
 
             /* Extended settings fields */
-            if (remote_gyro_rate_valid(f->payload[11]) && f->payload[11] != g_gyro_rate_hz) {
-                g_gyro_rate_hz = f->payload[11];
-                if (g_gyro_fd >= 0) init_gyro_interrupt();
-            }
+            /* payload[11]: the accelerometer rate of older Hubs, ignored (the stock rate is fixed) */
             if (f->payload[12] <= 2) g_btn_backlight_mode = f->payload[12];
             if (f->payload[13] <= 23) g_night_start_hour = f->payload[13];
             if (f->payload[14] <= 23) g_night_end_hour = f->payload[14];
@@ -465,8 +550,8 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                 set_backlight_level(g_brightness_val);
             }
             save_settings_conf();
-            printf("[*] Settings push: bright=%d touch=%d cap=%d gyro=%d rate=%d timeout=%d confirm=%d sens=%d bl=%d night=%02d-%02d no_screen=%d pwrdbg=%d lang=%d\n",
-                   g_brightness_val, g_touch_enabled, g_cap_buttons_enabled, g_gyro_enabled, g_gyro_rate_hz, g_timeout_seconds,
+            printf("[*] Settings push: bright=%d touch=%d cap=%d gyro=%d timeout=%d confirm=%d sens=%d bl=%d night=%02d-%02d no_screen=%d pwrdbg=%d lang=%d\n",
+                   g_brightness_val, g_touch_enabled, g_cap_buttons_enabled, g_gyro_enabled, g_timeout_seconds,
                    g_confirm_activity, g_touch_sensitivity,
                    g_btn_backlight_mode, g_night_start_hour, g_night_end_hour, g_no_screen_mode, g_power_debug, (int)g_language);
             rf_frame_t ack;
@@ -618,7 +703,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             /* Not in the middle of a config sync or an update (the transfer would be lost), a
              * pairing or an activity switch: the same gates as every other suspend */
             if (remote_suspend_blocked()) {
-                printf("[*] Remote: SLEEP_REQ from Hub ignored: a sync, update, pairing or switch is running\n");
+                printf("[*] Remote: SLEEP_REQ from Hub ignored: a sync, update, pairing or switch is running, or a key is held\n");
                 break;
             }
             printf("[*] Remote: received SLEEP_REQ from Hub. Suspending to RAM...\n");
@@ -668,6 +753,28 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             }
             break;
     }
+}
+
+void rf_handle_pairing_event(const uint8_t pkt[7]) {
+    uint8_t pair_status = pkt[4];
+    printf("[*] Remote RF CC2544 Pairing Event: status=0x%02X slot=%d\n", pair_status, pkt[1]);
+    if (pkt[1] >= 1 && pkt[1] <= 15) {
+        g_remote_slot = pkt[1];
+    }
+    if (pair_status == 0x00) {
+        printf("[+] Remote RF Pairing SUCCESS! Paired to Hub on Slot %d\n", g_remote_slot);
+        g_rf_link_connected = true;
+        g_pairing_state = 2;
+        s_hub_sends_start = false; /* a new Hub: learnt again from its first start notice */
+        if (g_current_view == VIEW_PAIRING || g_current_view == VIEW_NOT_PAIRED) g_current_view = VIEW_ACTIVITIES;
+        rf_send_full_sync_request();
+    } else if (pair_status == 0x01) {
+        printf("[*] Remote RF Pairing still in progress on Slot %d\n", g_remote_slot);
+    } else {
+        printf("[-] Remote RF Pairing failed / closed (status=0x%02X)\n", pair_status);
+        g_pairing_state = 3;
+    }
+    render_screen();
 }
 
 void *rf_rx_worker(void *arg) {
@@ -745,22 +852,7 @@ void *rf_rx_worker(void *arg) {
         }
 
         if (n >= 5 && pkt[0] == 0x10 && pkt[2] == 0x4A) {
-            uint8_t pair_status = pkt[4];
-            printf("[*] Remote RF CC2544 Pairing Event: status=0x%02X slot=%d\n", pair_status, pkt[1]);
-            if (pkt[1] >= 1 && pkt[1] <= 15) {
-                g_remote_slot = pkt[1];
-            }
-            if (pair_status == 0x01 || pair_status == 0x00) {
-                printf("[+] Remote RF Pairing SUCCESS! Paired to Hub on Slot %d\n", g_remote_slot);
-                g_rf_link_connected = true;
-                g_pairing_state = 2;
-                if (g_current_view == VIEW_PAIRING || g_current_view == VIEW_NOT_PAIRED) g_current_view = VIEW_ACTIVITIES;
-                rf_send_full_sync_request();
-            } else {
-                printf("[-] Remote RF Pairing failed / closed (status=0x%02X)\n", pair_status);
-                g_pairing_state = 3;
-            }
-            render_screen();
+            rf_handle_pairing_event(pkt);
             continue;
         }
 

@@ -1,6 +1,8 @@
 #include "bt_le_pair_window.h"
 #include "bt_pairing.h"
 #include "bt_remote.h"
+#include "bt_listen.h"
+#include "bt_adv.h"
 #include "bt_status_json.h"
 #include "../atomic_file.h"
 
@@ -922,7 +924,8 @@ void try_connect_host_addr(const bd_addr_t addr) {
     g_host_connecting_start = time(NULL);
 
     // Suspend LE scanning during Classic ACL paging to dedicate CSR8811 radio to Host connection
-    if (app_state == APP_SCANNING && !g_user_scan_active) {
+    // (a plugin's adv_listen too: it scans more than the reconnect, and goes on after the page)
+    if ((app_state == APP_SCANNING && !g_user_scan_active) || g_adv_listen_active) {
         gap_stop_scan();
     }
 
@@ -930,8 +933,8 @@ void try_connect_host_addr(const bd_addr_t addr) {
     uint8_t status = hid_device_connect((uint8_t*)addr, &cid);
     if (status != ERROR_CODE_SUCCESS || cid == 0) {
         g_host_connecting = false;
-        if (app_state == APP_SCANNING && !g_user_scan_active) {
-            gap_start_scan();
+        if ((app_state == APP_SCANNING && !g_user_scan_active) || g_adv_listen_active) {
+            gap_start_scan(); /* paused for the page above */
         }
         snprintf(msg, sizeof(msg), "Classic HID Host connect request failed (status=0x%02x, cid=0x%04x)", status, cid);
         log_msg(msg);
@@ -1196,8 +1199,9 @@ void hog_start_scan(void) {
         update_status("standby");
         gap_set_scan_parameters(0, 96, 24); // passive scanning (25% duty cycle): no SCAN_REQ delay, avoids Classic BT paging collision
     } else {
-        /* No remote pinned: nothing to look for (a user scan from the web UI runs its own) */
-        gap_stop_scan();
+        /* No remote pinned: nothing to look for (a user scan from the web UI runs its own; a
+         * plugin's adv_listen keeps the scan until it ends) */
+        if (!g_adv_listen_active) gap_stop_scan();
         app_state = APP_IDLE;
         update_status("standby");
         return;
@@ -1243,6 +1247,12 @@ void forget_ble_remote(void) {
 }
 
 void hog_connect(void) {
+    /* A plugin's adv_listen has the scan: the remote connects once it ends (a connection
+     * attempt stops the scan) */
+    if (g_adv_listen_active) return;
+    /* nor while a broadcast borrows another address (the connection would use it): the remote
+     * advertises again and connects after it */
+    if (bt_adv_borrowed_addr()) return;
     log_msg("Connecting to target BLE remote...");
     app_state = APP_CONNECTING;
     update_status("connecting");
@@ -1257,6 +1267,7 @@ void hog_start_connect(void) {
 
 void start_user_scan(void) {
     log_msg("User requested BLE scan for remotes in pairing mode...");
+    bt_listen_end("a remote scan started"); /* the user's action wins over a plugin's listen */
     g_discovered_count = 0;
     memset(g_discovered, 0, sizeof(g_discovered));
     g_user_scan_active = true;
@@ -1291,6 +1302,7 @@ void start_user_pair(const char *addr_str) {
         log_msg("Invalid pair address requested");
         return;
     }
+    bt_listen_end("a remote pairing started"); /* the remote must not wait for a plugin's listen */
     char msg[128];
     snprintf(msg, sizeof(msg), "User pair requested for %s (LE pairing window open for %d s)", addr_str, LE_PAIR_WINDOW_SEC);
     log_msg(msg);

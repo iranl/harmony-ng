@@ -4,6 +4,7 @@
 #include "ir_i2s.h"
 #include "hw_action.h"
 #include "http_server.h"
+#include "plugin_mgr.h"
 #include "ws_server.h"
 #include "state_watch.h"
 #include "hub_events.h"
@@ -17,9 +18,11 @@
 #include "hub_ntp.h"
 #include "http_api_system.h"
 #include "http_api_remotes.h"
+#include "http_api_ota.h"
 #include "hub_key_channel.h"
 #include "harmony_version.h"
 #include "wifi_config.h"
+#include "http_util.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -169,6 +172,14 @@ static void sntp_tick_async(const char *host) {
 }
 
 int main(int argc, char **argv) {
+    /* hub_fetch (run for every TLS download and HTTPS device command) and the plugins load
+     * libbearssl.so.0 from here: the stock ld-uClibc ignores rpath. Set before any thread. */
+    {
+        const char *old = getenv("LD_LIBRARY_PATH");
+        char ld[512];
+        snprintf(ld, sizeof(ld), "%s%s%s", HUB_FETCH_LIB_DIR, old && old[0] ? ":" : "", old && old[0] ? old : "");
+        setenv("LD_LIBRARY_PATH", ld, 1);
+    }
     int port = 8089;
     const char *mfg_file = NULL; /* test harness: a file with the mfg partition layout */
     int mdns_port = MDNS_PORT;   /* test harness: --mdns-port N */
@@ -215,6 +226,7 @@ int main(int argc, char **argv) {
 
     /* 1. Hardware, Config Store & Orchestrator Core */
     config_store_init();
+    ota_update_state_init();
     /* a Wi-Fi test (web UI or USB setup) cut short by a kill or a power cut: previous files back */
     wifi_config_recover();
     /* Rewrite VERSION only when it differs: every daemon start wrote it to flash */
@@ -284,6 +296,9 @@ int main(int argc, char **argv) {
 
     /* 3. MQTT Client */
     hub_mqtt_init();
+
+    /* 4. Plugin Lifecycle Manager */
+    plugin_mgr_init();
 
     printf("[+] Entering master non-blocking event loop...\n");
 
@@ -377,9 +392,21 @@ int main(int argc, char **argv) {
         /* Tick MQTT client packet reader, keepalive, and periodic state poll */
         hub_mqtt_tick();
         hub_cmd_poll();     /* replies of slow command-channel actions (update_check) */
+
+        static time_t s_last_plug_tick = 0;
+        if (time(NULL) != s_last_plug_tick) {
+            s_last_plug_tick = time(NULL);
+            plugin_mgr_tick();
+        }
+        static time_t s_last_plug_wd = 0;
+        if (time(NULL) - s_last_plug_wd >= 10) {
+            s_last_plug_wd = time(NULL);
+            plugin_mgr_watchdog_tick();
+        }
     }
 
     printf("\n[*] Shutting down hub_daemon...\n");
+    plugin_mgr_shutdown();
     orch_cancel();
     hub_mdns_shutdown();
     hub_ssdp_shutdown();

@@ -53,6 +53,8 @@ import {
 } from './app_icons_ui.js';
 import { HarmonyAppRemotesB25 } from './app_remotes_b25.js';
 
+const RF_SLOT_COUNT = 6; /* the Hub's remote slots (REMOTE_SLOT_MAX) */
+
 export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
   async loadRemoteView() {
     // Check RF enabled status from backend
@@ -90,51 +92,58 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
       console.warn('Failed to get RF status:', e);
     }
 
-    const s1 = rfStatus?.slots?.find(s => s.slot === 1);
-    const s2 = rfStatus?.slots?.find(s => s.slot === 2);
-    const s1Addr = s1?.address || s1?.rf_address || '';
-    const s1Active = Boolean((s1?.active || rfStatus?.paired) && s1Addr && s1Addr !== 'None' && s1Addr !== '00000000');
-    const s2Addr = s2?.address || s2?.rf_address || '';
-    const s2Active = Boolean(s2?.active && s2Addr && s2Addr !== 'None' && s2Addr !== '00000000');
+    const slotInfo = n => rfStatus?.slots?.find(s => s.slot === n);
+    const slotActive = n => {
+      const s = slotInfo(n);
+      const addr = s?.address || s?.rf_address || '';
+      const active = n === 1 ? (s?.active || rfStatus?.paired) : s?.active;
+      return Boolean(active && addr && addr !== 'None' && addr !== '00000000');
+    };
+    const activeSlots = (rfStatus?.slots || []).map(s => s.slot).filter(n => n >= 1 && slotActive(n)).sort((a, b) => a - b);
+    this.rfActiveSlots = activeSlots;
 
     const slotBar = document.getElementById('rfRemoteSlotSelectorBar');
     const noRemotesMsg = document.getElementById('rfNoRemotesPairedMsg');
     const mappingContainer = document.getElementById('rfRemoteMappingContainer');
 
-    if (!s1Active && !s2Active) {
-      if (slotBar) slotBar.style.display = 'none';
-      if (mappingContainer) mappingContainer.style.display = 'none';
-      if (noRemotesMsg) noRemotesMsg.style.display = 'block';
-      return;
-    }
-
-    if (noRemotesMsg) noRemotesMsg.style.display = 'none';
+    // Every slot can be set up, also before a remote is paired there (pairing picks the slot)
+    if (noRemotesMsg) noRemotesMsg.style.display = activeSlots.length === 0 ? 'block' : 'none';
     if (mappingContainer) mappingContainer.style.display = 'block';
 
-    // Manage active slot selection
-    if (!this.selectedRemoteSlot) this.selectedRemoteSlot = 1;
-    if (this.selectedRemoteSlot === 1 && !s1Active && s2Active) this.selectedRemoteSlot = 2;
-    if (this.selectedRemoteSlot === 2 && !s2Active && s1Active) this.selectedRemoteSlot = 1;
+    const pick = this.selectedRemoteSlot;
+    if (!Number.isInteger(pick) || pick < 1 || pick > RF_SLOT_COUNT) this.selectedRemoteSlot = activeSlots[0] || 1;
 
-    // Show slot selector if both paired
+    // A tab per slot: tabs 1 and 2 are in the page, the tabs of slots 3 and up are made here
     if (slotBar) {
-      if (s1Active && s2Active) {
-        slotBar.style.display = 'flex';
-        const tab1 = document.getElementById('rfSlotSelect1Btn');
-        const tab2 = document.getElementById('rfSlotSelect2Btn');
-        const lbl1 = document.getElementById('rfSlotSelect1Label');
-        const lbl2 = document.getElementById('rfSlotSelect2Label');
-        if (lbl1) lbl1.textContent = s1?.name || t('slot_1_remote_1');
-        if (lbl2) lbl2.textContent = s2?.name || t('slot_2_remote_2');
-        if (tab1) tab1.classList.toggle('active', this.selectedRemoteSlot === 1);
-        if (tab2) tab2.classList.toggle('active', this.selectedRemoteSlot === 2);
-      } else {
-        slotBar.style.display = 'none';
+      slotBar.style.display = 'flex';
+      slotBar.querySelectorAll('.rf-extra-slot-tab').forEach(el => el.remove());
+      for (let n = 1; n <= RF_SLOT_COUNT; n++) {
+        let tab = document.getElementById(`rfSlotSelect${n}Btn`);
+        if (!tab) {
+          tab = document.createElement('button');
+          tab.type = 'button';
+          tab.className = 'segmented-btn rf-extra-slot-tab';
+          tab.id = `rfSlotSelect${n}Btn`;
+          tab.dataset.slot = String(n);
+          const lbl = document.createElement('span');
+          lbl.id = `rfSlotSelect${n}Label`;
+          tab.appendChild(lbl);
+          tab.addEventListener('click', () => this.switchRemoteSlot(n));
+          slotBar.appendChild(tab);
+        }
+        const lbl = document.getElementById(`rfSlotSelect${n}Label`);
+        const fallback = n === 1 ? t('slot_1_remote_1') : (n === 2 ? t('slot_2_remote_2') : tf('slot_n', { slot: n }));
+        const name = activeSlots.includes(n) ? (slotInfo(n)?.name || fallback) : tf('slot_n_empty', { slot: n });
+        if (lbl) lbl.textContent = name;
+        tab.style.display = '';
       }
+      slotBar.querySelectorAll('.segmented-btn').forEach(tab => {
+        tab.classList.toggle('active', Number(tab.dataset.slot) === this.selectedRemoteSlot);
+      });
     }
 
     const curSlot = this.selectedRemoteSlot;
-    const curSlotInfo = curSlot === 1 ? s1 : s2;
+    const curSlotInfo = slotInfo(curSlot);
     const curModel = curSlotInfo?.model || 'unknown';
     const isScreenless = curModel === 'smart_control' || curModel === 'companion' || curSlotInfo?.has_screen === false;
 
@@ -163,16 +172,16 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
     const pushBtn = document.getElementById('remotePushRemoteBtn');
     if (pushBtn) pushBtn.style.display = isScreenless ? 'none' : 'inline-block';
 
-    // Copy mappings button if both slots have same remote type
+    // Copy mappings button when another paired remote is of the same type (the first such slot)
     const copyBtn = document.getElementById('rfCopySlotMappingBtn');
     if (copyBtn) {
-      const sameType = s1Active && s2Active && (
-        s1.model === s2.model ||
-        ((s1.model === 'smart_control' || s1.model === 'companion') &&
-          (s2.model === 'smart_control' || s2.model === 'companion'))
-      );
-      if (sameType) {
-        const otherSlot = curSlot === 1 ? 2 : 1;
+      const screenless = m => m === 'smart_control' || m === 'companion';
+      const sameTypeSlot = activeSlots.find(n => n !== curSlot && (
+        slotInfo(n)?.model === curModel || (screenless(slotInfo(n)?.model) && screenless(curModel))
+      ));
+      if (sameTypeSlot) {
+        const otherSlot = sameTypeSlot;
+        this.rfCopySourceSlot = otherSlot;
         copyBtn.style.display = 'inline-block';
         copyBtn.textContent = `📋 ${tf('copy_mappings_from_slot', { slot: otherSlot })}`;
       } else {
@@ -236,14 +245,17 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
   }
 
   async switchRemoteSlot(slot) {
-    if (slot !== 1 && slot !== 2) return;
+    if (!Number.isInteger(slot) || slot < 1 || slot > RF_SLOT_COUNT) return;
     this.selectedRemoteSlot = slot;
     await this.loadRemoteView();
   }
 
   async copySlotMappings() {
     const curSlot = this.selectedRemoteSlot || 1;
-    const otherSlot = curSlot === 1 ? 2 : 1;
+    /* the slot the copy button names: the first other paired remote of the same type */
+    const others = (this.rfActiveSlots || []).filter(n => n !== curSlot);
+    const otherSlot = others.includes(this.rfCopySourceSlot) ? this.rfCopySourceSlot
+      : (others.length ? others[0] : (curSlot === 1 ? 2 : 1));
     const confirmed = await showConfirm(
       tf('copy_mappings_confirm', { other: otherSlot, cur: curSlot }),
       { title: t('copy_button_mappings'), okText: t('copy_mappings') }
@@ -410,6 +422,11 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
       mapObj = {
         type: 'activity_stop',
         action: 'activity_stop'
+      };
+    } else if (type === 'help') {
+      mapObj = {
+        type: 'help',
+        action: 'help'
       };
     } else if (type === 'sequence') {
       mapObj = {

@@ -33,6 +33,7 @@ Setting up HarmonyNG takes just a few minutes. Pre-built release bundles contain
 | **Android Companion App** | [Download APK from Releases](https://github.com/iranl/harmony-ng/releases) | Android phone or tablet (Android 6 or newer); with authentication on, the app keeps an access token, never your password ([details](docs/FIRST_INSTALL_HUB.md#5-accessing-the-web-console--android-app)) |
 | **Web UI** | Pre-installed on Hub at `http://<hub-ip>:8089` | Modern web browser |
 | **Ethernet Setup** | [**Ethernet & Network Guide**](docs/ETHERNET_AND_NETWORK_SETUP.md) | Native onboard RJ45/PoE (Pro 2400) or OTG Micro-USB Ethernet Adapter (Standard Hub) |
+| **Plugins & Marketplace** | [**Plugin Architecture & Guide**](docs/PLUGINS.md) | Community drivers (Roku ECP, PS5 Wake, Android TV) via 1-click marketplace |
 
 > [!IMPORTANT]
 > **Authentication is off after install**: every device on your network is admin on the Hub until you turn it on (web UI, **System** page, **User Accounts & Access Control**). See [API.md, section 11](docs/API.md#11-authentication--security-architecture).
@@ -93,6 +94,7 @@ The table below details every major functional component for both the **Harmony 
 | **Activity Orchestration** | **Rigid Cloud Sequences**: Static power macros compiled in the cloud. Out-of-sync devices require stepping through the mobile "Fix It" wizard. | **Stateful C Orchestrator**: `orchestrator.c` builds each switch from the leaving and the entering activity (devices that are in only one of them are powered off or on), runs one switch at a time with a step queue and delays, and sends live WebSocket and MQTT progress feeds. |
 | **Smart Home & Automation** | **Cloud Skill & Deprecated XMPP**: Local XMPP blocked in firmware v4.15.206. Cloud skills face deprecation. | **Native Bidirectional MQTT**: Built-in MQTT client with Home Assistant MQTT Auto-Discovery (activity `select`, plus `sensor` and `button` entities; Home Assistant's MQTT integration has no `remote` platform). Full REST & WebSocket API. mDNS discovery (`_harmony-ng._tcp`), and an optional Logitech protocol layer (port 8088 with SSDP, off by default) for stock clients such as Home Assistant's core Harmony integration. |
 | **Flash & Safe Recovery** | **Flash Wear & Brick Risk**: Unmonitored writes to JFFS2 flash. Bricked units require factory wipe. | **RAM-Isolated & Panic Protected**: All runtime logs/PIDs in tmpfs (`/tmp`). A boot counter starts the Hub in an emergency recovery mode (Wi-Fi and SSH only) after more than 5 boots in a row that did not stay up for 5 minutes. Downloaded OTA updates of Hub and remote are checked against a signed manifest (Ed25519) before they are installed. |
+| **Extensibility & Plugins** | **Zero / Closed**: No plugin or custom driver support. Restricted to stock cloud code sets. | **Plugin System & Marketplace**: Supervised community micro-daemons with zero flash wear (sockets/logs in RAM tmpfs), non-blocking UNIX domain socket IPC, 1-click marketplace catalog, and custom repository support. See [Plugin Guide](docs/PLUGINS.md). |
 
 ### Harmony Touchscreen Remotes
 
@@ -101,7 +103,7 @@ The table below details every major functional component for both the **Harmony 
 | **GUI & Display Engine** | **Monolithic Lua GUI**: `luadraws` + `luaworks` taking 30+ seconds to boot, heavy memory footprint, closed stock assets. | **Native Framebuffer GUI**: `remote_ui.c` rendering directly to `/dev/fb0` (240x320 16-bit RGB565) in under 2 seconds. Anti-aliased bitmap fonts (built in, or per theme as `.faa` files converted from TTF on the build host) and selectable themes. |
 | **Touch & Physical Controls** | **Vendor Input Handlers**: Custom event pipes dependent on stock daemons. | **Direct Linux Input Multiplexing**: Linux `/dev/input/event0` (physical buttons), `/dev/input/event1` (motion sensor) and `/dev/input/event2` (touch digitizer), with hold events sent while a key stays down. |
 | **Hub Synchronization** | **Desktop USB Sync Required**: Updating button maps or activities required connecting the remote via USB to a PC running MyHarmony. | **Over-the-Air RF Sync**: Over-the-air synchronization over 2.4 GHz CC2544 RF using Report `0x20` protocol. Screen updates state immediately when an activity starts on WebUI or HA. |
-| **Battery Life & Power Management** | **High Drain**: Accelerometer polled continuously at 50 Hz, unconfigurable button backlight draining battery in ~24–48 hours. | **Multi-Tier Power Optimization**: Configurable LIS3DH accelerometer rate (10/25/50/100 Hz, saving up to 60% standby power), night-mode button backlight scheduler, and configurable screen timeouts. |
+| **Battery Life & Power Management** | **High Drain**: Accelerometer polled continuously at 50 Hz, unconfigurable button backlight draining battery in ~24–48 hours. | **Multi-Tier Power Optimization**: LIS3DH accelerometer on its stock motion interrupt (powered down when tilt wake is off), night-mode button backlight scheduler, and configurable screen timeouts. |
 | **Offline Autonomy** | **Hub-Dependent Lockout**: Shows a persistent spinning gear / connection error screen if Hub is out of range or offline. | **Autonomous Cached Operation**: Operates smoothly offline from cached device profiles and button maps, with on-screen diagnostic settings and pairing tools. |
 
 ---
@@ -117,6 +119,17 @@ HarmonyNG supports all major Logitech Harmony physical remotes:
    - Two-tier hardware power management (Light and Deep standby with motion wake).
    - Remote settings backup to Hub and over-the-air (OTA) firmware updating.
    - *Harmony Ultimate, Ultimate Home and Harmony Touch share this architecture and are supported by the same binaries (tested on a Harmony Ultimate, 2013).*
+
+   <div align="center">
+     <table>
+       <tr>
+         <td align="center"><b>Activities</b><br><br><img src="docs/images/remote_activities.png" alt="Activities Screen" width="160px"></td>
+         <td align="center"><b>Devices</b><br><br><img src="docs/images/remote_devices.png" alt="Devices Screen" width="160px"></td>
+         <td align="center"><b>Commands</b><br><br><img src="docs/images/remote_commands.png" alt="Commands Screen" width="160px"></td>
+         <td align="center"><b>Settings</b><br><br><img src="docs/images/remote_settings.png" alt="Settings Screen" width="160px"></td>
+       </tr>
+     </table>
+   </div>
 
 2. **Harmony Companion & Harmony Smart Control (Screenless Remotes)**:
    - **Native zero-rooting RF support**: Communicate directly with the Hub via CC2544 2.4 GHz eQuad protocol. No USB connection, rooting, or custom firmware installation required on the remote.
@@ -137,8 +150,8 @@ HarmonyNG supports all major Logitech Harmony physical remotes:
 While HarmonyNG restores complete local independence and dramatically reduces memory and CPU usage, note the following architectural difference from stock Logitech firmware:
 
 1. **No Direct Local Network / IP Control (e.g. Roku ECP, Hue Direct, Sony IP)**:
-   - Stock Logitech software relied on closed-source Lua plugins to control local IP devices. HarmonyNG focuses purely on IR (sent through the Hub's I2S driver), Bluetooth HID, and 2.4 GHz RF remotes.
-   - **Mitigation via Home Assistant / MQTT**: This is easily handled by connecting HarmonyNG to **Home Assistant via the built-in bidirectional MQTT bridge**. Home Assistant natively supports thousands of IP-controlled devices (Roku, Apple TV, Philips Hue, Android TV) and can be triggered seamlessly by Harmony activities and remote button presses.
+   - **Community Plugins & Add-ons**: HarmonyNG includes a dedicated **Plugin Architecture & Community Marketplace** for direct local control of IP and Bluetooth devices without cloud mediation. Lightweight community micro-daemons (e.g. **Roku ECP**, **PlayStation 5 BT Wake**, **Android TV**) run directly on the Hub with zero flash wear. See [Plugin Architecture & Guide](docs/PLUGINS.md) and the [harmony-ng-plugins repository](https://github.com/iranl/harmony-ng-plugins).
+   - **Home Assistant & MQTT Integration**: For thousands of other smart home devices (Hue, Sonos, custom lights), connect HarmonyNG to **Home Assistant via the built-in bidirectional MQTT bridge**.
 
 ---
 
@@ -157,6 +170,7 @@ While HarmonyNG restores complete local independence and dramatically reduces me
 │   └── deploy_hub.py       # Hub deployment script (cross-platform Python)
 ├── docs/                   # Technical documentation
 │   ├── API.md              # Complete REST & WebSocket API specification
+│   ├── PLUGINS.md          # Plugin architecture, marketplace, and developer guide
 │   ├── BLUETOOTH_HID_CODES.md # Bluetooth HID keycodes and mappings
 │   ├── REMOTE.md            # Remote hardware, RF protocol, and display specs
 │   ├── REMOTE_BATTERY_OPTIMIZATION.md # Power management & battery life guide
@@ -254,7 +268,8 @@ the Python tools in `tools/`) need Python 3.13 or newer and stop with a message 
 and builds and copies the web UI. Options:
 `--ui legacy|new` (default `legacy`), `--webui-only`, `--reboot` (default is a hot restart),
 `--dry-run` / `-n` (reports what would change), `--no-backup`, `--stage-remote-ota`,
-`--key <private key>` and `--user`.
+`--dev-btstack` (installs `build/output/hub_btstack_dev`, the Bluetooth daemon with BTstack info logs;
+from a git checkout only), `--key <private key>` and `--user`.
 
 ### Running the tests
 
@@ -305,7 +320,7 @@ Without `--firmware` the tool uses the newest remote `.hfw2` bundle in `firmware
 1. Downloads official Elite firmware bundle (`remote_111_4.15.330.hfw2`) from Logitech update servers (or uses cached copy).
 2. Unpacks the internal SquashFS root filesystem with 7-Zip.
 3. Indexes and extracts the PNG assets (about 1,350) across `footer`, `hopsactivity`, `juniperactivity`, `commands`, `devices`, and `settings`.
-4. Packages them into `build/icons.tar.gz`. On the Hub, the web daemon unpacks the icons into `/tmp/www/assets/icons` when it starts (and again on a request if they are missing).
+4. Packages them into `build/icons.tar.gz`. `deploy_hub.py` repacks this archive (`tools/icon_pack.py`) before it installs it as `/cache/icons.tar.gz`. The result is still a plain `tar.gz`, but the Hub can now read one icon at a time from flash instead of unpacking about 6 MB of icons into RAM (`/tmp`). An archive installed by an older deploy or by an OTA update has no pack index. The web daemon still unpacks such an archive into `/tmp/www/assets/icons` until the next `deploy_hub.py` run.
 
 ---
 

@@ -65,6 +65,8 @@ char g_switching_target_id[16] = "-1";
 char g_switching_target_name[48] = "PowerOff";
 uint64_t g_switching_start_ms = 0;
 uint32_t g_switching_total_ms = 3500;
+volatile bool g_switch_hub_started = false;
+volatile uint64_t g_switch_hub_heard_ms = 0;
 
 /* Config Synchronization & RF OTA Lock overlay states */
 volatile bool g_is_syncing_config = false;
@@ -109,7 +111,6 @@ activity_trigger_btn_t g_act_triggers[MAX_ACT_TRIGGERS];
 int g_act_trigger_count = 0;
 
 bool g_gyro_enabled = true;
-int g_gyro_rate_hz = 50;       /* 10, 25, 50, 100 Hz */
 int g_deep_standby_min = -1;   /* -1 = at once (2 s after the screen blanks, as stock), 15, 30, 60, 120, 240, 0 = never */
 int g_btn_backlight_mode = 2;  /* 0 = OFF, 1 = ON, 2 = NIGHT_SCHEDULE */
 int g_night_start_hour = 22;   /* 10 PM */

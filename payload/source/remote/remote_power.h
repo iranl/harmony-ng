@@ -20,8 +20,8 @@ bool remote_on_external_power(void);
  * timer with it: that timer runs on the wall clock, so a step would blank the screen at once or
  * keep it on for as long as the step */
 void remote_set_clock(time_t epoch);
-/* A pairing, an activity switch, a config sync or an RF update is running: no suspend (from any
- * path) and no idle blank while it does */
+/* A pairing, an activity switch, a config sync or an RF update is running, or a key is held
+ * (remote_key_held()): no suspend (from any path) and no idle blank while it does */
 bool remote_suspend_blocked(void);
 /* SIGUSR2 asks for an immediate deep standby; the power thread does it */
 extern volatile sig_atomic_t g_deep_sleep_requested;
@@ -73,6 +73,9 @@ void init_gyro_interrupt(void);
 void remote_wdt_init(void);
 void remote_wdt_ping(void);
 void remote_wdt_close(void);
+/* Saves the usage counts, closes the watchdog and releases the input, RF and framebuffer
+ * devices: before the process ends or restarts itself */
+void remote_hardware_cleanup(void);
 
 #ifdef __cplusplus
 }

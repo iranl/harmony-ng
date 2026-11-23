@@ -47,6 +47,12 @@ extern "C" {
 #define GYRO_DATA_RATE_SYS      "/sys/devices/platform/i2c_davinci.1/i2c-1/1-0019/data_rate"
 #define GYRO_INT1_THRESHOLD_SYS "/sys/devices/platform/i2c_davinci.1/i2c-1/1-0019/int1_threshold"
 #define GYRO_INT1_DURATION_SYS  "/sys/devices/platform/i2c_davinci.1/i2c-1/1-0019/int1_duration"
+/* Stock LIS3DH setup (hops/init.lua setAccel, kernel platform data). data_rate is a raw CTRL_REG1
+ * byte, not Hz: the driver stores (CTRL_REG1 & 0x0F) | value. 0x30 = ODR 25 Hz, 0 = power down.
+ * The INT1 motion threshold is in 16 mg steps (+-2 g), the duration in 1/ODR steps. */
+#define GYRO_DATA_RATE_ON       0x30
+#define GYRO_INT1_THRESHOLD     10
+#define GYRO_INT1_DURATION      3
 #define GYRO_XYZ_SYS            "/sys/devices/platform/i2c_davinci.1/i2c-1/1-0019/xyz"
 #define RFSPI_DEV               "/dev/rfspi"
 #define ACTIVITY_JSON_FILE        "/data/activities.json"
@@ -165,12 +171,13 @@ typedef struct {
     uint8_t total_steps;
     uint16_t delay_ms;
     char name[32];
+    uint8_t warm_dev; /* a Warmup step: 1 + index into g_rf_devices of the device it waits for */
 } rf_act_step_t;
 
 typedef struct {
     char button_name[16];
     uint16_t rf_key_code;
-    uint8_t atype; /* 0x02 = start, 0x03 = stop */
+    uint8_t atype; /* 0x02 = start, 0x03 = stop, 0x04 = Help (target_act_id: its activity) */
     char target_act_id[12];
 } activity_trigger_btn_t;
 
@@ -236,6 +243,11 @@ extern char g_switching_target_id[16];
 extern char g_switching_target_name[48];
 extern uint64_t g_switching_start_ms;
 extern uint32_t g_switching_total_ms;
+/* The Hub announced the shown switch (RF_ACT_SYNC_STARTING): its end notice closes the switch
+ * screen, whatever activity it names */
+extern volatile bool g_switch_hub_started;
+/* When the Hub last said a switch runs (start notice or mid-switch query answer) */
+extern volatile uint64_t g_switch_hub_heard_ms;
 
 extern volatile bool g_is_syncing_config;
 extern uint64_t g_sync_start_ms;
@@ -287,7 +299,6 @@ extern activity_trigger_btn_t g_act_triggers[MAX_ACT_TRIGGERS];
 extern int g_act_trigger_count;
 
 extern bool g_gyro_enabled;
-extern int g_gyro_rate_hz;
 extern int g_deep_standby_min;
 extern int g_btn_backlight_mode;
 extern int g_night_start_hour;

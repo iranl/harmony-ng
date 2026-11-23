@@ -8,7 +8,14 @@ export function createDevicesApi(client) {
       const rawDevs = data.devices || (Array.isArray(data) ? data : []);
       const normalized = rawDevs.map((dev) => {
         const rawCmds = dev.commands || [];
-        const cleanType = dev.type === 'BT' ? 'BT' : (dev.type === 'MQTT' ? 'MQTT' : 'IR');
+        // A plugin device keeps what makes it one: its plugin id and its config
+        const plugId = typeof dev.plugin === 'string' && dev.plugin
+          ? dev.plugin
+          : (typeof dev.type === 'string' && dev.type.startsWith('plugin:') ? dev.type.slice(7) : '');
+        // HTTP and TCP devices (payload/source/net_device.h) keep their type: as 'IR' a save
+        // from this UI turned them into infrared devices
+        const isNet = !plugId && (dev.type === 'HTTP' || dev.type === 'TCP');
+        const cleanType = plugId ? `plugin:${plugId}` : (isNet ? dev.type : (dev.type === 'BT' ? 'BT' : (dev.type === 'MQTT' ? 'MQTT' : 'IR')));
         const isBt = cleanType === 'BT';
         const isMqtt = cleanType === 'MQTT';
         const hostAddr = dev.bdaddr || dev.btHost || '';
@@ -27,6 +34,8 @@ export function createDevicesApi(client) {
           defaultInterDeviceDelay: dev.defaultInterDeviceDelay !== undefined ? Number(dev.defaultInterDeviceDelay) : 500,
           powerOnDelay: dev.powerOnDelay !== undefined ? Number(dev.powerOnDelay) : 1500,
           isPowerAlwaysOn: Boolean(dev.isPowerAlwaysOn),
+          hideOnRemote: Boolean(dev.hideOnRemote),
+          hideInDevicesTab: Boolean(dev.hideInDevicesTab),
           bdaddr: hostAddr,
           btHost: hostAddr,
           btAutoReconnect: dev.btAutoReconnect !== undefined ? Number(dev.btAutoReconnect) : 1,
@@ -37,6 +46,8 @@ export function createDevicesApi(client) {
           powerOnSequence: dev.powerOnSequence || [],
           powerOffSequence: dev.powerOffSequence || [],
           isBt,
+          plugin: plugId || undefined,
+          config: plugId && dev.config && typeof dev.config === 'object' ? dev.config : undefined,
           mqttEnabled: isMqtt || !!dev.mqttEnabled,
           mqttTopic: dev.mqttTopic || '{base_topic}/button/{device}/{command}',
           mqttPulseMs: Number(dev.mqttPulseMs !== undefined ? dev.mqttPulseMs : 1000),
@@ -52,7 +63,7 @@ export function createDevicesApi(client) {
               keyCode: kCode,
               raw: rawStr
             };
-            if (!isBtCmd && !isMqttCmd) {
+            if (!isBtCmd && !isMqttCmd && !isNet) {
               cmdObj.repeats = c.repeats !== undefined ? c.repeats : 3;
               cmdObj.port = c.port !== undefined ? c.port : (c.controlPort || dev.controlPort || 7);
             }
@@ -120,12 +131,28 @@ export function createDevicesApi(client) {
       return client.postForm('/ir/command', data);
     },
 
+    // config goes as one JSON field: copied flat on top, a config key named like a device field
+    // (name, deviceId) replaced it
     async saveNewDevice(data) {
-      return client.postForm('/ir/new-device', data);
+      const payload = { ...data };
+      if (data.config && typeof data.config === 'object') {
+        payload.config = JSON.stringify(data.config);
+      }
+      if (Array.isArray(data.commands)) {
+        payload.commands = JSON.stringify(data.commands);
+      }
+      return client.postForm('/ir/new-device', payload);
     },
 
     async saveDeviceDetails(data) {
-      return client.postForm('/ir/device', data);
+      const payload = { ...data };
+      if (data.config && typeof data.config === 'object') {
+        payload.config = JSON.stringify(data.config);
+      }
+      if (Array.isArray(data.commands)) {
+        payload.commands = JSON.stringify(data.commands);
+      }
+      return client.postForm('/ir/device', payload);
     },
 
     async deleteDevice(deviceId) {

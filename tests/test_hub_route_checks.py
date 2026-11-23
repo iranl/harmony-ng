@@ -13,6 +13,11 @@ Route checks of hub_daemon (port 9101, own mock root, clients bound to 127.0.0.2
  5  factory reset does not answer "initiated" when its script is not installed
  6  POST /api/settings refuses a timezone name the Hub does not know (it ran as CET)
  7  mqtt.json, which holds the broker password, is made readable by its owner only
+ 8  the stock resources delete needs a confirmation, the stock import and a mark whose fingerprint
+    matches the files (a saved copy of them as they are), never
+    follows a link at /data/resources, and reports a file it could not remove
+ 9  a packed icon archive (tools/icon_pack.py): icons are served from it, listed from its index,
+    and the copy an older firmware unpacked into /tmp is removed
 """
 
 import base64
@@ -23,7 +28,9 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from hub_harness import HubHarness  # noqa: E402
+from hub_harness import TMP_WWW, HubHarness  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools"))
+import backup_hub  # noqa: E402
 
 PORT = 9101
 HOST = "127.0.0.2"
@@ -40,13 +47,14 @@ def check(cond, name, detail=""):
         print("  FAIL %s %s" % (name, detail))
 
 
-def raw(method, path, body=b""):
+def raw(method, path, body=b"", binary=False):
+    """binary: the body as bytes, and Connection: close (a static file keeps the connection open)"""
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.bind((HOST, 0))
     s.settimeout(8)
     s.connect((HOST, PORT))
-    s.sendall(("%s %s HTTP/1.1\r\nHost: %s:%d\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n"
-               % (method, path, HOST, PORT, len(body))).encode() + body)
+    s.sendall(("%s %s HTTP/1.1\r\nHost: %s:%d\r\nContent-Type: application/json\r\nContent-Length: %d\r\n%s\r\n"
+               % (method, path, HOST, PORT, len(body), "Connection: close\r\n" if binary else "")).encode() + body)
     out = b""
     try:
         while True:
@@ -62,6 +70,8 @@ def raw(method, path, body=b""):
     except (IndexError, ValueError):
         st = 0
     b = out.partition(b"\r\n\r\n")[2]
+    if binary:
+        return st, b
     try:
         return st, json.loads(b)
     except ValueError:
@@ -115,7 +125,7 @@ def upload(name, data):
 def test_icons():
     print("[-] 2  custom icons")
     tag = "p%d" % os.getpid()
-    tmp_icons = "/tmp/www/assets/icons"
+    tmp_icons = os.path.join(TMP_WWW, "assets", "icons")
     made = []
     with HubHarness(port=PORT, host=HOST, extra_root_files={"harmony/custom_icons/.keep": ""}) as hub:
         cache_icons = os.path.join(hub.mock_dir, "cache", "www", "assets", "icons")
@@ -174,6 +184,37 @@ def test_icons():
             pass
 
 
+def test_packed_icons():
+    print("[-] 9  stock icons read from the packed icon archive")
+    import icon_pack
+    import test_icon_pack
+    tag = "p%d" % os.getpid()
+    tmp_icons = os.path.join(TMP_WWW, "assets", "icons")
+    os.makedirs(tmp_icons, exist_ok=True)
+    with open(os.path.join(tmp_icons, "stale%s.png" % tag), "wb") as f:
+        f.write(PNG_SIG)
+    files = test_icon_pack.make_files()
+    with HubHarness(port=PORT, host=HOST) as hub:
+        os.makedirs(os.path.join(hub.mock_dir, "cache"), exist_ok=True)
+        archive = os.path.join(hub.mock_dir, "cache", "icons.tar.gz")
+        test_icon_pack.make_archive(archive, files)
+        icon_pack.pack(archive, archive)
+        st, b = raw("GET", "/assets/icons/shared.png", binary=True)
+        check(st == 200 and b == b"from-b", "folder icon by file name (later folder)", "%s %r" % (st, b[:20]))
+        st, b = raw("GET", "/assets/icons/a/shared.png", binary=True)
+        check(st == 200 and b == b"from-a", "icon by its folder path", "%s %r" % (st, b[:20]))
+        st, b = raw("GET", "/assets/icons/big.png", binary=True)
+        check(st == 200 and b == files["icons/big.png"], "icon larger than a part, byte for byte", str(st))
+        st, r = raw("GET", "/api/icons")
+        check(st == 200 and isinstance(r, list) and "top02.png" in r and "shared.png" in r
+              and not any("/" in n for n in r), "icon list from the index", repr(r)[:80])
+        st, r = raw("GET", "/api/status")
+        check(isinstance(r, dict) and r.get("has_icons") is True, "has_icons", repr(r)[:80])
+        st, b = raw("GET", "/api/icons/archive", binary=True)
+        check(st == 200 and b == read(archive), "archive route sends the packed archive as it is", str(st))
+        check(not os.path.exists(tmp_icons), "unpacked copy in /tmp removed")
+
+
 def test_query_params():
     print("[-] 3  query parameters, 4  log files")
     with HubHarness(port=PORT, host=HOST, extra_data_files={"mqtt.json": {"enabled": False, "password": "x"}}) as hub:
@@ -227,10 +268,86 @@ def test_query_params():
         check(st == 500, "missing script reported, not 'initiated'", "%s %s" % (st, r))
 
 
+def test_stock_resources():
+    print("[-] 8  stock resources delete")
+    stock = {"resources/DeviceList.json": "x" * 3000, "resources/sub/Context.json": "{}"}
+    clean = json.dumps({"action": "clean_stock_resources", "confirm": "EMPTY"}).encode()
+    with HubHarness(port=PORT, host=HOST, extra_root_files=stock) as hub:
+        res_dir = os.path.join(hub.mock_dir, "data", "resources")
+        saved = os.path.join(hub.data_dir, "stock_resources_saved")
+        st, r = raw("GET", "/api/disk-space")
+        check(st == 200 and r.get("stock_resources_kb") == 3 and r.get("stock_resources_saved") is False
+              and r.get("can_empty_stock_resources") is False, "disk fields before a saved copy", str(r))
+
+        st, r = raw("POST", "/system", json.dumps({"action": "clean_stock_resources"}).encode())
+        check(st == 400 and os.path.isfile(os.path.join(res_dir, "DeviceList.json")),
+              "no confirm: refused, files kept", "%s %s" % (st, r))
+        st, r = raw("POST", "/system", clean)
+        check(st == 409 and os.path.isfile(os.path.join(res_dir, "DeviceList.json")),
+              "no saved copy: refused, files kept", "%s %s" % (st, r))
+
+        def mark(files):
+            with open(saved, "w") as f:
+                f.write("stock_resources_test.tar %s\n" % backup_hub.stock_fingerprint(files))
+
+        # A mark from other files (changed since they were saved): refused
+        mark({"DeviceList.json": (2999, ""), "sub/Context.json": (2, "")})
+        st, r = raw("POST", "/system", clean)
+        check(st == 409 and os.path.isfile(os.path.join(res_dir, "DeviceList.json")),
+              "stale mark: refused, files kept", "%s %s" % (st, r))
+        mark({"DeviceList.json": (3000, ""), "sub/Context.json": (2, "")})
+
+        devices = os.path.join(hub.data_dir, "config", "devices.json")
+        with open(devices, "rb") as f:
+            devices_body = f.read()
+        open(devices, "w").close()  # a cut upload
+        st, r = raw("POST", "/system", clean)
+        check(st == 409 and os.path.isfile(os.path.join(res_dir, "DeviceList.json")),
+              "empty devices.json: refused, files kept", "%s %s" % (st, r))
+        os.unlink(devices)
+        st, r = raw("POST", "/system", clean)
+        check(st == 409 and os.path.isfile(os.path.join(res_dir, "DeviceList.json")),
+              "stock config not imported: refused, files kept", "%s %s" % (st, r))
+        with open(devices, "wb") as f:
+            f.write(devices_body)
+
+        st, r = raw("GET", "/api/disk-space")
+        check(r.get("can_empty_stock_resources") is True, "can empty with a saved copy", str(r))
+        st, r = raw("POST", "/system", clean)
+        check(st == 200 and isinstance(r, dict) and r.get("stock_resources_kb") == 0
+              and isinstance(r.get("freed_kb"), (int, float)) and os.listdir(res_dir) == [],
+              "emptied, directory kept", "%s %s" % (st, r))
+
+        # A link at /data/resources: its target is never emptied
+        target = os.path.join(hub.mock_dir, "elsewhere")
+        os.makedirs(target)
+        with open(os.path.join(target, "keep.json"), "w") as f:
+            f.write("{}")
+        os.rmdir(res_dir)
+        os.symlink(target, res_dir)
+        st, r = raw("POST", "/system", clean)
+        check(st == 409 and os.path.isfile(os.path.join(target, "keep.json")),
+              "link at /data/resources: refused, target kept", "%s %s" % (st, r))
+        os.unlink(res_dir)
+
+        # Not removable (a read-only directory): an error, never "emptied" (root can write anywhere)
+        if os.geteuid() != 0:
+            os.makedirs(os.path.join(res_dir, "ro"))
+            with open(os.path.join(res_dir, "ro", "f.json"), "w") as f:
+                f.write("{}")
+            os.chmod(os.path.join(res_dir, "ro"), 0o555)
+            mark({"ro/f.json": (2, "")})
+            st, r = raw("POST", "/system", clean)
+            os.chmod(os.path.join(res_dir, "ro"), 0o755)
+            check(st == 500, "file not removable: 500", "%s %s" % (st, r))
+
+
 def main():
     test_map_saves()
     test_icons()
+    test_packed_icons()
     test_query_params()
+    test_stock_resources()
     if failed:
         print("[-] %d check(s) failed" % failed)
         sys.exit(1)

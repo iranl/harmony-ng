@@ -23,6 +23,7 @@ extern "C" {
 #define SETTINGS_LIST_Y   66
 #define HDR_GEAR_W        34  /* touch width of the gear at the left of the status bar */
 #define ACT_KEY_LONG_MS   800 /* Activities key held this long opens the menu */
+#define NAV_HOLD_REPEAT_MS 150 /* a held rocker moves the selection again this often */
 
 /* Status bar elements that can be tapped; x < 0 when not shown */
 typedef struct {
@@ -115,7 +116,7 @@ int get_settings_sub_count(void);
 int settings_item_at(int y);
 /* The Power page item that opens the Suspend page: Cancel, Back and the end of the countdown
  * return to it */
-#define SETTINGS_POWER_SUSPEND_ITEM 5
+#define SETTINGS_POWER_SUSPEND_ITEM 4
 
 /* Status bar menu (remote_ui_menu.c): opened from the gear or a long press of the Activities key */
 void ui_menu_open(void);

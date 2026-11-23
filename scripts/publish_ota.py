@@ -43,6 +43,7 @@ STAGING_DIR = REPO_ROOT / "build" / "ota_staging"
 HUB_BINARIES = [
     "hub_util",
     "hub_daemon",
+    "hub_fetch",
     "hub_rf",
     "hub_btstack",
     "hub_sntp",
@@ -50,6 +51,11 @@ HUB_BINARIES = [
     "mknod",
     "register_ehci",
     "eth_fix",
+]
+
+# Shared libraries for plugins, installed to /data/harmony/lib by update.sh
+HUB_LIBRARIES = [
+    "libbearssl.so.0",
 ]
 
 REMOTE_BINARIES = [
@@ -116,6 +122,24 @@ def package_ota(output_dir: Path, version: str):
             }
         else:
             print(f"[-] Warning: Hub binary {bname} not found in search paths")
+
+    # Shared libraries also as files of their own: "update.sh repair-tls" fetches a missing one
+    # of the installed release (an update from v2.5.3 or older installs no lib/)
+    lib_target = output_dir / "lib"
+    for lname in HUB_LIBRARIES:
+        src = find_candidate_file(lname, MIPS_SEARCH_PATHS + [REPO_ROOT / "payload" / "lib"])
+        if src and src.exists():
+            import shutil
+            lib_target.mkdir(parents=True, exist_ok=True)
+            dst = lib_target / lname
+            shutil.copy2(src, dst)
+            md5, sha = get_file_hashes(dst)
+            manifest_files[f"lib/{lname}"] = {"size": dst.stat().st_size, "md5": md5, "sha256": sha}
+        else:
+            # without it a Hub updated from v2.5.3 or older can never repair its TLS (repair-tls)
+            print(f"[-] {lname} not found: this release has no TLS library for repair-tls or the update")
+            if "--require-signature" in sys.argv:
+                sys.exit(1)
 
     # 3. ARM binaries (remote)
     arm_target = output_dir / "bin" / "arm"
@@ -215,7 +239,12 @@ def package_ota(output_dir: Path, version: str):
         for bname in HUB_BINARIES + ["busybox", "dropbearmulti"]:
             src = find_candidate_file(bname, MIPS_SEARCH_PATHS)
             if src and src.exists():
-                tar.add(src, arcname=f"bin/{bname}")
+                # The SSH server takes Ed25519 user keys only. The update.sh of v2.5.3 and older
+                # installs bin/dropbearmulti unchecked and reboots, which would lock out a Hub
+                # whose root has no Ed25519 key: under this name that script skips it, and the new
+                # update.sh installs it as dropbearmulti behind its key check.
+                arc = "bin/dropbearmulti_ed25519" if bname == "dropbearmulti" else f"bin/{bname}"
+                tar.add(src, arcname=arc)
         # Scripts
         scripts_dir = REPO_ROOT / "payload" / "scripts"
         if scripts_dir.is_dir():
@@ -228,6 +257,14 @@ def package_ota(output_dir: Path, version: str):
             for f in config_dir.iterdir():
                 if f.is_file():
                     tar.add(f, arcname=f"config/{f.name}")
+        # Shared libraries for plugins (built by compile_all.sh into payload/lib; the release
+        # workflow brings them in the hub-binaries artifact)
+        for lname in HUB_LIBRARIES:
+            src = find_candidate_file(lname, MIPS_SEARCH_PATHS + [REPO_ROOT / "payload" / "lib"])
+            if src and src.exists():
+                tar.add(src, arcname=f"lib/{lname}")
+            else:
+                print(f"[-] Warning: {lname} not found: plugins that need it will not start")
         # WebUI
         if www_src and www_src.is_dir():
             for root, _, files in os.walk(www_src):
@@ -243,6 +280,16 @@ def package_ota(output_dir: Path, version: str):
             with tarfile.open(icons_tar, "w:gz") as itar:
                 itar.add(REPO_ROOT / "data" / "remote_icons" / "icons", arcname="icons")
         if icons_tar.is_file():
+            # the packed form, as deploy_hub.py installs it: a plain archive put over a packed one
+            # had the Hub unpack about 6.8 MB into RAM again
+            try:
+                sys.path.insert(0, str(REPO_ROOT / "tools"))
+                import icon_pack
+                if not icon_pack.is_packed(icons_tar):
+                    print(f"[*] Repacking {icons_tar.name} so the Hub reads icons from flash...")
+                    icon_pack.pack(icons_tar, icons_tar)
+            except (ImportError, OSError, ValueError, tarfile.TarError) as e:
+                print(f"[-] Warning: {icons_tar.name} not packed ({e}): Hubs unpack it into RAM")
             tar.add(icons_tar, arcname="icons.tar.gz")
             shutil.copy2(icons_tar, output_dir / "icons.tar.gz")
             imd5, isha = get_file_hashes(output_dir / "icons.tar.gz")

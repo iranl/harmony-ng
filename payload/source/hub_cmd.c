@@ -17,6 +17,7 @@
 #include "ws_server.h"
 #include "hub_info.h"
 #include "bt_common.h"
+#include "remote_slots.h"
 #include <pthread.h>
 
 #include <stdio.h>
@@ -96,7 +97,7 @@ static cJSON *ack(const cJSON *req, const char *action, int ok, int code, const 
 }
 
 /* Request to hub_rf on the loopback; returns the HTTP status or -1 (hub_rf not running) */
-static int rf_request(const char *method, const char *path, const char *body) {
+int hub_rf_request(const char *method, const char *path, const char *body) {
     int s = socket(AF_INET, SOCK_STREAM, 0);
     if (s < 0) return -1;
     struct timeval tv = { .tv_sec = 0, .tv_usec = 600000 };
@@ -484,11 +485,28 @@ cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin) {
         if (!j_hold) j_hold = cJSON_GetObjectItemCaseSensitive(req, "hold");
         double hold_secs = (j_hold && cJSON_IsNumber(j_hold)) ? j_hold->valuedouble : 0.0;
 
-        if (cmd_count == 1 && num_repeats <= 1 && hold_secs <= 0.0 && !hub_mqtt_queue_busy()) {
-            int rc = hw_device_command_send_action(dev_buf, 0, cmd_list[0], btn_action);
+        /* "value": the number for a plugin command (one with a range needs it); one command only */
+        const cJSON *j_val = cJSON_GetObjectItemCaseSensitive(req, "value");
+        if (j_val && (!cJSON_IsNumber(j_val) || j_val->valuedouble != (double)(int)j_val->valuedouble ||
+                      j_val->valueint == HW_VALUE_NONE))
+            return ack(req, action, 0, 400, "value must be an integer");
+        if (j_val && (cmd_count != 1 || num_repeats > 1 || hold_secs > 0.0))
+            return ack(req, action, 0, 400, "value takes a single command");
+
+        if (cmd_count == 1 && num_repeats <= 1 && hold_secs <= 0.0 && (j_val || !hub_mqtt_queue_busy())) {
+            int rc = j_val ? hw_device_command_send_value(dev_buf, 0, cmd_list[0], btn_action, j_val->valueint)
+                           : hw_device_command_send_action(dev_buf, 0, cmd_list[0], btn_action);
             if (rc == -5) return ack(req, action, 0, 404, "Device not found");
             if (rc == -6) return ack(req, action, 0, 404, "Command not found");
+            if (rc == HW_ERR_VALUE_RANGE) return ack(req, action, 0, 400, "value out of range");
+            if (rc == HW_ERR_VALUE_MISSING) return ack(req, action, 0, 400, "value required (the command has a range)");
             return (rc == 0) ? ack(req, action, 1, 200, NULL) : ack(req, action, 0, 500, "IR transmit failed");
+        }
+        /* queued commands carry no value: a ranged plugin command among them is refused now,
+         * not acked and dropped later with a log line */
+        for (int ci = 0; ci < cmd_count; ci++) {
+            if (hw_device_command_needs_value(dev_buf, 0, cmd_list[ci]))
+                return ack(req, action, 0, 400, "value required (the command has a range)");
         }
         int waiting = hub_mqtt_queue_busy();
         int rc = hub_mqtt_queue_commands(dev_buf, 0, cmd_list, cmd_count, num_repeats, btn_action, delay_secs, hold_secs);
@@ -601,10 +619,10 @@ cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin) {
     if (strcmp(action, "rf_wake") == 0 || strcmp(action, "rf_sleep") == 0) {
         const cJSON *js = cJSON_GetObjectItemCaseSensitive(req, "slot");
         int slot = (js && cJSON_IsNumber(js)) ? js->valueint : 1;
-        if (slot < 1 || slot > 2) return ack(req, action, 0, 400, "slot: 1 or 2");
+        if (slot < 1 || slot > REMOTE_SLOT_MAX) return ack(req, action, 0, 400, "slot: 1 to 6");
         char path[64];
         snprintf(path, sizeof(path), "/api/rf/%s?slot=%d", strcmp(action, "rf_wake") == 0 ? "wake" : "sleep", slot);
-        int st = rf_request("POST", path, "{}");
+        int st = hub_rf_request("POST", path, "{}");
         if (st < 0) return ack(req, action, 0, 503, "hub_rf not running");
         if (st >= 200 && st < 300) return ack(req, action, 1, 200, NULL);
         return ack(req, action, 0, st, st == 409 ? "busy" : "hub_rf refused");

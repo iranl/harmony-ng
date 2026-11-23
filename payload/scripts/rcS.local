@@ -33,7 +33,7 @@ elif [ ! -s /usr/sbin/dropbear ]; then
 		_fb=/data/dropbearmulti
 	fi
 	if [ -n "$_fb" ]; then
-		printf '#!/bin/sh\nexec %s dropbear -s -g -K 300 "$@"\n' "$_fb" > /usr/sbin/dropbear.new &&
+		printf '#!/bin/sh\nexec %s dropbear -s -g -K 300 -R "$@"\n' "$_fb" > /usr/sbin/dropbear.new &&
 			chmod 755 /usr/sbin/dropbear.new && mv -f /usr/sbin/dropbear.new /usr/sbin/dropbear
 	fi
 fi
@@ -108,9 +108,9 @@ EOF
 	if [ -s /usr/sbin/dropbear ] && [ -x /usr/sbin/dropbear ]; then
 		/usr/sbin/dropbear
 	elif [ -x /data/harmony/bin/dropbearmulti ] && [ -s /data/harmony/bin/dropbearmulti ]; then
-		/data/harmony/bin/dropbearmulti dropbear -s -g -K 300
+		/data/harmony/bin/dropbearmulti dropbear -s -g -K 300 -R
 	elif [ -x /data/dropbearmulti ] && [ -s /data/dropbearmulti ]; then
-		/data/dropbearmulti dropbear -s -g -K 300
+		/data/dropbearmulti dropbear -s -g -K 300 -R
 	fi
 
 	exit 0

@@ -22,6 +22,14 @@ extern "C" {
 void sanitize_devices_json(cJSON *root);
 void sanitize_activity_steps(cJSON *steps);
 void sanitize_activities_json(cJSON *root);
+/* HTTP/TCP devices (net_device.h): the stored httpPassword/httpToken as "" plus
+ * hasHttpPassword/hasHttpToken; returns how many were masked */
+int config_mask_device_secrets(cJSON *root);
+int config_devices_have_secrets(const cJSON *root);
+/* host name or IP address of an HTTP/TCP device */
+int net_host_valid(const char *host);
+/* an HTTP header name an HTTP device may set */
+int net_header_name_ok(const char *name);
 
 #ifdef __cplusplus
 }

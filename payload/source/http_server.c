@@ -11,9 +11,11 @@
 #include "http_api_ota.h"
 #include "http_api_backup.h"
 #include "http_api_system.h"
+#include "http_api_plugins.h"
 #include "hub_ws.h"
 #include "ws_server.h"
 #include "cJSON.h"
+#include "icon_pack.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -198,6 +200,8 @@ static long http_body_limit(const char *req) {
     static const struct { const char *route; long max; } limits[] = {
         { "POST /import", HTTP_BODY_MAX_LARGE },
         { "POST /api/custom-icons", HTTP_BODY_MAX_LARGE },
+        /* a plugin archive sent as base64 JSON: the android-tv archive alone is over 64 KB */
+        { "POST /api/plugins/install", HTTP_BODY_MAX_LARGE },
         { "POST /api/rf-mapping-save", HTTP_BODY_MAX_MAP },
         { "POST /api/remote-mapping-save", HTTP_BODY_MAX_MAP },
         { "POST /api/ui-remote-layout", HTTP_BODY_MAX_MAP },
@@ -207,6 +211,29 @@ static long http_body_limit(const char *req) {
         if (strncmp(req, limits[i].route, n) == 0 && (req[n] == ' ' || req[n] == '?')) return limits[i].max;
     }
     return HTTP_BODY_MAX;
+}
+
+/* A stock icon from the packed icon archive (icon_pack.c); 0 when it is not there. Not kept in
+ * the static cache: the browser keeps it (immutable), and the Hub's RAM is what this saves. */
+static int serve_packed_icon(int client_fd, const char *req, const char *name, int keep_alive) {
+    size_t len = 0;
+    unsigned char *data = icon_pack_read(name, &len);
+    if (!data) return 0;
+    char header[384];
+    int hlen = snprintf(header, sizeof(header),
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: image/png\r\n"
+        "Content-Length: %zu\r\n"
+        "Access-Control-Allow-Origin: *\r\n"
+        "Cache-Control: public, max-age=31536000, immutable\r\n"
+        "Connection: %s\r\n"
+        "%s\r\n",
+        len, keep_alive ? "keep-alive" : "close", keep_alive ? "Keep-Alive: timeout=2, max=64\r\n" : "");
+    if (http_send_all(client_fd, header, (size_t)hlen) == 0 && strncmp(req, "HEAD ", 5) != 0 && len > 0) {
+        http_send_all(client_fd, data, len);
+    }
+    free(data);
+    return 1;
 }
 
 static int serve_static_file(int client_fd, const char *req, const char *path, int keep_alive) {
@@ -264,7 +291,15 @@ static int serve_static_file(int client_fd, const char *req, const char *path, i
     }
 
     char file_path[512];
-    snprintf(file_path, sizeof(file_path), "/tmp/www%s", rel_path);
+    snprintf(file_path, sizeof(file_path), HARMONY_TMP_WWW "%s", rel_path);
+    char upload_path[512];
+    snprintf(upload_path, sizeof(upload_path), "/data/harmony/custom_icons/%s",
+             strncmp(rel_path, "/assets/icons/", 14) == 0 ? rel_path + 14 : "");
+    /* an uploaded icon first, as in hub_rf's registry: then the pack */
+    if (access(file_path, F_OK) != 0 && strncmp(rel_path, "/assets/icons/", 14) == 0 &&
+        access(upload_path, F_OK) != 0 && serve_packed_icon(client_fd, req, rel_path + 14, keep_alive)) {
+        return 1;
+    }
     if (access(file_path, F_OK) != 0) {
         snprintf(file_path, sizeof(file_path), "/data/harmony/www%s", rel_path);
         if (access(file_path, F_OK) != 0) {
@@ -285,8 +320,9 @@ static int serve_static_file(int client_fd, const char *req, const char *path, i
                     else if (strcmp(ifn, "poweroff.png") == 0) mapped = "power_off.png";
                     else if (strcmp(ifn, "generic.png") == 0) mapped = "default.png";
 
+                    if (mapped && serve_packed_icon(client_fd, req, mapped, keep_alive)) return 1;
                     if (mapped) {
-                        snprintf(file_path, sizeof(file_path), "/tmp/www/assets/icons/%s", mapped);
+                        snprintf(file_path, sizeof(file_path), HARMONY_TMP_WWW "/assets/icons/%s", mapped);
                         if (access(file_path, F_OK) != 0) {
                             snprintf(file_path, sizeof(file_path), "/cache/www/assets/icons/%s", mapped);
                         }
@@ -555,6 +591,7 @@ static void http_process_request(int client_fd, const char *req) {
     if (http_api_remotes_handle(client_fd, method, clean_path, query, body, req)) return;
     if (http_api_ota_handle(client_fd, method, clean_path, query, body, req)) return;
     if (http_api_backup_handle(client_fd, method, clean_path, query, body, req)) return;
+    if (http_api_plugins_handle(client_fd, method, clean_path, query, body, req)) return;
     if (http_api_system_handle(client_fd, method, clean_path, query, body, req, auth_role, auth_user)) return;
 
     /* Unmatched route: 404 */

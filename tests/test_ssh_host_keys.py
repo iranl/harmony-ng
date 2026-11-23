@@ -36,7 +36,8 @@ import ssh_hostkeys  # noqa: E402
 
 # Every host tool that runs ssh or scp
 TOOLS = ["build/deploy_hub.py", "remote/deploy_remote.py", "remote/setup_remote.py", "tools/backup_hub.py",
-         "tools/factory_reset.py", "tools/restore_stock.py", "tools/root_hub_usb.py"]
+         "tools/capture_remote_fb.py", "tools/clean_stock_resources.py", "tools/factory_reset.py",
+         "tools/restore_stock.py", "tools/root_hub_usb.py"]
 # tools/sync_remote_to_hub.py is removed by another change (#220, legacy leftovers): not covered here
 NOT_COVERED = {"tools/sync_remote_to_hub.py"}
 
@@ -112,6 +113,17 @@ class HelperTests(unittest.TestCase):
 
     def tearDown(self):
         self.tmp.cleanup()
+
+    def test_record_host_key_adds_a_missing_type_only(self):
+        self.kh.parent.mkdir(parents=True)
+        self.kh.write_bytes(b"other ssh-ed25519 AAAAx\n10.0.0.5 ssh-rsa AAAArsa")
+        # The Ed25519 key goes next to the recorded RSA one (the file had no final newline)
+        self.assertTrue(ssh_hostkeys.record_host_key("root@10.0.0.5", "ssh-ed25519 AAAAnew root@hub"))
+        # A recorded key of that type is never replaced
+        self.assertFalse(ssh_hostkeys.record_host_key("10.0.0.5", "ssh-ed25519 AAAAother"))
+        self.assertFalse(ssh_hostkeys.record_host_key("10.0.0.5", "garbage"))
+        self.assertEqual(self.kh.read_bytes(),
+                         b"other ssh-ed25519 AAAAx\n10.0.0.5 ssh-rsa AAAArsa\n10.0.0.5 ssh-ed25519 AAAAnew\n")
 
     def test_options(self):
         opts = ssh_hostkeys.ssh_options("root@HarmonyHub.Local")
@@ -347,6 +359,7 @@ class ToolRuns(unittest.TestCase):
         "restore_stock": (["tools/restore_stock.py", "--backup", "BASE/stock.tar", "--force", "--skip-usb-root",
                            "--hub-ip", "192.168.1.20", "--pubkey", "BASE/owner.pub"], "192.168.1.20"),
         "deploy_remote": (["remote/deploy_remote.py", "--check"], "192.168.2.1"),
+        "capture_remote_fb": (["tools/capture_remote_fb.py", "-o", "BASE/shot.png"], "192.168.2.1"),
     }
 
     def prepare(self, args):

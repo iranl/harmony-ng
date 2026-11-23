@@ -13,7 +13,7 @@
 #include <fcntl.h>
 #include <poll.h>
 
-static cJSON *g_remote_map_cache[2] = {NULL, NULL};
+static cJSON *g_remote_map_cache[MAX_PAIRED_REMOTES];
 pthread_mutex_t g_map_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static cJSON *g_rf_devices_cache = NULL;
@@ -50,14 +50,14 @@ void rf_keymap_invalidate_activities_cache(void) {
 
 void rf_keymap_invalidate_map(uint8_t slot) {
     pthread_mutex_lock(&g_map_lock);
-    if (slot >= 1 && slot <= 2) {
+    if (slot >= 1 && slot <= MAX_PAIRED_REMOTES) {
         int idx = slot - 1;
         if (g_remote_map_cache[idx]) {
             cJSON_Delete(g_remote_map_cache[idx]);
             g_remote_map_cache[idx] = NULL;
         }
     } else {
-        for (int i = 0; i < 2; i++) {
+        for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {
             if (g_remote_map_cache[i]) {
                 cJSON_Delete(g_remote_map_cache[i]);
                 g_remote_map_cache[i] = NULL;
@@ -125,6 +125,17 @@ void get_current_activity(char *out, size_t outlen) {
     snprintf(out, outlen, "-1");
 }
 
+int get_activity_target(char *out, size_t outlen) {
+    if (!out || outlen == 0) return 0;
+    out[0] = '\0';
+    FILE *f = fopen("/tmp/activity_target", "r"); /* orchestrator.c: written for a switch */
+    if (!f) return 0;
+    if (!fgets(out, outlen, f)) out[0] = '\0';
+    fclose(f);
+    out[strcspn(out, "\r\n ")] = '\0';
+    return out[0] != '\0';
+}
+
 int is_activity_transitioning(void) {
     FILE *fs = fopen("/tmp/activity_state", "r");
     if (fs) {
@@ -139,7 +150,7 @@ int is_activity_transitioning(void) {
 }
 
 cJSON *get_remote_map_unlocked(uint8_t slot) {
-    if (slot < 1 || slot > 2) slot = 1;
+    if (slot < 1 || slot > MAX_PAIRED_REMOTES) slot = 1;
     int idx = slot - 1;
 
     if (g_remote_map_cache[idx]) return g_remote_map_cache[idx];
@@ -211,7 +222,7 @@ int is_slot_direct_mode(uint8_t slot) {
 }
 
 cJSON *get_remote_direct_map(int slot) {
-    if (slot < 1 || slot > 2) slot = 1;
+    if (slot < 1 || slot > MAX_PAIRED_REMOTES) slot = 1;
     char path[128];
     snprintf(path, sizeof(path), "/data/harmony/remote_slot%d_direct_buttons.json", slot);
     FILE *f = fopen(path, "r");
@@ -452,6 +463,10 @@ static void run_remote_button(uint8_t slot, const char *button_name, const char 
     } else if (is_press && (strcmp(act_type_buf, "activity_stop") == 0 || strcmp(act_type_buf, "poweroff") == 0)) {
         printf("[*] RF Dispatch: Stop activity (PowerOff)\n");
         http_post_local(DAEMON_PORT, "/api/poweroff", "{}");
+    } else if (is_press && strcmp(action_state, "hold") != 0 && strcmp(act_type_buf, "help") == 0) {
+        /* A remote without the Help screen: re-send the running activity's commands */
+        printf("[*] RF Dispatch: Help for the running activity\n");
+        http_post_local(DAEMON_PORT, "/api/activity/help", "{}");
     }
 }
 

@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "hw_action.h"
+#include "cmd_range.h"
 #include "resource_cache.h"
 #include "ir_encoder.h"
 #include "ir_i2s.h"
@@ -7,6 +8,10 @@
 #include "bt_common.h"
 #include "orchestrator.h"
 #include "hub_events.h"
+#include "ble_adv_payload.h"
+#include "plugin_mgr.h"
+#include "net_device.h"
+#include "net_action.h"
 #include "cJSON.h"
 
 #include <stdio.h>
@@ -16,6 +21,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <sys/socket.h>
+#include <sys/un.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <netinet/in.h>
@@ -567,7 +573,7 @@ static void check_and_trigger_bt_reconnect_for_command(const cJSON *devs, const 
     }
 }
 
-static int send_match_in(const cJSON *root, const char *target, int match_mode, const char *command, int action) {
+static int send_match_in(const cJSON *root, const char *target, int match_mode, const char *command, int action, int value) {
     int ret = -1;
 
     cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
@@ -632,6 +638,15 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
     cJSON *j_mtop = cJSON_GetObjectItemCaseSensitive(target_dev, "mqttTopic");
     if (j_mtop && cJSON_IsString(j_mtop) && j_mtop->valuestring && j_mtop->valuestring[0]) is_mqtt = 1;
 
+    /* Only the device's "plugin" field or "plugin:<id>" type: no manifest is read in the key
+     * path, and an IR device whose type happens to match a plugin name stays IR */
+    char plugin_id[64] = {0};
+    int is_plugin = plugin_mgr_device_plugin_id(target_dev, plugin_id, sizeof(plugin_id));
+    /* HTTP and TCP devices by their type only (net_device.h): a name with "mqtt" in it does
+     * not make one an MQTT device */
+    int net_kind = is_plugin ? NET_KIND_NONE : net_device_kind(target_dev);
+    if (net_kind) is_mqtt = 0;
+
     /* Find Command */
     cJSON *cmds = cJSON_GetObjectItemCaseSensitive(target_dev, "commands");
     cJSON *target_cmd = NULL;
@@ -664,7 +679,7 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
         }
     }
 
-    if (!target_cmd && !is_mqtt) {
+    if (!target_cmd && !is_mqtt && !is_plugin) {
         return -6;
     }
 
@@ -685,7 +700,40 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
         }
     }
 
+    /* Points into the saved keyCode (held until the send is done): a copy cut long app links */
+    const char *plug_cmd = command;
+    if (strncmp(keycode_str, "PLUGIN:", 7) == 0 || strncmp(keycode_str, "plugin:", 7) == 0) {
+        is_plugin = 1;
+        const char *p = keycode_str + 7;
+        const char *colon = strchr(p, ':');
+        if (colon) {
+            size_t plen = (size_t)(colon - p);
+            if (plen < sizeof(plugin_id)) {
+                memcpy(plugin_id, p, plen);
+                plugin_id[plen] = '\0';
+            }
+            if (colon[1]) plug_cmd = colon + 1;
+        } else if (!plugin_id[0]) {
+            strncpy(plugin_id, p, sizeof(plugin_id) - 1);
+        }
+    }
+
     if (strncmp(keycode_str, "G:MQTT", 6) == 0) is_mqtt = 1;
+
+    /* A plugin command with "range": [min, max] takes only a value in that range, and needs one */
+    if (is_plugin && target_cmd && cmd_range_valid(cJSON_GetObjectItemCaseSensitive(target_cmd, "range"))) {
+        if (value == HW_VALUE_NONE) {
+            printf("[!] Command '%s' of device '%s' refused: it needs a value (it has a range)\n",
+                   command, dev_name[0] ? dev_name : target);
+            return HW_ERR_VALUE_MISSING;
+        }
+        if (!hw_command_value_in_range(target_cmd, value)) {
+            printf("[!] Command '%s' of device '%s' refused: value %d outside its range\n",
+                   command, dev_name[0] ? dev_name : target, value);
+            return HW_ERR_VALUE_RANGE;
+        }
+    }
+    if (value == HW_VALUE_NONE) value = 0;
 
     uint8_t ir_ports = IR_PORT_ALL;
     cJSON *j_cp = cJSON_GetObjectItemCaseSensitive(target_dev, "controlPort");
@@ -773,7 +821,36 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
         }
     }
 
-    if (is_bt) {
+    int is_ble_adv = (strncmp(keycode_str, BLE_ADV_KEYCODE_PREFIX, BLE_ADV_KEYCODE_PREFIX_LEN) == 0);
+
+    if (is_plugin && plugin_id[0]) {
+        cJSON *j_cfg = cJSON_GetObjectItemCaseSensitive(target_dev, "config");
+        ret = hw_plugin_command_send(plugin_id, actual_dev_id, dev_name, plug_cmd, action, value, j_cfg ? j_cfg : target_dev);
+    } else if (net_kind) {
+        /* One request per press, like a BLE broadcast: the remote sends a hold every 300 ms, so
+         * a repeat would send a toggle (Power) twice. Queued for the net_action worker, so a slow
+         * device never holds this lock. */
+        ret = (action == HW_BTN_ACTION_RELEASE || action == HW_BTN_ACTION_REPEAT) ? 0 :
+              net_action_send(target_dev, target_cmd, actual_dev_id, dev_name, command, g_live_remote_key);
+    } else if (is_ble_adv) {
+        /* One broadcast per press: the receiver acts on the packet, not on how long it is held */
+        if (action == HW_BTN_ACTION_RELEASE || action == HW_BTN_ACTION_REPEAT) {
+            ret = 0;
+        } else {
+            const char *hex = keycode_str + BLE_ADV_KEYCODE_PREFIX_LEN;
+            uint8_t adv[BLE_ADV_MAX_LEN];
+            int adv_len = ble_adv_parse_hex(hex, adv, NULL);
+            if (adv_len < 0) {
+                printf("[!] BLE broadcast '%s' skipped: Device '%s' (%s) has an invalid payload\n",
+                       command, dev_name[0] ? dev_name : "BLE-Device", actual_dev_id);
+                ret = -2;
+            } else {
+                char adv_cmd[8 + 2 * BLE_ADV_MAX_LEN];
+                snprintf(adv_cmd, sizeof(adv_cmd), "adv %.*s\n", 2 * adv_len, hex);
+                ret = hub_send_btstack_cmd(adv_cmd);
+            }
+        }
+    } else if (is_bt) {
         if (!bdaddr[0]) {
             pthread_mutex_unlock(&s_hw_cmd_lock);
             printf("[!] BT command '%s' skipped: Device '%s' (%s) has no host paired\n",
@@ -975,7 +1052,36 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
     return ret;
 }
 
-static int hw_device_command_send_match(const char *target, int match_mode, const char *command, int action) {
+int hw_command_value_in_range(const cJSON *cmd, int value) {
+    const cJSON *r = cJSON_GetObjectItemCaseSensitive(cmd, "range");
+    if (!cmd_range_valid(r)) return 1;
+    return value >= cJSON_GetArrayItem(r, 0)->valueint && value <= cJSON_GetArrayItem(r, 1)->valueint;
+}
+
+int hw_device_command_needs_value(const char *target, int match_mode, const char *command) {
+    if (!target || !command) return 0;
+    struct cfg_snap *snap = NULL;
+    const cJSON *root = get_device_list_acquire(&snap);
+    if (!root) return 0;
+    int needs = 0;
+    const cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
+    const cJSON *dev = cJSON_IsArray(devs) ? find_device(devs, target, match_mode, NULL, 0) : NULL;
+    const cJSON *c = NULL;
+    cJSON_ArrayForEach(c, (dev ? cJSON_GetObjectItemCaseSensitive(dev, "commands") : NULL)) {
+        const cJSON *cn = cJSON_GetObjectItemCaseSensitive(c, "name");
+        if (!cJSON_IsString(cn) || strcasecmp(cn->valuestring, command) != 0) continue;
+        const cJSON *kc = cJSON_GetObjectItemCaseSensitive(c, "keyCode");
+        if (!cJSON_IsString(kc)) kc = cJSON_GetObjectItemCaseSensitive(c, "raw");
+        int plugin = plugin_mgr_device_plugin_id(dev, NULL, 0) ||
+                     (cJSON_IsString(kc) && strncasecmp(kc->valuestring, "PLUGIN:", 7) == 0);
+        needs = plugin && cmd_range_valid(cJSON_GetObjectItemCaseSensitive(c, "range"));
+        break;
+    }
+    release_device_list(&snap);
+    return needs;
+}
+
+static int hw_device_command_send_match(const char *target, int match_mode, const char *command, int action, int value) {
     if (!target || !command) return -1;
 
     /* The shared device list (no copy per key): a save meanwhile publishes a new one and leaves
@@ -983,25 +1089,29 @@ static int hw_device_command_send_match(const char *target, int match_mode, cons
     struct cfg_snap *snap = NULL;
     const cJSON *root = get_device_list_acquire(&snap);
     if (!root) return -4;
-    int ret = send_match_in(root, target, match_mode, command, action);
+    int ret = send_match_in(root, target, match_mode, command, action, value);
     release_device_list(&snap);
     return ret;
 }
 
 int hw_device_command_send_action(const char *target, int match_mode, const char *command, int action) {
-    return hw_device_command_send_match(target, match_mode, command, action);
+    return hw_device_command_send_match(target, match_mode, command, action, HW_VALUE_NONE);
+}
+
+int hw_device_command_send_value(const char *target, int match_mode, const char *command, int action, int value) {
+    return hw_device_command_send_match(target, match_mode, command, action, value);
 }
 
 int hw_device_command_send(const char *device_id, const char *command) {
-    return hw_device_command_send_match(device_id, 0, command, HW_BTN_ACTION_TAP);
+    return hw_device_command_send_match(device_id, 0, command, HW_BTN_ACTION_TAP, HW_VALUE_NONE);
 }
 
 int hw_device_command_send_by_id(const char *device_id, const char *command) {
-    return hw_device_command_send_match(device_id, 1, command, HW_BTN_ACTION_TAP);
+    return hw_device_command_send_match(device_id, 1, command, HW_BTN_ACTION_TAP, HW_VALUE_NONE);
 }
 
 int hw_device_command_send_by_name(const char *device_name, const char *command) {
-    return hw_device_command_send_match(device_name, 2, command, HW_BTN_ACTION_TAP);
+    return hw_device_command_send_match(device_name, 2, command, HW_BTN_ACTION_TAP, HW_VALUE_NONE);
 }
 
 static int device_exists_in(const cJSON *root, const char *target, int match_mode) {
@@ -1039,7 +1149,7 @@ static int device_command_exists_in(const cJSON *root, const char *target, int m
     if (j_dmfg && cJSON_IsString(j_dmfg) && strcasestr(j_dmfg->valuestring, "mqtt")) is_mqtt = 1;
     cJSON *j_mtop = cJSON_GetObjectItemCaseSensitive(target_dev, "mqttTopic");
     if (j_mtop && cJSON_IsString(j_mtop) && j_mtop->valuestring && j_mtop->valuestring[0]) is_mqtt = 1;
-    if (is_mqtt) return 1;
+    if (is_mqtt && !net_device_kind(target_dev)) return 1;
 
     /* Connect and Disconnect are found in the list like any command, as the sender looks them
      * up (the sanitizer adds both to every Bluetooth device). Accepted for any device, a job
@@ -1172,4 +1282,73 @@ int hw_bt_release_all(void) {
     ssize_t w = write(fd, "RELEASE\n", 8);
     close(fd);
     return (w == 8) ? 0 : -1;
+}
+
+int hw_plugin_command_send(const char *plugin_id, const char *dev_id, const char *dev_name,
+                          const char *command, int action, int value, const cJSON *config) {
+    /* the id goes into the socket path */
+    if (!plugin_mgr_is_safe_id(plugin_id) || !command || !command[0]) return -1;
+
+    char sock_path[128];
+    snprintf(sock_path, sizeof(sock_path), HARMONY_PLUGINS_RUN_DIR "/%s.sock", plugin_id);
+
+    const char *action_str = "press";
+    if (action == HW_BTN_ACTION_RELEASE) action_str = "release";
+    else if (action == HW_BTN_ACTION_REPEAT) action_str = "repeat";
+    else if (action == HW_BTN_ACTION_TAP) action_str = "tap";
+
+    if (g_dry_run) {
+        printf("[DRY-RUN] Plugin command simulated: plugin=%s dev=%s (%s) cmd=%s action=%s val=%d sock=%s\n",
+               plugin_id, dev_id ? dev_id : "", dev_name ? dev_name : "", command, action_str, value, sock_path);
+        return 0;
+    }
+
+    int s = socket(AF_UNIX, SOCK_DGRAM, 0);
+    if (s < 0) return -1;
+
+    struct sockaddr_un sun;
+    memset(&sun, 0, sizeof(sun));
+    sun.sun_family = AF_UNIX;
+    strncpy(sun.sun_path, sock_path, sizeof(sun.sun_path) - 1);
+
+    cJSON *msg = cJSON_CreateObject();
+    if (msg) {
+        cJSON_AddStringToObject(msg, "plugin_id", plugin_id);
+        cJSON_AddStringToObject(msg, "device_id", dev_id ? dev_id : "");
+        cJSON_AddStringToObject(msg, "device_name", dev_name ? dev_name : "");
+        cJSON_AddStringToObject(msg, "command", command);
+        cJSON_AddStringToObject(msg, "action", action_str);
+        cJSON_AddNumberToObject(msg, "value", value);
+        /* When it was queued (CLOCK_MONOTONIC ms): a plugin drops a repeat that waited too long */
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        cJSON_AddNumberToObject(msg, "ts", (double)((uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL));
+        if (config) {
+            /* A device with no "config" object goes as itself, but not its command list: the
+             * datagram outgrew the plugin's buffer and the fields after it were lost */
+            cJSON *cfg = cJSON_CreateObject();
+            const cJSON *it = NULL;
+            cJSON_ArrayForEach(it, config) {
+                if (it->string && strcmp(it->string, "commands") != 0) {
+                    cJSON_AddItemReferenceToObject(cfg, it->string, (cJSON *)it);
+                }
+            }
+            cJSON_AddItemToObject(msg, "config", cfg);
+        }
+    }
+
+    char *json = msg ? cJSON_PrintUnformatted(msg) : NULL;
+    ssize_t sent = -1;
+    if (json) {
+        /* Never waits: this runs under the lock of every device send, and a plugin busy with
+         * a slow device (its queue full) stalled IR and Bluetooth keys behind it */
+        sent = sendto(s, json, strlen(json), MSG_DONTWAIT, (struct sockaddr *)&sun, sizeof(sun));
+        if (sent < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            printf("[!] Plugin '%s' busy (queue full): '%s' %s dropped\n", plugin_id, command, action_str);
+        }
+        free(json);
+    }
+    if (msg) cJSON_Delete(msg);
+    close(s);
+    return (sent > 0) ? 0 : -1;
 }

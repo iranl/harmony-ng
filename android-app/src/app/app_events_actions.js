@@ -369,10 +369,9 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
     document.getElementById('rfConfigModalClose')?.addEventListener('click', () => this.closeRfConfigModal());
     document.getElementById('rfConfigCancelBtn')?.addEventListener('click', () => this.closeRfConfigModal());
     document.getElementById('rfConfigSaveBtn')?.addEventListener('click', () => this.saveRfConfig());
-    document.getElementById('btnHubUpdateBanner')?.addEventListener('click', () => {
-      this.switchTab('system');
-      document.getElementById('updateForm')?.scrollIntoView({ behavior: 'smooth' });
-    });
+    // The banner's "Update Hub" button installs the update (same confirm, overlay and restart
+    // wait as Install Update on the System page), instead of only opening that page.
+    document.getElementById('btnHubUpdateBanner')?.addEventListener('click', () => this.installSoftwareUpdate());
     document.getElementById('btnPushConfigToRemote')?.addEventListener('click', () => this.pushConfigToRemote());
     document.getElementById('rfSlot1UpdateBtn')?.addEventListener('click', () => this.startRemoteOta(1));
     document.getElementById('rfSlot2UpdateBtn')?.addEventListener('click', () => this.startRemoteOta(2));
@@ -541,6 +540,7 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
     }
     document.getElementById('btnRediscover')?.addEventListener('click', () => this.rediscoverMqtt());
     document.getElementById('btnRebootHub')?.addEventListener('click', () => this.rebootHub());
+    document.getElementById('btnCleanStockResources')?.addEventListener('click', () => this.cleanStockResources());
     this.setupFactoryResetModal();
     this.initAuthUI();
     document.getElementById('btnToggleRfSvc')?.addEventListener('click', () => this.toggleRfService());

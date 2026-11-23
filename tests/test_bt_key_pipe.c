@@ -34,6 +34,7 @@
 #define UNUSED(x) (void)(x)
 typedef uint8_t bd_addr_t[6];
 typedef uint16_t hci_con_handle_t;
+#define HCI_CON_HANDLE_INVALID 0xffff
 typedef struct btstack_timer_source {
     void (*process)(struct btstack_timer_source *ts);
     uint32_t timeout;
@@ -150,6 +151,16 @@ void try_connect_host(void) {}
 int get_pinned_host_target(bd_addr_t addr) { UNUSED(addr); return 0; }
 uint16_t get_target_host_hid_cid(void) { return 0x41; }
 void hog_start_connect(void) {}
+/* bt_page and the BLE broadcast command (raw HCI paging, advertising) */
+const char *bd_addr_to_str(const bd_addr_t a) {
+    static char buf[18];
+    snprintf(buf, sizeof(buf), "%02X:%02X:%02X:%02X:%02X:%02X", a[0], a[1], a[2], a[3], a[4], a[5]);
+    return buf;
+}
+uint8_t hci_send_cmd_packet(uint8_t *packet, int size) { UNUSED(packet); UNUSED(size); record("hci_cmd"); return 0; }
+void gap_local_bd_addr(bd_addr_t out) { memset(out, 0, 6); }
+void bt_adv_handle_cmd(const char *args) { record("adv %s", args); }
+void bt_listen_handle_cmd(const char *args) { record("adv_listen %s", args); }
 void forget_ble_remote(void) {}
 void forget_classic_host(const bd_addr_t addr) { UNUSED(addr); }
 void start_user_scan(void) {}

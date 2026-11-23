@@ -8,8 +8,13 @@
  * stop and a new start within its 1 s sleep no longer leave two workers sending requests */
 static volatile unsigned s_pairing_gen;
 
+/* Set by the RF receive thread while it handles a frame of a streamed config push: the frame
+ * handlers' own ACKs are dropped, the stream ACK goes out after the frame */
+bool g_rf_mute_acks = false;
+
 int rf_send_frame(rf_frame_t *frame) {
     if (g_rf_fd < 0 || !frame) return -1;
+    if (g_rf_mute_acks && frame->msg_type == RF_MSG_ACK) return 0;
     uint8_t out[32];
     memset(out, 0, sizeof(out));
     uint8_t slot = (g_remote_slot >= 1 && g_remote_slot <= 15) ? g_remote_slot : 0x01;
@@ -324,6 +329,19 @@ void rf_send_screen_button_press(const char *act_id, uint8_t btn_idx, const char
     printf("[*] RF TX SCREEN_BTN: act=%s idx=%d label=%s\n", act_id, btn_idx, label);
 }
 
+/* The Hub waits only for devices it powers on: a device the leaving activity uses is on already */
+static bool device_on_in_activity(const char *act_id, uint8_t dev_idx) {
+    if (!act_id || strcmp(act_id, "-1") == 0) return false;
+    for (int a = 0; a < g_rf_activity_count; a++) {
+        if (strcmp(g_rf_activities[a].id, act_id) != 0) continue;
+        for (int k = 0; k < g_rf_activities[a].dev_count; k++) {
+            if (g_rf_activities[a].devs[k] == dev_idx) return true;
+        }
+        return false;
+    }
+    return false;
+}
+
 int build_combined_activity_sequence(const char *from_id, const char *to_id,
                                     rf_act_step_t *out_steps, int max_steps,
                                     uint32_t *out_total_ms) {
@@ -366,9 +384,26 @@ int build_combined_activity_sequence(const char *from_id, const char *to_id,
     if (to_id && to_id[0]) {
         int found_start = 0;
         int found_switched = 0;
+        bool warm_done = false;
         for (int i = 0; i < g_rf_step_count && count < max_steps; i++) {
             if (strcmp(g_rf_steps[i].act_id, to_id) == 0 && !(g_rf_steps[i].step_idx & 0x80)) {
                 found_start = 1;
+                if (g_rf_steps[i].warm_dev) {
+                    /* One Warmup step: the longest of the devices that are off before the switch */
+                    if (warm_done) continue;
+                    warm_done = true;
+                    int best = -1;
+                    for (int w = i; w < g_rf_step_count; w++) {
+                        if (!g_rf_steps[w].warm_dev || strcmp(g_rf_steps[w].act_id, to_id) != 0) continue;
+                        if (device_on_in_activity(from_id, (uint8_t)(g_rf_steps[w].warm_dev - 1))) continue;
+                        if (best < 0 || g_rf_steps[w].delay_ms > g_rf_steps[best].delay_ms) best = w;
+                    }
+                    if (best < 0) continue;
+                    out_steps[count] = g_rf_steps[best];
+                    total += out_steps[count].delay_ms;
+                    count++;
+                    continue;
+                }
                 if (strcasecmp(g_rf_steps[i].name, "Switched") == 0 ||
                     strcasecmp(g_rf_steps[i].name, "Activity switched") == 0) {
                     out_steps[count] = g_rf_steps[i];
@@ -428,7 +463,7 @@ void send_remote_config_backup_rf(void) {
     payload[9] = (uint8_t)g_touch_sensitivity;
     payload[10] = 0; /* remote_mode: always 0 = activity mode */
     payload[11] = (uint8_t)(g_gyro_enabled ? 1 : 0);
-    payload[12] = (uint8_t)g_gyro_rate_hz;
+    payload[12] = 0; /* was the accelerometer rate */
     payload[13] = (uint8_t)g_btn_backlight_mode;
     payload[14] = (uint8_t)g_night_start_hour;
     payload[15] = (uint8_t)g_night_end_hour;
@@ -441,8 +476,8 @@ void send_remote_config_backup_rf(void) {
     payload[22] = (uint8_t)(g_physical_nav_enabled ? 1 : 0);
     rf_build_frame(&f, g_remote_slot, RF_MSG_REMOTE_CONFIG_BACKUP, ++g_tx_seq, 0, payload, 23);
     rf_send_frame(&f);
-    printf("[*] Sent remote config backup over RF to Hub (slot %d): bright=%d touch=%d cap=%d gyro=%d rate=%d timeout=%d lang=%d\n",
-           g_remote_slot, g_brightness_val, g_touch_enabled, g_cap_buttons_enabled, g_gyro_enabled, g_gyro_rate_hz, g_timeout_seconds, (int)g_language);
+    printf("[*] Sent remote config backup over RF to Hub (slot %d): bright=%d touch=%d cap=%d gyro=%d timeout=%d lang=%d\n",
+           g_remote_slot, g_brightness_val, g_touch_enabled, g_cap_buttons_enabled, g_gyro_enabled, g_timeout_seconds, (int)g_language);
 }
 
 char g_remote_unit_id[32] = "";
@@ -473,7 +508,8 @@ void send_version_report_rf(void) {
     payload[1] = (uint8_t)min;
     payload[2] = (uint8_t)pat;
     payload[3] = (uint8_t)g_config_version;
-    payload[4] = RF_CAP_ACT_DEVICES | RF_CAP_LONG_NAMES | RF_CAP_UNIT_ID | RF_CAP_DEVICE_CMDS;
+    payload[4] = RF_CAP_ACT_DEVICES | RF_CAP_LONG_NAMES | RF_CAP_UNIT_ID | RF_CAP_DEVICE_CMDS | RF_CAP_SWITCH_START |
+                 RF_CAP_HELP_KEY | RF_CAP_STREAM_PUSH;
     rf_build_frame(&f, g_remote_slot, RF_MSG_VERSION_REPORT, ++g_tx_seq, 0, payload, 5);
     rf_send_frame(&f);
     printf("[*] Sent 24h version report over RF: v%u.%u.%u (cfg=%u)\n", maj, min, pat, g_config_version);

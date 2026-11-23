@@ -188,6 +188,23 @@ static void key_set_swallowed(int code, bool on) {
 static int s_touch_max_x = 0;
 static int s_touch_max_y = 0;
 
+/* The rocker (78 up, 74 down) held while it drives the screen: the main loop moves the
+ * selection again KEY_HOLD_INTERVAL_MS after the press and then every NAV_HOLD_REPEAT_MS.
+ * The keypad sends no autorepeat of its own; any that comes is ignored so a step is not doubled. */
+static int s_nav_hold_code = 0;
+static uint64_t s_nav_hold_next_ms = 0;
+
+static void nav_key_event(int code, int value) {
+    if (code == 78 || code == 74) {
+        if (value == 2) return;
+        if (value == 1) {
+            s_nav_hold_code = code;
+            s_nav_hold_next_ms = get_monotonic_ms() + KEY_HOLD_INTERVAL_MS;
+        }
+    }
+    handle_navigation_key(code, value);
+}
+
 static void touch_probe_range(int fd) {
     struct input_absinfo ax, ay;
     s_touch_max_x = 0;
@@ -500,6 +517,11 @@ int main(int argc, char **argv) {
         } else if (g_screen_on) {
             tv.tv_sec = 0;
             tv.tv_usec = 100000;
+            if (s_nav_hold_code != 0) { /* wake in time for the next step of a held rocker */
+                uint64_t now = get_monotonic_ms();
+                uint64_t wait_ms = s_nav_hold_next_ms > now ? s_nav_hold_next_ms - now : 0;
+                if (wait_ms < 100) tv.tv_usec = (suseconds_t)(wait_ms * 1000);
+            }
         } else {
             bool in_deep = remote_deep_standby_due(standby_s) && get_monotonic_ms() >= g_suspend_hold_until_ms;
             tv.tv_sec = (!is_docked && in_deep) ? 30 : 2;
@@ -533,12 +555,34 @@ int main(int argc, char **argv) {
             ui_menu_open();
         }
 
+        if (s_nav_hold_code != 0 && now_ms >= s_nav_hold_next_ms) {
+            /* the kernel's key state ends it too: a release that was never read would move the
+             * selection (and keep the screen on) until the next key */
+            if (!g_screen_on || g_menu_open || ui_help_active() || !remote_hard_key_down(s_nav_hold_code)) {
+                s_nav_hold_code = 0; /* the release can come while the screen is dark or the menu open */
+            } else if (!g_is_switching_activity && !g_is_syncing_config && !g_is_ota_updating) {
+                /* the gates a key event passes: an overlay pauses the steps */
+                handle_navigation_key(s_nav_hold_code, 2);
+                s_nav_hold_next_ms = now_ms + NAV_HOLD_REPEAT_MS;
+            } else {
+                s_nav_hold_next_ms = now_ms + NAV_HOLD_REPEAT_MS;
+            }
+        }
+
         static uint64_t last_progress_render_ms = 0;
         if (g_is_switching_activity) {
             /* g_switching_start_ms can be newer than now_ms: the RF thread starts the overlay */
-            if (ms_since(now_ms, g_switching_start_ms) > (uint64_t)g_switching_total_ms + 400) {
+            /* A switch the Hub announced ends with its end notice; this is the fallback when
+               that notice is lost. Without the announcement (older Hub) the estimate ends it. */
+            uint64_t switch_grace_ms = g_switch_hub_started ? 10000 : 400;
+            /* and not while the Hub still answers that the switch runs: closed early, the next
+               answer would open the screen again from zero */
+            bool hub_still_switching = g_switch_hub_started && ms_since(now_ms, g_switch_hub_heard_ms) <= 10000;
+            if (ms_since(now_ms, g_switching_start_ms) > (uint64_t)g_switching_total_ms + switch_grace_ms &&
+                !hub_still_switching) {
                 printf("[*] Activity switch complete (elapsed %llums), unlocking screen\n", (unsigned long long)ms_since(now_ms, g_switching_start_ms));
                 g_is_switching_activity = false;
+                g_switch_hub_started = false;
                 g_last_switch_completed_ms = now_ms;
                 strncpy(g_last_switch_target_id, g_switching_target_id, sizeof(g_last_switch_target_id) - 1);
                 remote_show_switch_target();
@@ -590,6 +634,7 @@ int main(int argc, char **argv) {
         }
 
         ui_help_tick(now_ms);
+        remote_stream_tick(now_ms);
 
         if (g_confirm_pending_idx >= 0 && now_ms >= g_confirm_pending_deadline_ms) {
             g_confirm_pending_idx = -1;
@@ -754,7 +799,9 @@ int main(int argc, char **argv) {
                     /* The release of the key held over RF always goes out: an overlay, a view
                      * change or a blank screen would drop it below, and the hold repeats would
                      * go on until the next key */
+                    if (ev.value == 0) remote_key_held_reset();
                     if (ev.value == 0 && remote_release_held_rf_key(ev.code)) continue;
+                    if (ev.value == 0 && ev.code == s_nav_hold_code) s_nav_hold_code = 0;
 
                     /* A new press means the release was missed; it acts as usual */
                     if (key_swallowed(ev.code)) {
@@ -776,11 +823,19 @@ int main(int argc, char **argv) {
 
                     uint16_t rf_code = linux_to_harmony_rf_key(ev.code);
 
+                    /* The capacitive Activities (364) and Devices (102) keys have no RF code: when
+                       they arrive here and not on the touch device, they drive the screen on every
+                       view (handle_navigation_key checks the cap button setting) */
+                    if (ev.code == 102 || ev.code == 364) {
+                        handle_navigation_key(ev.code, ev.value);
+                        continue;
+                    }
+
                     /* With physical navigation enabled, the bottom keys drive the screen on all views (KEY_BACK passes through to RF) */
                     if (g_physical_nav_enabled) {
                         if (ev.code == 78 || ev.code == 74 || ev.code == 149 || ev.code == 203 ||
                             ev.code == 148 || ev.code == 202 || ev.code == 102 || ev.code == 364) {
-                            handle_navigation_key(ev.code, ev.value);
+                            nav_key_event(ev.code, ev.value);
                             continue;
                         }
                     }
@@ -789,7 +844,7 @@ int main(int argc, char **argv) {
                     if (!g_touch_enabled || g_current_view == VIEW_SETTINGS || g_current_view == VIEW_PAIRING) {
                         if (ev.code == 78 || ev.code == 74 || ev.code == 149 || ev.code == 203 ||
                             ev.code == 148 || ev.code == 202 || ev.code == 158 || ev.code == 102 || ev.code == 364) {
-                            handle_navigation_key(ev.code, ev.value);
+                            nav_key_event(ev.code, ev.value);
                             continue;
                         }
                     }
@@ -797,6 +852,9 @@ int main(int argc, char **argv) {
                     if (rf_code != 0) {
                         activity_trigger_btn_t *matched_trig = NULL;
                         for (int t = 0; t < g_act_trigger_count; t++) {
+                            /* A Help key counts in its own activity; elsewhere the Hub maps the key */
+                            if (g_act_triggers[t].atype == 0x04 &&
+                                strcmp(g_act_triggers[t].target_act_id, g_active_activity_id) != 0) continue;
                             if ((g_act_triggers[t].rf_key_code != 0 && g_act_triggers[t].rf_key_code == rf_code) ||
                                 strcasecmp(g_act_triggers[t].button_name, rf_short_button_name(rf_code)) == 0) {
                                 matched_trig = &g_act_triggers[t];
@@ -805,7 +863,10 @@ int main(int argc, char **argv) {
                         }
 
                         if (matched_trig) {
-                            if (ev.value == 1) {
+                            if (ev.value == 1 && matched_trig->atype == 0x04) {
+                                ui_help_start();
+                                g_screen_dirty = true;
+                            } else if (ev.value == 1) {
                                 const char *target_id = matched_trig->target_act_id;
                                 if (matched_trig->atype == 0x03) target_id = "-1";
 
@@ -868,6 +929,7 @@ int main(int argc, char **argv) {
         if (g_touch_fd >= 0 && FD_ISSET(g_touch_fd, &rfds)) {
             struct input_event ev;
             while (read(g_touch_fd, &ev, sizeof(ev)) == sizeof(ev)) {
+                if (ev.type == EV_KEY && ev.value == 0 && (ev.code == 102 || ev.code == 364)) remote_key_held_reset();
                 if (!g_screen_on) {
                     bool should_wake = false;
                     if (ev.type == EV_KEY && ev.value == 1) {
@@ -966,16 +1028,8 @@ int main(int argc, char **argv) {
         }
     }
 
-    flush_activity_usage();  /* init.sh stop sends SIGTERM first, which ends the main loop */
     flightlog_event("EXIT", "clean=1");
-    printf("[+] Cleaning up hardware resources...\n");
-    remote_wdt_close();
-    if (g_touch_fd >= 0) { ioctl(g_touch_fd, EVIOCGRAB, 0); close(g_touch_fd); }
-    if (g_gyro_fd >= 0)  { ioctl(g_gyro_fd, EVIOCGRAB, 0);  close(g_gyro_fd); }
-    if (g_rf_fd >= 0)    close(g_rf_fd);
-    if (g_btn_fd >= 0)   close(g_btn_fd);
-    if (g_fb_mem)        munmap(g_fb_mem, g_fb_size);
-    if (g_fb_fd >= 0)    close(g_fb_fd);
+    remote_hardware_cleanup();  /* init.sh stop sends SIGTERM first, which ends the main loop */
 
     return 0;
 }

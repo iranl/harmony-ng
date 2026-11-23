@@ -1,6 +1,13 @@
 #!/bin/sh
 PATH=/data/harmony/bin:/cache/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 trap '' HUP
+# run from a plugin (or a shell that exported these): hub_daemon and the other services must
+# not look like plugin processes to the stop sweeps. unset alone is not enough: a forked
+# ( ... ) & supervisor keeps this shell's exec-time /proc/<pid>/environ, so run again clean.
+if [ -n "$HARMONY_PLUGIN_ID$HARMONY_SOCKET$HARMONY_PLUGIN_DATA" ]; then
+  unset HARMONY_PLUGIN_ID HARMONY_SOCKET HARMONY_PLUGIN_DATA
+  exec /bin/sh "$0" "$@"
+fi
 LOG=/tmp/harmony-init.log
 
 sync_fs() {
@@ -51,8 +58,48 @@ case "$1" in
     for _p in $(ps | grep 'init\.sh' | grep -v 'grep' | sed 's/^[ ]*//' | cut -d' ' -f1 2>/dev/null); do
       [ -n "$_p" ] && [ "$_p" != "$$" ] && [ "$_p" != "$PPID" ] && kill -9 "$_p" 2>/dev/null || true
     done
+    # Plugins are children of hub_daemon: on SIGTERM it stops each one (SIGTERM, 1 s, SIGKILL)
+    killall -15 hub_daemon 2>/dev/null || true
+    sleep 2
     # Terminate all daemon processes
     killall -9 hub_rf hub_daemon hub_btstack hub_usbwifi hal luaworks luadraws lua 2>/dev/null || true
+    # Plugin processes still left (hub_daemon was hung or already gone, or a helper still runs
+    # the EXIT trap of hub_daemon's SIGTERM): found by the HARMONY_SOCKET that hub_daemon puts
+    # in their environment. A shell or a program started by hand in a plugin folder has none
+    # (a sweep by working directory killed the caller's shell). This script and the shells
+    # that started it are never taken. Up to 5 s to finish on their own (the ps5-wake helper
+    # restores the Hub's Bluetooth address and removes its lock), then SIGTERM, 1 s, SIGKILL
+    # to the ones that still have the plugin environment (a pid freed and reused is not).
+    _keep=" $$ "
+    _a=$PPID
+    _i=0
+    while [ -n "$_a" ] && [ "$_a" -gt 1 ] 2>/dev/null && [ $_i -lt 32 ]; do
+      _keep="$_keep$_a "
+      _a=$(awk '/^PPid:/ { print $2 }' "/proc/$_a/status" 2>/dev/null)
+      _i=$((_i + 1))
+    done
+    plugin_pids() {
+      for _e in /proc/[0-9]*/environ; do
+        _p=${_e#/proc/}
+        _p=${_p%/environ}
+        case "$_keep" in *" $_p "*) continue ;; esac
+        tr '\000' '\n' < "$_e" 2>/dev/null | grep -q '^HARMONY_SOCKET=/tmp/plugins/' && echo "$_p"
+      done
+    }
+    _left=$(plugin_pids)
+    _i=0
+    while [ -n "$_left" ] && [ $_i -lt 5 ]; do
+      sleep 1
+      _i=$((_i + 1))
+      _left=$(plugin_pids)
+    done
+    if [ -n "$_left" ]; then
+      kill -15 $_left 2>/dev/null || true
+      sleep 1
+      _left=$(plugin_pids)
+      [ -n "$_left" ] && kill -9 $_left 2>/dev/null || true
+    fi
+    rm -f /tmp/plugins/*.sock 2>/dev/null || true
     # the USB Wi-Fi setup started as "hub_util usbwifi" (no hub_usbwifi link) runs as hub_util
     for _p in $(pidof hub_util 2>/dev/null); do
       case "$(tr '\000' ' ' < "/proc/$_p/cmdline" 2>/dev/null)" in
@@ -167,7 +214,7 @@ chmod -x /opt/luaworks/luaworks 2>/dev/null || true
 
 # 3. Shell Profile & Extended BusyBox (Installed strictly into /cache/bin; /bin/sh is NEVER touched)
 rm -f /data/bin/sh /data/bin/ash /data/bin/busybox 2>/dev/null || true
-mkdir -p /data/harmony/bin /data/harmony/config 2>/dev/null || true
+mkdir -p /data/harmony/bin /data/harmony/config /data/harmony/plugins /tmp/plugins 2>/dev/null || true
 if [ -x /cache/bin/busybox ]; then
   /cache/bin/busybox --install -s /cache/bin 2>/dev/null || true
   link_if_changed /cache/bin/busybox /data/harmony/bin/busybox 2>/dev/null || true
@@ -355,6 +402,23 @@ killall -9 bluetoothd 2>/dev/null || true
       continue
     fi
 
+    # If locked by an exclusive radio task (e.g. ps5-wake spoof sequence), pause supervisor.
+    # A helper killed with -9 never removes its lock (no EXIT trap): after 120 s the lock
+    # is taken as stale and removed, or Bluetooth stayed off until a reboot.
+    if [ -f /tmp/hub_btstack.lock ]; then
+      _lock_wait=$(( ${_lock_wait:-0} + 2 ))
+      if [ "$_lock_wait" -ge 120 ]; then
+        echo "$(date) /tmp/hub_btstack.lock older than 120 s, removing it" >> "$LOG"
+        rm -f /tmp/hub_btstack.lock
+        _lock_wait=0
+      else
+        sleep 2
+        continue
+      fi
+    else
+      _lock_wait=0
+    fi
+
     # Ensure hci0 is UP
     if ! hciconfig hci0 2>/dev/null | grep -q 'UP'; then
       hciconfig hci0 up 2>/dev/null || true
@@ -406,6 +470,7 @@ echo "$!" >> /tmp/harmony_supervisors.pid
     if [ -n "$_rf_bin" ]; then
       if ! pidof hub_rf >/dev/null 2>&1; then
         echo "$(date) Starting hub_rf daemon..." >> "$LOG"
+        rm -f /tmp/icon_push.* 2>/dev/null # an icon file of a transfer that a kill cut short
         _started=$(date +%s)
         "$_rf_bin" >> "$LOG" 2>&1
         [ -f /tmp/harmony_stop ] && exit 0
@@ -430,25 +495,24 @@ echo "$!" >> /tmp/harmony_supervisors.pid
 # 9. Log cap: the logs live in tmpfs, which is RAM on a 32 MB Hub. Unbounded, $LOG starved the
 # kernel (12 MB of log, 1 MB free, OOM kills of hub_rf and hub_daemon mid key press), and the
 # network monitor writes its log every few seconds while the network is down. Every writer
-# appends (>>), so truncating in place is safe; the last 64 KB are kept in <log>.1.
+# appends (>>), so truncating in place is safe; the last 64 KB are kept in <log>.1. A log over
+# 256 KB is cut, looked at every 20 s: with RF debug logging on, hub_rf writes about 2 MB a minute.
 cap_log() {
   # stock applets only (ls, awk): /cache and its extended BusyBox may not be there
   _sz=$(ls -l "$1" 2>/dev/null | awk '{print $5}')
   [ -n "$_sz" ] || _sz=0
-  if [ "$_sz" -gt 1048576 ] 2>/dev/null; then
-    # keep the last 64 KB in <log>.1 (whole file if dd is missing), then truncate in place
-    if command -v dd >/dev/null 2>&1; then
-      dd if="$1" of="$1.1" bs=1024 skip=$(expr "$_sz" / 1024 - 64) 2>/dev/null || cp "$1" "$1.1" 2>/dev/null
-    else
-      cp "$1" "$1.1" 2>/dev/null
-    fi
+  if [ "$_sz" -gt 262144 ] 2>/dev/null; then
+    # keep the last 64 KB in <log>.1, then truncate in place. Without dd (only the extended
+    # BusyBox has it) no tail is kept: a copy of the whole log doubled the RAM it took. The
+    # stock ash has no "command" builtin, so dd is simply tried.
+    dd if="$1" of="$1.1" bs=1024 skip=$(expr "$_sz" / 1024 - 64) 2>/dev/null || rm -f "$1.1"
     : > "$1"
     echo "$(date) log capped: was ${_sz} bytes, last 64 KB in $1.1" >> "$1"
   fi
 }
 (
   while true; do
-    sleep 60
+    sleep 20
     [ -f /tmp/harmony_stop ] && exit 0
     for _log in "$LOG" /tmp/harmony-network.log; do
       cap_log "$_log"
@@ -456,5 +520,23 @@ cap_log() {
   done
 ) &
 echo "$!" >> /tmp/harmony_supervisors.pid
+
+# hub_fetch or libbearssl.so.0 missing (an update from v2.5.3 or older does not install them):
+# fetch the ones of this release once the network is up. Up to 6 tries, 10 minutes apart.
+if { [ ! -x /data/harmony/bin/hub_fetch ] || [ ! -s /data/harmony/lib/libbearssl.so.0 ]; } && \
+   [ -x /data/harmony/update.sh ]; then
+  (
+    # 6 tries 10 minutes apart, then one an hour (the network may come back much later)
+    _try=0
+    sleep 120
+    while :; do
+      [ -f /tmp/harmony_stop ] && exit 0
+      /bin/sh /data/harmony/update.sh repair-tls >> /tmp/update_repair.log 2>&1 && exit 0
+      _try=$((_try + 1))
+      if [ $_try -lt 6 ]; then sleep 600; else sleep 3600; fi
+    done
+  ) &
+  echo "$!" >> /tmp/harmony_supervisors.pid
+fi
 
 echo "$(date) harmony init done" >> "$LOG"

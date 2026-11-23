@@ -35,9 +35,13 @@ export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
     const rawDevs = data.devices || (Array.isArray(data) ? data : []);
     const normalized = rawDevs.map(dev => {
       const rawCmds = dev.commands || [];
-      const cleanType = dev.type === 'BT' ? 'BT' : (dev.type === 'MQTT' ? 'MQTT' : 'IR');
+      const rawType = dev.type || '';
+      const isPluginDev = !!dev.plugin || rawType.startsWith('plugin:') || !!dev.config;
+      const cleanType = isPluginDev ? rawType : rawType === 'BT' ? 'BT' : rawType === 'MQTT' ? 'MQTT' : (rawType || 'IR');
       const isBt = cleanType === 'BT';
       const isMqtt = cleanType === 'MQTT';
+      // HTTP(S) and TCP devices (payload/source/net_device.h): no IR port or repeats
+      const isNet = !isPluginDev && (cleanType === 'HTTP' || cleanType === 'TCP');
       const hostAddr = dev.bdaddr || dev.btHost || '';
 
       return {
@@ -54,6 +58,8 @@ export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
         defaultInterDeviceDelay: dev.defaultInterDeviceDelay !== undefined ? Number(dev.defaultInterDeviceDelay) : 500,
         powerOnDelay: dev.powerOnDelay !== undefined ? Number(dev.powerOnDelay) : 1500,
         isPowerAlwaysOn: Boolean(dev.isPowerAlwaysOn),
+        hideOnRemote: Boolean(dev.hideOnRemote),
+        hideInDevicesTab: Boolean(dev.hideInDevicesTab),
         bdaddr: hostAddr,
         btHost: hostAddr,
         btAutoReconnect: dev.btAutoReconnect !== undefined ? Number(dev.btAutoReconnect) : 1,
@@ -64,9 +70,22 @@ export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
         powerOnSequence: dev.powerOnSequence || [],
         powerOffSequence: dev.powerOffSequence || [],
         isBt: isBt,
-        mqttEnabled: isMqtt || !!dev.mqttEnabled,
+        mqttEnabled: (isPluginDev || isBt) ? false : (isMqtt || !!dev.mqttEnabled),
         mqttTopic: dev.mqttTopic || '{base_topic}/button/{device}/{command}',
         mqttPulseMs: Number(dev.mqttPulseMs !== undefined ? dev.mqttPulseMs : 1000),
+        plugin: dev.plugin || '',
+        config: dev.config || null,
+        isNet,
+        netHost: dev.netHost || '',
+        netPort: dev.netPort !== undefined ? Number(dev.netPort) : 0,
+        netTls: Boolean(dev.netTls),
+        netTlsVerify: dev.netTlsVerify || 'verify',
+        netTimeoutMs: dev.netTimeoutMs !== undefined ? Number(dev.netTimeoutMs) : 3000,
+        httpHeaders: Array.isArray(dev.httpHeaders) ? dev.httpHeaders : [],
+        httpAuthType: dev.httpAuthType || 'none',
+        httpUser: dev.httpUser || '',
+        hasHttpPassword: Boolean(dev.hasHttpPassword),
+        hasHttpToken: Boolean(dev.hasHttpToken),
         commands: rawCmds.map((c, idx) => {
           if (typeof c === 'string') return { name: c, keyCode: '', raw: '' };
           const kCode = c.keyCode || '';
@@ -79,7 +98,11 @@ export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
             keyCode: kCode,
             raw: rawStr
           };
-          if (!isBtCmd && !isMqttCmd) {
+          if (isNet) {
+            for (const k of ['httpMethod', 'httpPath', 'httpBody', 'httpContentType', 'tcpPayload', 'tcpFormat']) {
+              if (c[k] !== undefined) cmdObj[k] = c[k];
+            }
+          } else if (!isBtCmd && !isMqttCmd) {
             cmdObj.repeats = c.repeats !== undefined ? c.repeats : 3;
             cmdObj.port = c.port !== undefined ? c.port : (c.controlPort || dev.controlPort || 7);
           }

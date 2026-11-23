@@ -9,7 +9,8 @@
  * the Ed25519 signature of the exact manifest bytes, as 128 hex characters. The Hub accepts a
  * download only when the signature matches one of the release keys built into the firmware
  * (ota_keys.h) and the file's SHA-256 matches its manifest entry. The download server and TLS
- * are not trusted: busybox wget does not verify certificates. */
+ * are not relied on: hub_fetch checks the certificate, but update.sh falls back to busybox
+ * wget (no certificate check) on a Hub without hub_fetch, its library or the CA bundle. */
 
 #define OTA_SIG_BYTES 64
 #define OTA_PUBKEY_BYTES 32

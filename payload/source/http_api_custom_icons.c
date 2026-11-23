@@ -3,6 +3,7 @@
 #include "http_server.h"
 #include "http_util.h"
 #include "cJSON.h"
+#include "icon_pack.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -86,18 +87,21 @@ static int custom_icon_name_ok(const char *fn) {
 }
 
 static volatile int g_icons_extracting = 0;
+/* The copy in /tmp was removed since the pack became readable; cleared when an extraction starts,
+ * so a copy made while the pack was not readable goes once it is again */
+static int s_tmp_copy_removed;
 
 static void *extract_icons_thread(void *arg) {
     const char *tar_path = (const char *)arg;
-    mkdir("/tmp/www", 0755);
-    mkdir("/tmp/www/assets", 0755);
+    mkdir(HARMONY_TMP_WWW, 0755);
+    mkdir(HARMONY_TMP_WWW "/assets", 0755);
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
         "export PATH=/cache/bin:/data/harmony/bin:$PATH; "
-        "tar -xzf \"%s\" -C /tmp/www/assets/ 2>/dev/null && "
-        "for d in /tmp/www/assets/icons/*/; do "
+        "tar -xzf \"%s\" -C " HARMONY_TMP_WWW "/assets/ 2>/dev/null && "
+        "for d in " HARMONY_TMP_WWW "/assets/icons/*/; do "
         "  if [ -d \"$d\" ]; then "
-        "    for f in \"$d\"*.png; do [ -f \"$f\" ] && ln -sf \"$f\" /tmp/www/assets/icons/ 2>/dev/null; done; "
+        "    for f in \"$d\"*.png; do [ -f \"$f\" ] && ln -sf \"$f\" " HARMONY_TMP_WWW "/assets/icons/ 2>/dev/null; done; "
         "  fi; "
         "done",
         tar_path);
@@ -107,7 +111,20 @@ static void *extract_icons_thread(void *arg) {
 }
 
 void http_ensure_icons_extracted(void) {
-    if (access("/tmp/www/assets/icons", F_OK) == 0) return;
+    if (icon_pack_available()) {
+        /* Icons are read from the packed archive on flash. A copy unpacked into /tmp (RAM) by
+         * this or an older firmware before the packed archive was deployed is removed once;
+         * uploaded icons there are copies of /data/harmony/custom_icons, which is served too. */
+        if (!s_tmp_copy_removed && !g_icons_extracting) {
+            s_tmp_copy_removed = 1;
+            if (access(HARMONY_TMP_WWW "/assets/icons", F_OK) == 0) {
+                system("rm -rf " HARMONY_TMP_WWW "/assets/icons");
+                printf("[+] Unpacked icon copy in /tmp removed: icons are read from the packed archive\n");
+            }
+        }
+        return;
+    }
+    if (access(HARMONY_TMP_WWW "/assets/icons", F_OK) == 0) return;
     if (g_icons_extracting) return;
 
     static char s_tar_path[128];
@@ -120,7 +137,11 @@ void http_ensure_icons_extracted(void) {
         strncpy(s_tar_path, "/cache/www/assets/icons.tar.gz", sizeof(s_tar_path) - 1);
     }
 
+    /* a packed archive whose index is not readable right now (being copied, cut): unpacking it
+     * into /tmp cannot help, it is read from flash once it is whole again */
+    if (s_tar_path[0] && icon_pack_is_pack_file(s_tar_path)) return;
     if (s_tar_path[0]) {
+        s_tmp_copy_removed = 0;
         g_icons_extracting = 1;
         pthread_t th;
         if (pthread_create(&th, NULL, extract_icons_thread, (void *)s_tar_path) == 0) {
@@ -139,6 +160,13 @@ void http_ensure_icons_extracted(void) {
 #define PROXY_FETCH_MAX_MS 20000 /* the whole download */
 #endif
 
+static void add_icon_name(const char *name, void *ctx) {
+    size_t n = strlen(name);
+    if (name[0] != '.' && n > 4 && strcmp(name + n - 4, ".png") == 0) {
+        cJSON_AddItemToArray((cJSON *)ctx, cJSON_CreateString(name));
+    }
+}
+
 int http_api_custom_icons_handle(int client_fd, const char *method, const char *clean_path,
                                  const char *query, const char *body, const char *req) {
     (void)req;
@@ -147,14 +175,17 @@ int http_api_custom_icons_handle(int client_fd, const char *method, const char *
     if (strcmp(clean_path, "/api/icons") == 0 && strcmp(method, "GET") == 0) {
         http_ensure_icons_extracted();
         cJSON *arr = cJSON_CreateArray();
-        const char *base_dir = "/tmp/www/assets/icons";
+        int packed = icon_pack_available();
+        if (packed) icon_pack_list(add_icon_name, arr);
+        const char *base_dir = HARMONY_TMP_WWW "/assets/icons";
         if (access(base_dir, F_OK) != 0) {
             base_dir = "/cache/www/assets/icons";
             if (access(base_dir, F_OK) != 0) {
                 base_dir = "/data/harmony/www/assets/icons";
             }
         }
-        DIR *d = opendir(base_dir);
+        /* packed: the folders hold only copies of the uploaded icons, listed below */
+        DIR *d = packed ? NULL : opendir(base_dir);
         if (d) {
             struct dirent *de;
             while ((de = readdir(d)) != NULL) {
@@ -320,7 +351,7 @@ int http_api_custom_icons_handle(int client_fd, const char *method, const char *
 
         mkdir("/data/harmony", 0755);
         mkdir("/data/harmony/custom_icons", 0755);
-        mkdir("/tmp/www/assets/icons", 0755);
+        mkdir(HARMONY_TMP_WWW "/assets/icons", 0755);
         mkdir("/cache/www/assets/icons", 0755);
 
         char main_name[64];
@@ -344,7 +375,7 @@ int http_api_custom_icons_handle(int client_fd, const char *method, const char *
         char p_data[256], p_cache[256], p_tmp[256];
         snprintf(p_data, sizeof(p_data), "/data/harmony/custom_icons/%s", main_name);
         snprintf(p_cache, sizeof(p_cache), "/cache/www/assets/icons/%s", main_name);
-        snprintf(p_tmp, sizeof(p_tmp), "/tmp/www/assets/icons/%s", main_name);
+        snprintf(p_tmp, sizeof(p_tmp), HARMONY_TMP_WWW "/assets/icons/%s", main_name);
 
         if (write_file_atomic_sized(p_data, (const char *)png_data, png_len) != 0) {
             send_json_error(client_fd, 500, "Failed to write custom icon to flash storage");
@@ -418,7 +449,7 @@ int http_api_custom_icons_handle(int client_fd, const char *method, const char *
         if (unlink(path_buf) == 0) {
             snprintf(path_buf, sizeof(path_buf), "/cache/www/assets/icons/%s", fn);
             unlink(path_buf);
-            snprintf(path_buf, sizeof(path_buf), "/tmp/www/assets/icons/%s", fn);
+            snprintf(path_buf, sizeof(path_buf), HARMONY_TMP_WWW "/assets/icons/%s", fn);
             unlink(path_buf);
         }
 
@@ -494,9 +525,9 @@ int http_api_custom_icons_handle(int client_fd, const char *method, const char *
             return 1;
         }
         close(tmp_fd);
-        int fetched = -1;
+        int fetched = fetch_url_checked(decoded_url, tmp_path, PROXY_FETCH_MAX_BYTES, PROXY_FETCH_MAX_MS, 6);
         static const char *const wget_paths[] = { "/cache/bin/busybox", "/data/harmony/bin/busybox" };
-        for (size_t wi = 0; wi < sizeof(wget_paths) / sizeof(wget_paths[0]); wi++) {
+        for (size_t wi = 0; fetched == RUN_NO_FETCH && wi < sizeof(wget_paths) / sizeof(wget_paths[0]); wi++) {
             char *argv[] = { (char *)wget_paths[wi], "wget", "-q", "--no-check-certificate", "-T", "6",
                              "-O", tmp_path, decoded_url, NULL };
             if (access(wget_paths[wi], X_OK) != 0) continue;

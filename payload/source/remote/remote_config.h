@@ -10,7 +10,6 @@ extern "C" {
 void load_settings_conf(void);
 void save_settings_conf(void);
 /* The accelerometer rates the Settings screen and the web UI offer: 10, 25, 50, 100 Hz */
-bool remote_gyro_rate_valid(int hz);
 void load_rf_config(void);
 /* Builds the home screen's activity list and icon paths from the received RF config */
 void build_activity_list(void);
@@ -21,6 +20,8 @@ void flush_activity_usage(void);
 void save_rf_config(void);
 void load_activities(void);
 void init_act_triggers(void);
+/* A hard key that starts or stops an activity or opens its Help (atype 0x02, 0x03, 0x04) */
+void add_act_trigger(const rf_button_t *b);
 void resolve_activity_icon(uint16_t icon_id, const char *image_key, const char *clean_name, char *out_path, size_t max_len);
 bool resolve_device_icon(uint16_t icon_id, const char *icon_key, const char *dev_name, const char *dev_id, char *out_path, size_t max_len);
 bool resolve_button_icon(const char *icon_key, const char *label, char *out_path, size_t max_len);

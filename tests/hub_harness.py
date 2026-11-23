@@ -10,6 +10,7 @@ test_status.py and record_fixtures.py. Pure stdlib.
 """
 
 import base64
+import hashlib
 import http.client
 import json
 import os
@@ -27,6 +28,11 @@ REPO_ROOT = os.path.abspath(os.path.join(TESTS_DIR, ".."))
 BUILD_DIR = os.path.join(REPO_ROOT, "build", "tmp", "test_host")
 HUB_BIN = os.path.join(BUILD_DIR, "hub_daemon_test")
 MOCK_LIB = os.path.join(BUILD_DIR, "libmock_hardware.so")
+# plugin sockets and logs of the harness daemon: short (a socket path has 108 bytes, a long
+# checkout path did not fit) and one per checkout
+PLUGIN_RUN_DIR = "/tmp/hhp-%s" % hashlib.sha1(BUILD_DIR.encode()).hexdigest()[:8]
+# the folder an unpacked icon archive goes to (HARMONY_TMP_WWW): not the host's /tmp/www
+TMP_WWW = "/tmp/hhw-%s" % hashlib.sha1(BUILD_DIR.encode()).hexdigest()[:8]
 SAMPLE_CONFIG = os.path.join(TESTS_DIR, "fixtures", "ha", "sample_config")
 
 # Sources of the host build of hub_daemon (keep in sync with build/compile_all.sh;
@@ -34,14 +40,46 @@ SAMPLE_CONFIG = os.path.join(TESTS_DIR, "fixtures", "ha", "sample_config")
 HUB_DAEMON_SOURCES = [
     "hub_daemon.c", "http_server.c", "http_util.c", "http_auth.c", "http_api_auth.c",
     "http_api_activities.c", "http_api_devices.c", "http_api_commands.c",
-    "http_api_custom_icons.c", "http_api_network.c", "hub_network_util.c", "wifi_config.c",
+    "http_api_custom_icons.c", "icon_pack.c", "http_api_network.c", "hub_network_util.c", "wifi_config.c",
     "http_api_remotes.c", "http_api_ota.c", "http_api_backup.c", "http_api_system.c",
+    "http_api_plugins.c", "plugin_mgr.c",
     "config_store.c", "bt_migrate.c", "config_sanitize.c", "orchestrator.c",
     "orchestrator_queue.c", "hub_mqtt.c", "hub_mqtt_ha.c", "hub_ws.c", "hub_ntp.c",
     "resource_cache.c", "cJSON.c", "ir_encoder.c", "ir_i2s.c", "hw_action.c",
     "ws_server.c", "state_watch.c", "hub_events.c", "hub_info.c", "hub_mdns.c", "hub_ssdp.c", "hbus_config.c", "hbus_server.c", "hub_cmd.c", "mfg_id.c", "mqtt_client.c", "sha256.c",
-    "timezone_db.c",
+    "timezone_db.c", "tls_client.c", "http_client.c", "net_action.c",
 ]
+
+
+def bearssl_host_lib():
+    """Host libbearssl.a (tests/build_bearssl_host.sh builds it once per BearSSL commit)."""
+    res = subprocess.run(["sh", os.path.join(TESTS_DIR, "build_bearssl_host.sh")],
+                         capture_output=True, text=True)
+    if res.returncode != 0:
+        sys.stderr.write(res.stderr)
+        raise RuntimeError("host BearSSL build failed")
+    return res.stdout.strip().splitlines()[-1]
+
+
+HUB_FETCH = os.path.join(BUILD_DIR, "hub_fetch_test")
+
+
+def build_hub_fetch_test(force=False):
+    """Host hub_fetch (static host BearSSL): the daemon runs it for TLS (HARMONY_HUB_FETCH)."""
+    src = os.path.join(REPO_ROOT, "payload", "source")
+    srcs = [os.path.join(src, s) for s in ("hub_fetch.c", "tls_client.c", "http_client.c",
+                                           "tls_client.h", "http_client.h")]
+    if (os.path.exists(HUB_FETCH) and not force and
+            all(os.path.getmtime(f) <= os.path.getmtime(HUB_FETCH) for f in srcs)):
+        return HUB_FETCH
+    os.makedirs(BUILD_DIR, exist_ok=True)
+    cmd = ["gcc", "-Wall", "-O2", "-I" + src, "-I" + os.path.join(REPO_ROOT, "build", "tmp", "bearssl", "inc"),
+           "-o", HUB_FETCH] + [f for f in srcs if f.endswith(".c")] + [bearssl_host_lib()]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode != 0:
+        sys.stderr.write(res.stderr)
+        raise RuntimeError("hub_fetch_test compilation failed")
+    return HUB_FETCH
 
 
 def _sources_newer_than(out):
@@ -72,7 +110,12 @@ def build_hub_daemon_test(force=False, extra_cflags=None, out=HUB_BIN):
     """Compile the host daemon with -DTEST_HARNESS=1 (when missing, when a source changed, when
     the compile command changed, or with force)."""
     cmd = ["gcc", "-Wall", "-O2", "-g", "-Werror=implicit-function-declaration", "-DTEST_HARNESS=1",
-           "-I" + os.path.join(REPO_ROOT, "payload", "source")]
+           "-I" + os.path.join(REPO_ROOT, "payload", "source"),
+           # plugin sockets and logs not in the host's /tmp/plugins
+           '-DHARMONY_PLUGINS_RUN_DIR="%s"' % PLUGIN_RUN_DIR,
+           '-DHARMONY_TMP_WWW="%s"' % TMP_WWW]
+    # as on the Hub: no BearSSL in the daemon, TLS through hub_fetch (build_hub_fetch_test)
+    cmd += ["-DNET_NO_TLS"]
     cmd += list(extra_cflags or [])
     cmd += [os.path.join(REPO_ROOT, "payload", "source", s) for s in HUB_DAEMON_SOURCES]
     cmd += ["-lpthread", "-lm", "-o", out]
@@ -178,6 +221,7 @@ class HubHarness:
         env["HARMONY_MOCK_DIR"] = self.mock_dir
         env["HARMONY_MOCK_ROLE"] = "hub"
         env["LD_PRELOAD"] = MOCK_LIB
+        env["HARMONY_HUB_FETCH"] = build_hub_fetch_test()
         env.update(self.extra_env)
         if self.log_path:
             self.log_file = open(self.log_path, "wb")

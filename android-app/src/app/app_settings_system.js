@@ -894,6 +894,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
     await Promise.allSettled([
       this.refreshServiceStatuses(),
       this.refreshSystemInfo(),
+      this.refreshStockResources(),
       this.refreshLogs(),
       this.loadUserAccounts(),
       this.loadPersonalAccessTokens(),

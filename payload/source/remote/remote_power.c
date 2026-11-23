@@ -1,4 +1,5 @@
 #include "remote_power.h"
+#include "remote_input.h"
 #include "remote_transition.h"
 #include "remote_fb.h"
 #include "remote_rf.h"
@@ -10,7 +11,10 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <unistd.h>
 #include <sys/ioctl.h>
+#include <sys/mman.h>
+#include <linux/input.h>
 #include <linux/watchdog.h>
 
 volatile sig_atomic_t g_wake_requested = 0;
@@ -338,7 +342,8 @@ bool remote_deep_standby_due(uint64_t standby_s) {
 /* The stock firmware also holds the screen on while pairing is open or an activity starts: a
  * remote that sleeps stops its pairing requests, and wakes into a locked switch overlay */
 bool remote_suspend_blocked(void) {
-    return g_pairing_state == 1 || g_is_switching_activity || g_is_syncing_config || g_is_ota_updating;
+    return g_pairing_state == 1 || g_is_switching_activity || g_is_syncing_config || g_is_ota_updating ||
+           remote_key_held();
 }
 
 bool remote_should_suspend(uint64_t standby_s, uint64_t now_ms) {
@@ -498,7 +503,7 @@ void sig_deep_sleep_handler(int sig) {
 
 static void forced_deep_standby(void) {
     if (remote_suspend_blocked()) {
-        printf("[*] Deep standby (SIGUSR2) not started: a pairing, switch, sync or update is running\n");
+        printf("[*] Deep standby (SIGUSR2) not started: a pairing, switch, sync or update is running, or a key is held\n");
         return;
     }
     fb_set_blank(true);
@@ -624,7 +629,7 @@ void *power_manager(void *arg) {
             time_t now = time(NULL);
             if (now - g_last_activity_time > g_timeout_seconds) {
                 /* Blanking suspends a battery-powered remote, which would kill the transfer, stop
-                 * the pairing requests or hide the switch overlay */
+                 * the pairing requests, hide the switch overlay or cut a held key's repeats */
                 if (remote_suspend_blocked()) {
                     reset_idle_timer();
                 } else {
@@ -667,26 +672,23 @@ void remote_key_wake_screen(void) {
     g_screen_dirty = true;   /* drawn by the main loop, after the key events that are waiting */
 }
 
+static void write_sysfs_int(const char *path, int value) {
+    int fd = open(path, O_WRONLY);
+    if (fd < 0) return;
+    char buf[16];
+    int n = snprintf(buf, sizeof(buf), "%d\n", value);
+    if (write(fd, buf, n) < 0) {}
+    close(fd);
+}
+
+/* As stock: the sensor runs only while tilt wake is on and is powered down otherwise */
 void init_gyro_interrupt(void) {
-    int fdr = open(GYRO_DATA_RATE_SYS, O_WRONLY);
-    if (fdr >= 0) {
-        char rstr[16];
-        snprintf(rstr, sizeof(rstr), "%d\n", g_gyro_rate_hz > 0 ? g_gyro_rate_hz : 50);
-        write(fdr, rstr, strlen(rstr));
-        close(fdr);
-    }
-    int fdt = open(GYRO_INT1_THRESHOLD_SYS, O_WRONLY);
-    if (fdt >= 0) {
-        write(fdt, "5\n", 2);
-        close(fdt);
-    }
-    int fdd = open(GYRO_INT1_DURATION_SYS, O_WRONLY);
-    if (fdd >= 0) {
-        write(fdd, "1\n", 2);
-        close(fdd);
-    }
-    printf("[+] Accelerometer INT1 hardware interrupt configured (rate=%dHz, thresh=5, dur=1)\n",
-           g_gyro_rate_hz > 0 ? g_gyro_rate_hz : 50);
+    int rate = g_gyro_enabled ? GYRO_DATA_RATE_ON : 0;
+    write_sysfs_int(GYRO_DATA_RATE_SYS, rate);
+    write_sysfs_int(GYRO_INT1_THRESHOLD_SYS, GYRO_INT1_THRESHOLD);
+    write_sysfs_int(GYRO_INT1_DURATION_SYS, GYRO_INT1_DURATION);
+    printf("[+] Accelerometer INT1 configured (data_rate=0x%02x, thresh=%d, dur=%d)\n",
+           rate, GYRO_INT1_THRESHOLD, GYRO_INT1_DURATION);
 }
 
 /* The watchdog is opened, fed and closed from the main loop, the power manager thread and the
@@ -743,6 +745,18 @@ void remote_wdt_ping(void) {
     pthread_mutex_lock(&s_wdt_lock);
     remote_wdt_ping_locked();
     pthread_mutex_unlock(&s_wdt_lock);
+}
+
+void remote_hardware_cleanup(void) {
+    flush_activity_usage();
+    printf("[+] Cleaning up hardware resources...\n");
+    remote_wdt_close();
+    if (g_touch_fd >= 0) { ioctl(g_touch_fd, EVIOCGRAB, 0); close(g_touch_fd); g_touch_fd = -1; }
+    if (g_gyro_fd >= 0)  { ioctl(g_gyro_fd, EVIOCGRAB, 0);  close(g_gyro_fd);  g_gyro_fd = -1; }
+    if (g_rf_fd >= 0)    { close(g_rf_fd); g_rf_fd = -1; }
+    if (g_btn_fd >= 0)   { close(g_btn_fd); g_btn_fd = -1; }
+    if (g_fb_mem)        { munmap(g_fb_mem, g_fb_size); g_fb_mem = NULL; }
+    if (g_fb_fd >= 0)    { close(g_fb_fd); g_fb_fd = -1; }
 }
 
 void remote_wdt_close(void) {

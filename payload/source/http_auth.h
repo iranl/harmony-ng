@@ -51,6 +51,8 @@ extern "C" {
 void compute_ha1(const char *username, const char *realm, const char *password, char ha1_out[65]);
 int load_user_accounts(struct user_account *users, int max_users, int *auth_enabled);
 int save_user_accounts(const struct user_account *users, int count, int auth_enabled);
+/* 1 when authentication is on (accounts exist and it is not switched off) */
+int http_auth_is_enabled(void);
 int create_auth_session(const char *username, enum http_role role, const char *client_ip, char *out_token, size_t out_len);
 int destroy_auth_session(const char *token);
 /* Random hex from /dev/urandom; 0 on success, -1 when it cannot be read (never a weak fallback) */

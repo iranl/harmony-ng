@@ -198,14 +198,25 @@ jobs:
           mkdir -p build/output/hub
           cp -a payload/bin/hub_* payload/bin/register_ehci payload/bin/eth_fix payload/bin/mknod build/output/hub/ 2>/dev/null || cp -f payload/bin/hub_* payload/bin/register_ehci payload/bin/eth_fix payload/bin/mknod build/output/hub/
           [ -f payload/bin/busybox ] && cp -f payload/bin/busybox build/output/hub/ || true
+          # shared BearSSL for plugins (scripts/publish_ota.py puts it in hub_ota.tar.gz as lib/)
+          cp -f payload/lib/libbearssl.so.0 build/output/hub/
           [ -f tools/bin/dropbearmulti_mips ] && cp -f tools/bin/dropbearmulti_mips build/output/hub/dropbearmulti || true
           (cd build/output/hub && gzip -c -9 hub_daemon > hub_daemon.gz)
           ls -lh build/output/hub
+          # BTstack dev build (info logs) and the two .debug files: a release asset of their own,
+          # never in the bundle or the OTA package
+          mkdir -p build/output/hub_btstack_dev
+          cp -f build/output/hub_btstack_dev build/output/hub_btstack_dev.debug build/output/hub_btstack.debug build/output/hub_btstack_dev/
       - name: Archive Hub Binaries
         uses: actions/upload-artifact@v7
         with:
           name: hub-binaries
           path: build/output/hub/
+      - name: Archive BTstack Dev Build
+        uses: actions/upload-artifact@v7
+        with:
+          name: hub-btstack-dev
+          path: build/output/hub_btstack_dev/
 
   build-android:
     name: Build Android APK
@@ -300,7 +311,7 @@ jobs:
             fi
             cp -f build/deploy_hub.py staging_hub/
             printf '%s\n' "$VERSION" > staging_hub/VERSION
-            cp -f tools/root_hub_usb.py tools/harmony_hid.py tools/harmony_firmware.py tools/migrate_hub_configs.py tools/backup_hub.py tools/restore_stock.py tools/factory_reset.py tools/ssh_hostkeys.py staging_hub/tools/
+            cp -f tools/root_hub_usb.py tools/harmony_hid.py tools/harmony_firmware.py tools/migrate_hub_configs.py tools/backup_hub.py tools/restore_stock.py tools/factory_reset.py tools/clean_stock_resources.py tools/ssh_hostkeys.py tools/icon_pack.py staging_hub/tools/
             if [ -d payload/config ]; then
               mkdir -p staging_hub/config
               cp -rf payload/config/* staging_hub/config/
@@ -309,6 +320,9 @@ jobs:
             (cd staging_hub && zip -r "${RELEASE_DIR}/harmony-hub-v${VERSION}.zip" .)
             tar -czvf "${RELEASE_DIR}/harmony-hub-v${VERSION}.tar.gz" -C staging_hub .
             cp -f artifacts/hub-binaries/hub_daemon.gz "${RELEASE_DIR}/hub_daemon_v${VERSION}.gz"
+          fi
+          if [ -d artifacts/hub-btstack-dev ]; then
+            tar -czf "${RELEASE_DIR}/hub_btstack_dev_v${VERSION}.tar.gz" -C artifacts/hub-btstack-dev .
           fi
 
           # 2. Package Complete Remote Release Bundle

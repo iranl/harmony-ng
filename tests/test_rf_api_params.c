@@ -55,9 +55,9 @@ int main(void) {
     pthread_t th;
     pthread_create(&th, NULL, api_server_worker, NULL);
 
-    int st = api("POST /api/rf/unpair?slot=3 HTTP/1.1\r\nHost: x\r\n\r\n");
+    int st = api("POST /api/rf/unpair?slot=7 HTTP/1.1\r\nHost: x\r\n\r\n");
     CHECK(st == 400 && g_paired_remotes[0].active && g_paired_remotes[1].active,
-          "unpair?slot=3 answered %d, slot 1 %s, slot 2 %s", st,
+          "unpair?slot=7 answered %d, slot 1 %s, slot 2 %s", st,
           g_paired_remotes[0].active ? "paired" : "unpaired", g_paired_remotes[1].active ? "paired" : "unpaired");
 
     pair_both();
@@ -86,6 +86,22 @@ int main(void) {
 
     st = api("POST /api/rf/push-icon?type=activity HTTP/1.1\r\nHost: x\r\nX-Note: id=abc\r\n\r\n");
     CHECK(st == 400, "push-icon took its id from a header (%d)", st);
+
+    /* restart after a restored slot table: asked for, then only once nothing runs */
+    CHECK(!rf_restart_due(), "a restart was due before one was asked for");
+    st = api("POST /api/rf/restart HTTP/1.1\r\nHost: x\r\nContent-Length: 2\r\n\r\n{}");
+    CHECK(st == 202 && g_restart_requested, "POST /api/rf/restart answered %d", st);
+    g_pairing_mode = true;
+    CHECK(!rf_restart_due(), "a restart cut a pairing window short");
+    g_pairing_mode = false;
+    g_config_push_running = true;
+    CHECK(!rf_restart_due(), "a restart cut a config push short");
+    g_config_push_running = false;
+    g_rf_ota.status_code = 3;
+    CHECK(!rf_restart_due(), "a restart cut an update in preparation short");
+    g_rf_ota.status_code = 0;
+    CHECK(rf_restart_due(), "no restart once idle");
+    g_restart_requested = false;
 
     if (s_failures) {
         printf("[-] test_rf_api_params: %d failure(s)\n", s_failures);

@@ -2,6 +2,8 @@
 #include "bt_pairing.h"
 #include "bt_hid.h"
 #include "bt_remote.h"
+#include "bt_adv.h"
+#include "bt_listen.h"
 #include "bt_wake_key.h"
 
 #ifndef TLV_DB_PATH
@@ -113,6 +115,140 @@ static void pairing_timeout_handler(btstack_timer_source_t *ts) {
     UNUSED(ts);
     if (g_host_pairing) pairing_mode_off("timeout");
 }
+
+/* ---- Generic Classic BT page (fire-and-forget connection request) --------
+ * IPC: "bt_page <target_bdaddr> [spoof_bdaddr]"
+ *
+ * Sends a raw HCI Create Connection to <target>.  If spoof_bdaddr is given,
+ * the Hub's BD_ADDR is temporarily changed to it via CSR8811 BCCMD before
+ * paging and restored after the Connection Complete event.
+ *
+ * Uses hci_send_cmd_packet() (raw HCI) instead of gap_connect() to avoid
+ * creating an hci_connection_t entry in BTstack's connection list, which
+ * would block all subsequent hid_device_connect() calls for ~15 seconds
+ * until the HCI page timeout fires. */
+static bd_addr_t s_page_target;
+static bd_addr_t s_page_orig_addr;      /* saved BEFORE spoof */
+static bool      s_page_spoofed = false;
+static bool      s_page_active  = false;
+/* A page with no Connection Complete for the target (lost event, a Create Connection the
+ * controller refused) ends here: without it every later bt_page was dropped as busy and a
+ * spoofed address stayed. Longer than the controller's page timeout (5.12 s by default). */
+#define BT_PAGE_TIMEOUT_MS 10000
+static btstack_timer_source_t s_page_timer;
+
+static void bt_page_restore_addr(void) {
+    if (!s_page_spoofed) return;
+    uint8_t pkt[28] = {
+        0x00, 0xFC, 25, 0xC2,
+        0x02, 0x00, 0x0c, 0x00, 0x11, 0x47, 0x03, 0x70,
+        0x00, 0x00, 0x01, 0x00, 0x04, 0x00, 0x08, 0x00,
+        s_page_orig_addr[3], 0x00, s_page_orig_addr[5], s_page_orig_addr[4],
+        s_page_orig_addr[2], 0x00, s_page_orig_addr[1], s_page_orig_addr[0]
+    };
+    if (hci_send_cmd_packet(pkt, sizeof(pkt)) != 0) log_msg("bt_page: BD_ADDR restore command not sent");
+    else log_msg("bt_page: BD_ADDR restored");
+    s_page_spoofed = false;
+}
+
+static void bt_page_end(void) {
+    btstack_run_loop_remove_timer(&s_page_timer);
+    bt_page_restore_addr();
+    s_page_active = false;
+}
+
+static void bt_page_timeout(btstack_timer_source_t *ts) {
+    (void)ts;
+    if (!s_page_active) return;
+    log_msg("bt_page: no Connection Complete for the target, page ended");
+    bt_page_end();
+}
+
+void bt_page_on_complete(const bd_addr_t addr, uint8_t status, hci_con_handle_t handle) {
+    if (!s_page_active) return;
+    if (memcmp(addr, s_page_target, 6) != 0) return;
+
+    char msg[128];
+    snprintf(msg, sizeof(msg), "bt_page: Complete for %s status=0x%02x handle=0x%04x",
+             bd_addr_to_str(addr), status, handle);
+    log_msg(msg);
+
+    if (status == 0 && handle != 0 && handle != HCI_CON_HANDLE_INVALID) {
+        /* Page succeeded — send raw HCI Disconnect (we only needed the page) */
+        uint8_t disc[7];
+        disc[0] = 0x06; disc[1] = 0x04; /* HCI Disconnect opcode */
+        disc[2] = 3;                     /* parameter length */
+        disc[3] = handle & 0xFF; disc[4] = (handle >> 8) & 0xFF;
+        disc[5] = 0x13;                  /* reason: Remote User Terminated */
+        if (hci_send_cmd_packet(disc, 6) != 0) log_msg("bt_page: Disconnect command not sent");
+    }
+
+    bt_page_end();
+}
+
+static void bt_page(const bd_addr_t target, const char *spoof_str) {
+    if (s_page_active) {
+        log_msg("bt_page: busy, request dropped");
+        return;
+    }
+
+    memcpy(s_page_target, target, 6);
+    s_page_active = true;
+    s_page_spoofed = false;
+
+    char msg[128];
+    snprintf(msg, sizeof(msg), "bt_page: Paging %s", bd_addr_to_str(target));
+    log_msg(msg);
+
+    /* Save original BD_ADDR BEFORE any spoof */
+    gap_local_bd_addr(s_page_orig_addr);
+
+    if (spoof_str && spoof_str[0]) {
+        bd_addr_t spoof;
+        if (parse_bd_addr(spoof_str, spoof)) {
+            uint8_t pkt[28] = {
+                0x00, 0xFC, 25, 0xC2,
+                0x02, 0x00, 0x0c, 0x00, 0x11, 0x47, 0x03, 0x70,
+                0x00, 0x00, 0x01, 0x00, 0x04, 0x00, 0x08, 0x00,
+                spoof[3], 0x00, spoof[5], spoof[4],
+                spoof[2], 0x00, spoof[1], spoof[0]
+            };
+            if (hci_send_cmd_packet(pkt, sizeof(pkt)) != 0) {
+                log_msg("bt_page: spoof command not sent, page dropped");
+                s_page_active = false;
+                return;
+            }
+            s_page_spoofed = true;
+
+            char smsg[128];
+            snprintf(smsg, sizeof(smsg), "bt_page: Spoofed BD_ADDR to %s", spoof_str);
+            log_msg(smsg);
+        }
+    }
+
+    /* Raw HCI Create Connection — bypasses BTstack's connection state machine */
+    uint8_t cc[16];
+    cc[0] = 0x05; cc[1] = 0x04;  /* opcode: HCI Create Connection (OGF=1, OCF=5) */
+    cc[2] = 13;                   /* parameter length */
+    /* BD_ADDR in HCI wire order (little-endian) */
+    cc[3] = target[5]; cc[4] = target[4]; cc[5] = target[3];
+    cc[6] = target[2]; cc[7] = target[1]; cc[8] = target[0];
+    cc[9] = 0x18; cc[10] = 0xCC; /* packet type: DM1|DH1|DM3|DH3|DM5|DH5 */
+    cc[11] = 0x01;               /* page scan repetition mode R1 */
+    cc[12] = 0x00;               /* reserved */
+    cc[13] = 0x00; cc[14] = 0x00; /* clock offset: none */
+    cc[15] = 0x00;               /* allow role switch: no */
+    if (hci_send_cmd_packet(cc, 16) != 0) {
+        log_msg("bt_page: Create Connection not sent");
+        bt_page_restore_addr();
+        s_page_active = false;
+        return;
+    }
+    btstack_run_loop_set_timer_handler(&s_page_timer, &bt_page_timeout);
+    btstack_run_loop_set_timer(&s_page_timer, BT_PAGE_TIMEOUT_MS);
+    btstack_run_loop_add_timer(&s_page_timer);
+}
+
 
 /* The key pipe is read as soon as hub_daemon writes to it. It used to be read only from the
  * 100 ms command timer: every key waited up to 100 ms, and a press and its release written
@@ -424,7 +560,9 @@ void execute_btstack_cmd(const char *cmd_in) {
     while (p >= cmd && (*p == '\r' || *p == '\n' || *p == ' ')) *p-- = 0;
     if (!cmd[0]) return;
 
-    if (strcasecmp(cmd, "stop_scan") == 0 || strcasecmp(cmd, "scan_off") == 0 || strcasecmp(cmd, "scan_stop") == 0) {
+    if (strncasecmp(cmd, "adv_listen ", 11) == 0) {
+        bt_listen_handle_cmd(cmd + 11);
+    } else if (strcasecmp(cmd, "stop_scan") == 0 || strcasecmp(cmd, "scan_off") == 0 || strcasecmp(cmd, "scan_stop") == 0) {
         stop_user_scan();
     } else if (strncasecmp(cmd, "scan", 4) == 0) {
         start_user_scan();
@@ -571,6 +709,8 @@ void execute_btstack_cmd(const char *cmd_in) {
             }
             log_msg("Host disconnect requested for all");
         }
+    } else if (strncasecmp(cmd, "adv ", 4) == 0) {
+        bt_adv_handle_cmd(cmd + 4);
     } else if (strncmp(cmd, "key ", 4) == 0) {
         send_host_named_key(cmd + 4);
     } else if (strncmp(cmd, "text ", 5) == 0) {
@@ -586,6 +726,18 @@ void execute_btstack_cmd(const char *cmd_in) {
             /* leave the run loop now; cmd_poll_timeout() would also do it within 100 ms */
             btstack_run_loop_trigger_exit();
         }
+    } else if (strncasecmp(cmd, "bt_page", 7) == 0) {
+        char *p = cmd + 7;
+        while (*p == ' ') p++;
+        char target_str[32] = "";
+        char spoof_str[32] = "";
+        sscanf(p, "%31s %31s", target_str, spoof_str);
+        bd_addr_t tgt;
+        if (!parse_bd_addr(target_str, tgt)) {
+            log_msg("bt_page: invalid target address");
+            return;
+        }
+        bt_page(tgt, spoof_str[0] ? spoof_str : NULL);
     }
 }
 

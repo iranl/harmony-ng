@@ -504,6 +504,26 @@ void init_act_triggers(void) {
     strncpy(g_act_triggers[0].target_act_id, "-1", sizeof(g_act_triggers[0].target_act_id) - 1);
 }
 
+void add_act_trigger(const rf_button_t *b) {
+    if (b->context_type != 0x00 || b->action_type < 0x02 || b->action_type > 0x04) return;
+    activity_trigger_btn_t *t = &g_act_triggers[g_act_trigger_count];
+    /* a chunk sent again after a lost ACK must not add the trigger a second time */
+    for (int i = 0; i < g_act_trigger_count; i++) {
+        if (g_act_triggers[i].atype == b->action_type &&
+            strncmp(g_act_triggers[i].button_name, b->label, sizeof(t->button_name) - 1) == 0 &&
+            strncmp(g_act_triggers[i].target_act_id, b->context_id, sizeof(t->target_act_id) - 1) == 0) return;
+    }
+    if (g_act_trigger_count >= MAX_ACT_TRIGGERS) return;
+    memset(t, 0, sizeof(*t));
+    strncpy(t->button_name, b->label, sizeof(t->button_name) - 1);
+    t->atype = b->action_type;
+    strncpy(t->target_act_id, b->context_id, sizeof(t->target_act_id) - 1);
+    if (strcasecmp(t->button_name, "PwrOff") == 0 || strcasecmp(t->button_name, "PowerOff") == 0) {
+        t->rf_key_code = 0x01EC;
+    }
+    g_act_trigger_count++;
+}
+
 void save_rf_config(void) {
     cJSON *root = cJSON_CreateObject();
     if (!root) return;
@@ -580,6 +600,7 @@ void save_rf_config(void) {
         cJSON_AddNumberToObject(s, "tot", g_rf_steps[i].total_steps);
         cJSON_AddNumberToObject(s, "del", g_rf_steps[i].delay_ms);
         cJSON_AddStringToObject(s, "name", g_rf_steps[i].name);
+        if (g_rf_steps[i].warm_dev) cJSON_AddNumberToObject(s, "wdev", g_rf_steps[i].warm_dev);
         cJSON_AddItemToArray(steps, s);
     }
 
@@ -715,6 +736,8 @@ void load_rf_config(void) {
 
     cJSON *btns = cJSON_GetObjectItem(root, "buttons");
     g_rf_button_count = 0;
+    /* The start, stop and Help keys come from the saved buttons too: a restart keeps them */
+    init_act_triggers();
     if (btns && cJSON_IsArray(btns)) {
         cJSON *b = NULL;
         cJSON_ArrayForEach(b, btns) {
@@ -750,6 +773,7 @@ void load_rf_config(void) {
                 } else {
                     g_rf_buttons[g_rf_button_count].icon_key[0] = '\0';
                 }
+                add_act_trigger(&g_rf_buttons[g_rf_button_count]);
                 g_rf_button_count++;
             }
         }
@@ -774,6 +798,8 @@ void load_rf_config(void) {
                 g_rf_steps[g_rf_step_count].delay_ms = jdel ? (uint16_t)jdel->valueint : 1000;
                 strncpy(g_rf_steps[g_rf_step_count].name, jname->valuestring, sizeof(g_rf_steps[0].name) - 1);
                 g_rf_steps[g_rf_step_count].name[sizeof(g_rf_steps[0].name) - 1] = '\0';
+                cJSON *jwdev = cJSON_GetObjectItem(s, "wdev");
+                g_rf_steps[g_rf_step_count].warm_dev = cJSON_IsNumber(jwdev) ? (uint8_t)jwdev->valueint : 0;
                 g_rf_step_count++;
             }
         }
@@ -938,9 +964,16 @@ void apply_theme(const char *name) {
     g_screen_dirty = true;
 }
 
+/* Theme of a remote whose settings name none (first start, older settings file) */
+#define DEFAULT_THEME "colourful"
+
 void load_settings_conf(void) {
+    bool theme_set = false;
     FILE *f = fopen(SETTINGS_CONFIG_FILE, "r");
-    if (!f) return;
+    if (!f) {
+        theme_load(DEFAULT_THEME);
+        return;
+    }
     char line[128];
     while (fgets(line, sizeof(line), f)) {
         char key[64] = {0};
@@ -952,7 +985,6 @@ void load_settings_conf(void) {
             else if (strcmp(key, "cap_buttons") == 0 || strcmp(key, "capacitive_buttons") == 0) g_cap_buttons_enabled = (val != 0);
             else if (strcmp(key, "touch_sens") == 0) g_touch_sensitivity = (val >= 1 && val <= 3) ? val : 2;
             else if (strcmp(key, "gyro") == 0) g_gyro_enabled = (val != 0);
-            else if (strcmp(key, "gyro_rate") == 0) g_gyro_rate_hz = remote_gyro_rate_valid(val) ? val : 50;
             else if (strcmp(key, "deep_standby") == 0 || strcmp(key, "deep_standby_min") == 0) {
                 if (val == -1 || val == 0 || val == 15 || val == 30 || val == 60 || val == 120 || val == 240) {
                     g_deep_standby_min = val;
@@ -971,7 +1003,10 @@ void load_settings_conf(void) {
             else if (strcmp(key, "language") == 0 || strcmp(key, "lang") == 0) {
                 g_language = remote_lang_from_code(sval);
             }
-            else if (strcmp(key, "theme") == 0) theme_load(sval);
+            else if (strcmp(key, "theme") == 0) {
+                theme_load(sval);
+                theme_set = true;
+            }
             else if (strcmp(key, "layout") == 0) {
                 g_home_layout = strcmp(sval, "grid") == 0 ? HOME_LAYOUT_GRID
                               : strcmp(sval, "list") == 0 ? HOME_LAYOUT_LIST
@@ -992,6 +1027,7 @@ void load_settings_conf(void) {
         }
     }
     fclose(f);
+    if (!theme_set) theme_load(DEFAULT_THEME);
     /* 0 kept the screen on, and the remote awake, until the battery was empty */
     g_timeout_seconds = rf_clamp_screen_timeout(g_timeout_seconds);
     if (access("/data/debug_logging.conf", F_OK) == 0) {
@@ -1004,10 +1040,6 @@ void load_settings_conf(void) {
  * time zone change): one at a time */
 static pthread_mutex_t s_settings_save_lock = PTHREAD_MUTEX_INITIALIZER;
 
-bool remote_gyro_rate_valid(int hz) {
-    return hz == 10 || hz == 25 || hz == 50 || hz == 100;
-}
-
 void save_settings_conf(void) {
     pthread_mutex_lock(&s_settings_save_lock);
     char buf[2048];
@@ -1017,7 +1049,6 @@ void save_settings_conf(void) {
         "cap_buttons=%d\n"
         "touch_sens=%d\n"
         "gyro=%d\n"
-        "gyro_rate=%d\n"
         "deep_standby=%d\n"
         "btn_backlight=%d\n"
         "night_start=%d\n"
@@ -1042,7 +1073,6 @@ void save_settings_conf(void) {
         g_cap_buttons_enabled ? 1 : 0,
         g_touch_sensitivity,
         g_gyro_enabled ? 1 : 0,
-        g_gyro_rate_hz,
         g_deep_standby_min,
         g_btn_backlight_mode,
         g_night_start_hour,
