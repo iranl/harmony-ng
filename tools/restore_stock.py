@@ -521,7 +521,8 @@ def main() -> None:
 
     # 2. Resolve SSH keys
     try:
-        pub_path, pub_str = resolve_ssh_key(args.pubkey)
+        # --skip-usb-root only logs in: any key the Hub's current server takes will do
+        pub_path, pub_str = resolve_ssh_key(args.pubkey, authorize=not args.skip_usb_root)
         priv_key_path = private_key_path(pub_path)
     except (OSError, ValueError) as e:
         print(f"[-] SSH key: {e}")

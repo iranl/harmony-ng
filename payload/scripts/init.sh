@@ -470,6 +470,7 @@ echo "$!" >> /tmp/harmony_supervisors.pid
     if [ -n "$_rf_bin" ]; then
       if ! pidof hub_rf >/dev/null 2>&1; then
         echo "$(date) Starting hub_rf daemon..." >> "$LOG"
+        rm -f /tmp/icon_push.* 2>/dev/null # an icon file of a transfer that a kill cut short
         _started=$(date +%s)
         "$_rf_bin" >> "$LOG" 2>&1
         [ -f /tmp/harmony_stop ] && exit 0
@@ -494,25 +495,24 @@ echo "$!" >> /tmp/harmony_supervisors.pid
 # 9. Log cap: the logs live in tmpfs, which is RAM on a 32 MB Hub. Unbounded, $LOG starved the
 # kernel (12 MB of log, 1 MB free, OOM kills of hub_rf and hub_daemon mid key press), and the
 # network monitor writes its log every few seconds while the network is down. Every writer
-# appends (>>), so truncating in place is safe; the last 64 KB are kept in <log>.1.
+# appends (>>), so truncating in place is safe; the last 64 KB are kept in <log>.1. A log over
+# 256 KB is cut, looked at every 20 s: with RF debug logging on, hub_rf writes about 2 MB a minute.
 cap_log() {
   # stock applets only (ls, awk): /cache and its extended BusyBox may not be there
   _sz=$(ls -l "$1" 2>/dev/null | awk '{print $5}')
   [ -n "$_sz" ] || _sz=0
-  if [ "$_sz" -gt 1048576 ] 2>/dev/null; then
-    # keep the last 64 KB in <log>.1 (whole file if dd is missing), then truncate in place
-    if command -v dd >/dev/null 2>&1; then
-      dd if="$1" of="$1.1" bs=1024 skip=$(expr "$_sz" / 1024 - 64) 2>/dev/null || cp "$1" "$1.1" 2>/dev/null
-    else
-      cp "$1" "$1.1" 2>/dev/null
-    fi
+  if [ "$_sz" -gt 262144 ] 2>/dev/null; then
+    # keep the last 64 KB in <log>.1, then truncate in place. Without dd (only the extended
+    # BusyBox has it) no tail is kept: a copy of the whole log doubled the RAM it took. The
+    # stock ash has no "command" builtin, so dd is simply tried.
+    dd if="$1" of="$1.1" bs=1024 skip=$(expr "$_sz" / 1024 - 64) 2>/dev/null || rm -f "$1.1"
     : > "$1"
     echo "$(date) log capped: was ${_sz} bytes, last 64 KB in $1.1" >> "$1"
   fi
 }
 (
   while true; do
-    sleep 60
+    sleep 20
     [ -f /tmp/harmony_stop ] && exit 0
     for _log in "$LOG" /tmp/harmony-network.log; do
       cap_log "$_log"

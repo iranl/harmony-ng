@@ -113,20 +113,25 @@ int main(void) {
     CHECK(strcmp(body_str("deviceId"), "dev\"1") == 0 && strcmp(body_str("command"), "Power\"On") == 0,
           "device command body %s", s_post_body);
 
-    /* 3. A key report from CC2544 slot 3 is not a key of the remote in slot 1 */
-    uint8_t key3[8] = {0x20, 0x03, 0x01, 0x00, 0x00, 0x52, 0x00, 0x00};
+    /* 3. A key report from a CC2544 slot above MAX_PAIRED_REMOTES is not a key of the remote in
+     * slot 1; one from slot 3 is a remote of its own */
+    uint8_t key7[8] = {0x20, 0x07, 0x01, 0x00, 0x00, 0x52, 0x00, 0x00};
     s_companion = 0;
+    radio_report(key7, sizeof(key7));
+    CHECK(s_companion == 0, "a key report from slot 7 went to the key handler");
+    uint8_t key3[8] = {0x20, 0x03, 0x01, 0x00, 0x00, 0x52, 0x00, 0x00};
     radio_report(key3, sizeof(key3));
-    CHECK(s_companion == 0, "a key report from slot 3 went to the key handler");
+    CHECK(s_companion == 1, "a key report from slot 3 must reach the key handler (%d)", s_companion);
+    s_companion = 0;
     uint8_t key1[8] = {0x20, 0x01, 0x01, 0x00, 0x00, 0x52, 0x00, 0x00};
     radio_report(key1, sizeof(key1));
     CHECK(s_companion == 1, "control: a key report from slot 1 must reach the key handler (%d)", s_companion);
 
-    /* ... and a link report from slot 3 does not make slot 3 the default for sends */
+    /* ... and a link report from slot 7 does not make slot 7 the default for sends */
     g_remote_slot = 1;
-    uint8_t link3[7] = {0x10, 0x03, 0x41, 0x04, 0x00, 0x00, 0x00};
-    radio_report(link3, sizeof(link3));
-    CHECK(g_remote_slot == 1, "a link report from slot 3 made slot %u the default", g_remote_slot);
+    uint8_t link7[7] = {0x10, 0x07, 0x41, 0x04, 0x00, 0x00, 0x00};
+    radio_report(link7, sizeof(link7));
+    CHECK(g_remote_slot == 1, "a link report from slot 7 made slot %u the default", g_remote_slot);
 
     /* 4. The CC2544 slot name keeps the RF status object valid JSON */
     uint8_t name[20] = {0x11, 0xFF, 0x83, 0xB5, 0x40, 6, 'A', '"', 'B', '\\', 'C', 'D'};

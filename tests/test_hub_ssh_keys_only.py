@@ -7,7 +7,7 @@ binaries are stand-ins that write the arguments they got (and whether SIGHUP is 
 file, and the commands with side effects are stubs first in PATH. The boot script runs with a
 PATH that holds only applets of the stock Hub BusyBox (no readlink, no cmp).
 
-- payload/scripts/hub_sshd finds the binary in the documented order and passes -s -g -K 300
+- payload/scripts/hub_sshd finds the binary in the documented order and passes -s -g -K 300 -R
   before the caller's own arguments; --binary only prints the binary; a script at
   /usr/sbin/dropbearmulti (the USB root tool's boot script) is never started
 - rcS.local copies it to /usr/sbin/dropbear (the stock boot script starts that path right after
@@ -136,18 +136,18 @@ class Wrapper(unittest.TestCase):
         self.s.fake_server("data/dropbearmulti")
         res = self.s.run(self.wrapper, "-p", "22")
         self.assertEqual(res.returncode, 0, res.stderr)
-        self.assertEqual(self.s.started(), [f"{self.s.root}/data/dropbearmulti dropbear -s -g -K 300 -p 22"])
+        self.assertEqual(self.s.started(), [f"{self.s.root}/data/dropbearmulti dropbear -s -g -K 300 -R -p 22"])
 
     def test_separate_binary_is_preferred_and_gets_the_flags(self):
         self.s.fake_server("data/dropbearmulti")
         self.s.fake_server("data/harmony/bin/dropbear")
         self.s.run(self.wrapper)
-        self.assertEqual(self.s.started(), [f"{self.s.root}/data/harmony/bin/dropbear -s -g -K 300"])
+        self.assertEqual(self.s.started(), [f"{self.s.root}/data/harmony/bin/dropbear -s -g -K 300 -R"])
 
     def test_update_package_binary_comes_next(self):
         self.s.fake_server("data/harmony/bin/dropbearmulti")
         self.s.run(self.wrapper)
-        self.assertEqual(self.s.started(), [f"{self.s.root}/data/harmony/bin/dropbearmulti dropbear -s -g -K 300"])
+        self.assertEqual(self.s.started(), [f"{self.s.root}/data/harmony/bin/dropbearmulti dropbear -s -g -K 300 -R"])
 
     def test_update_package_binary_preferred_over_usb_root_binary(self):
         self.s.fake_server("data/dropbearmulti")
@@ -155,7 +155,7 @@ class Wrapper(unittest.TestCase):
         res = self.s.run(self.wrapper, "--binary")
         self.assertEqual(res.stdout.strip(), f"{self.s.root}/data/harmony/bin/dropbearmulti")
         self.s.run(self.wrapper)
-        self.assertEqual(self.s.started(), [f"{self.s.root}/data/harmony/bin/dropbearmulti dropbear -s -g -K 300"])
+        self.assertEqual(self.s.started(), [f"{self.s.root}/data/harmony/bin/dropbearmulti dropbear -s -g -K 300 -R"])
 
     def test_serial_guide_binary_but_never_the_root_tools_boot_script(self):
         multi = self.s.root / "usr" / "sbin" / "dropbearmulti"
@@ -210,7 +210,7 @@ class BootScripts(unittest.TestCase):
         return self.s.started()
 
     def keys_only(self) -> list[str]:
-        return [f"{self.s.root}/data/dropbearmulti dropbear -s -g -K 300"]
+        return [f"{self.s.root}/data/dropbearmulti dropbear -s -g -K 300 -R"]
 
     def rooted_hub(self) -> None:
         """As the USB root tool left a Hub before this change: /usr/sbin/dropbear -> the binary"""
@@ -314,14 +314,14 @@ class BootScripts(unittest.TestCase):
         self.boot()
         self.assertTrue(self.usr.exists())
         self.assertIn("/data/harmony/bin/dropbearmulti", self.usr.read_text())
-        self.assertEqual(self.stock_start(), [f"{self.s.root}/data/harmony/bin/dropbearmulti dropbear -s -g -K 300"])
+        self.assertEqual(self.stock_start(), [f"{self.s.root}/data/harmony/bin/dropbearmulti dropbear -s -g -K 300 -R"])
 
     def test_rcs_local_fallback_uses_data_dropbearmulti_when_harmony_bin_absent(self):
         self.s.fake_server("data/dropbearmulti")
         self.boot()
         self.assertTrue(self.usr.exists())
         self.assertIn("/data/dropbearmulti", self.usr.read_text())
-        self.assertEqual(self.stock_start(), [f"{self.s.root}/data/dropbearmulti dropbear -s -g -K 300"])
+        self.assertEqual(self.stock_start(), [f"{self.s.root}/data/dropbearmulti dropbear -s -g -K 300 -R"])
 
 
 class RootToolBootScript(unittest.TestCase):
@@ -330,7 +330,7 @@ class RootToolBootScript(unittest.TestCase):
         self.s.write(self.s.stub / "uname", "#!/bin/sh\necho mips\n")
         self.s.write(self.s.root / "etc" / "passwd", "root:x:0:0::/root:/bin/sh\n", 0o644)
         # a host key exists, so the script does not run dropbearkey (the stand-in would record it)
-        self.s.write(self.s.root / "etc" / "dropbear" / "dropbear_rsa_host_key", "key\n", 0o600)
+        self.s.write(self.s.root / "etc" / "dropbear" / "dropbear_ed25519_host_key", "key\n", 0o600)
         self.s.fake_server("data/dropbearmulti")
 
     def tearDown(self):
@@ -366,22 +366,22 @@ class DropbearkeyWrapper(unittest.TestCase):
         self.s.fake_server("data/harmony/bin/dropbearkey")
         self.s.fake_server("data/harmony/bin/dropbearmulti")
         self.s.fake_server("data/dropbearmulti")
-        res = self.s.run(self.script, "-t", "rsa")
+        res = self.s.run(self.script, "-t", "ed25519")
         self.assertEqual(res.returncode, 0)
-        self.assertEqual(self.s.started(), [f"{self.s.root}/data/harmony/bin/dropbearkey -t rsa"])
+        self.assertEqual(self.s.started(), [f"{self.s.root}/data/harmony/bin/dropbearkey -t ed25519"])
 
     def test_falls_back_to_harmony_bin_dropbearmulti(self):
         self.s.fake_server("data/harmony/bin/dropbearmulti")
         self.s.fake_server("data/dropbearmulti")
-        res = self.s.run(self.script, "-t", "rsa")
+        res = self.s.run(self.script, "-t", "ed25519")
         self.assertEqual(res.returncode, 0)
-        self.assertEqual(self.s.started(), [f"{self.s.root}/data/harmony/bin/dropbearmulti dropbearkey -t rsa"])
+        self.assertEqual(self.s.started(), [f"{self.s.root}/data/harmony/bin/dropbearmulti dropbearkey -t ed25519"])
 
     def test_falls_back_to_data_dropbearmulti(self):
         self.s.fake_server("data/dropbearmulti")
-        res = self.s.run(self.script, "-t", "rsa")
+        res = self.s.run(self.script, "-t", "ed25519")
         self.assertEqual(res.returncode, 0)
-        self.assertEqual(self.s.started(), [f"{self.s.root}/data/dropbearmulti dropbearkey -t rsa"])
+        self.assertEqual(self.s.started(), [f"{self.s.root}/data/dropbearmulti dropbearkey -t ed25519"])
 
 
 if __name__ == "__main__":

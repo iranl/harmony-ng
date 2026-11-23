@@ -1,4 +1,5 @@
 #include "remote_power.h"
+#include "remote_input.h"
 #include "remote_transition.h"
 #include "remote_fb.h"
 #include "remote_rf.h"
@@ -341,7 +342,8 @@ bool remote_deep_standby_due(uint64_t standby_s) {
 /* The stock firmware also holds the screen on while pairing is open or an activity starts: a
  * remote that sleeps stops its pairing requests, and wakes into a locked switch overlay */
 bool remote_suspend_blocked(void) {
-    return g_pairing_state == 1 || g_is_switching_activity || g_is_syncing_config || g_is_ota_updating;
+    return g_pairing_state == 1 || g_is_switching_activity || g_is_syncing_config || g_is_ota_updating ||
+           remote_key_held();
 }
 
 bool remote_should_suspend(uint64_t standby_s, uint64_t now_ms) {
@@ -501,7 +503,7 @@ void sig_deep_sleep_handler(int sig) {
 
 static void forced_deep_standby(void) {
     if (remote_suspend_blocked()) {
-        printf("[*] Deep standby (SIGUSR2) not started: a pairing, switch, sync or update is running\n");
+        printf("[*] Deep standby (SIGUSR2) not started: a pairing, switch, sync or update is running, or a key is held\n");
         return;
     }
     fb_set_blank(true);
@@ -627,7 +629,7 @@ void *power_manager(void *arg) {
             time_t now = time(NULL);
             if (now - g_last_activity_time > g_timeout_seconds) {
                 /* Blanking suspends a battery-powered remote, which would kill the transfer, stop
-                 * the pairing requests or hide the switch overlay */
+                 * the pairing requests, hide the switch overlay or cut a held key's repeats */
                 if (remote_suspend_blocked()) {
                     reset_idle_timer();
                 } else {
@@ -670,26 +672,23 @@ void remote_key_wake_screen(void) {
     g_screen_dirty = true;   /* drawn by the main loop, after the key events that are waiting */
 }
 
+static void write_sysfs_int(const char *path, int value) {
+    int fd = open(path, O_WRONLY);
+    if (fd < 0) return;
+    char buf[16];
+    int n = snprintf(buf, sizeof(buf), "%d\n", value);
+    if (write(fd, buf, n) < 0) {}
+    close(fd);
+}
+
+/* As stock: the sensor runs only while tilt wake is on and is powered down otherwise */
 void init_gyro_interrupt(void) {
-    int fdr = open(GYRO_DATA_RATE_SYS, O_WRONLY);
-    if (fdr >= 0) {
-        char rstr[16];
-        snprintf(rstr, sizeof(rstr), "%d\n", g_gyro_rate_hz > 0 ? g_gyro_rate_hz : 50);
-        write(fdr, rstr, strlen(rstr));
-        close(fdr);
-    }
-    int fdt = open(GYRO_INT1_THRESHOLD_SYS, O_WRONLY);
-    if (fdt >= 0) {
-        write(fdt, "5\n", 2);
-        close(fdt);
-    }
-    int fdd = open(GYRO_INT1_DURATION_SYS, O_WRONLY);
-    if (fdd >= 0) {
-        write(fdd, "1\n", 2);
-        close(fdd);
-    }
-    printf("[+] Accelerometer INT1 hardware interrupt configured (rate=%dHz, thresh=5, dur=1)\n",
-           g_gyro_rate_hz > 0 ? g_gyro_rate_hz : 50);
+    int rate = g_gyro_enabled ? GYRO_DATA_RATE_ON : 0;
+    write_sysfs_int(GYRO_DATA_RATE_SYS, rate);
+    write_sysfs_int(GYRO_INT1_THRESHOLD_SYS, GYRO_INT1_THRESHOLD);
+    write_sysfs_int(GYRO_INT1_DURATION_SYS, GYRO_INT1_DURATION);
+    printf("[+] Accelerometer INT1 configured (data_rate=0x%02x, thresh=%d, dur=%d)\n",
+           rate, GYRO_INT1_THRESHOLD, GYRO_INT1_DURATION);
 }
 
 /* The watchdog is opened, fed and closed from the main loop, the power manager thread and the

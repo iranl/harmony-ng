@@ -29,7 +29,7 @@ static bool send_as_custom_icon(const char *name) {
 /* Queue the part of an activity (kind 0) or device (kind 1) name that did not fit in its
    list chunk, 22 bytes per frame, for remotes that report RF_CAP_LONG_NAMES */
 static void queue_name_tail(push_queue_t *q, uint8_t slot, uint8_t kind, int idx, const char *name, size_t sent) {
-    if (slot < 1 || slot > 2 || !(g_remote_versions[slot - 1].caps & RF_CAP_LONG_NAMES)) return;
+    if (slot < 1 || slot > MAX_PAIRED_REMOTES || !(g_remote_versions[slot - 1].caps & RF_CAP_LONG_NAMES)) return;
     for (size_t off = sent; off < strlen(name); off += 22) {
         uint8_t payload[25] = {0};
         rf_frame_t f;
@@ -42,6 +42,11 @@ static void queue_name_tail(push_queue_t *q, uint8_t slot, uint8_t kind, int idx
     }
 }
 
+void rf_request_config_push(void) {
+    pthread_t th;
+    if (pthread_create(&th, NULL, config_push_worker, NULL) == 0) pthread_detach(th);
+}
+
 void *config_push_worker(void *arg) {
     (void)arg;
     static pthread_mutex_t push_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -49,11 +54,12 @@ void *config_push_worker(void *arg) {
         printf("[-] Config push already in progress\n");
         return NULL;
     }
-    if (is_ota_busy()) {
+    if (is_ota_busy() || g_rf_ota.status_code == 3) {
         printf("[-] Config push skipped: RF OTA in progress on slot %d\n", g_rf_ota.target_slot);
         pthread_mutex_unlock(&push_lock);
         return NULL;
     }
+    g_config_push_running = true;
     rf_keymap_invalidate_map(0);
     rf_keymap_invalidate_devices_cache();
     rf_keymap_invalidate_activities_cache();
@@ -72,24 +78,30 @@ void *config_push_worker(void *arg) {
     uint8_t config_ver = g_config_version;
 
     rf_frame_t f;
-    uint8_t target_slots[2] = {0};
-    push_queue_t queue[2] = {{0}};
+    uint8_t target_slots[MAX_PAIRED_REMOTES] = {0};
+    push_queue_t queue[MAX_PAIRED_REMOTES] = {{0}};
     int num_targets = 0;
 
     for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {
         uint8_t s = g_paired_remotes[i].slot;
         if (is_companion_slot(s)) continue;
-        if (g_paired_remotes[i].active && !g_paired_remotes[i].link_lost) {
+        /* slots 3 to 6 only once their remote spoke since the start: after the update to six
+         * slots, old pipe-table entries showed as remotes and every push waited for them */
+        if (g_paired_remotes[i].active && !g_paired_remotes[i].link_lost && (s <= 2 || g_paired_remotes[i].heard)) {
             target_slots[num_targets++] = s;
         }
     }
     if (num_targets == 0) {
-        /* g_remote_slot follows any CC2544 report (slots 1..15), but only slots 1 and 2 hold a
-           remote and the two arrays above have room for two targets */
-        if (g_remote_slot >= 1 && g_remote_slot <= MAX_PAIRED_REMOTES && !is_companion_slot(g_remote_slot)) {
+        /* g_remote_slot follows any CC2544 report (slots 1..15), but only slots 1 to
+           MAX_PAIRED_REMOTES hold a remote */
+        /* Only a slot that holds a remote, or slots 1 and 2 while the Hub knows of no pairing
+           at all (as before there were 6 slots) */
+        uint8_t fallback_max = g_has_paired_device ? MAX_PAIRED_REMOTES : 2;
+        if (g_remote_slot >= 1 && g_remote_slot <= fallback_max && !is_companion_slot(g_remote_slot) &&
+            (g_paired_remotes[g_remote_slot - 1].active || !g_has_paired_device)) {
             target_slots[num_targets++] = g_remote_slot;
         }
-        for (uint8_t s = 1; s <= 2 && num_targets < 2; s++) {
+        for (uint8_t s = 1; s <= fallback_max && num_targets < MAX_PAIRED_REMOTES; s++) {
             if (!is_companion_slot(s)) {
                 bool already = false;
                 for (int j = 0; j < num_targets; j++) {
@@ -106,6 +118,7 @@ void *config_push_worker(void *arg) {
         printf("[*] Config push skipped: no active touchscreen remotes\n");
         unlink("/data/harmony/rf_sync_pending.flag");
         unlink("/data/harmony/rf_sync_pending_details.json");
+        g_config_push_running = false;
         pthread_mutex_unlock(&push_lock);
         return NULL;
     }
@@ -266,6 +279,8 @@ void *config_push_worker(void *arg) {
                         cJSON *d_obj = NULL;
                         cJSON_ArrayForEach(d_obj, devs_arr) {
                             if (dev_count >= 16) break;
+                            /* Hidden from the remote's device pages and activity cards only */
+                            if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(d_obj, "hideOnRemote"))) continue;
 
                             cJSON *jid = cJSON_GetObjectItemCaseSensitive(d_obj, "id");
                             cJSON *jname = cJSON_GetObjectItem(d_obj, "name");
@@ -358,7 +373,7 @@ void *config_push_worker(void *arg) {
        screen; only remotes that report RF_CAP_ACT_DEVICES understand this frame */
     for (int t = 0; t < num_targets; t++) {
         uint8_t target_slot = target_slots[t];
-        if (target_slot < 1 || target_slot > 2 || !(g_remote_versions[target_slot - 1].caps & RF_CAP_ACT_DEVICES)) continue;
+        if (target_slot < 1 || target_slot > MAX_PAIRED_REMOTES || !(g_remote_versions[target_slot - 1].caps & RF_CAP_ACT_DEVICES)) continue;
         for (int i = 0; i < act_count; i++) {
             uint8_t payload[25] = {0};
             payload[0] = (uint8_t)i;
@@ -450,7 +465,7 @@ void *config_push_worker(void *arg) {
             if (entries) {
                 pthread_mutex_lock(&g_map_lock);
                 cJSON *map = get_remote_map_unlocked(target_slot);
-                int help_keys = target_slot >= 1 && target_slot <= 2 &&
+                int help_keys = target_slot >= 1 && target_slot <= MAX_PAIRED_REMOTES &&
                                 (g_remote_versions[target_slot - 1].caps & RF_CAP_HELP_KEY);
                 n = rf_build_button_list(map ? cJSON_GetObjectItemCaseSensitive(map, "activities") : NULL,
                                          entries, RF_BUTTON_LIST_MAX, help_keys);
@@ -758,7 +773,7 @@ void *config_push_worker(void *arg) {
         /* An older remote adds up every Warmup step and opens its switch screen only at the end
            of the switch: it gets the list without them. A newer one gets an activity's Warmup
            steps, all or none, while they fit next to the other steps. */
-        bool warm_ok = target_slot >= 1 && target_slot <= 2 &&
+        bool warm_ok = target_slot >= 1 && target_slot <= MAX_PAIRED_REMOTES &&
                        (g_remote_versions[target_slot - 1].caps & RF_CAP_SWITCH_START);
         struct rf_step_send out[64];
         int out_count = 0, warm_room = 64 - total_step_count;
@@ -802,7 +817,7 @@ void *config_push_worker(void *arg) {
     for (int t = 0; t < num_targets; t++) {
         uint8_t target_slot = target_slots[t];
         int bright = 2, timeout = 10, touch = 1, gyro = 1, nav_key = 139, nav_mode = 1, confirm_act = 1, touch_sens = 2, remote_mode = 0;
-        int gyro_rate = 50, btn_backlight = 2, night_start = 22, night_end = 7, usbeth = 0, power_debug = 0;
+        int btn_backlight = 2, night_start = 22, night_end = 7, usbeth = 0, power_debug = 0;
         char spath[64];
         snprintf(spath, sizeof(spath), "/data/harmony/remote_slot%d_config.json", target_slot);
         FILE *sf = fopen(spath, "r");
@@ -822,7 +837,6 @@ void *config_push_worker(void *arg) {
                 cJSON *jca = cJSON_GetObjectItem(sroot, "confirmActivity");
                 cJSON *jts = cJSON_GetObjectItem(sroot, "touchSensitivity");
                 cJSON *jrm = cJSON_GetObjectItem(sroot, "remoteMode");
-                cJSON *jgr = cJSON_GetObjectItem(sroot, "gyroRate");
                 cJSON *jbb = cJSON_GetObjectItem(sroot, "btnBacklight");
                 cJSON *jns = cJSON_GetObjectItem(sroot, "nightStart");
                 cJSON *jne = cJSON_GetObjectItem(sroot, "nightEnd");
@@ -844,7 +858,6 @@ void *config_push_worker(void *arg) {
                 if (jca) confirm_act = cJSON_IsTrue(jca) || (cJSON_IsNumber(jca) && jca->valueint != 0) ? 1 : 0;
                 if (jts && jts->valueint >= 1 && jts->valueint <= 3) touch_sens = jts->valueint;
                 if (jrm && jrm->valueint >= 0) remote_mode = jrm->valueint;
-                if (jgr && jgr->valueint > 0) gyro_rate = jgr->valueint;
                 if (jbb && jbb->valueint >= 0 && jbb->valueint <= 2) btn_backlight = jbb->valueint;
                 if (jns && jns->valueint >= 0 && jns->valueint <= 23) night_start = jns->valueint;
                 if (jne && jne->valueint >= 0 && jne->valueint <= 23) night_end = jne->valueint;
@@ -875,7 +888,7 @@ void *config_push_worker(void *arg) {
                 int physical_nav = (jpn && (cJSON_IsTrue(jpn) || (cJSON_IsNumber(jpn) && jpn->valueint != 0))) ? 1 : 0;
                 if (physical_nav) layout = rf_layout_id("list");
                 cJSON_Delete(sroot);
-                rf_build_settings_push(&f, target_slot, bright, timeout, touch, gyro, nav_key, nav_mode, confirm_act, touch_sens, remote_mode, gyro_rate, btn_backlight, night_start, night_end, usbeth, no_screen, cap_buttons, power_debug, language, theme, layout, physical_nav);
+                rf_build_settings_push(&f, target_slot, bright, timeout, touch, gyro, nav_key, nav_mode, confirm_act, touch_sens, remote_mode, btn_backlight, night_start, night_end, usbeth, no_screen, cap_buttons, power_debug, language, theme, layout, physical_nav);
                 push_queue_add(&queue[t], &f);
             }
         }
@@ -930,7 +943,7 @@ void *config_push_worker(void *arg) {
                 }
             }
         }
-        if (target_slot >= 1 && target_slot <= 2) {
+        if (target_slot >= 1 && target_slot <= MAX_PAIRED_REMOTES) {
             /* The remote applies the config when it receives this frame, but it only sends
                VERSION_REPORT on first link and every 24h, so record its new version here
                (with the shared writer: remote_id and skin stay in the file). */
@@ -948,7 +961,7 @@ void *config_push_worker(void *arg) {
         for (int t = 0; t < num_targets; t++) {
             uint8_t target_slot = target_slots[t];
             int idx = target_slot - 1;
-            if (idx >= 0 && idx < 2 && g_remote_versions[idx].config_version != config_ver) {
+            if (idx >= 0 && idx < MAX_PAIRED_REMOTES && g_remote_versions[idx].config_version != config_ver) {
                 char details[128];
                 snprintf(details, sizeof(details), "{\"slot\":%d,\"diff\":\"Remote Slot %d unreachable/asleep. Will sync on wake.\"}\n",
                          target_slot, target_slot);
@@ -958,6 +971,7 @@ void *config_push_worker(void *arg) {
         }
     }
 
+    g_config_push_running = false;
     pthread_mutex_unlock(&push_lock);
     return NULL;
 }

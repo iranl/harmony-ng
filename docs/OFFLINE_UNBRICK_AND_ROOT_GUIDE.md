@@ -273,18 +273,24 @@ printf '#!/bin/sh\nexec /usr/sbin/dropbearmulti dropbear -s -g "$@"\n' > /usr/sb
 chmod 755 /usr/sbin/dropbear
 ln -sf /usr/sbin/dropbearmulti /usr/sbin/dropbearkey
 
-# 2. Generate RSA host key
+# 2. Generate the Ed25519 host key (the only host key type this dropbearmulti loads)
 mkdir -p /etc/dropbear /root/.ssh
-/usr/sbin/dropbearkey -t rsa -f /etc/dropbear/dropbear_rsa_host_key
+/usr/sbin/dropbearkey -t ed25519 -f /etc/dropbear/dropbear_ed25519_host_key
 
 # 3. Create the boot trigger file
 # Stock /etc/init.d/rcS checks: if [ -r /etc/tdeenable -a -x /usr/sbin/dropbear ]; then dropbear; fi
 touch /etc/tdeenable
 
 # 4. Install your SSH public key
-# Dropbearmulti supports both ED25519 and RSA keys:
-echo "<YOUR_SSH_PUBLIC_KEY>" > /etc/dropbear/authorized_keys
-cp /etc/dropbear/authorized_keys /root/.ssh/authorized_keys
+# Dropbearmulti takes ED25519 keys only (ssh-keygen -t ed25519). The server reads
+# <root home>/.ssh/authorized_keys, and root's home in the Hub's /etc/passwd is /home/root:
+ROOT_HOME=$(awk -F: '$1=="root"{print $6}' /etc/passwd); ROOT_HOME=${ROOT_HOME:-/home/root}
+mkdir -p "$ROOT_HOME/.ssh" && chmod 700 "$ROOT_HOME/.ssh"
+echo "<YOUR_SSH_PUBLIC_KEY>" > "$ROOT_HOME/.ssh/authorized_keys"
+chmod 600 "$ROOT_HOME/.ssh/authorized_keys"
+# the same key where older tools look for it
+cp "$ROOT_HOME/.ssh/authorized_keys" /etc/dropbear/authorized_keys
+cp "$ROOT_HOME/.ssh/authorized_keys" /root/.ssh/authorized_keys
 
 # 5. (Optional) Set blank root password for direct console access (SSH still takes keys only)
 sed -i 's/^root:[^:]*:/root::/' /etc/passwd

@@ -92,6 +92,16 @@ int main(void) {
     sanitize_devices_json(root);
     cmds = cJSON_GetObjectItemCaseSensitive(dev_of(root, 0), "commands");
     CHECK(num_of(cJSON_GetArrayItem(cmds, 0), "port") == 2, "a port set after that is kept");
+  
+    printf("[-] hideOnRemote / hideInDevicesTab\n");
+    root = cJSON_Parse("{\"devices\":[{\"id\":\"1\",\"name\":\"TV\",\"hideOnRemote\":true},"
+                       "{\"id\":\"2\",\"name\":\"AVR\",\"hideOnRemote\":false,\"hideInDevicesTab\":true}]}");
+    sanitize_devices_json(root);
+    CHECK(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dev_of(root, 0), "hideOnRemote")), "hideOnRemote true kept");
+    CHECK(cJSON_GetObjectItemCaseSensitive(dev_of(root, 1), "hideOnRemote") == NULL, "hideOnRemote false not stored");
+    CHECK(cJSON_GetObjectItemCaseSensitive(dev_of(root, 0), "hideInDevicesTab") == NULL, "hideInDevicesTab absent not added");
+    CHECK(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dev_of(root, 1), "hideInDevicesTab")),
+          "hideInDevicesTab kept apart from hideOnRemote");
     cJSON_Delete(root);
 
     printf("[-] timezones\n");

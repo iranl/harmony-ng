@@ -79,7 +79,7 @@ tags:
   - name: Bluetooth HID
     description: Bluetooth host pairing, connection management, and BLE remotes
   - name: RF & Remote
-    description: 'CC2544 2.4GHz RF transceiver and Harmony remote management. On every /api/rf/* route that takes a slot, the slot may be given in the query (?slot=1) or in a JSON body ({"slot": 1}); a value other than 1 or 2 is answered 400 (0 or all are accepted only by pair, unpair, sleep and push-icon, where they mean every remote).'
+    description: 'CC2544 2.4GHz RF transceiver and Harmony remote management. On every /api/rf/* route that takes a slot, the slot may be given in the query (?slot=1) or in a JSON body ({"slot": 1}); a value other than 1 to 6 is answered 400 (0 or all are accepted only by pair, unpair, sleep and push-icon, where they mean every remote).'
   - name: Network & MQTT
     description: Wi-Fi, USB Ethernet, and MQTT broker configuration
   - name: Updates & Maintenance
@@ -166,8 +166,8 @@ paths:
           bt_mouse: {reply: ack, fields: [dx, dy, buttons, wheel, mouseAction, button, target]}
           ir_raw: {reply: ack, fields: [frequency, timings, port, repeats], description: As POST /api/ir-raw}
           ir_capture: {reply: ack, fields: [enabled]}
-          rf_wake: {reply: ack, fields: [slot], description: "As POST /api/rf/wake (slot 1 or 2, default 1)"}
-          rf_sleep: {reply: ack, fields: [slot], description: "As POST /api/rf/sleep (slot 1 or 2, default 1)"}
+          rf_wake: {reply: ack, fields: [slot], description: "As POST /api/rf/wake (slot 1 to 6, default 1)"}
+          rf_sleep: {reply: ack, fields: [slot], description: "As POST /api/rf/sleep (slot 1 to 6, default 1)"}
           sync: {reply: ack, description: As POST /api/sync}
           update_check: {reply: ack, fields: [repo, token, remote_version], description: As POST /api/update-check}
           update_apply: {reply: ack, fields: [repo, token], description: As POST /api/update-apply}
@@ -1254,6 +1254,8 @@ paths:
                 icon: {oneOf: [{type: string}, {type: integer}]}
                 powerOnDelay: {type: integer}
                 isPowerAlwaysOn: {type: boolean}
+                hideOnRemote: {type: boolean, description: "left out of the remote's device lists at the next config push; activity buttons and keys still send its commands"}
+                hideInDevicesTab: {type: boolean, description: "left out of the Devices tab of the web UIs; the remote and the device editor still list it"}
                 powerOnSequence: {type: array, items: {type: object}}
                 powerOffSequence: {type: array, items: {type: object}}
                 bdaddr: {type: string, description: "Bluetooth host address of a Bluetooth device (older name btHost)"}
@@ -1791,8 +1793,8 @@ paths:
         - Activities
       summary: Delete activity
       description: >-
-        Also removes the activity's sections (activities/<id>) from remote_slot1_map.json,
-        remote_slot2_map.json and bt_remote_map.json.
+        Also removes the activity's sections (activities/<id>) from remote_slot1_map.json to
+        remote_slot6_map.json and bt_remote_map.json.
       requestBody:
         required: true
         content:
@@ -2129,7 +2131,7 @@ paths:
                 action: {type: string, enum: [press, hold, release], description: "press and release give a button event on the WebSocket; hold repeats do not"}
                 topic: {type: string, description: "Ignored (kept for old clients)"}
                 pulseMs: {type: integer, description: "Ignored (kept for old clients)"}
-                slot: {type: integer, enum: [1, 2], description: "RF remote slot of the key. No default: without it the event has no slot and goes to <base>/button on MQTT, not <base>/remote/<slot>/button"}
+                slot: {type: integer, enum: [1, 2, 3, 4, 5, 6], description: "RF remote slot of the key. No default: without it the event has no slot and goes to <base>/button on MQTT, not <base>/remote/<slot>/button"}
             example:
               deviceId: "70321456"
               command: VolumeUp
@@ -2734,15 +2736,15 @@ paths:
       tags:
         - RF & Remote
       summary: Start RF pairing beacon
-      description: Opens the radio's pairing lock for 30 s. The slot has no effect; the radio gives the remote a free slot itself.
+      description: Opens the radio's pairing lock for 30 s. With slot 1 to 6 the remote that pairs goes to that slot (hub_rf maps the radio pipe it lands on to the slot); without it, it takes the slot of the pipe the radio picks.
       parameters:
         - name: slot
           in: query
           required: false
           schema:
             type: integer
-            enum: [0, 1, 2]
-          description: Accepted (0, all, 1 or 2) but not used
+            enum: [0, 1, 2, 3, 4, 5, 6]
+          description: The slot the remote pairs into (0 or all, or none, for the radio's choice)
       responses:
         '200':
           description: Pairing started
@@ -2751,9 +2753,9 @@ paths:
               example:
                 status: pairing_started
         '400':
-          description: slot is not 0, all, 1 or 2
+          description: slot is not 0, all or 1 to 6
         '409':
-          description: RF OTA update in progress
+          description: RF OTA update in progress, or the slot holds a remote (unpair it first)
     post:
       tags:
         - RF & Remote
@@ -2765,8 +2767,8 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [0, 1, 2]
-          description: Accepted (0, all, 1 or 2) but not used
+            enum: [0, 1, 2, 3, 4, 5, 6]
+          description: The slot the remote pairs into (0 or all, or none, for the radio's choice)
       responses:
         '200':
           description: Pairing started
@@ -2775,23 +2777,23 @@ paths:
               example:
                 status: pairing_started
         '400':
-          description: slot is not 0, all, 1 or 2
+          description: slot is not 0, all or 1 to 6
         '409':
-          description: RF OTA update in progress
+          description: RF OTA update in progress, or the slot holds a remote (unpair it first)
 
   /api/rf/sleep:
     get:
       tags:
         - RF & Remote
       summary: Put paired remote to sleep (Suspend-to-RAM)
-      description: Broadcasts or directs RF_MSG_SLEEP_REQ (0x1D) command over CC2544 RF to trigger immediate Suspend-to-RAM on battery-powered touchscreen remotes. Companion slots are skipped (sent is then 0). 400 for a slot other than 0, all, 1 or 2.
+      description: Broadcasts or directs RF_MSG_SLEEP_REQ (0x1D) command over CC2544 RF to trigger immediate Suspend-to-RAM on battery-powered touchscreen remotes. Companion slots are skipped (sent is then 0). 400 for a slot other than 0, all or 1 to 6.
       parameters:
         - name: slot
           in: query
           required: false
           schema:
             type: integer
-            enum: [0, 1, 2]
+            enum: [0, 1, 2, 3, 4, 5, 6]
             default: 0
           description: Remote slot (0 for all active remotes, 1 for slot 1, 2 for slot 2)
       responses:
@@ -2816,7 +2818,7 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [0, 1, 2]
+            enum: [0, 1, 2, 3, 4, 5, 6]
             default: 0
       responses:
         '200':
@@ -2843,7 +2845,7 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [1, 2]
+            enum: [1, 2, 3, 4, 5, 6]
             default: 1
           description: Remote slot
       responses:
@@ -2857,7 +2859,7 @@ paths:
                 alreadyWaking:
                   value: {status: already_waking, slot: 1, ok: true}
         '400':
-          description: The remote in this slot is a Companion (no screen), or slot is not 1 or 2
+          description: The remote in this slot is a Companion (no screen), or slot is not 1 to 6
         '409':
           description: RF OTA update in progress
         '500':
@@ -2892,7 +2894,7 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [0, 1, 2]
+            enum: [0, 1, 2, 3, 4, 5, 6]
             default: 0
       responses:
         '202':
@@ -2905,7 +2907,7 @@ paths:
                 slot: 0
                 ok: true
         '400':
-          description: id or type not 1..19 of A-Z a-z 0-9 _ -, or slot not 0, 1 or 2
+          description: id or type not 1..19 of A-Z a-z 0-9 _ -, or slot not 0 to 6
         '409':
           description: RF OTA update in progress
         '500':
@@ -2931,7 +2933,7 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [0, 1, 2]
+            enum: [0, 1, 2, 3, 4, 5, 6]
             default: 0
       responses:
         '202':
@@ -2944,7 +2946,7 @@ paths:
                 slot: 0
                 ok: true
         '400':
-          description: id or type not 1..19 of A-Z a-z 0-9 _ -, or slot not 0, 1 or 2
+          description: id or type not 1..19 of A-Z a-z 0-9 _ -, or slot not 0 to 6
         '409':
           description: RF OTA update in progress
         '500':
@@ -2961,7 +2963,7 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [1, 2]
+            enum: [1, 2, 3, 4, 5, 6]
             default: 1
       responses:
         '200':
@@ -2973,7 +2975,7 @@ paths:
                 slot: 1
                 ok: true
         '400':
-          description: The remote in this slot is a Companion (Companion remotes do not support config pull), or slot is not 1 or 2
+          description: The remote in this slot is a Companion (Companion remotes do not support config pull), or slot is not 1 to 6
         '409':
           description: RF OTA update in progress
     post:
@@ -2986,7 +2988,7 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [1, 2]
+            enum: [1, 2, 3, 4, 5, 6]
             default: 1
       responses:
         '200':
@@ -2998,7 +3000,7 @@ paths:
                 slot: 1
                 ok: true
         '400':
-          description: The remote in this slot is a Companion (Companion remotes do not support config pull), or slot is not 1 or 2
+          description: The remote in this slot is a Companion (Companion remotes do not support config pull), or slot is not 1 to 6
         '409':
           description: RF OTA update in progress
 
@@ -3014,7 +3016,7 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [1, 2]
+            enum: [1, 2, 3, 4, 5, 6]
             default: 1
       responses:
         '200':
@@ -3036,7 +3038,7 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [1, 2]
+            enum: [1, 2, 3, 4, 5, 6]
             default: 1
       requestBody:
         required: true
@@ -3164,9 +3166,9 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [0, 1, 2]
+            enum: [0, 1, 2, 3, 4, 5, 6]
             default: 0
-          description: 1 or 2 unpairs that slot; 0, all or no slot unpairs every remote
+          description: 1 to 6 unpairs that slot; 0, all or no slot unpairs every remote
       responses:
         '200':
           description: Slot unpaired
@@ -3176,7 +3178,7 @@ paths:
                 status: unpaired
                 ok: true
         '400':
-          description: slot is not 0, all, 1 or 2
+          description: slot is not 0, all or 1 to 6
         '409':
           description: RF OTA update in progress
     get:
@@ -3189,9 +3191,9 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [0, 1, 2]
+            enum: [0, 1, 2, 3, 4, 5, 6]
             default: 0
-          description: 1 or 2 unpairs that slot; 0, all or no slot unpairs every remote
+          description: 1 to 6 unpairs that slot; 0, all or no slot unpairs every remote
       responses:
         '200':
           description: Slot unpaired
@@ -3201,7 +3203,7 @@ paths:
                 status: unpaired
                 ok: true
         '400':
-          description: slot is not 0, all, 1 or 2
+          description: slot is not 0, all or 1 to 6
         '409':
           description: RF OTA update in progress
 
@@ -3214,7 +3216,7 @@ paths:
         Returns the stored remote_slot<N>_config.json as it is (written by the last POST, or
         from the settings the remote reported), else the defaults shown here. Every setting is
         there twice: under the name shown and under an older snake_case name with a number
-        value (touch, physical_nav, cap_buttons, gyro, gyro_rate, btn_backlight, night_start,
+        value (touch, physical_nav, cap_buttons, gyro, btn_backlight, night_start,
         night_end, nav_key, nav_mode, usbeth, confirm_act, touch_sensitivity, remote_mode,
         no_screen, debug_logging, power_debug). theme and layout are present only when set.
         For a Companion slot the reply is
@@ -3225,7 +3227,7 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [1, 2]
+            enum: [1, 2, 3, 4, 5, 6]
             default: 1
       responses:
         '200':
@@ -3240,7 +3242,6 @@ paths:
                 physicalNavEnabled: false
                 capButtonsEnabled: true
                 gyroEnabled: true
-                gyroRate: 50
                 btnBacklight: 2
                 nightStart: 22
                 nightEnd: 7
@@ -3269,7 +3270,7 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [1, 2]
+            enum: [1, 2, 3, 4, 5, 6]
             default: 1
       requestBody:
         required: true
@@ -3278,13 +3279,12 @@ paths:
             schema:
               type: object
               properties:
-                slot: {type: integer, enum: [1, 2], description: "Overrides the slot of the query"}
+                slot: {type: integer, enum: [1, 2, 3, 4, 5, 6], description: "Overrides the slot of the query"}
                 brightness: {type: integer, default: 2}
                 timeout: {type: integer, default: 10, minimum: 5, maximum: 600, description: "Screen timeout in seconds; values outside 5..600 are brought into the range"}
                 touchEnabled: {type: boolean, default: false, description: "Off when left out"}
                 capButtonsEnabled: {type: boolean, default: true}
                 gyroEnabled: {type: boolean, default: true}
-                gyroRate: {type: integer, default: 50}
                 btnBacklight: {type: integer, default: 2, minimum: 0, maximum: 2}
                 nightStart: {type: integer, default: 22, minimum: 0, maximum: 23}
                 nightEnd: {type: integer, default: 7, minimum: 0, maximum: 23}
@@ -3306,7 +3306,6 @@ paths:
               touchEnabled: true
               capButtonsEnabled: true
               gyroEnabled: true
-              gyroRate: 50
               btnBacklight: 2
               nightStart: 22
               nightEnd: 7
@@ -3325,7 +3324,7 @@ paths:
                 status: saved_and_pushed
                 ok: true
         '400':
-          description: The remote in this slot is a Companion (no screen or motion settings), or slot is not 1 or 2
+          description: The remote in this slot is a Companion (no screen or motion settings), or slot is not 1 to 6
         '409':
           description: RF OTA update in progress
         '500':
@@ -3412,7 +3411,7 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [1, 2]
+            enum: [1, 2, 3, 4, 5, 6]
             default: 1
       responses:
         '200':
@@ -3433,7 +3432,7 @@ paths:
                 error: Companion remotes do not support OTA
                 ok: false
         '409':
-          description: Update or download already in progress
+          description: Update or download already in progress, or a config push is running (status config_push_running)
           content:
             application/json:
               example:
@@ -3497,9 +3496,9 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [1, 2]
+            enum: [1, 2, 3, 4, 5, 6]
             default: 1
-          description: Remote slot number (1 or 2); any other value means slot 1
+          description: Remote slot number (1 to 6); any other value means slot 1
       responses:
         '200':
           description: 'The stored remote_slot<N>_map.json, as it was saved (an object, no ok field is added). While no map is stored: {"ok": true, "mappings": []}.'
@@ -3524,9 +3523,9 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [1, 2]
+            enum: [1, 2, 3, 4, 5, 6]
             default: 1
-          description: 'Remote slot number (1 or 2). "slot": 2 in the body selects slot 2 as well.'
+          description: 'Remote slot number (1 to 6). A "slot" of 2 to 6 in the body selects that slot as well.'
       requestBody:
         required: true
         content:
@@ -3558,7 +3557,7 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [1, 2]
+            enum: [1, 2, 3, 4, 5, 6]
             default: 1
           description: Source remote slot
         - name: to
@@ -3566,7 +3565,7 @@ paths:
           required: false
           schema:
             type: integer
-            enum: [1, 2]
+            enum: [1, 2, 3, 4, 5, 6]
             default: 2
           description: Destination remote slot
       responses:
@@ -3990,7 +3989,7 @@ paths:
         A single target returns the stored file: JSON, except network (ethernet), wifi and auth,
         which are text/plain. bundle returns one JSON object with version, timestamp and a
         section per stored file: devices, activities, settings, mqtt, network, wifi, bluetooth,
-        bt_remote_map, remote_slot1_map, remote_slot2_map, ui_remote_layout, auth, users, hub_id,
+        bt_remote_map, remote_slot1_map to remote_slot6_map, rf_slot_map, ui_remote_layout, auth, users, hub_id,
         plus btstack_keys (the Bluetooth key store, base64). The bundle holds secrets: the MQTT
         broker password (mqtt), the Wi-Fi password (wifi), the account password hashes (users)
         and the Bluetooth link keys (btstack_keys). Its reply carries the header
@@ -4001,7 +4000,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [bundle, devices, activities, settings, mqtt, network, ethernet, wifi, bluetooth, bt_remote_map, remote-mapping, remote_slot1_map, remote_slot2_map, ui_remote_layout, ui-remote-layout, auth, users]
+            enum: [bundle, devices, activities, settings, mqtt, network, ethernet, wifi, bluetooth, bt_remote_map, remote-mapping, remote_slot1_map, remote_slot2_map, remote_slot3_map, remote_slot4_map, remote_slot5_map, remote_slot6_map, ui_remote_layout, ui-remote-layout, auth, users]
           description: Any other target answers 404. hub_id is only a section of bundle.
           example: bundle
       responses:
@@ -4028,7 +4027,7 @@ paths:
       description: |
         target is required (there is no default): bundle, or one of devices, activities,
         settings, mqtt, network (ethernet), wifi, bluetooth, bt_remote_map (remote-mapping),
-        remote_slot1_map, remote_slot2_map, ui_remote_layout (ui-remote-layout), auth, users.
+        remote_slot1_map to remote_slot6_map, ui_remote_layout (ui-remote-layout), auth, users.
         For bundle the payload may be the bundle object, the bundle as a JSON string, or left
         out: the body itself is then taken as the bundle. Every section is checked first; when
         one is not valid nothing is changed. The body may be up to 2 MB.

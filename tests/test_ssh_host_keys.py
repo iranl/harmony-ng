@@ -114,6 +114,17 @@ class HelperTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def test_record_host_key_adds_a_missing_type_only(self):
+        self.kh.parent.mkdir(parents=True)
+        self.kh.write_bytes(b"other ssh-ed25519 AAAAx\n10.0.0.5 ssh-rsa AAAArsa")
+        # The Ed25519 key goes next to the recorded RSA one (the file had no final newline)
+        self.assertTrue(ssh_hostkeys.record_host_key("root@10.0.0.5", "ssh-ed25519 AAAAnew root@hub"))
+        # A recorded key of that type is never replaced
+        self.assertFalse(ssh_hostkeys.record_host_key("10.0.0.5", "ssh-ed25519 AAAAother"))
+        self.assertFalse(ssh_hostkeys.record_host_key("10.0.0.5", "garbage"))
+        self.assertEqual(self.kh.read_bytes(),
+                         b"other ssh-ed25519 AAAAx\n10.0.0.5 ssh-rsa AAAArsa\n10.0.0.5 ssh-ed25519 AAAAnew\n")
+
     def test_options(self):
         opts = ssh_hostkeys.ssh_options("root@HarmonyHub.Local")
         self.assertIn("StrictHostKeyChecking=accept-new", opts)

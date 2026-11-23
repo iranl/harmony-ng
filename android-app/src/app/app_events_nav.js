@@ -594,6 +594,8 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
       /* only an IR device has the blaster choice: others keep their saved port */
       const blasterShown = document.getElementById('curDevBlasterBox')?.style.display !== 'none';
       const portVal = parseInt(document.getElementById('curDevPortSelect')?.value, 10);
+      const hideOnRemote = Boolean(document.getElementById('devHideOnRemote')?.checked);
+      const hideInDevicesTab = Boolean(document.getElementById('devHideInDevicesTab')?.checked);
       const btHost = document.getElementById('curDevBtHost')?.value.trim();
       const btAutoRecVal = parseInt(document.getElementById('curDevBtAutoReconnect')?.value, 10);
       const btAutoRec = isNaN(btAutoRecVal) ? 1 : (btAutoRecVal === 0 ? 0 : 1);
@@ -659,6 +661,8 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
           powerOnDelay: isNaN(pod) ? 1500 : pod,
           isPowerAlwaysOn: pao,
           controlPort: (blasterShown && !isNaN(portVal)) ? portVal : undefined,
+          hideOnRemote,
+          hideInDevicesTab,
           bdaddr: btHost || undefined,
           btAutoReconnect: btAutoRec,
           btReconnectDurationSec: isNaN(btDur) ? 0 : btDur,

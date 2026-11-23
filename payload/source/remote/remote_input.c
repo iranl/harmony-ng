@@ -88,6 +88,44 @@ bool remote_release_held_rf_key(int code) {
     return held;
 }
 
+#define KEY_HELD_AWAKE_MAX_MS (5 * 60 * 1000)
+/* A held key's hold frames end after this, in every power state: a key jammed in a cushion
+ * must not have the Hub repeat volume up for as long as it stays awake */
+#define KEY_REPEAT_MAX_MS (60 * 1000)
+
+static bool fd_keys_down(int fd, int only_a, int only_b) {
+    if (fd < 0) return false;
+    unsigned char bits[KEY_MAX / 8 + 1];
+    memset(bits, 0, sizeof(bits));
+    if (ioctl(fd, EVIOCGKEY(sizeof(bits)), bits) < 0) return false;
+    if (only_a >= 0) return (bits[only_a / 8] & (1 << (only_a % 8))) || (bits[only_b / 8] & (1 << (only_b % 8)));
+    for (size_t i = 0; i < sizeof(bits); i++)
+        if (bits[i]) return true;
+    return false;
+}
+
+static uint64_t s_held_since_ms; /* 0: no key down at the last look */
+
+void remote_key_held_reset(void) {
+    s_held_since_ms = 0;
+}
+
+bool remote_hard_key_down(int code) {
+    return fd_keys_down(g_btn_fd, code, code);
+}
+
+bool remote_key_held(void) {
+    /* The touch device also reports BTN_TOUCH: only its two capacitive keys count */
+    bool down = fd_keys_down(g_btn_fd, -1, -1) || fd_keys_down(g_touch_fd, 102, 364);
+    uint64_t now = get_monotonic_ms();
+    if (!down) {
+        s_held_since_ms = 0;
+        return false;
+    }
+    if (s_held_since_ms == 0) s_held_since_ms = now;
+    return now - s_held_since_ms <= KEY_HELD_AWAKE_MAX_MS;
+}
+
 void *key_repeat_thread(void *arg) {
     (void)arg;
     while (g_running) {
@@ -108,6 +146,7 @@ void *key_repeat_thread(void *arg) {
          * 450 ms and then every 150 ms, when each one was one more send of the command. */
         usleep(KEY_HOLD_INTERVAL_MS * 1000);
 
+        uint64_t held_since = get_monotonic_ms();
         while (g_running) {
             pthread_mutex_lock(&g_repeat_mutex);
             if (g_held_rf_code != key) {
@@ -116,6 +155,19 @@ void *key_repeat_thread(void *arg) {
             }
             pthread_mutex_unlock(&g_repeat_mutex);
 
+            if (get_monotonic_ms() - held_since > KEY_REPEAT_MAX_MS) {
+                printf("[!] Key 0x%04X held for %d s: no more hold frames until it is released\n",
+                       key, KEY_REPEAT_MAX_MS / 1000);
+                /* wait for the release (or another key) without sending */
+                while (g_running) {
+                    pthread_mutex_lock(&g_repeat_mutex);
+                    bool same = g_held_rf_code == key;
+                    pthread_mutex_unlock(&g_repeat_mutex);
+                    if (!same) break;
+                    usleep(KEY_HOLD_INTERVAL_MS * 1000);
+                }
+                break;
+            }
             rf_send_button_event(key, 2);
             usleep(KEY_HOLD_INTERVAL_MS * 1000);
         }
@@ -123,21 +175,28 @@ void *key_repeat_thread(void *arg) {
     return NULL;
 }
 
+/* The Synaptics Clearpad reports the touches and the capacitive Home / Favorites keys.
+ * Pass 1 looks for it by name as the stock UI does (luadraws scans event0..4): the remote also
+ * registers a "TPS6507x Touchscreen" that never reports anything, so a loose "touch" match on
+ * the first pass could open the wrong device and leave touch and both keys dead. */
 int find_touchscreen_fd(void) {
     const char *candidates[] = {
         "/dev/input/event2",
         "/dev/input/event3",
         "/dev/input/touchscreen0",
         "/dev/input/event1",
-        "/dev/input/event0"
+        "/dev/input/event0",
+        "/dev/input/event4"
     };
-    for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
-        int fd = open(candidates[i], O_RDONLY | O_NONBLOCK | O_CLOEXEC);
-        if (fd >= 0) {
+    for (int pass = 0; pass < 2; pass++) {
+        for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
+            int fd = open(candidates[i], O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+            if (fd < 0) continue;
             char name[128] = {0};
             if (ioctl(fd, EVIOCGNAME(sizeof(name)), name) >= 0) {
-                if (strstr(name, "Clearpad") || strstr(name, "clearpad") ||
-                    strstr(name, "touch") || strstr(name, "Touch")) {
+                bool clearpad = strstr(name, "Clearpad") || strstr(name, "clearpad");
+                bool touch = strstr(name, "touch") || strstr(name, "Touch");
+                if (clearpad || (pass == 1 && touch && !strstr(name, "TPS6507x"))) {
                     printf("[+] Discovered touchscreen at %s: %s (fd=%d)\n", candidates[i], name, fd);
                     return fd;
                 }
