@@ -161,10 +161,34 @@ static int device_net_fields_valid(const cJSON *p) {
     return 1;
 }
 
+/* A body field of the connection (netHost, netPort, netTls) differs from the stored one */
+static int net_address_changes(const cJSON *p, const cJSON *dev) {
+    static const char *const keys[] = { "netHost", "netPort", "netTls" };
+    for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
+        const cJSON *n = cJSON_GetObjectItemCaseSensitive(p, keys[i]);
+        const cJSON *o = cJSON_GetObjectItemCaseSensitive(dev, keys[i]);
+        if (!n) continue;
+        if (cJSON_IsString(n)) {
+            if (!cJSON_IsString(o) || strcasecmp(n->valuestring, o->valuestring) != 0) return 1;
+        } else if (cJSON_IsNumber(n)) {
+            if (!cJSON_IsNumber(o) || n->valuedouble != o->valuedouble) return 1;
+        } else if (cJSON_IsTrue(n) != cJSON_IsTrue(o)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* Copies the HTTP/TCP fields of the body onto the stored device. An empty or missing
- * httpPassword / httpToken keeps the stored one (GET never returns them); choosing another
- * auth type drops it (config_sanitize.c keeps only the credentials of the chosen type). */
+ * httpPassword / httpToken keeps the stored one (GET never returns them), but only for the same
+ * host, port and TLS setting: a secret GET hides must not follow the device to another address,
+ * so a change drops it and the UI asks again. Choosing another auth type drops it too
+ * (config_sanitize.c keeps only the credentials of the chosen type). */
 static void apply_net_fields(const cJSON *p, cJSON *dev) {
+    if (net_address_changes(p, dev)) {
+        cJSON_DeleteItemFromObjectCaseSensitive(dev, "httpPassword");
+        cJSON_DeleteItemFromObjectCaseSensitive(dev, "httpToken");
+    }
     static const char *const keys[] = { "netHost", "netPort", "netTls", "netTlsVerify", "netTimeoutMs",
                                          "httpHeaders", "httpAuthType", "httpUser" };
     for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {

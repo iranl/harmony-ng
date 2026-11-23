@@ -210,13 +210,16 @@ static int append(char *buf, size_t sz, size_t *len, const char *fmt, const char
 int http_request(const char *url_in, const http_req *req, http_resp *resp)
 {
     memset(resp, 0, sizeof *resp);
-    char url[1400];
+    char url[HTTP_URL_MAX];
     char first_host[256] = "";
     const char *method = req->method ? req->method : "GET";
     const char *body = req->body;
     size_t body_len = req->body ? req->body_len : 0;
     int redirects = 0;
-    snprintf(url, sizeof url, "%s", url_in ? url_in : "");
+    if ((size_t)snprintf(url, sizeof url, "%s", url_in ? url_in : "") >= sizeof url) {
+        snprintf(resp->err, sizeof resp->err, "URL too long");
+        return -1;
+    }
 
     for (int i = 0; i < HTTP_MAX_HEADERS && req->headers[i]; i++) {
         const char *h = req->headers[i];
@@ -248,7 +251,7 @@ int http_request(const char *url_in, const http_req *req, http_resp *resp)
         if (!first_host[0]) snprintf(first_host, sizeof first_host, "%s", u.host);
         int same_host = strcasecmp(first_host, u.host) == 0;
 
-        char head[4096];
+        char head[HTTP_URL_MAX + 2048];   /* request line with the path, then the headers */
         size_t hl = 0;
         char hostval[300];
         int default_port = (u.tls && u.port == 443) || (!u.tls && u.port == 80);
@@ -310,7 +313,7 @@ int http_request(const char *url_in, const http_req *req, http_resp *resp)
             return -1;
         }
         r->c = c;
-        char line[1400];
+        char line[HTTP_URL_MAX + 16];
         int status = 0;
         if (rd_line(r, line, sizeof line) < 0 || sscanf(line, "HTTP/%*d.%*d %d", &status) != 1) {
             snprintf(resp->err, sizeof resp->err, "%s", r->err ? net_conn_error(c) : "no HTTP response");
@@ -330,7 +333,8 @@ int http_request(const char *url_in, const http_req *req, http_resp *resp)
         }
         long long content_length = -1;
         int chunked = 0;
-        char location[1024] = "";
+        char location[HTTP_URL_MAX] = "";
+        int location_too_long = 0;
         for (int lines = 0;; lines++) {
             int n = rd_line(r, line, sizeof line);
             if (n < 0 || lines > 200) {
@@ -346,7 +350,11 @@ int http_request(const char *url_in, const http_req *req, http_resp *resp)
             while (*v == ' ' || *v == '\t') v++;
             if (header_is(line, "Content-Length")) content_length = strtoll(v, NULL, 10);
             else if (header_is(line, "Transfer-Encoding") && strcasestr(v, "chunked")) chunked = 1;
-            else if (header_is(line, "Location")) snprintf(location, sizeof location, "%s", v);
+            else if (header_is(line, "Location")) {
+                /* a line that filled the buffer was cut by rd_line */
+                size_t w = (size_t)snprintf(location, sizeof location, "%s", v);
+                location_too_long = w >= sizeof location || (size_t)n >= sizeof line - 1;
+            }
         }
         resp->status = status;
 
@@ -358,21 +366,30 @@ int http_request(const char *url_in, const http_req *req, http_resp *resp)
                 snprintf(resp->err, sizeof resp->err, "too many redirects");
                 return -1;
             }
-            char next[1400];
+            if (location_too_long) {
+                snprintf(resp->err, sizeof resp->err, "redirect too long");
+                return -1;
+            }
+            char next[HTTP_URL_MAX];
+            int next_len;
             if (location[0] == '/' && location[1] != '/') {
                 if (strchr(u.host, ':'))
-                    snprintf(next, sizeof next, "%s://[%s]:%d%s", u.tls ? "https" : "http", u.host, u.port, location);
+                    next_len = snprintf(next, sizeof next, "%s://[%s]:%d%s", u.tls ? "https" : "http", u.host, u.port, location);
                 else
-                    snprintf(next, sizeof next, "%s://%s:%d%s", u.tls ? "https" : "http", u.host, u.port, location);
+                    next_len = snprintf(next, sizeof next, "%s://%s:%d%s", u.tls ? "https" : "http", u.host, u.port, location);
             } else if (strncasecmp(location, "http://", 7) == 0 || strncasecmp(location, "https://", 8) == 0) {
                 /* never from https down to http */
                 if (u.tls && strncasecmp(location, "http://", 7) == 0) {
                     snprintf(resp->err, sizeof resp->err, "redirect from https to http refused");
                     return -1;
                 }
-                snprintf(next, sizeof next, "%s", location);
+                next_len = snprintf(next, sizeof next, "%s", location);
             } else {
                 snprintf(resp->err, sizeof resp->err, "unsupported redirect");
+                return -1;
+            }
+            if (next_len < 0 || (size_t)next_len >= sizeof next) {
+                snprintf(resp->err, sizeof resp->err, "redirect too long");
                 return -1;
             }
             snprintf(url, sizeof url, "%s", next);

@@ -16,12 +16,17 @@ fi
 # Hub still on an older release) or the CA bundle is missing. Either way nothing downloaded here is trusted
 # until hub_util ota-verify has checked it: the Ed25519 signature of manifest.json against the
 # release keys built into the firmware, then the SHA-256 of every file against the signed manifest.
+# So when the certificate check fails (a clock not set yet, a server on a root outside the bundle),
+# the file is fetched again without it and the signature decides, as before hub_fetch existed:
+# otherwise the update that would bring a new CA bundle could never be fetched.
 WGET="$BB wget"
 HUB_UTIL=/data/harmony/bin/hub_util
 HUB_FETCH=/data/harmony/bin/hub_fetch
 HUB_LIB=/data/harmony/lib
 CA_BUNDLE=/data/harmony/cacert.pem
 USE_FETCH=""
+# Largest download kept in /tmp (RAM): a wrong server cannot fill it
+FETCH_MAX=16777216
 TAR="$BB tar"
 
 CMD="${1:-apply}"
@@ -64,6 +69,24 @@ set_update_state() {
   { echo "state=$1"; [ -z "$2" ] || echo "version=$2"; [ -z "$_since" ] || echo "since=$_since"; } > "$UPDATE_STATE" 2>/dev/null || true
 }
 
+# fetch_once URL DST TIMEOUT OPTION...: one hub_fetch run; its messages go to stderr and to
+# $FETCH_ERR. The token goes in a header file (mode 600), not on the command line (ps shows it).
+FETCH_ERR=/tmp/.update_fetch.$$.err
+FETCH_HDR=/tmp/.update_fetch.$$.hdr
+fetch_once() {
+  _u="$1"; _d="$2"; _t="$3"; shift 3
+  if [ -n "$TOKEN_ARG" ]; then
+    (umask 077; echo "Authorization: token ${TOKEN_ARG}" > "$FETCH_HDR")
+    LD_LIBRARY_PATH="$HUB_LIB" "$HUB_FETCH" -T "$_t" --max "$FETCH_MAX" --header-file "$FETCH_HDR" "$@" -o "$_d" "$_u" 2>"$FETCH_ERR"
+  else
+    LD_LIBRARY_PATH="$HUB_LIB" "$HUB_FETCH" -T "$_t" --max "$FETCH_MAX" "$@" -o "$_d" "$_u" 2>"$FETCH_ERR"
+  fi
+  _rc=$?
+  rm -f "$FETCH_HDR" 2>/dev/null
+  cat "$FETCH_ERR" >&2 2>/dev/null
+  return $_rc
+}
+
 download_retry() {
   local url="$1"
   local dst="$2"
@@ -80,10 +103,10 @@ download_retry() {
     rm -f "$dst" 2>/dev/null
     # the header is one argument: unquoted, the token was passed to wget as extra URLs
     if [ "$USE_FETCH" = 1 ]; then
-      if [ -n "$TOKEN_ARG" ]; then
-        LD_LIBRARY_PATH="$HUB_LIB" "$HUB_FETCH" -T "$timeout" --ca "$CA_BUNDLE" -H "Authorization: token ${TOKEN_ARG}" -o "$dst" "$url"
-      else
-        LD_LIBRARY_PATH="$HUB_LIB" "$HUB_FETCH" -T "$timeout" --ca "$CA_BUNDLE" -o "$dst" "$url"
+      fetch_once "$url" "$dst" "$timeout" --ca "$CA_BUNDLE"
+      if [ ! -s "$dst" ] && grep -q 'TLS: cert' "$FETCH_ERR" 2>/dev/null; then
+        echo "[!] ${url%%\?*}: $(sed -n 's/.*TLS: //p' "$FETCH_ERR" | sed -n 1p). Fetched without the certificate check: the release signature decides." >&2
+        fetch_once "$url" "$dst" "$timeout" --insecure
       fi
     elif [ -n "$TOKEN_ARG" ]; then
       $WGET -q -T "$timeout" --header "Authorization: token ${TOKEN_ARG}" -O "$dst" "$url" 2>/dev/null
@@ -91,11 +114,13 @@ download_retry() {
       $WGET -q -T "$timeout" -O "$dst" "$url" 2>/dev/null
     fi
     if [ -s "$dst" ]; then
+      rm -f "$FETCH_ERR" 2>/dev/null
       return 0
     fi
     sleep 1
     i=$((i + 1))
   done
+  rm -f "$FETCH_ERR" 2>/dev/null
   return 1
 }
 
@@ -725,6 +750,59 @@ do_remote_ota() {
   fi
 }
 
+# repair-tls: hub_fetch and libbearssl.so.0 of the installed release, when missing. The update.sh of
+# v2.5.3 and older installs neither (its file list predates them) and keeps running from its old
+# file during the update that brings this one, so such a Hub has neither until it is repaired
+# here: init.sh runs this at start when either is missing. Only files of the installed version
+# are taken (a newer release brings them with its own update), checked like an update: the
+# signature of the manifest, then the SHA-256 of each file against it.
+do_repair_tls() {
+  _want=""
+  [ -x "$HUB_FETCH" ] && [ -s "$HUB_FETCH" ] || _want="$_want bin/mips/hub_fetch"
+  [ -s "$HUB_LIB/libbearssl.so.0" ] || _want="$_want lib/libbearssl.so.0"
+  [ -n "$_want" ] || return 0
+  LOCAL_VER=$(get_local_version)
+  TMPDIR=/tmp/ota_repair
+  rm -rf "$TMPDIR" 2>/dev/null
+  mkdir -p "$TMPDIR" || return 1
+  _man_ver=$(fetch_signed_manifest "$TMPDIR") || { rm -rf "$TMPDIR"; return 1; }
+  if [ "${_man_ver#v}" != "${LOCAL_VER#v}" ]; then
+    echo "[*] TLS files missing, but ${REPO} holds v${_man_ver#v} (this Hub: v${LOCAL_VER#v}): the update to it installs them."
+    rm -rf "$TMPDIR"
+    return 0
+  fi
+  _files=""
+  for _f in $_want; do
+    if ! grep -q "\"$_f\"" "$TMPDIR/manifest.json" 2>/dev/null; then
+      echo "[-] $_f is not in the signed manifest of v${LOCAL_VER#v}: cannot repair it."
+      continue
+    fi
+    download_retry "${REPO}/${_f}?_=${TIMESTAMP}" "$TMPDIR/${_f##*/}" 20 3 && _files="$_files $_f=$TMPDIR/${_f##*/}"
+  done
+  # shellcheck disable=SC2086
+  if [ -z "$_files" ] || ! verify_files $_files; then
+    echo "[-] TLS files not downloaded or not matching the signed manifest: nothing installed."
+    rm -rf "$TMPDIR"
+    return 1
+  fi
+  mkdir -p /data/harmony/bin "$HUB_LIB" 2>/dev/null
+  _rc=0
+  for _kv in $_files; do
+    _f="${_kv%%=*}"
+    case "$_f" in
+      lib/*) _dst="$HUB_LIB/${_f##*/}" ;;
+      *) _dst="/data/harmony/bin/${_f##*/}" ;;
+    esac
+    if install_file "${_kv#*=}" "$_dst" 755; then
+      echo "[+] Installed $_dst (v${LOCAL_VER#v})."
+    else
+      _rc=1
+    fi
+  done
+  rm -rf "$TMPDIR"
+  return $_rc
+}
+
 # One apply at a time: every run uses /tmp/ota_update and its exit removes it, so a second
 # run (a double click, two browser tabs) deleted the files the first was installing. The lock
 # is a directory with the owner's pid and start time; one left by a run that was killed is taken
@@ -783,6 +861,19 @@ case "$CMD" in
     ;;
   fetch-remote|fetch-remote-ota)
     do_fetch_remote_ota
+    ;;
+  repair-tls)
+    # not while an update runs (it installs these files itself)
+    if mkdir "$APPLY_LOCK" 2>/dev/null; then
+      echo "$$" > "$APPLY_LOCK/pid"
+      proc_start $$ > "$APPLY_LOCK/start"
+      do_repair_tls
+      _rc=$?
+      rm -rf "$APPLY_LOCK" 2>/dev/null
+      exit $_rc
+    fi
+    echo "[-] A software update is running: TLS files not repaired now."
+    exit 1
     ;;
   elite|remote)
     do_remote_ota "$SLOT_ARG"

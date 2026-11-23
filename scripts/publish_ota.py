@@ -123,6 +123,19 @@ def package_ota(output_dir: Path, version: str):
         else:
             print(f"[-] Warning: Hub binary {bname} not found in search paths")
 
+    # Shared libraries also as files of their own: "update.sh repair-tls" fetches a missing one
+    # of the installed release (an update from v2.5.3 or older installs no lib/)
+    lib_target = output_dir / "lib"
+    for lname in HUB_LIBRARIES:
+        src = find_candidate_file(lname, MIPS_SEARCH_PATHS + [REPO_ROOT / "payload" / "lib"])
+        if src and src.exists():
+            import shutil
+            lib_target.mkdir(parents=True, exist_ok=True)
+            dst = lib_target / lname
+            shutil.copy2(src, dst)
+            md5, sha = get_file_hashes(dst)
+            manifest_files[f"lib/{lname}"] = {"size": dst.stat().st_size, "md5": md5, "sha256": sha}
+
     # 3. ARM binaries (remote)
     arm_target = output_dir / "bin" / "arm"
     arm_target.mkdir(parents=True, exist_ok=True)

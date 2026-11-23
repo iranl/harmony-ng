@@ -240,6 +240,14 @@ def main():
             st, r = hub.http_post("/api/device-net-test", {"id": "54", "command": "Ping"}, timeout=15)
             check(r.get("ok") is True and r.get("status") == 200, "insecure mode accepts it", r)
 
+            # a stored token stays for the same address but never follows the device to another one
+            moved = {k: v for k, v in pin_dev.items() if k not in ("httpToken", "commands")}
+            hub.http_post("/api/device-save", moved)
+            check(dev_by_id("54").get("hasHttpToken") is True, "token kept for the same host and port")
+            moved["netPort"] = tls_port + 1
+            hub.http_post("/api/device-save", moved)
+            check(not dev_by_id("54").get("hasHttpToken"), "token dropped when the port changes", dev_by_id("54"))
+
             # a closed port: an error, answered within the timeout
             dead = {"id": "55", "name": "Dead", "type": "TCP", "netHost": "127.0.0.1", "netPort": 1,
                     "netTimeoutMs": 1000, "commands": [{"name": "X", "tcpPayload": "x"}]}

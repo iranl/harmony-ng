@@ -521,4 +521,21 @@ cap_log() {
 ) &
 echo "$!" >> /tmp/harmony_supervisors.pid
 
+# hub_fetch or libbearssl.so.0 missing (an update from v2.5.3 or older does not install them):
+# fetch the ones of this release once the network is up. Up to 6 tries, 10 minutes apart.
+if { [ ! -x /data/harmony/bin/hub_fetch ] || [ ! -s /data/harmony/lib/libbearssl.so.0 ]; } && \
+   [ -x /data/harmony/update.sh ]; then
+  (
+    _try=0
+    while [ $_try -lt 6 ]; do
+      sleep 120
+      [ -f /tmp/harmony_stop ] && exit 0
+      /bin/sh /data/harmony/update.sh repair-tls >> /tmp/update_repair.log 2>&1 && exit 0
+      _try=$((_try + 1))
+      sleep 480
+    done
+  ) &
+  echo "$!" >> /tmp/harmony_supervisors.pid
+fi
+
 echo "$(date) harmony init done" >> "$LOG"

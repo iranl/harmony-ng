@@ -475,7 +475,8 @@ static void engine_setup(br_ssl_client_context *sc)
         BR_TLS_RSA_WITH_AES_256_CBC_SHA
     };
     br_ssl_client_zero(sc);
-    /* TLS 1.0 and 1.1 only for old LAN devices: the handshake is authenticated either way */
+    /* TLS 1.0 and 1.1 only for old LAN devices (pin and insecure modes; verify mode raises the
+     * minimum to 1.2 in net_conn_open) */
     br_ssl_engine_set_versions(&sc->eng, BR_TLS10, BR_TLS12);
     br_ssl_engine_set_suites(&sc->eng, suites, sizeof suites / sizeof suites[0]);
     br_ssl_client_set_default_rsapub(sc);
@@ -573,6 +574,9 @@ net_conn *net_conn_open(const char *host, int port, const net_conn_opts *opts,
     c->xc.mode = mode;
     c->xc.expect = opts->pin;
     if (mode == NET_TLS_VERIFY) {
+        /* a checked certificate means a current server: no TLS 1.0 / 1.1 (pin and insecure
+         * modes are for old LAN devices) */
+        br_ssl_engine_set_versions(&c->sc.eng, BR_TLS12, BR_TLS12);
         br_x509_minimal_init_full(&c->xc.mini, g_tas, g_ta_count);
         set_validation_time(&c->xc.mini);
     }

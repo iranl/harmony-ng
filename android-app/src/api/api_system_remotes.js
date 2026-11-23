@@ -201,7 +201,8 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
   async testDeviceNet(deviceId, command) {
     const data = { id: String(deviceId) };
     if (command) data.command = command;
-    return this.postJson('/api/device-net-test', data);
+    // the Hub waits up to about 4 times netTimeoutMs (62 s at most): longer than the 12 s default
+    return this.postJson('/api/device-net-test', data, { timeout: 65000 });
   }
 
   async forgetDeviceNetPin(deviceId) {

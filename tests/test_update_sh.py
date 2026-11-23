@@ -91,9 +91,34 @@ class UpdateScript(unittest.TestCase):
         self.run_update("check", "https://example.invalid/ota", "tok123")
         args = log.read_text().splitlines()
         self.assertIn("[--ca]", args)
-        self.assertIn("[Authorization: token tok123]", args)
         self.assertIn(f"[{self.root}/data/harmony/cacert.pem]", args)
+        self.assertIn("[--max]", args)
+        # the token is in a header file, not on the command line (ps shows that)
+        self.assertIn("[--header-file]", args)
+        self.assertFalse(any("tok123" in a for a in args), args)
         self.assertFalse(self.wget_log.exists(), "wget is not used when hub_util has fetch")
+
+    def test_certificate_failure_retried_without_the_check(self):
+        """The signature decides for update files: a certificate the bundle does not know (or a
+        clock not set yet) must not block the update that brings a new bundle."""
+        log = self.root / "fetch.log"
+        hub_fetch = self.root / "data" / "harmony" / "bin" / "hub_fetch"
+        hub_fetch.parent.mkdir(parents=True, exist_ok=True)
+        hub_fetch.write_text(
+            "#!/bin/sh\n"
+            '[ "$1" = --probe ] && exit 0\n'
+            f'echo "$*" >> \'{log}\'\n'
+            'out=""; prev=""; for a in "$@"; do [ "$prev" = -o ] && out="$a"; prev="$a"; done\n'
+            'case " $* " in *" --insecure "*) echo 9.9.9 > "$out"; exit 0 ;; esac\n'
+            'echo "hub_fetch: x: TLS: certificate not trusted (no CA in the bundle)" >&2; exit 1\n')
+        hub_fetch.chmod(0o755)
+        (self.root / "data" / "harmony" / "cacert.pem").write_text("x\n")
+        res = self.run_update("check", "https://example.invalid/ota")
+        calls = log.read_text().splitlines()
+        self.assertIn("--ca", calls[0])
+        self.assertIn("--insecure", calls[1])
+        self.assertIn("the release signature decides", res.stdout + res.stderr)
+        self.assertFalse(self.wget_log.exists())
 
     def test_wget_used_without_ca_bundle(self):
         log = self._stub_hub_fetch()

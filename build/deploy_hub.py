@@ -502,32 +502,10 @@ class HubDeployer:
 
             # Query remote hashes for core binaries and configs
             self.query_remote_hashes(
-                "/data/harmony/bin/* /data/harmony/* /data/harmony/config/* /cache/www/* "
+                "/data/harmony/bin/* /data/harmony/lib/* /data/harmony/* /data/harmony/config/* /cache/www/* "
                 "/cache/www/assets/* /cache/www/assets/themes/* /cache/modules/* /cache/bin/busybox "
                 "/cache/icons.tar.gz /etc/init.d/rcS.local"
             )
-
-            # Deploy core binaries
-            if (self.bin_dir / "hub_util").is_file():
-                self.deploy_file_if_changed(self.bin_dir / "hub_util", "/data/harmony/bin/hub_util", "755")
-                util_setup = (
-                    "for _app in hub_sync sync mknod register_ehci eth_fix hub_sntp; do "
-                    "  [ -f /data/harmony/bin/$_app ] && [ ! -L /data/harmony/bin/$_app ] && rm -f /data/harmony/bin/$_app 2>/dev/null; "
-                    "  ln -sf /data/harmony/bin/hub_util /data/harmony/bin/$_app 2>/dev/null || true; "
-                    "done"
-                )
-                if not self.dry_skip("create hub_util symlinks and purge legacy standalone binaries"):
-                    self.run_ssh(util_setup)
-                core_bins = ["hub_daemon", "hub_fetch", "hub_rf", "hub_btstack"]
-            else:
-                core_bins = [
-                    "hub_daemon", "hub_fetch", "hub_rf", "hub_sntp", "hub_btstack", "hub_sync",
-                    "mknod", "register_ehci", "eth_fix"
-                ]
-            for b in core_bins:
-                src = self.bin_dir / b
-                if src.is_file():
-                    self.deploy_file_if_changed(src, f"/data/harmony/bin/{b}", "755")
 
             # Dropbear SSH server (deploy first so remote scp server is updated and verified)
             dropbear_src = None
@@ -566,10 +544,10 @@ class HubDeployer:
                 )
                 if not self.dry_skip("create hub_util symlinks and purge legacy standalone binaries"):
                     self.run_ssh(util_setup)
-                core_bins = ["hub_daemon", "hub_rf", "hub_btstack"]
+                core_bins = ["hub_daemon", "hub_fetch", "hub_rf", "hub_btstack"]
             else:
                 core_bins = [
-                    "hub_daemon", "hub_rf", "hub_sntp", "hub_btstack", "hub_sync",
+                    "hub_daemon", "hub_fetch", "hub_rf", "hub_sntp", "hub_btstack", "hub_sync",
                     "mknod", "register_ehci", "eth_fix"
                 ]
             for b in core_bins:
@@ -662,12 +640,18 @@ class HubDeployer:
                             self.run_ssh("ln -sf /data/harmony/config/cacert.pem /data/harmony/cacert.pem 2>/dev/null || true")
 
             # Shared libraries for plugins (libbearssl.so.0)
+            # (payload/lib in a checkout; a release bundle has them in bin/, see release.yml)
             lib_dir = self.repo_root / "payload" / "lib"
-            if lib_dir.is_dir():
+            if self.bundle_layout:
+                libs = sorted(p for p in self.bin_dir.glob("lib*.so*") if p.is_file())
+            else:
+                libs = sorted(p for p in lib_dir.iterdir() if p.is_file()) if lib_dir.is_dir() else []
+            if libs:
                 print("[*] Syncing shared libraries to /data/harmony/lib/...")
-                for lib in sorted(lib_dir.iterdir()):
-                    if lib.is_file():
-                        self.deploy_file_if_changed(lib, f"/data/harmony/lib/{lib.name}", "755")
+                if not self.dry_run:
+                    self.run_ssh("mkdir -p /data/harmony/lib 2>/dev/null")
+                for lib in libs:
+                    self.deploy_file_if_changed(lib, f"/data/harmony/lib/{lib.name}", "755")
 
             # Deploy USB Ethernet kernel modules
             if self.modules_dir.is_dir():

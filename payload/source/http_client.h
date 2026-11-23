@@ -31,11 +31,15 @@ typedef struct {
     char err[160];
 } http_resp;
 
+/* URLs, paths and redirect targets up to this length (a GitHub release-asset redirect is about
+ * 930 characters); a longer one is an error, never cut */
+#define HTTP_URL_MAX 4096
+
 typedef struct {
     int tls;
     char host[256];
     int port;
-    char path[1024];
+    char path[HTTP_URL_MAX];
 } http_url;
 
 /* Parses http(s)://host[:port][/path]. 0 or -1. Refuses control characters and spaces. */
