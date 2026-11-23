@@ -23,7 +23,7 @@ const char *orch_get_current_activity(void) { return "1"; }
 /* the MQTT-type device path puts a button event on the daemon's bus */
 void hub_events_emit(hub_event_type_t type, cJSON *payload) { (void)type; cJSON_Delete(payload); }
 /* HTTP/TCP devices (net_action.c): none in these tests */
-int net_action_send(const cJSON *dev, const cJSON *cmd, const char *dev_id, const char *dev_name, const char *command) { (void)dev; (void)cmd; (void)dev_id; (void)dev_name; (void)command; return 0; }
+int net_action_send(const cJSON *dev, const cJSON *cmd, const char *dev_id, const char *dev_name, const char *command, int live_key) { (void)dev; (void)cmd; (void)dev_id; (void)dev_name; (void)command; (void)live_key; return 0; }
 
 /* The shared device list (resource_cache.h): every acquire must be released */
 static int s_list_held = 0;
