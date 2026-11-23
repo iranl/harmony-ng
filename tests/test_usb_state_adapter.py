@@ -55,6 +55,44 @@ class WindowsAdapter(unittest.TestCase):
             state = detect_remote_usb_state(check_firmware=False)
         self.assertNotEqual(state.adapter_name, "Ethernet 2", "the phone's adapter was reported as the remote's")
 
+    @patch("tools.harmony_hid.HarmonyHid.open", return_value=False)
+    @patch("tools.usb_state._windows_static_ips", return_value={"192.168.2.2", "192.168.43.10"})
+    @patch("tools.usb_state._query_windows_state")
+    @patch("tools.usb_state.probe_tcp", return_value=False)
+    def test_second_remote_adapter(self, _tcp, mock_win, _used, _hid):
+        """Each remote gets its own adapter. The hidden adapter of a remote set up before keeps
+        192.168.2.2, so the new adapter is told to take the next free address."""
+        new = dict(REMOTE, Status="Up", InterfaceGuid="{NEW}")
+        ips = [{"InterfaceAlias": "Ethernet 3", "IPAddress": "192.168.2.2", "AddressState": "Duplicate"}]
+        mock_win.return_value = (None, REMOTE_PNP, [new], ips)
+        with patch("sys.platform", "win32"):
+            state = detect_remote_usb_state(check_firmware=False)
+        _used.assert_called_once_with("{NEW}")
+        self.assertEqual(state.adapter_name, "Ethernet 3")
+        self.assertFalse(state.ip_valid)
+        self.assertEqual(state.remediation_cmd,
+                         'Remove-NetIPAddress -InterfaceAlias "Ethernet 3" -IPAddress 192.168.2.2 -Confirm:$false; '
+                         'New-NetIPAddress -InterfaceAlias "Ethernet 3" -IPAddress 192.168.2.3 -PrefixLength 24')
+
+    @patch("tools.harmony_hid.HarmonyHid.open", return_value=False)
+    @patch("tools.usb_state._windows_static_ips", return_value={"192.168.2.2"})
+    @patch("tools.usb_state._query_windows_state")
+    @patch("tools.usb_state.probe_tcp", return_value=False)
+    def test_own_address_next_to_another_remote(self, _tcp, mock_win, _used, _hid):
+        old = dict(REMOTE, Name="Ethernet 4", Status="Disconnected", PnPDeviceID="USB\\VID_0525&PID_A4A2\\7&9")
+        new = dict(REMOTE, Status="Up", InterfaceGuid="{NEW}")
+        ips = [{"InterfaceAlias": "Ethernet 3", "IPAddress": "192.168.2.3", "AddressState": "Preferred"}]
+        mock_win.return_value = (None, REMOTE_PNP, [old, new], ips)
+        with patch("sys.platform", "win32"):
+            state = detect_remote_usb_state(check_firmware=False)
+        self.assertEqual(state.adapter_name, "Ethernet 3", "the Disconnected adapter was taken")
+        self.assertTrue(state.ip_valid)
+        self.assertIsNone(state.remediation_cmd)
+
+    def test_free_host_ip(self):
+        self.assertEqual(usb_state.free_host_ip(set()), "192.168.2.2")
+        self.assertEqual(usb_state.free_host_ip({"192.168.2.2", "192.168.2.3"}), "192.168.2.4")
+
     def test_no_device_ids_falls_back_to_the_name(self):
         ad = {"Name": "Ethernet 3", "InterfaceDescription": "Remote NDIS Compatible Device"}
         self.assertEqual(usb_state._match_windows_adapter(REMOTE_PNP, [ad]), ad)

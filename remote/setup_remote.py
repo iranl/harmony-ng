@@ -1104,7 +1104,7 @@ def main():
 
     if pre_state.mode == UsbMode.USB_ETHERNET:
         if not pre_state.ip_valid and pre_state.remediation_cmd:
-            print(f"[!] Warning: Host network adapter lacks static IP 192.168.2.2.")
+            print("[!] Warning: Host network adapter lacks a static IP in 192.168.2.0/24 that no other adapter has.")
             print(f"    Action required: {pre_state.remediation_cmd}")
 
         if probe_tcp(REMOTE_IP, 22, timeout_s=0.5):

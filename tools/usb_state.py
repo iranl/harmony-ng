@@ -91,8 +91,8 @@ $pnp = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object {
     )
 } | Select-Object FriendlyName, InstanceId, Status, Class, Problem
 
-$adapters = Get-NetAdapter -ErrorAction SilentlyContinue | Select-Object Name, InterfaceDescription, Status, MacAddress, PnPDeviceID
-$ips = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Select-Object InterfaceAlias, IPAddress, PrefixLength
+$adapters = Get-NetAdapter -ErrorAction SilentlyContinue | Select-Object Name, InterfaceDescription, Status, MacAddress, PnPDeviceID, @{n='InterfaceGuid';e={[string]$_.InterfaceGuid}}
+$ips = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Select-Object InterfaceAlias, IPAddress, PrefixLength, @{n='AddressState';e={[string]$_.AddressState}}
 
 @{
     Pnp = @($pnp)
@@ -118,6 +118,36 @@ $ips = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Sele
     return None, None, [], []
 
 
+def _windows_static_ips(exclude_guid: Optional[str]) -> set[str]:
+    """Static IPv4 addresses set on every Windows adapter except exclude_guid, hidden ones too
+    (an unplugged remote's adapter keeps its address in the registry). Empty when the adapter's
+    GUID is unknown, since its own address could not be told apart then."""
+    if not exclude_guid:
+        return set()
+    try:
+        import winreg
+        path = r"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces"
+        used: set[str] = set()
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path) as root:
+            for i in range(winreg.QueryInfoKey(root)[0]):
+                guid = winreg.EnumKey(root, i)
+                if exclude_guid and guid.lower() == exclude_guid.lower():
+                    continue
+                with winreg.OpenKey(root, guid) as key:
+                    try:
+                        used.update(a for a in winreg.QueryValueEx(key, "IPAddress")[0] if a)
+                    except OSError:
+                        pass
+        return used
+    except (ImportError, OSError):
+        return set()
+
+
+def free_host_ip(used: set[str]) -> str:
+    """First host address of the remote's network that no other adapter has: 192.168.2.2, .3, ..."""
+    return next((f"192.168.2.{n}" for n in range(2, 255) if f"192.168.2.{n}" not in used), "192.168.2.2")
+
+
 def _vid_pid(text: str) -> Optional[tuple[int, int]]:
     """(VID, PID) from a Windows instance id such as USB\\VID_0525&PID_A4A2&MI_00\\..."""
     m = re.search(r"VID_([0-9A-Fa-f]{4})&PID_([0-9A-Fa-f]{4})", text or "")
@@ -129,8 +159,10 @@ def _match_windows_adapter(pnp_dev: Optional[dict], adapters: list[dict]) -> Opt
 
     Phones in USB tethering mode and LTE sticks are RNDIS adapters too ("Remote NDIS based
     Internet Sharing Device"): the adapter is taken by its PnPDeviceID (same VID/PID as the
-    remote's device). Only when Windows reports no PnPDeviceID at all is the description used."""
+    remote's device). Only when Windows reports no PnPDeviceID at all is the description used.
+    Every remote gets its own adapter, so an adapter that is Up comes before a Disconnected one."""
     want = _vid_pid((pnp_dev or {}).get("InstanceId", ""))
+    adapters = sorted(adapters, key=lambda ad: ad.get("Status") != "Up")
     with_ids = [ad for ad in adapters if ad.get("PnPDeviceID")]
     if with_ids:
         for ad in with_ids:
@@ -374,20 +406,30 @@ def detect_remote_usb_state(check_firmware: bool = True) -> UsbState:
                 state.adapter_name = matching_adapter.get("Name")
                 state.adapter_desc = matching_adapter.get("InterfaceDescription")
 
-                # Find IP assigned to this adapter
+            # Every remote gets its own adapter, and the adapter of a remote set up before keeps
+            # its address while hidden. The same address on two adapters breaks this one.
+            used = _windows_static_ips((matching_adapter or {}).get("InterfaceGuid"))
+
+            if matching_adapter:
                 for ip_entry in ips:
                     if ip_entry.get("InterfaceAlias") == state.adapter_name:
                         assigned_ip = ip_entry.get("IPAddress", "")
                         state.ip_address = assigned_ip
-                        if assigned_ip.startswith("192.168.2."):
+                        if assigned_ip.startswith("192.168.2.") and assigned_ip != "192.168.2.1" and \
+                                assigned_ip not in used and \
+                                ip_entry.get("AddressState") not in ("Duplicate", "Invalid"):
                             state.ip_valid = True
                         break
 
             if not state.ip_valid:
                 target_alias = state.adapter_name or "Remote NDIS Compatible Device"
-                state.remediation_cmd = (
+                remove = ""
+                if (state.ip_address or "").startswith("192.168.2."):
+                    remove = (f'Remove-NetIPAddress -InterfaceAlias "{target_alias}" '
+                              f'-IPAddress {state.ip_address} -Confirm:$false; ')
+                state.remediation_cmd = remove + (
                     f'New-NetIPAddress -InterfaceAlias "{target_alias}" '
-                    f'-IPAddress 192.168.2.2 -PrefixLength 24'
+                    f'-IPAddress {free_host_ip(used)} -PrefixLength 24'
                 )
             return state
 
