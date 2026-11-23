@@ -246,7 +246,7 @@ int main(void) {
     printf("[+] press, release, press 70 ms after the release: both presses sent.\n");
 
     /* 6. BLE broadcast commands reach hub_btstack as "adv <hex>" */
-    char out[512] = {0};
+    char out[4096] = {0};
     res = capture_send("ble_dev", "LightOff", HW_BTN_ACTION_TAP, out, sizeof(out));
     assert(res == 0);
     assert(strstr(out, "BTstack command simulated: adv 02011A19054E6F720E0438064C2E561510D42DEB8C15D3B51804030201") != NULL);
@@ -344,6 +344,12 @@ int main(void) {
         int r_lo = hw_device_command_send_value("plug_dev", 0, "Level", HW_BTN_ACTION_TAP, 0);
         int r_hi = hw_device_command_send_value("plug_dev", 0, "Level", HW_BTN_ACTION_TAP, 101);
         int r_free = hw_device_command_send_value("plug_dev", 0, "Free", HW_BTN_ACTION_TAP, -5);
+        /* a sender without a value (a remote key, an activity step): a ranged command needs one,
+         * a command without a range gets 0 */
+        int r_none = hw_device_command_send_action("plug_dev", 0, "Level", HW_BTN_ACTION_TAP);
+        usleep(300000); /* past the repeat guard of the same command */
+        int r_free0 = hw_device_command_send_action("plug_dev", 0, "Free", HW_BTN_ACTION_TAP);
+        usleep(100000);
         g_dry_run = 0;
         fflush(stdout);
         dup2(saved, STDOUT_FILENO);
@@ -355,6 +361,10 @@ int main(void) {
         assert(r_in == 0 && strstr(out, "cmd=Level action=tap val=42") != NULL);
         assert(r_lo == HW_ERR_VALUE_RANGE && r_hi == HW_ERR_VALUE_RANGE);
         assert(r_free == 0 && strstr(out, "cmd=Free action=tap val=-5") != NULL);
+        assert(r_none == HW_ERR_VALUE_MISSING);
+        assert(r_free0 == 0 && strstr(out, "cmd=Free action=tap val=0") != NULL);
+        /* outside the errno range: the infrared senders return -errno codes */
+        assert(HW_ERR_VALUE_RANGE < -200 && HW_ERR_VALUE_MISSING < -200);
 
         cJSON *c = cJSON_Parse("{\"range\":[1,100]}");
         assert(hw_command_value_in_range(c, 1) && hw_command_value_in_range(c, 100));

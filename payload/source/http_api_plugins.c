@@ -48,7 +48,7 @@ static void plugin_pair_filter_config(cJSON *status, const cJSON *dev_def) {
         cJSON *next = item->next;
         int known = 0;
         const cJSON *f = NULL;
-        cJSON_ArrayForEach(f, cJSON_IsArray(fields) ? fields : NULL) {
+        cJSON_ArrayForEach(f, (cJSON_IsArray(fields) ? fields : NULL)) {
             const cJSON *k = cJSON_GetObjectItemCaseSensitive(f, "key");
             if (cJSON_IsString(k) && item->string && strcmp(k->valuestring, item->string) == 0) known = 1;
         }
@@ -341,6 +341,7 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
             unlink(stat_path);
 
             /* Forward pairing command to plugin unix socket */
+            int sent = 0;
             char sock_path[128];
             snprintf(sock_path, sizeof(sock_path), HARMONY_PLUGINS_RUN_DIR "/%s.sock", id);
 
@@ -362,8 +363,13 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
 
                 char *cmd_str = cJSON_PrintUnformatted(cmd_obj);
                 if (cmd_str) {
-                    /* A plugin with a full queue must not hold this request forever */
-                    sendto(s, cmd_str, strlen(cmd_str), MSG_DONTWAIT, (struct sockaddr *)&sun, sizeof(sun));
+                    /* A plugin with a full queue must not hold this request forever. One just
+                     * started binds its socket a little later (the start removed the old one):
+                     * up to 3 s for it */
+                    for (int tries = 0; tries < 30 && !sent; tries++) {
+                        sent = sendto(s, cmd_str, strlen(cmd_str), MSG_DONTWAIT, (struct sockaddr *)&sun, sizeof(sun)) >= 0;
+                        if (!sent) usleep(100000);
+                    }
                     free(cmd_str);
                 }
                 cJSON_Delete(cmd_obj);
@@ -373,8 +379,20 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
             /* Wait for the status file: up to timeout_s (default 15 s: the start of a pairing is
              * a connect (5 s timeout), a TLS handshake and three exchanges; 5 s reported a timeout
              * while the pairing went on and succeeded). A listen or confirm pairing waits 1 s at
-             * most: it runs for timeout_s and the UI polls. */
-            int polls = is_async ? 10 : timeout_s * 10;
+             * most: it runs for timeout_s and the UI polls. A start or PIN step waits 15 s at
+             * most whatever timeout_s says: both UIs give up on the request at 20 s, and the wait
+             * holds one of the HTTP workers. */
+            int polls = is_async ? 10 : (timeout_s < 15 ? timeout_s : 15) * 10;
+            if (!sent) {
+                /* not running, or no socket: nothing would answer, say so at once */
+                res_obj = cJSON_CreateObject();
+                cJSON_AddBoolToObject(res_obj, "ok", 0);
+                cJSON_AddStringToObject(res_obj, "stage", "error");
+                cJSON_AddStringToObject(res_obj, "message", plugin_mgr_is_running(id)
+                                        ? "The plugin does not take commands (no socket)"
+                                        : "The plugin is not running");
+                polls = 0;
+            }
             for (int i = 0; i < polls && !res_obj; i++) {
                 usleep(100000);
                 res_obj = read_pair_status(stat_path, act, is_pin);

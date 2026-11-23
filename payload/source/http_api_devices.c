@@ -10,6 +10,7 @@
 #include "hw_action.h"
 #include "ir_i2s.h"
 #include "config_sanitize.h"
+#include "cmd_range.h"
 #include "plugin_mgr.h"
 #include "net_device.h"
 #include "net_action.h"
@@ -757,7 +758,7 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
         int port = 7;
         int repeats = 1;
         int btn_action = HW_BTN_ACTION_TAP;
-        int value = 0, has_value = 0; /* a plugin command's numeric argument */
+        int value = 0, has_value = 0, bad_value = 0; /* a plugin command's numeric argument */
         cJSON *req_j = body ? parse_request_params(body) : NULL;
         if (req_j) {
             cJSON *jid = cJSON_GetObjectItemCaseSensitive(req_j, "deviceId");
@@ -795,20 +796,32 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
             cJSON *jrep = cJSON_GetObjectItemCaseSensitive(req_j, "repeats");
             if (jrep && cJSON_IsNumber(jrep) && jrep->valueint > 0) repeats = jrep->valueint;
 
+            /* An integer (a number or its text); 1.9, "abc" or true is refused, not cut or taken as 0 */
             cJSON *jval = cJSON_GetObjectItemCaseSensitive(req_j, "value");
-            if (jval && cJSON_IsNumber(jval)) {
+            if (jval && cJSON_IsNumber(jval) && jval->valuedouble == (double)jval->valueint) {
                 value = jval->valueint;
                 has_value = 1;
             } else if (jval && cJSON_IsString(jval) && jval->valuestring && jval->valuestring[0]) {
                 char *end = NULL;
                 long v = strtol(jval->valuestring, &end, 10);
-                if (end && *end == '\0') {
+                if (end && *end == '\0' && v >= -2147483647L && v <= 2147483647L) {
                     value = (int)v;
                     has_value = 1;
+                } else {
+                    bad_value = 1;
                 }
+            } else if (jval && !cJSON_IsNull(jval)) {
+                bad_value = 1;
             }
 
             cJSON_Delete(req_j);
+        }
+
+        if (bad_value) {
+            free(pronto_buf);
+            send_json_error(client_fd, 400, "value must be an integer");
+            close(client_fd);
+            return 1;
         }
 
         int rc = -1;
@@ -823,8 +836,9 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
         } else if (dev_id[0] && cmd_name[0]) {
             rc = has_value ? hw_device_command_send_value(dev_id, 0, cmd_name, btn_action, value)
                            : hw_device_command_send_action(dev_id, 0, cmd_name, btn_action);
-            if (rc == HW_ERR_VALUE_RANGE) {
-                send_json_error(client_fd, 400, "value out of range");
+            if (rc == HW_ERR_VALUE_RANGE || rc == HW_ERR_VALUE_MISSING) {
+                send_json_error(client_fd, 400, rc == HW_ERR_VALUE_RANGE ? "value out of range"
+                                                                         : "value required (the command has a range)");
                 close(client_fd);
                 return 1;
             }
@@ -1522,6 +1536,25 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                                     }
                                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "commands");
                                     cJSON_AddItemToObject(found_dev, "commands", cloned_cmds);
+                                }
+                            } else {
+                                /* A command saved without "range" (a client that copies only name and
+                                 * keyCode) takes the one of the manifest's command of that name: the
+                                 * Hub would otherwise send any value */
+                                cJSON *def_cmds = cJSON_GetObjectItemCaseSensitive(dev_def, "default_commands");
+                                cJSON *cmd_it = NULL;
+                                cJSON_ArrayForEach(cmd_it, cur_cmds) {
+                                    cJSON *cn = cJSON_GetObjectItemCaseSensitive(cmd_it, "name");
+                                    if (!cJSON_IsString(cn) || cJSON_GetObjectItemCaseSensitive(cmd_it, "range")) continue;
+                                    cJSON *def_it = NULL;
+                                    cJSON_ArrayForEach(def_it, (cJSON_IsArray(def_cmds) ? def_cmds : NULL)) {
+                                        cJSON *dn = cJSON_GetObjectItemCaseSensitive(def_it, "name");
+                                        cJSON *dr = cJSON_GetObjectItemCaseSensitive(def_it, "range");
+                                        if (cJSON_IsString(dn) && strcmp(dn->valuestring, cn->valuestring) == 0) {
+                                            if (cmd_range_valid(dr)) cJSON_AddItemToObject(cmd_it, "range", cJSON_Duplicate(dr, 1));
+                                            break;
+                                        }
+                                    }
                                 }
                             }
                             cJSON_Delete(dev_def);

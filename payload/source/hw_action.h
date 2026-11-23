@@ -1,6 +1,7 @@
 #ifndef HARMONY_HW_ACTION_H
 #define HARMONY_HW_ACTION_H
 
+#include <limits.h>
 #include <stddef.h>
 #include <stdint.h>
 #include "cJSON.h"
@@ -86,9 +87,14 @@ int hw_ir_send_harmony_keycode(const char *keycode, uint8_t ports, uint8_t repea
  */
 int hw_device_command_send_action(const char *target, int match_mode, const char *command, int action);
 /* As _send_action, with a numeric argument for plugin commands (the datagram's "value"). A
- * command with "range": [min, max] refuses a value outside it with HW_ERR_VALUE_RANGE. */
+ * plugin command with "range": [min, max] refuses a value outside it with HW_ERR_VALUE_RANGE,
+ * and the senders without a value (HW_VALUE_NONE: remote keys, activity steps, send_command
+ * without "value") with HW_ERR_VALUE_MISSING. Other command types ignore the value. */
 int hw_device_command_send_value(const char *target, int match_mode, const char *command, int action, int value);
-#define HW_ERR_VALUE_RANGE (-7)
+#define HW_VALUE_NONE INT_MIN
+/* outside the errno range: the infrared senders return -errno codes (-7 is -E2BIG) */
+#define HW_ERR_VALUE_RANGE (-1007)
+#define HW_ERR_VALUE_MISSING (-1008)
 /* 1 when value fits the command's "range" (or the command has none) */
 int hw_command_value_in_range(const cJSON *cmd, int value);
 int hw_device_command_send(const char *device_id, const char *command);

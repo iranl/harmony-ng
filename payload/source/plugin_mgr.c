@@ -1267,7 +1267,7 @@ static int validate_manifest(const cJSON *m, const char *src_dir, char *err_msg,
     }
     const cJSON *dc = dd ? cJSON_GetObjectItemCaseSensitive(dd, "default_commands") : NULL;
     const cJSON *c = NULL;
-    cJSON_ArrayForEach(c, cJSON_IsArray(dc) ? dc : NULL) {
+    cJSON_ArrayForEach(c, (cJSON_IsArray(dc) ? dc : NULL)) {
         const cJSON *r = cJSON_GetObjectItemCaseSensitive(c, "range");
         if (r && !cmd_range_valid(r)) {
             if (err_msg) snprintf(err_msg, err_msg_sz, "A default_commands range must be [min, max] (integers, min <= max)");

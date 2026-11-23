@@ -1153,9 +1153,16 @@ Transmits an IR command either by device ID and one command name, or raw Pronto 
     "command": "PowerToggle"
   }
   ```
-- **Value (plugin commands)**: `"value": 42` (an integer, or a string holding one) reaches the
-  plugin as the datagram's `value`. A command with `"range": [min, max]` refuses a value outside
-  it with `400` and `"error": "value out of range"`. Other command types ignore it.
+- **Value (plugin commands)**: `"value": 42` (an integer, or a string holding one; `1.9`,
+  `"abc"` or `true` answers `400` "value must be an integer") reaches the plugin as the
+  datagram's `value`. A plugin command with `"range": [min, max]` refuses a value outside it with
+  `400` and `"error": "value out of range"`, and needs one: without `value` it answers `400`
+  "value required". Senders that have no value (remote keys, activity steps) cannot use such a
+  command; the WebSocket and MQTT `send_command` take `"value"` for a single command. Other
+  command types ignore the value and their `range`. `POST /api/command-save` and
+  `/api/commands-batch` take `"range": [min, max]`, remove it with `null` or `[]`, and answer
+  `400` for any other range. A plugin device saved with commands that have no `range` gets the
+  one of the manifest's `default_commands` entry of the same name.
 - **Lists, repeats, delays and holds are not taken by this route.** `num_repeats`, `delay_secs`
   and `hold_secs` are ignored here. They work with the `send_command` action of the WebSocket
   (10.3) and MQTT (8.1), which takes this form:

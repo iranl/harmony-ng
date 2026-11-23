@@ -11,6 +11,8 @@ status file the plugin would write.
 
 import json
 import os
+import socket
+import threading
 import sys
 import time
 
@@ -41,6 +43,49 @@ def install(hub, pid, manifest):
     os.chmod(os.path.join(d, "bin", "drv"), 0o755)
 
 
+class PluginSocket:
+    """The datagram socket a running plugin listens on (the route sends the pairing there). The
+    harness cannot run the plugin, and starting one removes its old socket, so this binds it
+    again whenever it is gone, the way a plugin binds its socket once it runs."""
+
+    def __init__(self, pid):
+        os.makedirs(PLUGIN_RUN_DIR, exist_ok=True)
+        self.path = os.path.join(PLUGIN_RUN_DIR, pid + ".sock")
+        self.got = []
+        self.stop = threading.Event()
+        self.thread = threading.Thread(target=self._run, daemon=True)
+        self.thread.start()
+
+    def _run(self):
+        s = None
+        while not self.stop.is_set():
+            if s is None or not os.path.exists(self.path):
+                if s:
+                    s.close()
+                try:
+                    os.unlink(self.path)
+                except OSError:
+                    pass
+                s = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+                s.bind(self.path)
+                s.settimeout(0.05)
+            try:
+                self.got.append(json.loads(s.recv(4096)))
+            except (socket.timeout, ValueError):
+                pass
+        s.close()
+
+    def recv(self, timeout=3):
+        end = time.time() + timeout
+        while not self.got and time.time() < end:
+            time.sleep(0.05)
+        return self.got.pop(0) if self.got else {"error": "timed out"}
+
+    def close(self):
+        self.stop.set()
+        self.thread.join()
+
+
 def write_status(obj):
     os.makedirs(PLUGIN_RUN_DIR, exist_ok=True)
     with open(STATUS + ".tmp", "w") as f:
@@ -66,10 +111,16 @@ def main():
             "id": "pinner", "version": "1.0.0", "entrypoint": "bin/drv",
             "pairing": {"supported": True, "type": "pin_display"},
         })
+        install(hub, "ghost", {
+            "id": "ghost", "version": "1.0.0", "entrypoint": "bin/drv",
+            "pairing": {"supported": True, "type": "listen", "requires_host": False},
+        })
         try:
             os.unlink(STATUS)
         except OSError:
             pass
+        lsock = PluginSocket("listener")
+        csock = PluginSocket("confirmer")
 
         st, res = hub.http_post("/api/plugins/pair", {"id": "listener", "action": "status"})
         check(st == 200 and res.get("stage") == "waiting", "status before any pairing: waiting", str((st, res)))
@@ -80,6 +131,12 @@ def main():
         check(st == 200 and res.get("stage") == "listening" and res.get("timeout_s") == 20,
               "listen pairing starts without a host and answers 'listening'", str((st, res)))
         check(took < 3, "the route does not wait for the pairing to end (%.1f s)" % took)
+        dgram = lsock.recv()
+        check(dgram.get("action") == "start_pair" and "host" not in dgram and dgram.get("timeout_s") == 20,
+              "the plugin gets start_pair without a host, with timeout_s", str(dgram))
+        st, res = hub.http_post("/api/plugins/pair", {"id": "ghost", "action": "start"}, timeout=10)
+        check(st == 400 and res.get("stage") == "error",
+              "a plugin that cannot take the pairing (no socket) is an error, not 'listening'", str((st, res)))
 
         write_status({"ok": True, "action": "start_pair", "stage": "done", "message": "found",
                       "config": {"switch_mac": "98:E2:55:99:1F:97", "controller_pid": "2066",
@@ -107,6 +164,8 @@ def main():
         check(st == 200 and res.get("stage") == "confirm_on_device" and res.get("timeout_s") == 45,
               "confirm pairing answers at once: confirm_on_device", str((st, res)))
         check(time.time() - t0 < 3, "the confirm route does not wait for the user")
+        lsock.close()
+        csock.close()
         cstatus = os.path.join(PLUGIN_RUN_DIR, "confirmer.status")
         with open(cstatus + ".tmp", "w") as f:
             json.dump({"ok": True, "action": "start_pair", "stage": "done", "message": "accepted"}, f)

@@ -233,6 +233,9 @@ bool g_adv_listen_active = false;
 static int s_listen_cmds;
 void bt_listen_handle_cmd(const char *args) { UNUSED(args); s_listen_cmds++; }
 void bt_listen_on_report(const uint8_t *packet) { UNUSED(packet); }
+static int s_listen_ends;
+void bt_listen_end(const char *why) { UNUSED(why); s_listen_ends++; g_adv_listen_active = false; }
+void bt_listen_end_for_remote(void) { s_listen_ends++; g_adv_listen_active = false; }
 void gap_stop_scan(void) {}
 void gap_start_scan(void) {}
 void gap_set_scan_parameters(uint8_t t, uint16_t i, uint16_t w) { UNUSED(t); UNUSED(i); UNUSED(w); }

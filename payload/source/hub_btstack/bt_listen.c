@@ -5,6 +5,7 @@
 #include "plugin_mgr.h"
 
 #define ADV_LISTEN_MAX_S 60
+#define ADV_LISTEN_REMOTE_HOLD_MS 15000
 
 bool g_adv_listen_active = false;
 
@@ -13,6 +14,7 @@ static uint8_t g_listen_filter[ADV_LISTEN_FILTER_MAX];
 static int g_listen_filter_len = 0;
 static int g_listen_sock = -1;
 static btstack_timer_source_t g_listen_timer;
+static uint32_t g_listen_hold_until_ms; /* ended for the remote: no listen before this */
 
 static void listen_stop(const char *why) {
     if (!g_adv_listen_active) return;
@@ -25,9 +27,21 @@ static void listen_stop(const char *why) {
     char msg[128];
     snprintf(msg, sizeof(msg), "BLE listen for plugin '%s' ended (%s)", g_listen_plugin, why);
     log_msg(msg);
-    /* The scan goes back to the remote reconnect; a connected remote needs none */
+    /* A user scan keeps the scan; otherwise it goes back to the remote reconnect (none while the
+     * remote's link is up: encrypting counts, not only READY) */
+    if (g_user_scan_active) return;
     gap_stop_scan();
-    if (app_state != APP_READY) hog_start_connect();
+    if (connection_handle == HCI_CON_HANDLE_INVALID) hog_start_connect();
+}
+
+void bt_listen_end(const char *why) {
+    listen_stop(why);
+}
+
+void bt_listen_end_for_remote(void) {
+    if (!g_adv_listen_active) return;
+    g_listen_hold_until_ms = btstack_run_loop_get_time_ms() + ADV_LISTEN_REMOTE_HOLD_MS;
+    listen_stop("the remote wants to connect");
 }
 
 static void listen_timer_handler(btstack_timer_source_t *ts) {
@@ -54,6 +68,11 @@ void bt_listen_handle_cmd(const char *args) {
     }
     if (g_user_scan_active || le_pair_window_allows(remote_device.addr, le_pair_now_s())) {
         log_msg("adv_listen: a remote scan or pairing runs, refused");
+        return;
+    }
+    if (connection_handle == HCI_CON_HANDLE_INVALID &&
+            (int32_t)(g_listen_hold_until_ms - btstack_run_loop_get_time_ms()) > 0) {
+        log_msg("adv_listen: the remote is connecting, refused");
         return;
     }
     if (g_adv_listen_active && strcmp(id, g_listen_plugin) != 0) {
@@ -83,7 +102,7 @@ void bt_listen_handle_cmd(const char *args) {
         app_state = APP_SCANNING;
     }
     g_adv_listen_active = true;
-    gap_set_scan_parameters(0, 48, 48); /* passive, continuous: no scan requests */
+    gap_set_scan_parameters(0, 96, 48); /* passive, 50 %: no scan requests; the plugin drops repeats */
     gap_start_scan();
 
     btstack_run_loop_remove_timer(&g_listen_timer);

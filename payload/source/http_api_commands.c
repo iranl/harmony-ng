@@ -37,6 +37,12 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
     if ((strcmp(clean_path, "/ir/command") == 0 || strcmp(clean_path, "/api/command-save") == 0 ||
          strcmp(clean_path, "/bt/command") == 0) && strcmp(method, "POST") == 0) {
         cJSON *p = parse_request_params(body);
+        if (p && !cmd_range_request_ok(p)) {
+            cJSON_Delete(p);
+            send_json_error(client_fd, 400, "range must be [min, max] (integers, min <= max), or null / [] to remove it");
+            close(client_fd);
+            return 1;
+        }
         int success = 0;
         int save_failed = 0; /* the device was updated but devices.json could not be written */
         if (p) {
@@ -185,6 +191,15 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
     /* Route: POST /api/commands-batch or POST /ir/commands-batch */
     if ((strcmp(clean_path, "/api/commands-batch") == 0 || strcmp(clean_path, "/ir/commands-batch") == 0) && strcmp(method, "POST") == 0) {
         cJSON *p = parse_request_params(body);
+        const cJSON *rc_in = NULL;
+        cJSON_ArrayForEach(rc_in, (p ? cJSON_GetObjectItemCaseSensitive(p, "commands") : NULL)) {
+            if (cJSON_IsObject(rc_in) && !cmd_range_request_ok(rc_in)) {
+                cJSON_Delete(p);
+                send_json_error(client_fd, 400, "range must be [min, max] (integers, min <= max), or null / [] to remove it");
+                close(client_fd);
+                return 1;
+            }
+        }
         int saved_count = 0;
         int success = 0;
         int save_failed = 0; /* the device was updated but devices.json could not be written */

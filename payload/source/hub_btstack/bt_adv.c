@@ -1,5 +1,7 @@
 #include "bt_adv.h"
 #include "ble_adv_payload.h"
+#include "bt_le_pair_window.h"
+#include <ctype.h>
 
 #define ADV_QUEUE_LEN    8
 #define ADV_DEFAULT_MS   1200
@@ -9,6 +11,8 @@
 #define ADV_INTERVAL     0x00A0
 #define ADV_NONCONN_IND  0x03
 #define ADV_ALL_CHANNELS 0x07
+// a broadcast from another address waits this long, again, while the remote's link is set up
+#define ADV_ADDR_RETRY_MS 500
 
 typedef struct {
     uint8_t data[BLE_ADV_MAX_LEN];
@@ -47,9 +51,29 @@ static void adv_timer_handler(btstack_timer_source_t *ts) {
     adv_start_next();
 }
 
+static void adv_retry_handler(btstack_timer_source_t *ts) {
+    UNUSED(ts);
+    if (!g_adv_active) adv_start_next();
+}
+
+/* Setting the random address while the remote's connection is set up (or its pairing window is
+ * open) makes BTstack resend the connect from that address, and a pairing would hand it out as
+ * the Hub's identity: a broadcast from another address waits until the link is up or given up */
+static bool remote_link_setup(void) {
+    return app_state == APP_CONNECTING || app_state == APP_ENCRYPTING || app_state == APP_W4_HIDS ||
+           le_pair_window_allows(remote_device.addr, le_pair_now_s());
+}
+
 static void adv_start_next(void) {
     if (g_adv_count == 0) return;
     adv_entry_t *e = &g_adv_queue[g_adv_head];
+    if (e->has_addr && remote_link_setup()) {
+        btstack_run_loop_remove_timer(&g_adv_timer);
+        btstack_run_loop_set_timer_handler(&g_adv_timer, &adv_retry_handler);
+        btstack_run_loop_set_timer(&g_adv_timer, ADV_ADDR_RETRY_MS);
+        btstack_run_loop_add_timer(&g_adv_timer);
+        return;
+    }
     g_adv_head = (g_adv_head + 1) % ADV_QUEUE_LEN;
     g_adv_count--;
 
@@ -72,6 +96,17 @@ static void adv_start_next(void) {
     btstack_run_loop_add_timer(&g_adv_timer);
 }
 
+/* Exactly six hex pairs with ':' between them, then the end or a space; all zero refused */
+static bool addr_arg_valid(const char *s, bd_addr_t out) {
+    for (int i = 0; i < 17; i++) {
+        if (i % 3 == 2 ? s[i] != ':' : !isxdigit((unsigned char)s[i])) return false;
+    }
+    if (s[17] && s[17] != ' ') return false;
+    if (!sscanf_bd_addr(s, out)) return false;
+    static const bd_addr_t zero = {0};
+    return memcmp(out, zero, 6) != 0;
+}
+
 void bt_adv_handle_cmd(const char *args) {
     if (!args) return;
     while (*args == ' ') args++;
@@ -91,8 +126,8 @@ void bt_adv_handle_cmd(const char *args) {
     }
     bd_addr_t addr;
     const char *a = end ? strstr(end, "addr=") : NULL;
-    if (a && !sscanf_bd_addr(a + 5, addr)) {
-        log_msg("BLE broadcast rejected: addr= is not a Bluetooth address");
+    if (a && !addr_arg_valid(a + 5, addr)) {
+        log_msg("BLE broadcast rejected: addr= is not a Bluetooth address (AA:BB:CC:DD:EE:FF, not all zero)");
         return;
     }
     if (ms < ADV_MIN_MS) ms = ADV_MIN_MS;

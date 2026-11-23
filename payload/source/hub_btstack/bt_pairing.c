@@ -924,8 +924,8 @@ void try_connect_host_addr(const bd_addr_t addr) {
     g_host_connecting_start = time(NULL);
 
     // Suspend LE scanning during Classic ACL paging to dedicate CSR8811 radio to Host connection
-    // (not a plugin's adv_listen: it is short and asked for)
-    if (app_state == APP_SCANNING && !g_user_scan_active && !g_adv_listen_active) {
+    // (a plugin's adv_listen too: it scans more than the reconnect, and goes on after the page)
+    if ((app_state == APP_SCANNING && !g_user_scan_active) || g_adv_listen_active) {
         gap_stop_scan();
     }
 
@@ -1267,6 +1267,7 @@ void hog_start_connect(void) {
 
 void start_user_scan(void) {
     log_msg("User requested BLE scan for remotes in pairing mode...");
+    bt_listen_end("a remote scan started"); /* the user's action wins over a plugin's listen */
     g_discovered_count = 0;
     memset(g_discovered, 0, sizeof(g_discovered));
     g_user_scan_active = true;
@@ -1301,6 +1302,7 @@ void start_user_pair(const char *addr_str) {
         log_msg("Invalid pair address requested");
         return;
     }
+    bt_listen_end("a remote pairing started"); /* the remote must not wait for a plugin's listen */
     char msg[128];
     snprintf(msg, sizeof(msg), "User pair requested for %s (LE pairing window open for %d s)", addr_str, LE_PAIR_WINDOW_SEC);
     log_msg(msg);

@@ -694,7 +694,8 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
           devPayload.commands = defaultCmds.map(c => ({
             name: c.name,
             keyCode: c.keyCode || `PLUGIN:${pluginId}:${c.name}`,
-            raw: c.raw || c.keyCode || `PLUGIN:${pluginId}:${c.name}`
+            raw: c.raw || c.keyCode || `PLUGIN:${pluginId}:${c.name}`,
+            ...(Array.isArray(c.range) ? { range: c.range } : {})
           }));
         }
       }

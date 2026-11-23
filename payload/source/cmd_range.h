@@ -15,9 +15,25 @@ static inline int cmd_range_valid(const cJSON *r) {
     return lo->valueint <= hi->valueint;
 }
 
-/* Copies a valid "range" of src to dst (replacing dst's); an invalid or missing one is left out */
+/* "range": null or [] in a request: remove the command's range */
+static inline int cmd_range_is_clear(const cJSON *r) {
+    return cJSON_IsNull(r) || (cJSON_IsArray(r) && cJSON_GetArraySize(r) == 0);
+}
+
+/* 1 when src has no "range", a valid one, or a clear one (requests: anything else is a 400) */
+static inline int cmd_range_request_ok(const cJSON *src) {
+    const cJSON *r = cJSON_GetObjectItemCaseSensitive(src, "range");
+    return !r || cmd_range_valid(r) || cmd_range_is_clear(r);
+}
+
+/* Copies a valid "range" of src to dst (replacing dst's); null or [] removes dst's; a missing
+ * one keeps it, an invalid one is left out */
 static inline void cmd_range_copy(cJSON *dst, const cJSON *src) {
     const cJSON *r = cJSON_GetObjectItemCaseSensitive(src, "range");
+    if (cmd_range_is_clear(r)) {
+        cJSON_DeleteItemFromObjectCaseSensitive(dst, "range");
+        return;
+    }
     if (!cmd_range_valid(r)) return;
     cJSON_DeleteItemFromObjectCaseSensitive(dst, "range");
     cJSON *n = cJSON_CreateArray();

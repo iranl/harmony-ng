@@ -720,12 +720,20 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
 
     if (strncmp(keycode_str, "G:MQTT", 6) == 0) is_mqtt = 1;
 
-    /* A command with "range": [min, max] takes only a value in that range */
-    if (target_cmd && !hw_command_value_in_range(target_cmd, value)) {
-        printf("[!] Command '%s' of device '%s' refused: value %d outside its range\n",
-               command, dev_name[0] ? dev_name : target, value);
-        return HW_ERR_VALUE_RANGE;
+    /* A plugin command with "range": [min, max] takes only a value in that range, and needs one */
+    if (is_plugin && target_cmd && cmd_range_valid(cJSON_GetObjectItemCaseSensitive(target_cmd, "range"))) {
+        if (value == HW_VALUE_NONE) {
+            printf("[!] Command '%s' of device '%s' refused: it needs a value (it has a range)\n",
+                   command, dev_name[0] ? dev_name : target);
+            return HW_ERR_VALUE_MISSING;
+        }
+        if (!hw_command_value_in_range(target_cmd, value)) {
+            printf("[!] Command '%s' of device '%s' refused: value %d outside its range\n",
+                   command, dev_name[0] ? dev_name : target, value);
+            return HW_ERR_VALUE_RANGE;
+        }
     }
+    if (value == HW_VALUE_NONE) value = 0;
 
     uint8_t ir_ports = IR_PORT_ALL;
     cJSON *j_cp = cJSON_GetObjectItemCaseSensitive(target_dev, "controlPort");
@@ -1063,7 +1071,7 @@ static int hw_device_command_send_match(const char *target, int match_mode, cons
 }
 
 int hw_device_command_send_action(const char *target, int match_mode, const char *command, int action) {
-    return hw_device_command_send_match(target, match_mode, command, action, 0);
+    return hw_device_command_send_match(target, match_mode, command, action, HW_VALUE_NONE);
 }
 
 int hw_device_command_send_value(const char *target, int match_mode, const char *command, int action, int value) {
@@ -1071,15 +1079,15 @@ int hw_device_command_send_value(const char *target, int match_mode, const char 
 }
 
 int hw_device_command_send(const char *device_id, const char *command) {
-    return hw_device_command_send_match(device_id, 0, command, HW_BTN_ACTION_TAP, 0);
+    return hw_device_command_send_match(device_id, 0, command, HW_BTN_ACTION_TAP, HW_VALUE_NONE);
 }
 
 int hw_device_command_send_by_id(const char *device_id, const char *command) {
-    return hw_device_command_send_match(device_id, 1, command, HW_BTN_ACTION_TAP, 0);
+    return hw_device_command_send_match(device_id, 1, command, HW_BTN_ACTION_TAP, HW_VALUE_NONE);
 }
 
 int hw_device_command_send_by_name(const char *device_name, const char *command) {
-    return hw_device_command_send_match(device_name, 2, command, HW_BTN_ACTION_TAP, 0);
+    return hw_device_command_send_match(device_name, 2, command, HW_BTN_ACTION_TAP, HW_VALUE_NONE);
 }
 
 static int device_exists_in(const cJSON *root, const char *target, int match_mode) {

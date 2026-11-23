@@ -398,11 +398,13 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
       if (btn) btn.textContent = t('plg_adding');
       try {
         for (const c of toAdd) {
-          await this.client.saveLearnedCommand({
-            deviceId: dev.id,
+          // JSON, not the form saveLearnedCommand sends: a form cannot carry the range array
+          await this.client.postJson('/api/command-save', {
+            deviceId: String(dev.id),
             name: c.name,
             raw: c.keyCode,
-            mode: 'plugin'
+            mode: 'plugin',
+            ...(Array.isArray(c.range) ? { range: c.range } : {})
           });
         }
         await this.refreshData();

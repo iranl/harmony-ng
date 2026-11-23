@@ -287,7 +287,7 @@ The datagram also carries `timeout_s`, the manifest's `pairing.timeout_s` (defau
 #### Pairing without a host (`"type": "listen"`)
 A plugin that finds its device itself (it hears the device's own radio packets, for example with `adv_listen` below) declares `"pairing": {"supported": true, "type": "listen", "requires_host": false, "timeout_s": 30}`. Then:
 
-- `POST /api/plugins/pair {"id", "action": "start"}` needs no `host`. The datagram has no `host` either. The route waits at most 1 s for a first status and answers `{"ok": true, "stage": "listening", "timeout_s": 30}` when there is none.
+- `POST /api/plugins/pair {"id", "action": "start"}` needs no `host`. The datagram has no `host` either. The route waits at most 1 s for a first status and answers `{"ok": true, "stage": "listening", "timeout_s": 30}` when there is none, or `ok: false`, `stage: error` at once when the plugin is not running or its socket takes no datagram. A start or PIN step of a `pin_display` pairing waits 15 s at most, whatever `timeout_s` says. The status file is read up to 4,096 bytes: a longer one reads as `waiting`.
 - `{"id", "action": "status"}` returns the current status file and sends nothing (`stage: waiting` while there is none). The UIs poll it every second.
 - The plugin ends with `stage: done` (or `ok: false` and `stage: error`). A `config` object in the status holds what it learned: the UIs fill the device's config fields with it, and the user saves the device. Only keys the manifest's `config_fields` declare, with string, number or bool values, are returned.
 
@@ -308,7 +308,8 @@ For a device that asks the user to accept the Hub on its own screen (a Samsung o
   ```json
   { "plugin_id": "switch2-wake", "command": "adv_report", "action": "tap", "value": 0, "addr": "AA:BB:CC:DD:EE:FF", "addr_type": 0, "event_type": 3, "rssi": -60, "data": "0201061BFF5305..." }
   ```
-  Repeats are not filtered: the plugin drops what it saw already. One plugin listens at a time; a listen is refused while a remote scan or pairing runs. Meanwhile the BLE remote reconnect waits; it gets the scan back when the listen ends.
+  Repeats are not filtered: the plugin drops what it saw already. The scan runs at 50 % (interval 60 ms, window 30 ms) and pauses while a Bluetooth host is paged. One plugin listens at a time; a listen is refused while a remote scan or pairing runs, and a remote scan or pairing started by the user ends a listen. Meanwhile the BLE remote reconnect waits; when the paired remote advertises (a key pressed), the listen ends so it can connect, and a new listen is refused until it is connected (15 s at most).
+- **Older firmware** answers neither: it ignores `adv_listen`, and sends an `adv ... addr=` from the Hub's own address. With `addr=` the address must be six hex pairs with `:` (not all zero); a broadcast from another address waits while the BLE remote connects or a remote pairing window is open.
 - **`bt_page <target_mac> [spoof_mac]`**: a text datagram a plugin may send to `/tmp/hub_btstack.sock`. `bt_page` pages the target (optionally from a spoofed BD_ADDR, restored afterwards) and disconnects at once. One page runs at a time; a page with no answer ends after 10 s.
 - **`/tmp/hub_btstack.lock`**: a helper that needs the radio alone (the `ps5-wake` cold wake restarts the CSR8811) creates this file; while it exists the `init.sh` supervisor does not restart `hub_btstack`. Remove it when done. A lock older than 120 s is taken as stale and removed.
 

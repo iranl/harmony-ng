@@ -13,6 +13,11 @@ extern bool g_adv_listen_active;
 /* Handle "adv_listen <plugin_id> <seconds> [hex_filter]": scan passively for that long and send
  * each matching advertising report to /tmp/plugins/<plugin_id>.sock. 0 seconds stops early. */
 void bt_listen_handle_cmd(const char *args);
+/* Ends a running listen (no-op without one): a remote scan or pairing the user started wins */
+void bt_listen_end(const char *why);
+/* The pinned remote advertised during a listen: the listen ends, and a new one is refused
+ * until the remote is connected (at most ADV_LISTEN_REMOTE_HOLD_MS) */
+void bt_listen_end_for_remote(void);
 
 /* Called for every advertising report while listening */
 void bt_listen_on_report(const uint8_t *packet);
