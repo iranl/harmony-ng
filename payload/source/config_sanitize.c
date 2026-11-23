@@ -435,10 +435,48 @@ void sanitize_activity_steps(cJSON *steps) {
     cJSON_Delete(new_arr);
 }
 
+/* The activity's Display Order; one without a number goes after all numbered ones */
+static double activity_order(const cJSON *a) {
+    const cJSON *o = cJSON_IsObject(a) ? cJSON_GetObjectItemCaseSensitive(a, "order") : NULL;
+    return cJSON_IsNumber(o) ? o->valuedouble : 1e18;
+}
+
+/* Every reader (both web UIs, the remotes' "yours" order, hbus, MQTT) lists the activities in
+ * array order, so the array is kept sorted by Display Order. Stable: equal orders keep their
+ * place. */
+static void sort_activities_by_order(cJSON *acts) {
+    int n = cJSON_GetArraySize(acts);
+    if (n < 2) return;
+    cJSON **items = malloc((size_t)n * sizeof(*items));
+    if (!items) return;
+    int k = 0;
+    cJSON *a = NULL;
+    cJSON_ArrayForEach(a, acts) items[k++] = a;
+    int moved = 0;
+    for (int i = 1; i < n; i++) {
+        cJSON *cur = items[i];
+        double ord = activity_order(cur);
+        int j = i - 1;
+        while (j >= 0 && activity_order(items[j]) > ord) {
+            items[j + 1] = items[j];
+            j--;
+            moved = 1;
+        }
+        items[j + 1] = cur;
+    }
+    if (moved) {
+        for (int i = 0; i < n; i++) cJSON_DetachItemViaPointer(acts, items[i]);
+        for (int i = 0; i < n; i++) cJSON_AddItemToArray(acts, items[i]);
+    }
+    free(items);
+}
+
 void sanitize_activities_json(cJSON *root) {
     if (!root) return;
     cJSON *acts = cJSON_GetObjectItemCaseSensitive(root, "activities");
     if (!acts || !cJSON_IsArray(acts)) return;
+
+    sort_activities_by_order(acts);
 
     cJSON *a = NULL;
     cJSON_ArrayForEach(a, acts) {

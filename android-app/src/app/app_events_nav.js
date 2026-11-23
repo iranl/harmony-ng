@@ -467,13 +467,6 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
       const dev = (this.inventory.devices || []).find(d => String(d.id) === String(document.getElementById('manageDeviceSelect')?.value));
       if (dev) this.renderStudioCommandsList(dev);
     });
-    document.getElementById('curDevPortSelect')?.addEventListener('change', async (e) => {
-      const devId = this.selectedIrDeviceId || document.getElementById('manageDeviceSelect')?.value;
-      const portVal = parseInt(e.target.value, 10);
-      this.selectedIrDeviceId = String(devId);
-      await this.client.saveDeviceDetails({ deviceId: devId, controlPort: isNaN(portVal) ? 7 : portVal });
-      await this.refreshData();
-    });
     document.getElementById('btnEditCurrentDevice')?.addEventListener('click', () => {
       const box = document.getElementById('devEditConfigBox');
       if (!box) return;
@@ -495,6 +488,10 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
           if (devEditBtBox) devEditBtBox.style.display = isBt ? 'block' : 'none';
           const devEditTimingsBox = document.getElementById('devEditTimingsBox');
           if (devEditTimingsBox) devEditTimingsBox.style.display = isIr ? 'block' : 'none';
+          const blasterBox = document.getElementById('curDevBlasterBox');
+          if (blasterBox) blasterBox.style.display = isIr ? 'flex' : 'none';
+          const portEl = document.getElementById('curDevPortSelect');
+          if (portEl) portEl.value = String(dev.controlPort !== undefined ? dev.controlPort : 7);
 
           const nameInp = document.getElementById('editDevName');
           const typeInp = document.getElementById('editDevType');
@@ -569,6 +566,8 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
       if (devEditBtBox) devEditBtBox.style.display = isBt ? 'block' : 'none';
       const devEditTimingsBox = document.getElementById('devEditTimingsBox');
       if (devEditTimingsBox) devEditTimingsBox.style.display = isIr ? 'block' : 'none';
+      const blasterBox = document.getElementById('curDevBlasterBox');
+      if (blasterBox) blasterBox.style.display = isIr ? 'flex' : 'none';
       if (typeof this.handleEditDeviceTypeChanged === 'function') {
         const sel = document.getElementById('manageDeviceSelect');
         const devId = this.selectedIrDeviceId || sel?.value;
@@ -592,6 +591,9 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
       const hikd = parseInt(document.getElementById('devHoldInterKeyDelay')?.value, 10);
       const pod = parseInt(document.getElementById('devPowerOnDelay')?.value, 10);
       const pao = document.getElementById('devIsPowerAlwaysOn')?.checked ? 1 : 0;
+      /* only an IR device has the blaster choice: others keep their saved port */
+      const blasterShown = document.getElementById('curDevBlasterBox')?.style.display !== 'none';
+      const portVal = parseInt(document.getElementById('curDevPortSelect')?.value, 10);
       const btHost = document.getElementById('curDevBtHost')?.value.trim();
       const btAutoRecVal = parseInt(document.getElementById('curDevBtAutoReconnect')?.value, 10);
       const btAutoRec = isNaN(btAutoRecVal) ? 1 : (btAutoRecVal === 0 ? 0 : 1);
@@ -656,6 +658,7 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
           holdInterKeyDelay: isNaN(hikd) ? 200 : hikd,
           powerOnDelay: isNaN(pod) ? 1500 : pod,
           isPowerAlwaysOn: pao,
+          controlPort: (blasterShown && !isNaN(portVal)) ? portVal : undefined,
           bdaddr: btHost || undefined,
           btAutoReconnect: btAutoRec,
           btReconnectDurationSec: isNaN(btDur) ? 0 : btDur,
