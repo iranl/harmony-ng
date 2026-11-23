@@ -291,9 +291,13 @@ static int serve_static_file(int client_fd, const char *req, const char *path, i
     }
 
     char file_path[512];
-    snprintf(file_path, sizeof(file_path), "/tmp/www%s", rel_path);
+    snprintf(file_path, sizeof(file_path), HARMONY_TMP_WWW "%s", rel_path);
+    char upload_path[512];
+    snprintf(upload_path, sizeof(upload_path), "/data/harmony/custom_icons/%s",
+             strncmp(rel_path, "/assets/icons/", 14) == 0 ? rel_path + 14 : "");
+    /* an uploaded icon first, as in hub_rf's registry: then the pack */
     if (access(file_path, F_OK) != 0 && strncmp(rel_path, "/assets/icons/", 14) == 0 &&
-        serve_packed_icon(client_fd, req, rel_path + 14, keep_alive)) {
+        access(upload_path, F_OK) != 0 && serve_packed_icon(client_fd, req, rel_path + 14, keep_alive)) {
         return 1;
     }
     if (access(file_path, F_OK) != 0) {
@@ -318,7 +322,7 @@ static int serve_static_file(int client_fd, const char *req, const char *path, i
 
                     if (mapped && serve_packed_icon(client_fd, req, mapped, keep_alive)) return 1;
                     if (mapped) {
-                        snprintf(file_path, sizeof(file_path), "/tmp/www/assets/icons/%s", mapped);
+                        snprintf(file_path, sizeof(file_path), HARMONY_TMP_WWW "/assets/icons/%s", mapped);
                         if (access(file_path, F_OK) != 0) {
                             snprintf(file_path, sizeof(file_path), "/cache/www/assets/icons/%s", mapped);
                         }

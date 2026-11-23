@@ -274,7 +274,7 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
         http_ensure_icons_extracted();
         int icons_present = icon_pack_available();
         struct stat st_icon;
-        const char *icon_dir = "/tmp/www/assets/icons";
+        const char *icon_dir = HARMONY_TMP_WWW "/assets/icons";
         if (stat(icon_dir, &st_icon) != 0) {
             icon_dir = "/cache/www/assets/icons";
         }

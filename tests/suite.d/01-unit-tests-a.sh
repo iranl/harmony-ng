@@ -174,6 +174,8 @@ build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_custom_ic
 python3 "$SCRIPT_DIR/test_icon_pack.py"
 python3 "$SCRIPT_DIR/test_icon_pack.py" --fixture "$BUILD_DIR/icon_pack" && \
 build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source" -DICON_PACK_ARCHIVES="{\"$BUILD_DIR/icon_pack/icons.tar.gz\"}" -o "$BUILD_DIR/test_icon_pack" "$SCRIPT_DIR/test_icon_pack.c" "$REPO_ROOT/payload/source/icon_pack.c" -lpthread && "$BUILD_DIR/test_icon_pack" "$BUILD_DIR/icon_pack"
+# hub_rf: a stock icon only in the pack reaches the RF sender through a /tmp file, removed after
+build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -DICON_PACK_ARCHIVES="{\"$BUILD_DIR/icon_pack/icons.tar.gz\"}" -o "$BUILD_DIR/test_custom_icon_registry_pack" "$SCRIPT_DIR/test_custom_icon_registry.c" "$REPO_ROOT/payload/source/custom_icon_registry.c" "$REPO_ROOT/payload/source/icon_pack.c" "$REPO_ROOT/payload/source/cJSON.c" "$REPO_ROOT/payload/source/sha256.c" -lpthread -lm && LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_custom_icon_registry_pack" "$BUILD_DIR/icon_pack"
 # Config files replaced through a synced temporary file; a full flash keeps the old file
 build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_atomic_file" "$SCRIPT_DIR/test_atomic_file.c" && "$BUILD_DIR/test_atomic_file"
 # Remote: custom icon updates free and reuse their PNG cache slots

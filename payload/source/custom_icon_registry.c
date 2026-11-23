@@ -130,8 +130,8 @@ static bool locate_custom_icon_file(const char *norm, char *out_path, size_t out
         "/data/harmony/custom_icons/%s",
         "/data/harmony/custom_icons/custom_%s.png",
         "/data/harmony/custom_icons/custom_%s",
-        "/tmp/www/assets/icons/%s.png",
-        "/tmp/www/assets/icons/%s",
+        HARMONY_TMP_WWW "/assets/icons/%s.png",
+        HARMONY_TMP_WWW "/assets/icons/%s",
         "/cache/www/assets/icons/%s.png",
         "/cache/www/assets/icons/%s",
         NULL

@@ -54,9 +54,9 @@ class InitLogCap(unittest.TestCase):
     def tearDown(self):
         self.tmpdir.cleanup()
 
-    def run_block(self):
+    def run_block(self, prefix: str = ""):
         block = re.sub(r"/tmp/", f"{self.tmp}/", cap_block())
-        script = f'LOG="{self.tmp}/harmony-init.log"\n' + block
+        script = prefix + f'LOG="{self.tmp}/harmony-init.log"\n' + block
         res = subprocess.run(["sh", "-c", script], env=self.env, capture_output=True, text=True, timeout=60)
         self.assertEqual(res.returncode, 0, res.stderr)
         for name in LOGS:
@@ -65,6 +65,15 @@ class InitLogCap(unittest.TestCase):
 
     def test_all_tmp_logs_capped(self):
         self.run_block()
+        for name in LOGS:
+            tail = self.tmp / f"{name}.1"
+            self.assertTrue(tail.is_file(), f"{name}.1 (the kept tail) is missing")
+            self.assertLessEqual(tail.stat().st_size, TAIL + 1024, f"{name}.1 is more than the last 64 KB")
+
+    def test_shell_without_command_builtin(self):
+        """The Hub's stock ash has no "command" builtin (sh: command: not found): the block must
+        not depend on it. Main's block then copied the whole log into <log>.1."""
+        self.run_block('command() { echo "sh: command: not found" >&2; return 127; }\n')
         for name in LOGS:
             tail = self.tmp / f"{name}.1"
             self.assertTrue(tail.is_file(), f"{name}.1 (the kept tail) is missing")

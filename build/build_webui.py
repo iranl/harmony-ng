@@ -60,7 +60,8 @@ def sync_dist_to_www(dist_dir: pathlib.Path, www_dir: pathlib.Path, repo_root: p
     if favicon and favicon.is_file():
         shutil.copy2(favicon, www_dir / "favicon.png")
 
-    # Flash safety: Icons live in /cache/icons.tar.gz and are unpacked to /tmp/www on Hub.
+    # Flash safety: Icons live in /cache/icons.tar.gz (packed: the Hub reads them from flash; an
+    # archive without the pack index is unpacked to /tmp/www, as before).
     # Never copy individual icon files into payload/www flash partition.
     shutil.rmtree(www_dir / "assets" / "icons", ignore_errors=True)
 

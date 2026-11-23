@@ -38,7 +38,9 @@
  * and zero bytes after it keep the decoder's read-ahead inside the buffer */
 static const unsigned char PART_END[] = { 0x03, 0x00, 0, 0, 0, 0, 0, 0, 0, 0 };
 
-struct pack_part { uint32_t off, comp_len, raw_len; };
+/* crc: CRC32 of the part's tar bytes (the 4th number of its S line; packs written before it
+ * have none, has_crc 0) */
+struct pack_part { uint32_t off, comp_len, raw_len, crc; int has_crc; };
 struct pack_entry { const char *name; uint32_t part, off, size; };
 
 static pthread_mutex_t s_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -50,6 +52,16 @@ static struct pack_part *s_parts;
 static size_t s_nparts;
 static struct pack_entry *s_entries;
 static size_t s_nentries;
+
+/* CRC32 (IEEE, as zlib.crc32), bitwise: one pass over a part of at most a few hundred KB */
+static uint32_t crc32_of(const unsigned char *p, size_t n) {
+    uint32_t c = 0xFFFFFFFFu;
+    while (n--) {
+        c ^= *p++;
+        for (int k = 0; k < 8; k++) c = (c >> 1) ^ (0xEDB88320u & (0u - (c & 1u)));
+    }
+    return ~c;
+}
 
 static uint32_t le32(const unsigned char *p) {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
@@ -122,9 +134,14 @@ static int load_index(int fd, off_t size) {
     text[idx_size] = '\0';
     free(raw);
 
-    size_t lines = 0;
-    for (const char *p = text; *p; p++) lines += (*p == '\n');
-    struct pack_part *parts = calloc(lines + 1, sizeof(*parts));
+    size_t lines = 0, slines = 0;
+    for (const char *p = text; *p; p++) {
+        if (*p == '\n') {
+            lines++;
+            if (p[1] == 'S') slines++;
+        }
+    }
+    struct pack_part *parts = calloc(slines + 1, sizeof(*parts));
     struct pack_entry *entries = calloc(lines + 1, sizeof(*entries));
     size_t np = 0, ne = 0;
     int ok = parts && entries && strncmp(text, "HIP1\n", 5) == 0;
@@ -132,11 +149,13 @@ static int load_index(int fd, off_t size) {
         char *nl = strchr(line, '\n');
         if (!nl) { ok = 0; break; }
         *nl = '\0';
-        unsigned a, b, c;
-        int used = 0;
-        if (line[0] == 'S' && sscanf(line, "S %u %u %u%n", &a, &b, &c, &used) == 3 && line[used] == '\0') {
+        unsigned a, b, c, d;
+        int used = 0, used4 = 0;
+        if (line[0] == 'S' && np < slines &&
+                ((sscanf(line, "S %u %u %u %u%n", &a, &b, &c, &d, &used4) == 4 && line[used4] == '\0') ||
+                 (sscanf(line, "S %u %u %u%n", &a, &b, &c, &used) == 3 && line[used] == '\0'))) {
             ok = a >= PACK_HEADER_LEN && (uint64_t)a + b <= idx_off && c <= PACK_MAX_PART && ne == 0;
-            parts[np++] = (struct pack_part){ a, b, c };
+            parts[np++] = (struct pack_part){ a, b, c, used4 ? d : 0, used4 != 0 };
         } else if (line[0] == 'F' && sscanf(line, "F %u %u %u %n", &a, &b, &c, &used) == 3 && line[used]) {
             ok = a < np && (uint64_t)b + c <= parts[a].raw_len;
             entries[ne++] = (struct pack_entry){ line + used, a, b, c };
@@ -199,6 +218,16 @@ static const struct pack_entry *find_locked(const char *name) {
     return s_nentries ? bsearch(&key, s_entries, s_nentries, sizeof(key), entry_cmp) : NULL;
 }
 
+int icon_pack_is_pack_file(const char *path) {
+    unsigned char h[16];
+    int fd = path ? open(path, O_RDONLY | O_CLOEXEC) : -1;
+    if (fd < 0) return 0;
+    int ok = read_at(fd, h, sizeof(h), 0) == 0 && h[0] == 0x1f && h[1] == 0x8b && (h[3] & 0x04) &&
+             h[12] == 'H' && h[13] == 'I';
+    close(fd);
+    return ok;
+}
+
 int icon_pack_available(void) {
     pthread_mutex_lock(&s_lock);
     refresh_locked();
@@ -233,7 +262,19 @@ unsigned char *icon_pack_read(const char *name, size_t *len) {
     if (fd < 0) return NULL;
     unsigned char *raw = inflate_part(fd, part.off, part.comp_len, part.raw_len);
     close(fd);
-    if (!raw) return NULL;
+    /* a part whose bytes changed (a bad copy) is not served: its icons answer 404 */
+    if (raw && part.has_crc && crc32_of(raw, part.raw_len) != part.crc) {
+        free(raw);
+        raw = NULL;
+    }
+    if (!raw) {
+        static uint32_t s_bad_logged = UINT32_MAX;
+        if (s_bad_logged != ent.part) {
+            s_bad_logged = ent.part;
+            printf("[-] Icon pack %s: part %u does not decode to its bytes (icons in it are missing)\n", path, ent.part);
+        }
+        return NULL;
+    }
     unsigned char *data = malloc(ent.size ? ent.size : 1);
     if (data) {
         memcpy(data, raw + ent.off, ent.size);

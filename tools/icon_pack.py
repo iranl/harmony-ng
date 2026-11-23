@@ -10,7 +10,7 @@ of unpacking about 6 MB of icons into /tmp, which is RAM.
 
 Index lines:
     HIP1
-    S <file offset> <compressed length> <tar bytes>      one per part, in order
+    S <file offset> <compressed length> <tar bytes> <CRC32 of the tar bytes>   one per part, in order
     F <part> <offset in part> <size> <name>              sorted by name (byte order)
 <name> is the path below icons/ ("hub/wifi.png"), and every PNG of a folder one level down is also
 listed by its file name alone ("wifi.png"): the old /tmp unpacking linked them so, a later folder
@@ -71,33 +71,40 @@ def pack(src: pathlib.Path, dst: pathlib.Path) -> None:
     body = bytearray()
     crc = 0
     total = 0
-    segments = []  # [file offset, compressed length, tar bytes]
+    segments = []  # [file offset, compressed length, tar bytes, CRC32 of the tar bytes]
     seg_raw = 0
+    seg_crc = 0
 
     def feed(raw: bytes) -> None:
-        nonlocal crc, total, seg_raw
+        nonlocal crc, total, seg_raw, seg_crc
         body.extend(comp.compress(raw))
         crc = zlib.crc32(raw, crc)
+        seg_crc = zlib.crc32(raw, seg_crc)
         total += len(raw)
         seg_raw += len(raw)
 
     def new_segment() -> None:
-        nonlocal seg_raw
+        nonlocal seg_raw, seg_crc
         if segments:
             body.extend(comp.flush(zlib.Z_FULL_FLUSH))
             segments[-1][1] = HEADER_LEN + len(body) - segments[-1][0]
             segments[-1][2] = seg_raw
-        segments.append([HEADER_LEN + len(body), 0, 0])
+            segments[-1][3] = seg_crc & 0xFFFFFFFF
+        segments.append([HEADER_LEN + len(body), 0, 0, 0])
         seg_raw = 0
+        seg_crc = 0
 
     where = {}  # name below icons/ -> (part, offset in part, size)
     for name in sorted(files, key=lambda n: n.encode()):
         data, mtime = files[name]
-        if not segments or seg_raw >= SEGMENT_RAW:
+        entry = _entry_bytes(name, data, mtime)
+        # a part ends before the file that would take it past SEGMENT_RAW: one read inflates at
+        # most about SEGMENT_RAW plus one file (it was SEGMENT_RAW plus the next file)
+        if not segments or (seg_raw > 0 and seg_raw + len(entry) > SEGMENT_RAW):
             new_segment()
         if name.startswith("icons/"):
             where[name[6:]] = (len(segments) - 1, seg_raw + 512, len(data))
-        feed(_entry_bytes(name, data, mtime))
+        feed(entry)
 
     names = dict(where)
     folders = sorted({n.split("/")[0] for n in where if n.count("/") == 1}, key=lambda n: n.encode())
@@ -109,7 +116,7 @@ def pack(src: pathlib.Path, dst: pathlib.Path) -> None:
     new_segment()
     index_off = segments[-1][0]
     segments.pop()
-    lines = ["HIP1"] + [f"S {o} {c} {r}" for o, c, r in segments]
+    lines = ["HIP1"] + [f"S {o} {c} {r} {k}" for o, c, r, k in segments]
     lines += [f"F {s} {o} {n} {name}" for name, (s, o, n) in sorted(names.items(), key=lambda kv: kv[0].encode())]
     index = ("\n".join(lines) + "\n").encode()
     feed(_entry_bytes(INDEX_NAME, index, 0) + b"\0" * 1024)  # two zero blocks end the tar

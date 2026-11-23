@@ -43,9 +43,11 @@ def read_index(blob):
 
 
 def segment_data(blob, seg):
-    off, clen, rlen = seg
+    off, clen, rlen = seg[:3]
     raw = zlib.decompressobj(-15).decompress(blob[off:off + clen] + b"\x03\x00")
     assert len(raw) == rlen, (len(raw), rlen)
+    if len(seg) > 3:  # the CRC32 of the part's tar bytes (the reader checks it)
+        assert zlib.crc32(raw) == seg[3], ("crc", zlib.crc32(raw), seg[3])
     return raw
 
 

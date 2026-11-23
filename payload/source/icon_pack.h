@@ -3,6 +3,16 @@
 
 #include <stddef.h>
 
+/* Where an archive without the pack index is unpacked (RAM). Test builds pass their own folder,
+ * so the suite never touches the host's /tmp/www. */
+#ifndef HARMONY_TMP_WWW
+#define HARMONY_TMP_WWW "/tmp/www"
+#endif
+
+/* 1 when the file at path has the pack's gzip header (HI field), even if its index is not
+ * readable yet (a copy in progress): unpacking such a file into /tmp cannot help */
+int icon_pack_is_pack_file(const char *path);
+
 /* The stock icon archive in the packed form of tools/icon_pack.py: icons are read one at a time
  * from flash instead of being unpacked into /tmp (RAM). An archive without the pack index (older
  * deploy, OTA) is not used here: callers unpack it into /tmp as before. The archive is looked at

@@ -28,7 +28,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from hub_harness import HubHarness  # noqa: E402
+from hub_harness import TMP_WWW, HubHarness  # noqa: E402
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools"))
 import backup_hub  # noqa: E402
 
@@ -125,7 +125,7 @@ def upload(name, data):
 def test_icons():
     print("[-] 2  custom icons")
     tag = "p%d" % os.getpid()
-    tmp_icons = "/tmp/www/assets/icons"
+    tmp_icons = os.path.join(TMP_WWW, "assets", "icons")
     made = []
     with HubHarness(port=PORT, host=HOST, extra_root_files={"harmony/custom_icons/.keep": ""}) as hub:
         cache_icons = os.path.join(hub.mock_dir, "cache", "www", "assets", "icons")
@@ -189,7 +189,7 @@ def test_packed_icons():
     import icon_pack
     import test_icon_pack
     tag = "p%d" % os.getpid()
-    tmp_icons = "/tmp/www/assets/icons"
+    tmp_icons = os.path.join(TMP_WWW, "assets", "icons")
     os.makedirs(tmp_icons, exist_ok=True)
     with open(os.path.join(tmp_icons, "stale%s.png" % tag), "wb") as f:
         f.write(PNG_SIG)

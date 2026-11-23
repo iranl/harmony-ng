@@ -470,6 +470,7 @@ echo "$!" >> /tmp/harmony_supervisors.pid
     if [ -n "$_rf_bin" ]; then
       if ! pidof hub_rf >/dev/null 2>&1; then
         echo "$(date) Starting hub_rf daemon..." >> "$LOG"
+        rm -f /tmp/icon_push.* 2>/dev/null # an icon file of a transfer that a kill cut short
         _started=$(date +%s)
         "$_rf_bin" >> "$LOG" 2>&1
         [ -f /tmp/harmony_stop ] && exit 0

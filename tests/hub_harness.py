@@ -31,6 +31,8 @@ MOCK_LIB = os.path.join(BUILD_DIR, "libmock_hardware.so")
 # plugin sockets and logs of the harness daemon: short (a socket path has 108 bytes, a long
 # checkout path did not fit) and one per checkout
 PLUGIN_RUN_DIR = "/tmp/hhp-%s" % hashlib.sha1(BUILD_DIR.encode()).hexdigest()[:8]
+# the folder an unpacked icon archive goes to (HARMONY_TMP_WWW): not the host's /tmp/www
+TMP_WWW = "/tmp/hhw-%s" % hashlib.sha1(BUILD_DIR.encode()).hexdigest()[:8]
 SAMPLE_CONFIG = os.path.join(TESTS_DIR, "fixtures", "ha", "sample_config")
 
 # Sources of the host build of hub_daemon (keep in sync with build/compile_all.sh;
@@ -79,7 +81,8 @@ def build_hub_daemon_test(force=False, extra_cflags=None, out=HUB_BIN):
     cmd = ["gcc", "-Wall", "-O2", "-g", "-Werror=implicit-function-declaration", "-DTEST_HARNESS=1",
            "-I" + os.path.join(REPO_ROOT, "payload", "source"),
            # plugin sockets and logs not in the host's /tmp/plugins
-           '-DHARMONY_PLUGINS_RUN_DIR="%s"' % PLUGIN_RUN_DIR]
+           '-DHARMONY_PLUGINS_RUN_DIR="%s"' % PLUGIN_RUN_DIR,
+           '-DHARMONY_TMP_WWW="%s"' % TMP_WWW]
     cmd += list(extra_cflags or [])
     cmd += [os.path.join(REPO_ROOT, "payload", "source", s) for s in HUB_DAEMON_SOURCES]
     cmd += ["-lpthread", "-lm", "-o", out]
