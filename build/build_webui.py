@@ -8,6 +8,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import pathlib
 import shutil
@@ -19,20 +20,52 @@ def npm_command() -> str:
     return "npm.cmd" if sys.platform == "win32" else "npm"
 
 
+LOCK_STAMP = ".harmony-lock.sha256"  # sha256 of the package-lock.json node_modules was installed from
+
+
+def _lock_digest(lock: pathlib.Path) -> str:
+    return hashlib.sha256(lock.read_bytes()).hexdigest()
+
+
 def ensure_node_modules(app_dir: pathlib.Path) -> bool:
-    """Install the web UI's packages with `npm ci` when they are missing or older than the lock
-    file (a fresh clone or worktree has none, and `npm run build` then stops at "vite: not
-    found"). False when the install failed."""
+    """Install the web UI's packages with `npm ci` when they are missing or were installed from
+    another package-lock.json (a fresh clone or worktree has none, and `npm run build` then stops
+    at "vite: not found"). The lock file's content is compared, not its date: a checkout or rebase
+    that rewrites the same lock file installs nothing (`npm ci` deletes node_modules first, needs
+    the network, and on Windows can fail while a dev server holds files there). False when the
+    install failed."""
     lock = app_dir / "package-lock.json"
-    marker = app_dir / "node_modules" / ".package-lock.json"  # written by npm at every install
-    if marker.is_file() and (not lock.is_file() or marker.stat().st_mtime >= lock.stat().st_mtime):
-        return True
+    modules = app_dir / "node_modules"
+    marker = modules / ".package-lock.json"  # written by npm at every install
+    stamp = modules / LOCK_STAMP
+    if marker.is_file():
+        if not lock.is_file():
+            return True
+        digest = _lock_digest(lock)
+        try:
+            recorded = stamp.read_text(encoding="ascii").strip()
+        except OSError:
+            recorded = ""
+        if recorded == digest:
+            return True
+        if not recorded and marker.stat().st_mtime >= lock.stat().st_mtime:
+            # installed before the stamp existed: trust the dates once, then record the content
+            try:
+                stamp.write_text(digest + "\n", encoding="ascii")
+            except OSError:
+                pass
+            return True
     args = ["ci"] if lock.is_file() else ["install"]
     print(f"[*] Installing web UI packages (npm {args[0]} in {app_dir.name})...")
     res = subprocess.run([npm_command(), *args], cwd=app_dir)
     if res.returncode != 0:
         print(f"[-] npm {args[0]} failed in {app_dir.name} (exit code {res.returncode})", file=sys.stderr)
         return False
+    if lock.is_file() and modules.is_dir():
+        try:
+            stamp.write_text(_lock_digest(lock) + "\n", encoding="ascii")
+        except OSError:
+            pass
     return True
 
 

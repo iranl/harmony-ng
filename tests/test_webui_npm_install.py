@@ -2,8 +2,9 @@
 """build/build_webui.py and build/deploy_hub.py install the web UI's packages before building.
 
 A fresh clone or worktree has no node_modules, and `npm run build` then stopped at
-"vite: not found". Now `npm ci` runs first when node_modules is missing or older than
-package-lock.json (`npm install` without a lock file), and a failed install stops the build.
+"vite: not found". Now `npm ci` runs first when node_modules is missing or was installed from
+another package-lock.json (content compared, not dates; `npm install` without a lock file),
+and a failed install stops the build.
 npm is a fake: nothing is installed or built.
 """
 
@@ -28,14 +29,18 @@ import build_webui  # noqa: E402
 class FakeNpm:
     """subprocess.run stand-in: records npm calls, answers with the given exit codes."""
 
-    def __init__(self, ci_rc: int = 0, build_rc: int = 1):
+    def __init__(self, ci_rc: int = 0, build_rc: int = 1, app: pathlib.Path | None = None):
         self.calls: list[list[str]] = []
+        self.app = app  # when set, a successful install creates node_modules like npm does
         self.ci_rc = ci_rc
         self.build_rc = build_rc
 
     def __call__(self, cmd, *args, **kwargs):
         self.calls.append(list(cmd[1:]))
         rc = self.build_rc if cmd[1:3] == ["run", "build"] else self.ci_rc
+        if self.app is not None and rc == 0 and cmd[1:2] in (["ci"], ["install"]):
+            (self.app / "node_modules").mkdir(exist_ok=True)
+            (self.app / "node_modules" / ".package-lock.json").write_text("{}")
         return subprocess.CompletedProcess(cmd, rc, "", "")
 
 
@@ -48,9 +53,9 @@ class EnsureNodeModulesTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def lock(self, mtime: float = 1000):
+    def lock(self, mtime: float = 1000, text: str = "{}"):
         p = self.app / "package-lock.json"
-        p.write_text("{}")
+        p.write_text(text)
         os.utime(p, (mtime, mtime))
 
     def installed(self, mtime: float = 2000):
@@ -92,6 +97,39 @@ class EnsureNodeModulesTest(unittest.TestCase):
     def test_failed_install_is_reported(self):
         self.lock()
         self.assertFalse(self.run_ensure(FakeNpm(ci_rc=1)))
+
+    def test_same_lock_rewritten_installs_nothing(self):
+        # a checkout or rebase rewrites package-lock.json with the same content and a new date
+        self.lock(1000)
+        npm = FakeNpm(app=self.app)
+        self.assertTrue(self.run_ensure(npm))
+        self.assertEqual(npm.calls, [["ci"]])
+        self.lock(5000)
+        os.utime(self.app / "node_modules" / ".package-lock.json", (2000, 2000))
+        npm = FakeNpm(app=self.app)
+        self.assertTrue(self.run_ensure(npm))
+        self.assertEqual(npm.calls, [])
+
+    def test_changed_lock_content_runs_npm_ci(self):
+        self.lock(1000)
+        self.assertTrue(self.run_ensure(FakeNpm(app=self.app)))
+        self.lock(1000, text='{"lockfileVersion": 3}')  # new content, even with an older date
+        os.utime(self.app / "node_modules" / ".package-lock.json", (2000, 2000))
+        npm = FakeNpm(app=self.app)
+        self.assertTrue(self.run_ensure(npm))
+        self.assertEqual(npm.calls, [["ci"]])
+
+    def test_install_without_stamp_records_it(self):
+        # node_modules installed by an earlier version of this check: dates decide once
+        self.lock(1000)
+        self.installed(2000)
+        self.assertTrue(self.run_ensure(FakeNpm()))
+        stamp = self.app / "node_modules" / build_webui.LOCK_STAMP
+        self.assertTrue(stamp.is_file())
+        self.lock(9000)  # same content, newer date
+        npm = FakeNpm()
+        self.assertTrue(self.run_ensure(npm))
+        self.assertEqual(npm.calls, [])
 
     def test_build_webui_installs_before_building(self):
         self.lock()
