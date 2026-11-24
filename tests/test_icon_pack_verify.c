@@ -2,7 +2,8 @@
  * computed once per loaded index (not at every icon read) and again after the archive is
  * replaced; a damaged pack is still refused; a reader racing archive swaps never gets wrong
  * bytes; a file with the pack header whose index is not readable is logged once per file state;
- * a pack of another version is left to the callers' tar.gz unpacking.
+ * a pack of another version is logged once and is still a pack file (callers do not unpack it
+ * into /tmp).
  * Archives from tests/icon_pack_verify_fixture.py DIR. Built with -DICON_PACK_TEST and
  * -DICON_PACK_ARCHIVES='{"DIR/icons.tar.gz"}'. Usage: test_icon_pack_verify DIR */
 #include "icon_pack.h"
@@ -249,11 +250,13 @@ int main(int argc, char **argv) {
     (void)icon_pack_available();
     CHECK(log_count(msg) == before + 2 && !icon_pack_is_pack_file(p), "plain archive: no pack, nothing logged");
 
-    /* a pack of another version: a plain tar.gz for this firmware */
+    /* a pack of another version (a downgrade): not read, not unpacked into /tmp, logged once */
+    const char *vmsg = "pack version 2, this firmware reads version 1: no stock icons until a matching archive is deployed";
     install("v2.tar.gz");
-    CHECK(!icon_pack_available(), "pack version 2: not read here");
-    CHECK(!icon_pack_is_pack_file(p), "pack version 2: callers unpack it as a tar.gz");
-    CHECK(log_count("pack version 2, this firmware reads version 1") == 1, "pack version 2 logged once");
+    avail = icon_pack_available() + icon_pack_available() + icon_pack_available();
+    CHECK(avail == 0, "pack version 2: not read here");
+    CHECK(icon_pack_is_pack_file(p), "pack version 2: a pack file, callers do not unpack it into RAM");
+    CHECK(log_count(vmsg) == 1, "pack version 2 logged once over three calls (%d)", log_count(vmsg));
 
     install("a.tar.gz");
     CHECK(icon_pack_available() && read_all(0), "set a once more");

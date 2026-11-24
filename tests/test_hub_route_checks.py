@@ -18,6 +18,8 @@ Route checks of hub_daemon (port 9101, own mock root, clients bound to 127.0.0.2
     follows a link at /data/resources, and reports a file it could not remove
  9  a packed icon archive (tools/icon_pack.py): icons are served from it, listed from its index,
     and the copy an older firmware unpacked into /tmp is removed
+10  a packed icon archive of another pack version (after a downgrade) is logged once and not
+    unpacked into /tmp (RAM); a plain tar.gz still is
 """
 
 import base64
@@ -215,6 +217,62 @@ def test_packed_icons():
         check(not os.path.exists(tmp_icons), "unpacked copy in /tmp removed")
 
 
+def wait_for_path(path, secs):
+    """True as soon as path exists, False after secs (the unpacking runs in its own thread)"""
+    end = time.time() + secs
+    while time.time() < end:
+        if os.path.exists(path):
+            return True
+        time.sleep(0.1)
+    return os.path.exists(path)
+
+
+def test_other_version_pack():
+    print("[-] 10 a packed icon archive of another pack version is not unpacked into /tmp (RAM)")
+    import shutil
+    import icon_pack
+    import test_icon_pack
+    tmp_icons = os.path.join(TMP_WWW, "assets", "icons")
+    shutil.rmtree(tmp_icons, ignore_errors=True)
+    os.makedirs(os.path.join(TMP_WWW, "assets"), exist_ok=True)
+    files = test_icon_pack.make_files()
+    log_path = os.path.join(TMP_WWW, "route_checks_%d.log" % os.getpid())
+    msg = "pack version 2, this firmware reads version 1"
+    try:
+        with HubHarness(port=PORT, host=HOST, log_path=log_path) as hub:
+            os.makedirs(os.path.join(hub.mock_dir, "cache"), exist_ok=True)
+            archive = os.path.join(hub.mock_dir, "cache", "icons.tar.gz")
+            test_icon_pack.make_archive(archive, files)
+            icon_pack.pack(archive, archive)
+            blob = bytearray(read(archive))
+            blob[16] = 2  # pack version byte of the 'HI' gzip field
+            with open(archive + ".new", "wb") as f:
+                f.write(blob)
+            os.rename(archive + ".new", archive)
+            for _ in range(3):
+                raw("GET", "/api/icons")
+                st, b = raw("GET", "/assets/icons/shared.png", binary=True)
+            check(st != 200, "icon of the version 2 pack not served", "%s %r" % (st, b[:20]))
+            st, r = raw("GET", "/api/status")
+            check(isinstance(r, dict) and r.get("has_icons") is False, "has_icons false", repr(r)[:80])
+            check(not wait_for_path(tmp_icons, 3), "version 2 pack not unpacked into /tmp")
+            with open(log_path, "rb") as f:
+                n = f.read().decode(errors="replace").count(msg)
+            check(n == 1, "version 2 pack logged once", "%d lines" % n)
+
+            # control: a plain tar.gz in its place is still unpacked into /tmp
+            test_icon_pack.make_archive(archive + ".new", files)
+            os.rename(archive + ".new", archive)
+            raw("GET", "/api/icons")
+            check(wait_for_path(os.path.join(tmp_icons, "shared.png"), 10), "plain archive unpacked into /tmp")
+    finally:
+        shutil.rmtree(tmp_icons, ignore_errors=True)
+        try:
+            os.unlink(log_path)
+        except OSError:
+            pass
+
+
 def test_query_params():
     print("[-] 3  query parameters, 4  log files")
     with HubHarness(port=PORT, host=HOST, extra_data_files={"mqtt.json": {"enabled": False, "password": "x"}}) as hub:
@@ -346,6 +404,7 @@ def main():
     test_map_saves()
     test_icons()
     test_packed_icons()
+    test_other_version_pack()
     test_query_params()
     test_stock_resources()
     if failed:

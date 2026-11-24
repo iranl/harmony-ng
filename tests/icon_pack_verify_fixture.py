@@ -6,7 +6,7 @@ aflip.tar.gz         a.tar.gz with one byte of big.png's part changed: same size
                      the part still inflates to its length but to other bytes
 badcrc.tar.gz        set a packed, every part CRC in the index wrong by one bit
 cut.tar.gz, cut2.tar.gz   the first half / third of a.tar.gz (a copy cut short)
-v2.tar.gz            a.tar.gz with pack version 2 in its header (still a plain tar.gz)
+v2.tar.gz            a.tar.gz with pack version 2 in its header (a pack this firmware does not read)
 plain.tar.gz         set a, not packed
 Usage: icon_pack_verify_fixture.py OUT"""
 

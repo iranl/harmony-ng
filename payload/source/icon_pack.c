@@ -252,7 +252,9 @@ static void refresh_locked(void) {
         if (ver == PACK_VERSION) {
             printf("[-] Icon pack %s: index not readable, no stock icons until it is deployed again\n", path);
         } else if (ver >= 0) {
-            printf("[!] Icon pack %s: pack version %d, this firmware reads version %d: unpacked as a plain archive\n",
+            /* not unpacked into /tmp either (icon_pack_is_pack_file): several MB of RAM */
+            printf("[!] Icon pack %s: pack version %d, this firmware reads version %d: no stock icons until "
+                   "a matching archive is deployed\n",
                    path, ver, PACK_VERSION);
         }
     }
@@ -267,7 +269,7 @@ static const struct pack_entry *find_locked(const char *name) {
 int icon_pack_is_pack_file(const char *path) {
     int fd = path ? open(path, O_RDONLY | O_CLOEXEC) : -1;
     if (fd < 0) return 0;
-    int ok = pack_header_version(fd) == PACK_VERSION;
+    int ok = pack_header_version(fd) >= 0;
     close(fd);
     return ok;
 }

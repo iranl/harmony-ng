@@ -138,7 +138,8 @@ void http_ensure_icons_extracted(void) {
     }
 
     /* a packed archive whose index is not readable right now (being copied, cut): unpacking it
-     * into /tmp cannot help, it is read from flash once it is whole again */
+     * into /tmp cannot help, it is read from flash once it is whole again. A pack of another
+     * version (after a downgrade) is not unpacked either: several MB of RAM; icon_pack logs it */
     if (s_tar_path[0] && icon_pack_is_pack_file(s_tar_path)) return;
     if (s_tar_path[0]) {
         __sync_lock_release(&s_tmp_copy_removed);
