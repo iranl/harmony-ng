@@ -58,6 +58,7 @@ void rf_request_config_push(void) {
 static void *config_push_once(void *arg) {
     (void)arg;
     static pthread_mutex_t push_lock = PTHREAD_MUTEX_INITIALIZER;
+    /* only the holder of s_push_gate (config_push_worker()) gets here; kept as a guard */
     if (pthread_mutex_trylock(&push_lock) != 0) {
         printf("[-] Config push already in progress\n");
         return NULL;
@@ -1039,6 +1040,9 @@ void *config_push_worker(void *arg) {
     return NULL;
 }
 
+/* False for a moment after rf_request_config_push(): from pthread_create() until the new thread
+ * takes s_push_gate. A restart due in that window ends hub_rf before that push starts; the
+ * window is tiny and the restart happens either way, so it is left as is. */
 bool rf_config_push_active(void) {
     return s_push_active || g_config_push_running;
 }

@@ -604,13 +604,19 @@ int main(int argc, char **argv) {
      * CC2544 driver's read(), and exit() runs libc's clean-up, which takes stdio locks a stuck
      * thread may hold (a contended lock spins on the Hub, its kernel has no futex). SIGALRM has
      * no handler here (no thread blocks it, uClibc's sleep() and usleep() use nanosleep), so the
-     * kernel ends the whole process after 5 s, also when this thread is stuck in rf_spi_close()
-     * or a flash write below; only a thread asleep uninterruptibly in a driver could delay it.
-     * init.sh starts hub_rf again either way; after SIGTERM, init.sh stop sends SIGKILL 3 s
-     * later anyway. */
+     * kernel ends the whole process after 5 s, also when this thread is stuck in rf_spi_close();
+     * only a thread asleep uninterruptibly in a driver could delay it. init.sh starts hub_rf
+     * again either way; after SIGTERM, init.sh stop sends SIGKILL 3 s later anyway. */
     alarm(5);
     printf("[+] Shutting down hub_rf...\n");
     rf_spi_close();
+    /* The close is what can hang; the state move below only writes files. Those writes can take
+     * seconds on the Hub's flash (JFFS2 garbage collection) but they finish, and a SIGALRM in the
+     * middle would leave the slots half moved (two remotes swapping slots: one slot with the
+     * other's files, the other never rewritten). So the move gets its own 5 s, counted from the
+     * end of the close (alarm() replaces the pending alarm), and the way out stays bounded:
+     * at most 5 s for the close, then 5 s for the move and exit(). */
+    alarm(5);
     /* after the close: no frame is handled under the old table any more */
     if (restarting) rf_slot_map_follow_file();
     return g_rf_read_failed ? 1 : 0;
