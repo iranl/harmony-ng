@@ -88,7 +88,8 @@ static int custom_icon_name_ok(const char *fn) {
 
 static volatile int g_icons_extracting = 0;
 /* The copy in /tmp was removed since the pack became readable; cleared when an extraction starts,
- * so a copy made while the pack was not readable goes once it is again */
+ * so a copy made while the pack was not readable goes once it is again. Several HTTP workers
+ * test and set it: atomic, so only one of them removes the copy */
 static int s_tmp_copy_removed;
 
 static void *extract_icons_thread(void *arg) {
@@ -115,8 +116,7 @@ void http_ensure_icons_extracted(void) {
         /* Icons are read from the packed archive on flash. A copy unpacked into /tmp (RAM) by
          * this or an older firmware before the packed archive was deployed is removed once;
          * uploaded icons there are copies of /data/harmony/custom_icons, which is served too. */
-        if (!s_tmp_copy_removed && !g_icons_extracting) {
-            s_tmp_copy_removed = 1;
+        if (!g_icons_extracting && !__sync_lock_test_and_set(&s_tmp_copy_removed, 1)) {
             if (access(HARMONY_TMP_WWW "/assets/icons", F_OK) == 0) {
                 system("rm -rf " HARMONY_TMP_WWW "/assets/icons");
                 printf("[+] Unpacked icon copy in /tmp removed: icons are read from the packed archive\n");
@@ -141,7 +141,7 @@ void http_ensure_icons_extracted(void) {
      * into /tmp cannot help, it is read from flash once it is whole again */
     if (s_tar_path[0] && icon_pack_is_pack_file(s_tar_path)) return;
     if (s_tar_path[0]) {
-        s_tmp_copy_removed = 0;
+        __sync_lock_release(&s_tmp_copy_removed);
         g_icons_extracting = 1;
         pthread_t th;
         if (pthread_create(&th, NULL, extract_icons_thread, (void *)s_tar_path) == 0) {

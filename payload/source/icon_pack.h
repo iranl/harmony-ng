@@ -9,8 +9,9 @@
 #define HARMONY_TMP_WWW "/tmp/www"
 #endif
 
-/* 1 when the file at path has the pack's gzip header (HI field), even if its index is not
- * readable yet (a copy in progress): unpacking such a file into /tmp cannot help */
+/* 1 when the file at path has the gzip header (HI field) of the pack version this firmware
+ * reads, even if its index is not readable yet (a copy in progress): unpacking such a file into
+ * /tmp cannot help. A pack of another version is a plain tar.gz here (0): callers unpack it. */
 int icon_pack_is_pack_file(const char *path);
 
 /* The stock icon archive in the packed form of tools/icon_pack.py: icons are read one at a time
