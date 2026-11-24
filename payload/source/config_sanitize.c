@@ -7,6 +7,7 @@
 #include "plugin_mgr.h"
 #include "cmd_range.h"
 #include "net_device.h"
+#include "ir_encoder.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -215,6 +216,8 @@ int config_devices_have_secrets(const cJSON *root) {
  * 2. Normalize and validate fields to clean camelCase canonical schema
  * 3. Normalize commands and power sequences
  */
+_Static_assert(PRESS_MIN_REPEATS_MAX == IR_PRESS_MIN_REPEATS_MAX, "the sender's limit of pressMinRepeats");
+
 int press_min_repeats_value(const cJSON *j, int *out) {
     double v;
     if (!j || cJSON_IsNull(j)) return 0;

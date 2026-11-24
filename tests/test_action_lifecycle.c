@@ -79,6 +79,11 @@ int ir_encode_harmony_keycode(const char *keycode, uint8_t repeats, uint8_t **ou
     s_blasts++;
     return 0;
 }
+/* repeat parts of a press (ir_encoder.c): none here, a tap is one send */
+int ir_press_repeat_parts(const char *keycode, const uint8_t *blob, size_t blob_len, int press_min_repeats) {
+    (void)keycode; (void)blob; (void)blob_len; (void)press_min_repeats;
+    return 0;
+}
 
 static volatile int s_taps = 0;    /* blocking sends: taps */
 static volatile int s_starts = 0;  /* held keys: start sequences sent by the player */
