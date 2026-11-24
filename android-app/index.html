@@ -1157,13 +1157,18 @@
                     <input type="number" id="devHoldInterKeyDelay" class="form-control form-control-sm"
                       placeholder="200" min="0" max="10000" step="25">
                   </div>
-                  <div>
-                    <label class="mini muted" for="devPowerOnDelay"
-                      title="Delay needed after power-on before device accepts further commands"
-                      data-i18n-title="tooltip_poweron" data-i18n="power_on_delay">Power-On Delay (ms)</label>
-                    <input type="number" id="devPowerOnDelay" class="form-control form-control-sm" placeholder="1500"
-                      min="0" max="30000" step="100">
-                  </div>
+                </div>
+              </div>
+
+              <!-- Power (every device type: the Hub powers Bluetooth, MQTT and plugin devices too, with
+                   their power-on delay and power sequences; the timings above are IR only) -->
+              <div id="devEditPowerBox" style="margin-top: 10px; border-top: 1px dotted var(--border); padding-top: 8px;">
+                <div style="max-width: 50%;">
+                  <label class="mini muted" for="devPowerOnDelay"
+                    title="Delay needed after power-on before device accepts further commands"
+                    data-i18n-title="tooltip_poweron" data-i18n="power_on_delay">Power-On Delay (ms)</label>
+                  <input type="number" id="devPowerOnDelay" class="form-control form-control-sm" placeholder="1500"
+                    min="0" max="30000" step="100">
                 </div>
                 <div style="margin-top: 6px;">
                   <label for="devIsPowerAlwaysOn"
