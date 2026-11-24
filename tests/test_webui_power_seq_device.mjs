@@ -50,4 +50,22 @@ await t.check('the dialog records its device before it draws the rows, and the s
   assert.match(editor, /step-dev-select" \$\{devLocked \? 'disabled' : ''\}/, 'the device select is not locked');
 });
 
+await t.check('the power controls (power sequences, power-on delay, keep powered on) show for every device type', () => {
+  // main showed them only inside the IR-only timing section, so a Shield's Home / Sleep steps
+  // could not be opened: they must sit outside every section that JS hides by device type
+  const html = readFileSync(new URL('../android-app/index.html', import.meta.url), 'utf8');
+  const timings = html.indexOf('id="devEditTimingsBox"');
+  const power = html.indexOf('id="devEditPowerBox"');
+  assert.ok(power > 0, 'no power section of its own');
+  for (const id of ['btnOpenPowerSeqModal', 'devPowerOnDelay', 'devIsPowerAlwaysOn']) {
+    const at = html.indexOf(`id="${id}"`);
+    assert.ok(at > power, `${id} is not in the power section`);
+    assert.ok(!(at > timings && at < power), `${id} is still in the IR-only timing section`);
+  }
+  for (const file of ['app_devices_studio.js', 'app_events_nav.js', 'app_core.js']) {
+    const src = readFileSync(new URL(`../android-app/src/app/${file}`, import.meta.url), 'utf8');
+    assert.ok(!/devEditPowerBox[^;]*style\.display/.test(src), `${file} hides the power section`);
+  }
+});
+
 t.finish();
