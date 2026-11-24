@@ -93,6 +93,12 @@ static void hci_transport_linux_process_read(btstack_data_source_t * ds) {
     if (bytes_read < 0) {
         if (errno != EAGAIN && errno != EWOULDBLOCK) {
             fprintf(stderr, "[hci_transport_linux] Read error: %s (errno=%d)\n", strerror(errno), errno);
+            /* A removed hci0 reaches read() once as EPIPE (sk_err); writes then get EBADFD */
+            if (errno == EPIPE || errno == EBADFD || errno == ENODEV || errno == EBADF) {
+                fprintf(stderr, "[hci_transport_linux] Fatal HCI device loss, exiting\n");
+                log_msg("FATAL: HCI device lost on read, exiting");
+                exit(1);
+            }
         }
         return;
     }
@@ -125,6 +131,7 @@ static int hci_transport_linux_open(void) {
     struct sockaddr_hci addr;
     struct hci_filter flt;
 
+    int bound = 0;
     for (int retry = 0; retry < 15; retry++) {
         hci_socket = socket(AF_BLUETOOTH, SOCK_RAW, BTPROTO_HCI);
         if (hci_socket < 0) {
@@ -145,19 +152,18 @@ static int hci_transport_linux_open(void) {
         addr.hci_channel = HCI_CHANNEL_RAW;
 
         if (bind(hci_socket, (struct sockaddr *)&addr, sizeof(addr)) == 0) {
+            bound = 1;
             break;
         }
 
-        if (retry < 14) {
-            fprintf(stderr, "[hci_transport_linux] Waiting for hci%u to appear (%d/15): %s\n",
-                    addr.hci_dev, retry + 1, strerror(errno));
-            close(hci_socket);
-            hci_socket = -1;
-            sleep(1);
-        }
+        fprintf(stderr, "[hci_transport_linux] Waiting for hci%u to appear (%d/15): %s\n",
+                addr.hci_dev, retry + 1, strerror(errno));
+        close(hci_socket);
+        hci_socket = -1;
+        if (retry < 14) sleep(1);
     }
 
-    if (hci_socket < 0) {
+    if (!bound) {
         fprintf(stderr, "[hci_transport_linux] Failed to bind HCI socket to hci%u: %s\n",
                 (unsigned short)hci_transport_config_linux->device_id, strerror(errno));
         return -1;
@@ -226,6 +232,11 @@ static int hci_transport_linux_send_packet(uint8_t packet_type, uint8_t * packet
     if (written < 0) {
         fprintf(stderr, "[hci_transport_linux] Write failed (type=%u, len=%d): %s\n",
                 packet_type, size, strerror(errno));
+        if (errno == EPIPE || errno == EBADFD || errno == ENODEV || errno == EBADF) {
+            fprintf(stderr, "[hci_transport_linux] Fatal HCI device loss on write, exiting\n");
+            log_msg("FATAL: HCI device lost on write, exiting");
+            exit(1);
+        }
         return -1;
     }
     return 0;
