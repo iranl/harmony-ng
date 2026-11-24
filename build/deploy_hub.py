@@ -912,11 +912,12 @@ class HubDeployer:
             if icon_pack and not icon_pack.is_packed(self.icons_tar):
                 try:
                     if self.dry_run:
-                        # pack into a temporary file: its md5 is what the real run would upload
-                        fd, packed_tmp = tempfile.mkstemp(prefix="icons.", suffix=".tar.gz")
-                        os.close(fd)
-                        icon_pack.pack(self.icons_tar, pathlib.Path(packed_tmp))
-                        icons_src = pathlib.Path(packed_tmp)
+                        # pack into a temporary folder, under the archive's own name (the dry run
+                        # prints it): its md5 is what the real run would upload
+                        packed_tmp = tempfile.mkdtemp(prefix="icon_pack.")
+                        packed_path = pathlib.Path(packed_tmp) / self.icons_tar.name
+                        icon_pack.pack(self.icons_tar, packed_path)
+                        icons_src = packed_path
                         print(f"    [dry-run] would repack {self.icons_tar.name} so the Hub reads icons from flash")
                     else:
                         print(f"[*] Repacking {self.icons_tar.name} so the Hub reads icons from flash (not RAM)...")
@@ -928,7 +929,7 @@ class HubDeployer:
                 self.deploy_file_if_changed(icons_src, "/cache/icons.tar.gz", "644")
             finally:
                 if packed_tmp:
-                    os.unlink(packed_tmp)
+                    shutil.rmtree(packed_tmp, ignore_errors=True)
             if not self.dry_run:
                 self.run_ssh(
                     "if [ -f /data/harmony/icons.tar.gz ] && [ ! -L /data/harmony/icons.tar.gz ]; then rm -f /data/harmony/icons.tar.gz 2>/dev/null; fi; "
