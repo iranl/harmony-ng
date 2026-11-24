@@ -39,8 +39,9 @@
 static const unsigned char PART_END[] = { 0x03, 0x00, 0, 0, 0, 0, 0, 0, 0, 0 };
 
 /* crc: CRC32 of the part's tar bytes (the 4th number of its S line; packs written before it
- * have none, has_crc 0) */
-struct pack_part { uint32_t off, comp_len, raw_len, crc; int has_crc; };
+ * have none, has_crc 0). verified: the part decoded to that CRC once since the index was read;
+ * later reads skip the check while the file is the one the index came from */
+struct pack_part { uint32_t off, comp_len, raw_len, crc; int has_crc, verified; };
 struct pack_entry { const char *name; uint32_t part, off, size; };
 
 static pthread_mutex_t s_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -52,14 +53,36 @@ static struct pack_part *s_parts;
 static size_t s_nparts;
 static struct pack_entry *s_entries;
 static size_t s_nentries;
+static unsigned s_gen;        /* bumped when the index is dropped: a read that began on an older
+                               * index does not mark a part of the new one */
+static uint32_t s_bad_logged = UINT32_MAX; /* last part logged as damaged (under s_lock) */
+static uint32_t s_crc_table[256];          /* filled under s_lock before the first read */
+static int s_crc_table_ready;
 
-/* CRC32 (IEEE, as zlib.crc32), bitwise: one pass over a part of at most a few hundred KB */
-static uint32_t crc32_of(const unsigned char *p, size_t n) {
-    uint32_t c = 0xFFFFFFFFu;
-    while (n--) {
-        c ^= *p++;
+#ifdef ICON_PACK_TEST
+static unsigned long s_crc_runs;
+unsigned long icon_pack_test_crc_runs(void) { return __sync_fetch_and_add(&s_crc_runs, 0); }
+void (*icon_pack_test_before_open)(void); /* runs between the index lookup and the read */
+#endif
+
+/* CRC32 (IEEE, as zlib.crc32) with a 256-entry table (1 KB), about four times faster than bit by
+ * bit; each part is checked once per index (pack_part.verified) */
+static void crc_table_init_locked(void) {
+    if (s_crc_table_ready) return;
+    for (uint32_t i = 0; i < 256; i++) {
+        uint32_t c = i;
         for (int k = 0; k < 8; k++) c = (c >> 1) ^ (0xEDB88320u & (0u - (c & 1u)));
+        s_crc_table[i] = c;
     }
+    s_crc_table_ready = 1;
+}
+
+static uint32_t crc32_of(const unsigned char *p, size_t n) {
+#ifdef ICON_PACK_TEST
+    __sync_fetch_and_add(&s_crc_runs, 1);
+#endif
+    uint32_t c = 0xFFFFFFFFu;
+    while (n--) c = s_crc_table[(c ^ *p++) & 0xFFu] ^ (c >> 8);
     return ~c;
 }
 
@@ -75,6 +98,8 @@ static void drop_index(void) {
     s_parts = NULL;
     s_entries = NULL;
     s_nparts = s_nentries = 0;
+    s_gen++;
+    s_bad_logged = UINT32_MAX;
 }
 
 static int read_at(int fd, void *buf, size_t len, off_t off) {
@@ -110,6 +135,17 @@ static unsigned char *inflate_part(int fd, uint32_t off, uint32_t comp_len, uint
 
 static int entry_cmp(const void *a, const void *b) {
     return strcmp(((const struct pack_entry *)a)->name, ((const struct pack_entry *)b)->name);
+}
+
+/* -1 when the file open on fd has no pack header ('HI' gzip subfield), else its version byte
+ * (PACK_VERSION when the file ends before it: a copy in progress) */
+static int pack_header_version(int fd) {
+    unsigned char h[17];
+    if (read_at(fd, h, 16, 0) != 0 || h[0] != 0x1f || h[1] != 0x8b || !(h[3] & 0x04) || h[12] != 'H' ||
+        h[13] != 'I') {
+        return -1;
+    }
+    return read_at(fd, h + 16, 1, 16) == 0 ? h[16] : PACK_VERSION;
 }
 
 /* Reads the index of the archive open on fd (size bytes); 0 when it is a usable pack */
@@ -155,7 +191,7 @@ static int load_index(int fd, off_t size) {
                 ((sscanf(line, "S %u %u %u %u%n", &a, &b, &c, &d, &used4) == 4 && line[used4] == '\0') ||
                  (sscanf(line, "S %u %u %u%n", &a, &b, &c, &used) == 3 && line[used] == '\0'))) {
             ok = a >= PACK_HEADER_LEN && (uint64_t)a + b <= idx_off && c <= PACK_MAX_PART && ne == 0;
-            parts[np++] = (struct pack_part){ a, b, c, used4 ? d : 0, used4 != 0 };
+            parts[np++] = (struct pack_part){ a, b, c, used4 ? d : 0, used4 != 0, 0 };
         } else if (line[0] == 'F' && sscanf(line, "F %u %u %u %n", &a, &b, &c, &used) == 3 && line[used]) {
             ok = a < np && (uint64_t)b + c <= parts[a].raw_len;
             entries[ne++] = (struct pack_entry){ line + used, a, b, c };
@@ -205,10 +241,20 @@ static void refresh_locked(void) {
     snprintf(s_path, sizeof(s_path), "%s", path);
     s_st = st;
     s_looked = 1;
+    crc_table_init_locked();
     int fd = open(path, O_RDONLY | O_CLOEXEC);
     if (fd < 0) return;
     if (load_index(fd, st.st_size) == 0) {
         printf("[+] Icons read from %s (%zu names, %zu parts)\n", path, s_nentries, s_nparts);
+    } else {
+        /* once per file state: the stat above is kept, so the next call returns early */
+        int ver = pack_header_version(fd);
+        if (ver == PACK_VERSION) {
+            printf("[-] Icon pack %s: index not readable, no stock icons until it is deployed again\n", path);
+        } else if (ver >= 0) {
+            printf("[!] Icon pack %s: pack version %d, this firmware reads version %d: unpacked as a plain archive\n",
+                   path, ver, PACK_VERSION);
+        }
     }
     close(fd);
 }
@@ -219,11 +265,9 @@ static const struct pack_entry *find_locked(const char *name) {
 }
 
 int icon_pack_is_pack_file(const char *path) {
-    unsigned char h[16];
     int fd = path ? open(path, O_RDONLY | O_CLOEXEC) : -1;
     if (fd < 0) return 0;
-    int ok = read_at(fd, h, sizeof(h), 0) == 0 && h[0] == 0x1f && h[1] == 0x8b && (h[3] & 0x04) &&
-             h[12] == 'H' && h[13] == 'I';
+    int ok = pack_header_version(fd) == PACK_VERSION;
     close(fd);
     return ok;
 }
@@ -252,28 +296,46 @@ unsigned char *icon_pack_read(const char *name, size_t *len) {
     const struct pack_entry *e = find_locked(name);
     struct pack_entry ent = e ? *e : (struct pack_entry){ 0 };
     struct pack_part part = e ? s_parts[e->part] : (struct pack_part){ 0 };
+    struct stat idx_st = s_st;
+    unsigned gen = s_gen;
     char path[sizeof(s_path)];
     snprintf(path, sizeof(path), "%s", s_path);
     pthread_mutex_unlock(&s_lock);
     if (!e) return NULL;
 
     /* inflated outside the lock: the values were copied, a reload frees nothing used here */
+#ifdef ICON_PACK_TEST
+    if (icon_pack_test_before_open) icon_pack_test_before_open();
+#endif
     int fd = open(path, O_RDONLY | O_CLOEXEC);
     if (fd < 0) return NULL;
+    struct stat fst;
+    /* the file opened is the one the index was read from (it may have been replaced since) */
+    int same = fstat(fd, &fst) == 0 && fst.st_ino == idx_st.st_ino && fst.st_size == idx_st.st_size &&
+               fst.st_mtime == idx_st.st_mtime;
     unsigned char *raw = inflate_part(fd, part.off, part.comp_len, part.raw_len);
     close(fd);
-    /* a part whose bytes changed (a bad copy) is not served: its icons answer 404 */
-    if (raw && part.has_crc && crc32_of(raw, part.raw_len) != part.crc) {
+    /* a part whose bytes changed (a bad copy) is not served: its icons answer 404. Checked once
+     * per part and index; again whenever the file is not the indexed one */
+    int checked = raw && part.has_crc && !(part.verified && same);
+    if (checked && crc32_of(raw, part.raw_len) != part.crc) {
         free(raw);
         raw = NULL;
     }
-    if (!raw) {
-        static uint32_t s_bad_logged = UINT32_MAX;
-        if (s_bad_logged != ent.part) {
+    if (!raw || (checked && same)) {
+        int log_bad = 0;
+        pthread_mutex_lock(&s_lock);
+        if (!raw && s_bad_logged != ent.part) {
             s_bad_logged = ent.part;
+            log_bad = 1;
+        } else if (raw && s_gen == gen && ent.part < s_nparts) {
+            s_parts[ent.part].verified = 1;
+        }
+        pthread_mutex_unlock(&s_lock);
+        if (log_bad) {
             printf("[-] Icon pack %s: part %u does not decode to its bytes (icons in it are missing)\n", path, ent.part);
         }
-        return NULL;
+        if (!raw) return NULL;
     }
     unsigned char *data = malloc(ent.size ? ent.size : 1);
     if (data) {

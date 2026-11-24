@@ -59,4 +59,24 @@ static inline void cmd_range_fill_from_manifest(cJSON *cmd, const cJSON *dev_def
     }
 }
 
+/* A device save replaces the device's commands with the request's. A command of the request
+ * without a "range" key keeps the range of the stored command of the same name (a client that
+ * sends back only name and keyCode must not drop it); "range": null or [] removes it, a new
+ * name gets nothing here. stored: the commands before the save */
+static inline void cmd_ranges_keep_stored(cJSON *cmds, const cJSON *stored) {
+    cJSON *c = NULL;
+    cJSON_ArrayForEach(c, (cJSON_IsArray(cmds) && cJSON_IsArray(stored) ? cmds : NULL)) {
+        const cJSON *cn = cJSON_GetObjectItemCaseSensitive(c, "name");
+        if (!cJSON_IsObject(c) || !cJSON_IsString(cn) || cJSON_GetObjectItemCaseSensitive(c, "range")) continue;
+        const cJSON *s = NULL;
+        cJSON_ArrayForEach(s, stored) {
+            const cJSON *sn = cJSON_GetObjectItemCaseSensitive(s, "name");
+            if (cJSON_IsString(sn) && strcmp(sn->valuestring, cn->valuestring) == 0) {
+                if (cmd_range_valid(cJSON_GetObjectItemCaseSensitive(s, "range"))) cmd_range_copy(c, s);
+                break;
+            }
+        }
+    }
+}
+
 #endif

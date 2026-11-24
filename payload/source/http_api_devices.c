@@ -1535,6 +1535,7 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                         }
                     }
                     if (arr) {
+                        cmd_ranges_keep_stored(arr, stored_cmds);
                         cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "commands");
                         cJSON_AddItemToObject(found_dev, "commands", arr);
                     }

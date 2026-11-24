@@ -1195,8 +1195,10 @@ Transmits an IR command either by device ID and one command name, or raw Pronto 
   command; the WebSocket and MQTT `send_command` take `"value"` for a single command. Other
   command types ignore the value and their `range`. `POST /api/command-save` and
   `/api/commands-batch` take `"range": [min, max]`, remove it with `null` or `[]`, and answer
-  `400` for any other range. A plugin device saved with commands that have no `range` gets the
-  one of the manifest's `default_commands` entry of the same name.
+  `400` for any other range. In `POST /api/device-save`, a command without a `range` key keeps
+  the range the device's command of that name had, `null` or `[]` removes it (a removed range
+  stays removed), and a command the device did not have gets the one of the plugin manifest's
+  `default_commands` entry of the same name.
 - **Lists, repeats, delays and holds are not taken by this route.** `num_repeats`, `delay_secs`
   and `hold_secs` are ignored here. They work with the `send_command` action of the WebSocket
   (10.3) and MQTT (8.1), which takes this form:

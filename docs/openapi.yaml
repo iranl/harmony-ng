@@ -1266,6 +1266,7 @@ paths:
                 btTriggerCommandName: {type: string, description: "Command that starts the reconnect (also deviceId:Command)"}
                 plugin: {type: string, description: "Id of the plugin this device belongs to (a safe id: letters, digits, - and _; 400 otherwise). Only this field or a type plugin:<id> makes a device a plugin device; it then has no controlPort."}
                 config: {oneOf: [{type: object}, {type: string}], description: "Plugin device settings (the plugin's config_fields), an object or that object as a JSON string. A top-level key is copied into config only for a plugin device and only when its config_fields declare it."}
+                commands: {oneOf: [{type: array, items: {type: object}}, {type: string}], description: "Replaces the device's commands (a non-empty array, or that array as a JSON string). A command without a range key keeps the range of the device's command of that name; range null or [] removes it; a command new to a plugin device gets the range of the manifest's default_commands entry of that name."}
             example:
               deviceId: "70321456"
               name: LG OLED TV
