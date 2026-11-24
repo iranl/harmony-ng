@@ -8,14 +8,17 @@
 extern "C" {
 #endif
 
-/* Emitter selection masks for AR9331 START ioctl (high 16 bits of arg)
- * Bit 0: GPIO16 (IR Port 1)
- * Bit 1: GPIO28 (IR Port 2)
- * Bit 2: GPIO13 (Internal IR Blaster)
+/* Emitter selection masks for AR9331 START ioctl (high 16 bits of arg), the same bits as the
+ * port mask of a Logitech device (controlPort), which the stock hal passes unchanged. ath_i2s
+ * drives one enable line low per bit set. Measured on a Hub (skin 106) by sending one code per
+ * bit and reading two amplifiers back:
+ * Bit 0: GPIO16, the built-in blaster
+ * Bit 1: GPIO28, jack 1
+ * Bit 2: GPIO13, jack 2
  */
-#define IR_I2S_EMITTER_PORT1    (1 << 0)
-#define IR_I2S_EMITTER_PORT2    (1 << 1)
-#define IR_I2S_EMITTER_BLASTER  (1 << 2)
+#define IR_I2S_EMITTER_BLASTER  (1 << 0)
+#define IR_I2S_EMITTER_PORT1    (1 << 1)
+#define IR_I2S_EMITTER_PORT2    (1 << 2)
 #define IR_I2S_EMITTER_ALL      (IR_I2S_EMITTER_PORT1 | IR_I2S_EMITTER_PORT2 | IR_I2S_EMITTER_BLASTER)
 
 /**
