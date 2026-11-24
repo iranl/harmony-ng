@@ -45,7 +45,8 @@ class TestInitBtReattach(unittest.TestCase):
         (self.root / "proc" / "mtd").write_text('mtd6: 00010000 00010000 "mfg"\n')
         (self.root / "dev" / "mtd6").write_text('hw_ver\n\n\n\n01.00\n')
         (self.root / "sys" / "class" / "net" / "ath0" / "address").write_text("00:11:22:33:44:55\n")
-        (self.root / "lib" / "firmware" / "csr8811-a08.psr").write_text("&0x0001 = 0x00 0x00 0x00 0x00\n")
+        (self.root / "lib" / "firmware" / "csr8811-a08.psr").write_text("&0x01ea = 0x0001 0xc200\n")
+        (self.root / "proc" / "uptime").write_text("300.12 250.00\n")
 
         # Fake hub_btstack that terminates loop by creating harmony_stop
         hub_btstack = self.root / "data" / "harmony" / "bin" / "hub_btstack"
@@ -100,9 +101,11 @@ class TestInitBtReattach(unittest.TestCase):
         """When hciattach is dead, supervisor stops hub_btstack, runs bccmd and re-attaches."""
         (self.root / "tmp" / "pskeys.psr").write_text("PSKEYS_EXIST\n")
         self.make_stub("pidof", "exit 1")
+        # A freshly attached hci0 is DOWN until hciconfig hci0 up
         self.make_stub(
             "hciconfig",
-            f'if [ -f "{self.root.as_posix()}/tmp/attached" ]; then echo "hci0: UP RUNNING"; exit 0; fi; exit 1'
+            f'echo "hciconfig $*" >> "{self.calls.as_posix()}"\n'
+            f'if [ -f "{self.root.as_posix()}/tmp/attached" ]; then echo "hci0: DOWN"; exit 0; fi; exit 1'
         )
         self.make_recorder("bccmd")
         self.make_recorder("hciattach", f'touch "{self.root.as_posix()}/tmp/attached"')
@@ -113,7 +116,9 @@ class TestInitBtReattach(unittest.TestCase):
         calls = self.calls.read_text() if self.calls.exists() else ""
         self.assertIn("killall -9 hub_btstack", calls)
         self.assertIn("killall -9 hciattach", calls)
-        self.assertIn("bccmd -t bcsp psload -r", calls)
+        # The key file exists, so the boot set-up ran and the chip talks at 115200
+        self.assertIn("bccmd -t bcsp -b 115200 psload -r", calls)
+        self.assertIn("hciconfig hci0 sspmode 1", calls)
         self.assertIn("hciattach ttyS0 bcsp", calls)
         self.assertIn("hub_btstack", calls)
 
@@ -137,7 +142,66 @@ class TestInitBtReattach(unittest.TestCase):
         res = self.run_supervisor()
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertTrue(pskeys_file.exists())
-        self.assertIn("&0x0001", pskeys_file.read_text())
+        self.assertIn("&0x0001 = 0x33 0x4455 0x22 0x0011\n", pskeys_file.read_text())
+        calls = self.calls.read_text()
+        # buildname answered at 38400: the chip is in its power-on state
+        self.assertIn("bccmd -t bcsp psload -r", calls)
+        self.assertNotIn("-b 115200 psload", calls)
+
+    def test_hciattach_alive_hci0_missing(self):
+        """hciattach runs but hci0 is gone: re-attach as well."""
+        (self.root / "tmp" / "pskeys.psr").write_text("PSKEYS_EXIST\n")
+        self.make_stub("pidof", 'if [ "$1" = "hciattach" ]; then exit 0; fi; exit 1')
+        self.make_stub(
+            "hciconfig",
+            f'echo "hciconfig $*" >> "{self.calls.as_posix()}"\n'
+            f'if [ -f "{self.root.as_posix()}/tmp/attached" ]; then echo "hci0: UP RUNNING"; exit 0; fi; exit 1'
+        )
+        self.make_recorder("bccmd")
+        self.make_recorder("hciattach", f'touch "{self.root.as_posix()}/tmp/attached"')
+
+        res = self.run_supervisor()
+        self.assertEqual(res.returncode, 0, res.stderr)
+        calls = self.calls.read_text()
+        self.assertIn("killall -9 hciattach", calls)
+        self.assertIn("hciattach ttyS0 bcsp", calls)
+
+    def test_boot_setup_left_alone(self):
+        """In the first minute of uptime, or while bccmd runs, rcS.local owns the radio."""
+        for uptime, bccmd_running in (("12.50 10.00\n", False), ("300.00 250.00\n", True)):
+            with self.subTest(uptime=uptime, bccmd=bccmd_running):
+                self.calls.unlink(missing_ok=True)
+                (self.root / "tmp" / "harmony_stop").unlink(missing_ok=True)
+                (self.root / "proc" / "uptime").write_text(uptime)
+                ok = "bccmd" if bccmd_running else "none"
+                self.make_stub("pidof", f'[ "$1" = "{ok}" ] && exit 0; exit 1')
+                self.make_stub("hciconfig", "exit 1")
+                self.make_recorder("bccmd")
+                self.make_recorder("hciattach")
+
+                res = self.run_supervisor()
+                self.assertEqual(res.returncode, 0, res.stderr)
+                calls = self.calls.read_text()
+                self.assertNotIn("killall -9 hciattach", calls)
+                self.assertNotIn("bccmd", calls)
+                self.assertIn("hub_btstack", calls)
+
+    def test_failed_attach_backs_off(self):
+        """hciattach does not bring hci0: no hub_btstack start, back-off, retry."""
+        (self.root / "tmp" / "pskeys.psr").write_text("PSKEYS_EXIST\n")
+        self.make_stub("pidof", "exit 1")
+        self.make_stub("hciconfig", "exit 1")
+        self.make_recorder("bccmd")
+        self.make_recorder("hciattach", exit_code=1)
+        # The back-off sleep ends the loop
+        self.make_recorder("sleep", f'[ "$1" = "5" ] && touch "{self.root.as_posix()}/tmp/harmony_stop"')
+
+        res = self.run_supervisor()
+        self.assertEqual(res.returncode, 0, res.stderr)
+        calls = self.calls.read_text()
+        self.assertIn("hciattach ttyS0 bcsp", calls)
+        self.assertNotIn("\nhub_btstack\n", calls)
+        self.assertIn("did not attach, retry in 5s", (self.root / "tmp" / "harmony-init.log").read_text())
 
 
 if __name__ == "__main__":
