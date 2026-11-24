@@ -82,42 +82,32 @@ void *config_push_worker(void *arg) {
     push_queue_t queue[MAX_PAIRED_REMOTES] = {{0}};
     int num_targets = 0;
 
-    for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {
-        uint8_t s = g_paired_remotes[i].slot;
-        if (is_companion_slot(s)) continue;
-        /* slots 3 to 6 only once their remote spoke since the start: after the update to six
-         * slots, old pipe-table entries showed as remotes and every push waited for them */
-        if (g_paired_remotes[i].active && !g_paired_remotes[i].link_lost && (s <= 2 || g_paired_remotes[i].heard)) {
-            target_slots[num_targets++] = s;
+    /* Every slot alike: a paired touchscreen remote that spoke since hub_rf started (an old
+     * pipe-table entry never speaks, and a push would wait for it). The linked ones; while all
+     * of them are asleep (link lost), all of them. A remote paired but not heard yet gets the
+     * push with its first frame (rf_slot_saw_protocol_frame, or the check at the end here when
+     * that frame came during this push). */
+    bool waiting = false;
+    bool unheard[MAX_PAIRED_REMOTES] = {false};
+    for (int pass = 0; pass < 2 && num_targets == 0; pass++) {
+        for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {
+            uint8_t s = g_paired_remotes[i].slot;
+            if (is_companion_slot(s) || !g_paired_remotes[i].active) continue;
+            if (!g_paired_remotes[i].heard) waiting = unheard[i] = true;
+            else if (pass == 1 || !g_paired_remotes[i].link_lost) target_slots[num_targets++] = s;
         }
     }
-    if (num_targets == 0) {
-        /* g_remote_slot follows any CC2544 report (slots 1..15), but only slots 1 to
-           MAX_PAIRED_REMOTES hold a remote */
-        /* Only a slot that holds a remote, or slots 1 and 2 while the Hub knows of no pairing
-           at all (as before there were 6 slots) */
-        uint8_t fallback_max = g_has_paired_device ? MAX_PAIRED_REMOTES : 2;
-        if (g_remote_slot >= 1 && g_remote_slot <= fallback_max && !is_companion_slot(g_remote_slot) &&
-            (g_paired_remotes[g_remote_slot - 1].active || !g_has_paired_device)) {
-            target_slots[num_targets++] = g_remote_slot;
-        }
-        for (uint8_t s = 1; s <= fallback_max && num_targets < MAX_PAIRED_REMOTES; s++) {
-            if (!is_companion_slot(s)) {
-                bool already = false;
-                for (int j = 0; j < num_targets; j++) {
-                    if (target_slots[j] == s) { already = true; break; }
-                }
-                if (!already && (g_paired_remotes[s - 1].active || !g_has_paired_device)) {
-                    target_slots[num_targets++] = s;
-                }
-            }
-        }
-    }
+    g_rf_push_deferred = waiting;
 
     if (num_targets == 0) {
-        printf("[*] Config push skipped: no active touchscreen remotes\n");
-        unlink("/data/harmony/rf_sync_pending.flag");
-        unlink("/data/harmony/rf_sync_pending_details.json");
+        if (waiting) {
+            /* the pending flag stays for the remote that has not spoken yet */
+            printf("[*] Config push deferred: no touchscreen remote heard since the start\n");
+        } else {
+            printf("[*] Config push skipped: no active touchscreen remotes\n");
+            unlink("/data/harmony/rf_sync_pending.flag");
+            unlink("/data/harmony/rf_sync_pending_details.json");
+        }
         g_config_push_running = false;
         pthread_mutex_unlock(&push_lock);
         return NULL;
@@ -951,7 +941,11 @@ void *config_push_worker(void *arg) {
         }
     }
 
-    if (failed_count == 0) {
+    if (failed_count == 0 && waiting) {
+        /* the pending flag stays for the remote that has not spoken yet */
+        printf("[+] Config v%d pushed to the heard remotes; one not heard yet gets it with its first frame\n",
+               config_ver);
+    } else if (failed_count == 0) {
         printf("[+] Config push complete (acts=%d devs=%d btns=%d steps=%d ver=%d)\n",
                act_count, dev_count, btn_count, total_step_count, config_ver);
         unlink("/data/harmony/rf_sync_pending.flag");
@@ -973,5 +967,12 @@ void *config_push_worker(void *arg) {
 
     g_config_push_running = false;
     pthread_mutex_unlock(&push_lock);
+    /* A remote left out as not heard spoke while this push ran: it gets its own now */
+    for (int i = 0; i < MAX_PAIRED_REMOTES && g_rf_push_deferred; i++) {
+        if (unheard[i] && g_paired_remotes[i].heard) {
+            g_rf_push_deferred = false;
+            rf_request_config_push();
+        }
+    }
     return NULL;
 }

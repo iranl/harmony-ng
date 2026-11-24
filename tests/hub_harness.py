@@ -202,7 +202,7 @@ class HubHarness:
             src = os.path.join(self.config_dir, name)
             if os.path.exists(src):
                 shutil.copy(src, os.path.join(cfg, name))
-        for name in ("remote_slot1_map.json", "remote_slot2_map.json"):
+        for name in (f"remote_slot{n}_map.json" for n in range(1, 7)):
             src = os.path.join(self.config_dir, name)
             if os.path.exists(src):
                 shutil.copy(src, os.path.join(self.data_dir, name))

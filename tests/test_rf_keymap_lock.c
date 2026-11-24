@@ -19,6 +19,7 @@ int http_post_local(int port, const char *path, const char *body) {
     return 200;
 }
 void mark_remote_slot_active(uint8_t slot) { (void)slot; }
+bool is_companion_slot(uint8_t slot) { (void)slot; return false; }
 void rf_note_slot_family(uint8_t slot, remote_model_t family) { (void)slot; (void)family; }
 
 static volatile int s_stop = 0;

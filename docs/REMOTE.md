@@ -516,8 +516,8 @@ HarmonyNG provides complete, native support for Logitech's button-only screenles
 Unlike the touchscreen remotes, Companion and Smart Control remotes do not run Linux and have no USB interface. They communicate directly with the Hub via the Texas Instruments CC2544 2.4 GHz RF link:
 
 1. **Start Pairing on Hub**:
-   - In the HarmonyNG Web UI, navigate to the **Remotes** tab and click **Pair Remote** under Slot 1 or Slot 2.
-   - Alternatively, call the REST API: `POST /api/rf/pair?slot=1` (or `slot=2`), or press the physical **Pair/Reset** button on the back of the Harmony Hub.
+   - In the HarmonyNG Web UI, navigate to the **Remotes** tab and click **Pair** on the card of the slot (1 to 6).
+   - Alternatively, call the REST API: `POST /api/rf/pair?slot=N` (N = 1 to 6), or press the physical **Pair/Reset** button on the back of the Harmony Hub.
 2. **Put Remote into Pairing Mode**:
    - Hold **`Menu`** and **`Mute`** buttons simultaneously until the status LED at the top of the remote starts flashing rapidly.
 3. **Automatic Binding**:
@@ -539,10 +539,10 @@ When a button is pressed or released on a Companion or Smart Control remote, it 
 ### Per-Slot Configuration & Mapping Copy
 
 - **Independent Mapping Files**:
-  - Slot 1 mappings are stored in `/data/harmony/remote_slot1_map.json` (`hub_rf` reads only this name; only the copy route falls back to the old `elite_remote_map.json`).
-  - Slot 2 mappings are stored in `/data/harmony/remote_slot2_map.json`.
+  - The mappings of slot N (1 to 6) are stored in `/data/harmony/remote_slotN_map.json` (`hub_rf` reads only this name and reads it again after a save; only the copy route falls back to the old `elite_remote_map.json` for slot 1).
 - **Copy Mappings Between Slots**:
-  - If you use identical remotes or want to replicate mappings from Slot 1 to Slot 2, use the **Copy to other slot** button in the Web UI, or invoke `POST /api/rf-mapping-copy?from=1&to=2`.
+  - If you use identical remotes or want to replicate mappings from one slot to another, use the **Copy from Slot** button in the Web UI, or invoke `POST /api/rf-mapping-copy?from=1&to=2`.
+- **Remotes Without a Screen**: a Companion or Smart Control cannot pick a device, so its keys use the activity mappings only: the Web UI offers no per-device scope for them. Unpairing one sends it no unpair notice (only a touchscreen remote handles it).
 - **Dynamic Feature Hiding**:
   - For screenless remotes, the Web UI automatically hides touchscreen configuration ("DEVICES" touch buttons) and over-the-air firmware updates (`/api/rf/ota-*`), focusing purely on physical button assignments.
 
