@@ -53,16 +53,19 @@ Because the Hub requires power through its Micro-USB connector, you need an **OT
 ```
 
 ### Supported USB Ethernet Chipsets
-HarmonyNG bundles kernel drivers for these USB Ethernet chipsets in `/cache/modules/`. The IDs listed are the ones the shipped modules bind; an adapter with another ID of the same family (for example the ASIX AX88179 `0B95:1790`, AX88772B `0B95:772B`, SMSC LAN9505 `0424:9505` or Davicom DM9620 `0A46:9620`) is not supported by these module builds.
+HarmonyNG bundles kernel drivers for these USB Ethernet chipsets in `/cache/modules/`. The IDs listed are the ones the shipped modules bind; an adapter with another ID of the same family (for example the ASIX AX88179 `0B95:1790`, SMSC LAN9505 `0424:9505` or Davicom DM9620 `0A46:9620`) is not supported by these module builds.
+
+> [!WARNING]
+> **The adapter must run at high speed (USB 2.0, 480 Mbps).** A network adapter at full speed (a USB 1.1 adapter, or any adapter behind a USB 1.1 hub, as in some OTG cables with a built-in hub) freezes the Hub as soon as its driver waits for received data; only a power cycle brings it back. `start_usb_eth.sh` therefore loads no network driver while such a device is on the bus and logs `runs at full speed (USB 1.1)`. Check the speed with `cat /sys/bus/usb/devices/*/speed` (`480` is high speed, `12` full speed).
 
 | Chipset Family | USB Vendor:Product IDs | Driver Modules | Notes |
 | :--- | :--- | :--- | :--- |
 | **Realtek RTL8152 / RTL8153** | `0BDA:8152`, `0BDA:8153`, `2357:0601` | `r8152.ko` + `eth_fix` | **Tested & verified** (`0BDA:8152`, `0BDA:8153`). 10/100M Fast Ethernet. Automatic checksum fix applied on load. |
-| **ASIX AX88772 / AX88178** | `0B95:7720`, `0B95:772A`, `0B95:1720`, `0B95:1780`, `077B:2226`, `0846:1040` | `usbnet.ko`, `asix.ko` | Common in generic USB-to-LAN adapters. Standard software checksumming. |
+| **ASIX AX88772 / AX88772B / AX88178** | `0B95:7720`, `0B95:772A`, `0B95:772B`, `0B95:1720`, `0B95:1780`, `077B:2226`, `0846:1040` | `usbnet.ko`, `asix.ko` | Common in generic USB-to-LAN adapters. Standard software checksumming. AX88772B (patched in by `build/patches/usb_net/asix-ax88772b.patch`): MAC address read from the EEPROM; binds and opens on a Hub, network traffic not yet tested at high speed. |
 | **SMSC / Microchip LAN9500** | `0424:9500`, `0424:EC00` | `usbnet.ko`, `smsc95xx.ko` | Standard embedded Ethernet chipset. |
 | **Davicom DM9601** | `0A46:9601`, `0A46:0268`, `0A46:6688`, `0A46:8515` | `usbnet.ko`, `dm9601.ko` | Common low-cost 10/100 adapters. |
 | **USB CDC-Ethernet (Standard)** | Any USB device with Class `02` Subclass `06` | `usbnet.ko`, `cdc_ether.ko` | Standard Linux USB Communication Device Class. |
-| **Realtek RTL8150** | `0BDA:8150` | `rtl8150.ko` | Legacy 10/100M USB 1.1/2.0 adapter. |
+| **Realtek RTL8150** | `0BDA:8150` | `rtl8150.ko` | Legacy 10/100M adapter. The RTL8150 is a USB 1.1 (full speed) device, so `start_usb_eth.sh` loads no driver for it (see the warning above). |
 
 ---
 
