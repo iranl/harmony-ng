@@ -134,7 +134,9 @@ typedef int cJSON_bool;
 /* Limits how deeply nested arrays/objects can be before cJSON rejects to parse them.
  * This is to prevent stack overflows. */
 #ifndef CJSON_NESTING_LIMIT
-#define CJSON_NESTING_LIMIT 1000
+/* harmony: 64, not 1000. One level costs up to 112 bytes of stack, and hub_rf parses on 64 KB
+ * thread stacks; the deepest real config is 8 levels. */
+#define CJSON_NESTING_LIMIT 64
 #endif
 
 /* Limits the length of circular references can be before cJSON rejects to parse them.

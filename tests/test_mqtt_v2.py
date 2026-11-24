@@ -420,6 +420,13 @@ def main():
             m = sub2.wait_for("homeassistant/select/harmony-test_activity/config", 10, lambda p: p == b"")
             check(m is not None and broker.retained.get("homeassistant/select/harmony-test_activity/config", b"") == b"",
                   "discovery off: the configs are cleared on reconnect", str(m))
+            # the last topic the clear publishes, then every homeassistant/ topic must be empty
+            deadline = time.time() + 5
+            last = "homeassistant/button/harmony-test_remote_6_sleep/config"
+            while time.time() < deadline and broker.retained.get(last, b"") != b"":
+                time.sleep(0.1)
+            left = sorted(t for t, p in broker.retained.items() if t.startswith("homeassistant/") and p)
+            check(not left, "discovery off: no homeassistant/ config stays retained", str(left))
             sub2.close()
 
         # "online" must mean commands are answered: a client sends a command the instant it sees the

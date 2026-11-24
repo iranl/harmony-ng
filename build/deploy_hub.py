@@ -107,10 +107,18 @@ def parse_space_reply(reply: str) -> tuple[int | None, int]:
 # settings, its log and the hub_util links it used (hub_portal, hub_dhcpd).
 # The Hub's dropbearmulti takes Ed25519 user keys only: root's authorized_keys (dropbear reads
 # the one in root's home) must hold one before it is installed, or the next reboot locks root out
+# An Ed25519 key line in the shape dropbear reads: the key type at the very start, or after one
+# options field (names not checked) and one blank, then one space, the whole 68-character key blob,
+# a space or the end of the line. A line whose first word is another key type is skipped first.
+# The same patterns, the same decision: has_ed25519_user_key() in payload/scripts/update.sh (stock
+# BusyBox 1.13.4 grep).
+ED25519_KEY_SKIP = r"^[[:blank:]]*\(ssh-\|ecdsa-\|sk-\)[^[:blank:]]*[[:blank:]]ssh-ed25519 "
+ED25519_KEY_LINE = (r'^\([[:blank:]]*\([^[:blank:]"]\|"[^"]*"\)\{1,\}[[:blank:]]\)\{0,1\}'
+                    r"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI[A-Za-z0-9+/]\{43\}\( \|$\)")
 ED25519_USER_KEY_CHECK = (
     "h=$(awk -F: '$1==\"root\"{print $6}' /etc/passwd 2>/dev/null); f=\"${h:-/home/root}/.ssh/authorized_keys\"; "
-    # not a comment, and an Ed25519 key blob (they all start with AAAAC3NzaC1lZDI1NTE5)
-    "[ -f \"$f\" ] && grep -v \"^[ \t]*#\" \"$f\" | grep -q 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5' && echo yes || echo no"
+    "[ -f \"$f\" ] && grep -v '^[[:blank:]]*#' \"$f\" | grep -v '" + ED25519_KEY_SKIP + "' | "
+    "grep -q '" + ED25519_KEY_LINE + "' && echo yes || echo no"
 )
 
 # Run on the uploaded dropbearmulti ($s) before it replaces the old one: a build that cannot start
@@ -234,12 +242,15 @@ class HubDeployer:
         if res.returncode != 0 or answer not in ("yes", "no"):
             return f"the Hub's authorized_keys could not be checked ({res.stderr.strip() or 'no answer'})."
         if answer == "no":
-            return ("root's authorized_keys on the Hub has no Ed25519 key, and the new SSH server takes\n"
-                    "    Ed25519 keys only (the next restart would lock you out). Add one, e.g.\n"
+            return ("root's authorized_keys on the Hub has no Ed25519 key line the new SSH server takes\n"
+                    "    (Ed25519 keys only: the next restart would lock you out). Add one, e.g.\n"
                     "    ssh-keygen -t ed25519 -f ~/.ssh/harmony_owner_ed25519, append the .pub line to\n"
-                    "    /home/root/.ssh/authorized_keys on the Hub, then deploy again.")
+                    "    /home/root/.ssh/authorized_keys on the Hub (docs/FIRST_INSTALL_HUB.md, \"Root's\n"
+                    "    Ed25519 key\"), then deploy again with --key ~/.ssh/harmony_owner_ed25519.")
         cmd = self.get_ssh_cmd("true")
-        cmd[1:1] = ["-o", "PubkeyAcceptedKeyTypes=ssh-ed25519"]
+        # A new connection: over a shared one (ControlMaster in ~/.ssh/config) opened by an earlier
+        # call with an RSA key, the test would pass without any Ed25519 login (#267)
+        cmd[1:1] = ["-o", "PubkeyAcceptedKeyTypes=ssh-ed25519", "-o", "ControlMaster=no", "-o", "ControlPath=none"]
         try:
             probe = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         except (OSError, subprocess.SubprocessError) as e:
@@ -723,8 +734,11 @@ class HubDeployer:
                 self.deploy_file_if_changed(local_bb, "/cache/bin/busybox", "755")
                 bb_setup = (
                     "ln -sf /cache/bin/busybox /data/harmony/bin/busybox 2>/dev/null; "
-                    "/cache/bin/busybox --install -s /cache/bin 2>/dev/null || true; "
-                    'for _app in $(/cache/bin/busybox --list 2>/dev/null); do [ ! -e "/bin/$_app" ] && [ ! -e "/usr/bin/$_app" ] && ln -sf /cache/bin/busybox "/usr/bin/$_app" 2>/dev/null || true; done; '
+                    # readlink by path: the stock BusyBox has none, and /usr/bin/readlink is one of
+                    # the links removed here. /cache/bin is cleaned too (links of removed applets).
+                    "bb=/cache/bin/busybox; "
+                    "for _l in /usr/bin/* /cache/bin/*; do [ -L \"$_l\" ] && [ \"$($bb readlink \"$_l\" 2>/dev/null)\" = \"$bb\" ] && rm -f \"$_l\" 2>/dev/null || true; done; "
+                    "$bb --install -s /cache/bin 2>/dev/null || true; "
                     "mkdir -p /etc/profile.d 2>/dev/null; echo 'export PATH=/cache/bin:/data/harmony/bin:$PATH' > /etc/profile.d/00-harmony.sh 2>/dev/null; chmod 644 /etc/profile.d/00-harmony.sh 2>/dev/null || true"
                 )
                 if not self.dry_skip("install BusyBox applet links and /etc/profile.d/00-harmony.sh"):
@@ -846,9 +860,12 @@ class HubDeployer:
                     print("[-] WebUI build failed. Nothing deployed from this step.", file=sys.stderr)
                     return False
 
+                if not build_webui.ensure_node_modules(ui_src_dir):
+                    print("[-] WebUI build failed. Nothing deployed from this step.", file=sys.stderr)
+                    return False
+
                 print(f"[*] Compiling frontend bundle with Vite ({ui_src_dir.name})...")
-                npm_cmd = "npm.cmd" if sys.platform == "win32" else "npm"
-                build_res = subprocess.run([npm_cmd, "run", "build"], cwd=ui_src_dir)
+                build_res = subprocess.run([build_webui.npm_command(), "run", "build"], cwd=ui_src_dir)
                 if build_res.returncode != 0 or not (ui_src_dir / "dist" / "index.html").is_file():
                     print(f"[-] WebUI build failed in {ui_src_dir.name}. Nothing deployed from this step.", file=sys.stderr)
                     return False
@@ -921,11 +938,12 @@ class HubDeployer:
             if icon_pack and not icon_pack.is_packed(self.icons_tar):
                 try:
                     if self.dry_run:
-                        # pack into a temporary file: its md5 is what the real run would upload
-                        fd, packed_tmp = tempfile.mkstemp(prefix="icons.", suffix=".tar.gz")
-                        os.close(fd)
-                        icon_pack.pack(self.icons_tar, pathlib.Path(packed_tmp))
-                        icons_src = pathlib.Path(packed_tmp)
+                        # pack into a temporary folder, under the archive's own name (the dry run
+                        # prints it): its md5 is what the real run would upload
+                        packed_tmp = tempfile.mkdtemp(prefix="icon_pack.")
+                        packed_path = pathlib.Path(packed_tmp) / self.icons_tar.name
+                        icon_pack.pack(self.icons_tar, packed_path)
+                        icons_src = packed_path
                         print(f"    [dry-run] would repack {self.icons_tar.name} so the Hub reads icons from flash")
                     else:
                         print(f"[*] Repacking {self.icons_tar.name} so the Hub reads icons from flash (not RAM)...")
@@ -937,7 +955,7 @@ class HubDeployer:
                 self.deploy_file_if_changed(icons_src, "/cache/icons.tar.gz", "644")
             finally:
                 if packed_tmp:
-                    os.unlink(packed_tmp)
+                    shutil.rmtree(packed_tmp, ignore_errors=True)
             if not self.dry_run:
                 self.run_ssh(
                     "if [ -f /data/harmony/icons.tar.gz ] && [ ! -L /data/harmony/icons.tar.gz ]; then rm -f /data/harmony/icons.tar.gz 2>/dev/null; fi; "

@@ -153,10 +153,29 @@ cJSON *get_remote_map_unlocked(uint8_t slot) {
     if (slot < 1 || slot > MAX_PAIRED_REMOTES) slot = 1;
     int idx = slot - 1;
 
-    if (g_remote_map_cache[idx]) return g_remote_map_cache[idx];
-
     char slot_path[64];
     snprintf(slot_path, sizeof(slot_path), "/data/harmony/remote_slot%d_map.json", slot);
+
+    /* hub_daemon saves the map (Save All, copy) without telling hub_rf, and a remote without a
+     * screen never asks for a push: a new file (saved by rename) or a new mtime reloads it.
+     * A touchscreen remote sends its on-screen buttons as indexes into the list of the last
+     * push, so its slot keeps the pushed map until the next push (which invalidates it). */
+    static struct { ino_t ino; time_t mtime; off_t size; } s_map_stat[MAX_PAIRED_REMOTES];
+    struct stat st;
+    bool have = stat(slot_path, &st) == 0;
+    if (g_remote_map_cache[idx]) {
+        if (!is_companion_slot(slot) ||
+            (have && st.st_ino == s_map_stat[idx].ino && st.st_mtime == s_map_stat[idx].mtime &&
+             st.st_size == s_map_stat[idx].size))
+            return g_remote_map_cache[idx];
+        cJSON_Delete(g_remote_map_cache[idx]);
+        g_remote_map_cache[idx] = NULL;
+    }
+    if (have) {
+        s_map_stat[idx].ino = st.st_ino;
+        s_map_stat[idx].mtime = st.st_mtime;
+        s_map_stat[idx].size = st.st_size;
+    }
 
     const char *map_file = slot_path;
     FILE *mf = fopen(map_file, "r");
@@ -588,7 +607,7 @@ typedef struct {
     char param1[64];
     char param2[64];
     char param3[16];
-    uint64_t ts_ms; /* when the key came in (RF_EV_BUTTON) */
+    uint64_t ts_ms; /* when the key or the screen button came in (RF_EV_BUTTON, RF_EV_DEVICE_CMD) */
 } rf_event_t;
 
 #define RF_QUEUE_SIZE 64
@@ -673,6 +692,7 @@ void enqueue_remote_device_cmd(const char *dev_id, const char *cmd) {
         g_rf_queue[g_rf_q_head].param1[sizeof(g_rf_queue[0].param1) - 1] = '\0';
         strncpy(g_rf_queue[g_rf_q_head].param2, cmd, sizeof(g_rf_queue[0].param2) - 1);
         g_rf_queue[g_rf_q_head].param2[sizeof(g_rf_queue[0].param2) - 1] = '\0';
+        g_rf_queue[g_rf_q_head].ts_ms = get_monotonic_ms();
         g_rf_q_head = next;
         pthread_cond_signal(&g_rf_q_cond);
         rf_queue_wake();
@@ -847,8 +867,13 @@ void *dispatch_worker(void *arg) {
         if (ev.kind == RF_EV_NONE) {
             continue;
         } else if (ev.kind == RF_EV_DEVICE_CMD) {
+            /* A screen button or a device page command: a person's press, sent like a hard key
+             * (one tap on the key channel, with the time it came in), so hub_daemon drops it when
+             * it is late instead of sending it late. Without a key channel, the same as a live
+             * POST /api/ir-send. */
+            if (send_key_event(ev.slot, ev.param2, "tap", ev.param1, ev.param2, ev.ts_ms) == 0) continue;
             char body[512], e_dev[192], e_cmd[192];
-            snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\"}",
+            snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\",\"live\":true}",
                      json_esc(e_dev, sizeof(e_dev), ev.param1), json_esc(e_cmd, sizeof(e_cmd), ev.param2));
             http_post_local(WEBUI_PORT, "/api/ir-send", body);
         } else if (ev.kind == RF_EV_ACTIVITY) {

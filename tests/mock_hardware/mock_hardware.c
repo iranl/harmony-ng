@@ -48,6 +48,7 @@ static int g_rf_mock_fd = -1;
  * without the device. Write-only opens (IR sends) are not touched. */
 static int g_i2s_rx_mock_fd = -1;
 static int g_i2s_tx_mock_fd = -1;   /* write-only /dev/i2s: <mock>/i2s_tx, ioctls succeed */
+static off_t g_i2s_tx_played = 0;   /* the size of <mock>/i2s_tx at the open or the start ioctl before */
 
 /* Looked up once for the whole process. Threads that call an interposed function at the same
  * time used to see real_open already set while real_read was still NULL (the old check tested
@@ -424,7 +425,7 @@ int open(const char *pathname, int flags, ...) {
         char tx[512];
         snprintf(tx, sizeof(tx), "%s/i2s_tx", get_mock_dir());
         int fd = real_open(tx, O_WRONLY | O_CREAT | O_APPEND, 0644);
-        if (fd >= 0) g_i2s_tx_mock_fd = fd;
+        if (fd >= 0) { g_i2s_tx_mock_fd = fd; g_i2s_tx_played = lseek(fd, 0, SEEK_END); }
         return fd;
     }
     if (strcmp(pathname, "/dev/i2s") == 0 && (flags & O_ACCMODE) == O_RDONLY) {
@@ -495,7 +496,7 @@ int open64(const char *pathname, int flags, ...) {
         char tx[512];
         snprintf(tx, sizeof(tx), "%s/i2s_tx", get_mock_dir());
         int fd = real_open64(tx, O_WRONLY | O_CREAT | O_APPEND, 0644);
-        if (fd >= 0) g_i2s_tx_mock_fd = fd;
+        if (fd >= 0) { g_i2s_tx_mock_fd = fd; g_i2s_tx_played = lseek(fd, 0, SEEK_END); }
         return fd;
     }
     if (strcmp(pathname, "/dev/i2s") == 0 && (flags & O_ACCMODE) == O_RDONLY) {
@@ -611,9 +612,10 @@ int ioctl(int fd, unsigned long request, ...) {
      * many milliseconds, so a test can act while a send is running. */
     if (fd == g_i2s_tx_mock_fd && g_i2s_tx_mock_fd >= 0) {
         /* With <mock>/i2s_tx_realtime a signal takes as long as on a Hub: the clock ioctl
-         * (0x80044e21) gives the bit time (arg * 40 / 65536 ns), the start ioctl (0x80044e30)
-         * the stream length in bytes, and the drain returns when that much time has passed
-         * since the start. Each start adds "<start us> <bytes> <duration us>" to
+         * (0x80044e21) gives the bit time (arg * 40 / 65536 ns), the stream is what was written
+         * since the start before (as on a Hub, where the start ioctl's low word is only the
+         * play-once flag), and the drain returns when that much time has passed since the
+         * start. Each start adds "<start us> <bytes> <duration us>" to
          * <mock>/i2s_tx_log (CLOCK_MONOTONIC), so a test can time the frames of a held key. */
         static unsigned long tx_clk = 0;
         static long long tx_start_us = 0, tx_len_us = 0;
@@ -626,7 +628,9 @@ int ioctl(int fd, unsigned long request, ...) {
         if (request == 0x80044e21UL) {
             tx_clk = (unsigned long)arg;
         } else if (request == 0x80044e30UL && realtime) {
-            unsigned long bytes = (unsigned long)arg & 0xffffUL;
+            off_t written = lseek(fd, 0, SEEK_CUR);
+            unsigned long bytes = written > g_i2s_tx_played ? (unsigned long)(written - g_i2s_tx_played) : 0;
+            if (written >= 0) g_i2s_tx_played = written;
             tx_start_us = now_us;
             tx_len_us = (long long)((unsigned long long)bytes * 8ULL * tx_clk * 40ULL / 65536ULL / 1000ULL);
             snprintf(p, sizeof(p), "%s/i2s_tx_log", get_mock_dir());

@@ -31,6 +31,9 @@
 /* A key press still queued after this is dropped: sent late, it acts long after the user
  * pressed (and a toggle may then undo a later press) */
 #define NET_QUEUE_MAX_AGE_MS 2000
+/* A live key that finds the queue full takes the place of a queued key press older than this:
+ * the key channel already skips a remote key older than 1 s (HUB_KEY_STALE_MS) */
+#define NET_QUEUE_ROOM_AGE_MS 1000
 /* After a device timed out, its queued presses are dropped for this long instead of each
  * waiting out the timeout again in front of the other devices */
 #define NET_SLOW_HOLD_MS 10000
@@ -443,8 +446,9 @@ static int write_text_file(const char *path, const char *data, size_t len)
     return close(fd);
 }
 
-/* 0 when the device answered (any HTTP status, in *status), -1 with err */
-static int run_fetch(net_job *j, const char *pin_expect, int *status, char *err, size_t err_sz,
+/* 0 when the device answered (any HTTP status, in *status), -1 with err. addrs: the checked
+ * addresses of j->host (hub_fetch connects there; the name stays for SNI and Host) */
+static int run_fetch(net_job *j, const char *addrs, const char *pin_expect, int *status, char *err, size_t err_sz,
                      char *head, size_t head_sz, char *pin_out)
 {
     *status = 0;
@@ -499,6 +503,8 @@ static int run_fetch(net_job *j, const char *pin_expect, int *status, char *err,
         argv[a++] = "--ca";
         argv[a++] = TLS_DEFAULT_CA_BUNDLE;
     }
+    argv[a++] = "--connect-to";
+    argv[a++] = (char *)addrs;
     argv[a++] = "--data-file";
     argv[a++] = dpath;
     argv[a++] = "--status-file";
@@ -563,42 +569,103 @@ out:
     return rc;
 }
 
-/* The host resolves to the Hub itself (loopback or unspecified, also as 2130706433, 0x7f000001,
- * ::ffff:127.0.0.1 or a DNS name that points there): a device there could call the Hub's own API */
-static int host_is_local(const char *host)
+/* Up to this many addresses of a device are kept, in the resolver's order; an address with an
+ * IPv6 scope fits in 64 characters */
+#define NET_ADDRS_MAX 4
+#define NET_ADDR_LEN 64
+#define NET_ADDRS_LEN (NET_ADDRS_MAX * (NET_ADDR_LEN + 1))
+
+/* The Hub itself: loopback or unspecified, also IPv4-mapped (::ffff:127.0.0.1) */
+static int addr_is_local(const struct addrinfo *ai)
 {
+    if (ai->ai_family == AF_INET) {
+        uint32_t a = ntohl(((const struct sockaddr_in *)ai->ai_addr)->sin_addr.s_addr);
+        return (a >> 24) == 127 || a == 0;
+    }
+    if (ai->ai_family == AF_INET6) {
+        const struct in6_addr *a6 = &((const struct sockaddr_in6 *)ai->ai_addr)->sin6_addr;
+        return IN6_IS_ADDR_LOOPBACK(a6) || IN6_IS_ADDR_UNSPECIFIED(a6) ||
+               (IN6_IS_ADDR_V4MAPPED(a6) && (a6->s6_addr[12] == 127 ||
+                (a6->s6_addr[12] | a6->s6_addr[13] | a6->s6_addr[14] | a6->s6_addr[15]) == 0));
+    }
+    return 0;
+}
+
 #ifdef TEST_HARNESS
-    (void)host;
-    return 0; /* the host tests run their devices on 127.0.0.1 */
+/* The host tests run their devices on 127.0.0.1: a loopback device is allowed only on a port
+ * listed in HARMONY_TEST_NET_LOOPBACK_PORTS (comma separated), so the refusal stays tested */
+static int test_loopback_port_allowed(int port)
+{
+    const char *p = getenv("HARMONY_TEST_NET_LOOPBACK_PORTS");
+    while (p && *p) {
+        char *end;
+        long v = strtol(p, &end, 10);
+        if (end == p) {
+            p++;
+            continue;
+        }
+        if (v == port) return 1;
+        p = end;
+    }
+    return 0;
+}
 #else
+#define test_loopback_port_allowed(port) ((void)(port), 0)
+#endif
+
+/* Resolves the device's host once per send. The check and the connection use the same
+ * addresses: a second lookup took another resolver timeout (the device timeout does not cover
+ * it) and could answer differently. 0 with the addresses, numeric and comma separated, in out;
+ * -1 when the host does not resolve; -2 when an address is the Hub itself (also as 2130706433,
+ * 0x7f000001, ::ffff:127.0.0.1 or a DNS name that points there): a device there could call the
+ * Hub's own API. */
+static int resolve_checked(const net_job *j, char *out, size_t out_sz)
+{
     struct addrinfo hints, *res = NULL, *ai;
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
-    if (getaddrinfo(host, NULL, &hints, &res) != 0 || !res) return 0; /* the connect reports it */
-    int local = 0;
-    for (ai = res; ai && !local; ai = ai->ai_next) {
-        if (ai->ai_family == AF_INET) {
-            uint32_t a = ntohl(((const struct sockaddr_in *)ai->ai_addr)->sin_addr.s_addr);
-            local = (a >> 24) == 127 || a == 0;
-        } else if (ai->ai_family == AF_INET6) {
-            const struct in6_addr *a6 = &((const struct sockaddr_in6 *)ai->ai_addr)->sin6_addr;
-            local = IN6_IS_ADDR_LOOPBACK(a6) || IN6_IS_ADDR_UNSPECIFIED(a6) ||
-                    (IN6_IS_ADDR_V4MAPPED(a6) && (a6->s6_addr[12] == 127 ||
-                     (a6->s6_addr[12] | a6->s6_addr[13] | a6->s6_addr[14] | a6->s6_addr[15]) == 0));
+    out[0] = '\0';
+    if (getaddrinfo(j->host, NULL, &hints, &res) != 0 || !res) return -1;
+    int rc = 0, n = 0;
+    size_t len = 0;
+    for (ai = res; ai; ai = ai->ai_next) {
+        if (ai->ai_family != AF_INET && ai->ai_family != AF_INET6) continue;
+        if (addr_is_local(ai) && !test_loopback_port_allowed(j->port)) {
+            rc = -2;
+            break;
         }
+        if (n >= NET_ADDRS_MAX) continue; /* every address is still checked */
+        char a[NET_ADDR_LEN];
+        if (getnameinfo(ai->ai_addr, ai->ai_addrlen, a, sizeof a, NULL, 0, NI_NUMERICHOST) != 0) continue;
+        int w = snprintf(out + len, out_sz - len, "%s%s", len ? "," : "", a);
+        if (w < 0 || (size_t)w >= out_sz - len) {
+            out[len] = '\0';
+            continue;
+        }
+        len += (size_t)w;
+        n++;
     }
     freeaddrinfo(res);
-    return local;
-#endif
+    if (rc == 0 && n == 0) rc = -1;
+    return rc;
 }
 
 /* Returns 1 when the device did not answer in time (connect, handshake or reply) */
 static int job_run(net_job *j)
 {
-    if (host_is_local(j->host)) {
+    char addrs[NET_ADDRS_LEN];
+    int rr = resolve_checked(j, addrs, sizeof addrs);
+    if (rr == -2) {
         printf("[!] %s refused: %s is the Hub itself\n", j->label, j->host);
         result_set(j, 0, 0, "the host is the Hub itself (loopback): not a device", NULL, NULL, 0);
+        return 0;
+    }
+    if (rr != 0) {
+        char rerr[300];
+        snprintf(rerr, sizeof rerr, "cannot resolve %s", j->host);
+        printf("[!] %s: %s\n", j->label, rerr);
+        result_set(j, 0, 0, rerr, NULL, NULL, 0);
         return 0;
     }
     char pin_expect[NET_PIN_HEX_LEN + 1] = "";
@@ -615,6 +682,7 @@ static int job_run(net_job *j)
     opts.verify = j->verify;
     opts.pin = pin_expect;
     opts.timeout_ms = j->timeout_ms;
+    opts.connect_addrs = addrs;   /* the checked addresses, no second lookup */
 
     char pin[NET_PIN_HEX_LEN + 1] = "";
     char err[160] = "";
@@ -622,7 +690,7 @@ static int job_run(net_job *j)
     int ok = 0, status = 0;
 
     if (j->tls) {
-        int rc = run_fetch(j, pin_expect, &status, err, sizeof err, head, sizeof head, pin);
+        int rc = run_fetch(j, addrs, pin_expect, &status, err, sizeof err, head, sizeof head, pin);
         ok = rc == 0 && status < 400;
         const char *kind = j->kind == NET_KIND_HTTP ? "HTTPS" : "TCP/TLS";
         if (j->kind == NET_KIND_HTTP && !j->connect_only && rc == 0) {
@@ -765,6 +833,7 @@ static int enqueue(net_job *j)
         pthread_attr_t attr;
         pthread_attr_init(&attr);
         pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+        pthread_attr_setstacksize(&attr, 128 * 1024);
         if (pthread_create(&t, &attr, worker, NULL) == 0) s_started = 1;
         pthread_attr_destroy(&attr);
         if (!s_started) {
@@ -775,6 +844,21 @@ static int enqueue(net_job *j)
             return -1;
         }
     }
+    net_job *late = NULL;
+    if (s_count >= NET_QUEUE_LEN && j->live_key && !j->sync) {
+        /* Full, and this is a key pressed now: the oldest key press that is over 1 s old makes
+         * room (it is late for a key pressed now). Never a sync job or any other send. */
+        uint64_t now = mono_ms();
+        for (int k = 0; k < s_count; k++) {
+            net_job *q = s_queue[(s_head + k) % NET_QUEUE_LEN];
+            if (!q->live_key || q->sync || now - q->queued_ms <= NET_QUEUE_ROOM_AGE_MS) continue;
+            late = q;
+            for (int m = k; m < s_count - 1; m++)
+                s_queue[(s_head + m) % NET_QUEUE_LEN] = s_queue[(s_head + m + 1) % NET_QUEUE_LEN];
+            s_count--;
+            break;
+        }
+    }
     if (s_count >= NET_QUEUE_LEN) {
         pthread_mutex_unlock(&s_lock);
         return -3;
@@ -783,6 +867,11 @@ static int enqueue(net_job *j)
     s_queue[(s_head + s_count) % NET_QUEUE_LEN] = j;
     s_count++;
     pthread_mutex_unlock(&s_lock);
+    if (late) {
+        printf("[!] %s dropped: waited too long in the queue (queue full)\n", late->label);
+        fflush(stdout);
+        job_free(late);
+    }
     ssize_t w = write(s_wake[1], "w", 1);   /* a full pipe already holds a wake */
     (void)w;
     return 0;
@@ -815,6 +904,7 @@ int net_action_send(const cJSON *dev, const cJSON *cmd, const char *dev_id, cons
     int rc = enqueue(j);
     if (rc != 0) {
         printf("[!] %s: send queue full, command dropped\n", j->label);
+        fflush(stdout);
         job_free(j);
         return -3;
     }

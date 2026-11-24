@@ -546,7 +546,12 @@ static int execute_step(const orch_step_t *step) {
     default:
         break;
     }
-    if (rc != 0) {
+    if (rc == HW_ERR_QUEUE_FULL) {
+        /* called from orch_tick under the queue lock, which every write of g_target_act holds */
+        printf("[!] Orch: activity '%s' step '%s' lost: the HTTP/TCP send queue is full (device '%s', command '%s')\n",
+               g_target_act, step->description, step->device_id, step->command_name);
+        fflush(stdout);
+    } else if (rc != 0) {
         printf("[!] Orch: step '%s' not sent (device '%s', command '%s', result %d)\n", step->description,
                step->device_id, step->command_name, rc);
         fflush(stdout);

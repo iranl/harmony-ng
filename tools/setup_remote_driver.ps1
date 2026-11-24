@@ -5,7 +5,8 @@
 .DESCRIPTION
     Installs the Microsoft WHQL-signed RNDIS template driver for Linux USB Ethernet gadgets (VID_0525&PID_A4A2),
     forces Windows to unbind any stuck USB Serial Device (COM port) driver, binds the RNDIS Network Adapter,
-    and assigns static IP 192.168.2.2/24 (without a default gateway) so the remote at 192.168.2.1 is immediately reachable.
+    and assigns a static IP 192.168.2.x/24 (without a default gateway; x = 2 unless another adapter has it) so the
+    remote at 192.168.2.1 is immediately reachable.
 
 .PARAMETER NonInteractive
     Skip waiting for keypress at exit.
@@ -163,10 +164,12 @@ for ($i = 0; $i -lt 10; $i++) {
     $candidates = @(Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object {
         $_.Status -eq "Up" -or $_.Status -eq "Disconnected"
     })
+    # Every remote gets its own adapter in Windows: the adapter of a remote set up before can
+    # still be listed (Disconnected). The adapter that is Up is the remote plugged in now.
     $adapter = $candidates | Where-Object {
         $pnpId = [string]$_.PnPDeviceID
         @($hardwareIds | Where-Object { $pnpId -like "$_*" }).Count -gt 0
-    } | Select-Object -First 1
+    } | Sort-Object { $_.Status -ne "Up" } | Select-Object -First 1
 
     if (-not $adapter -and $gadgetFound) {
         $adapter = $candidates | Where-Object {
@@ -186,13 +189,34 @@ for ($i = 0; $i -lt 10; $i++) {
 if ($adapter) {
     Write-Host "[+] Found Network Adapter: '$($adapter.Name)' ($($adapter.InterfaceDescription))" -ForegroundColor Green
 
-    # Assign static IP 192.168.2.2/24 WITHOUT default gateway (prevents overriding host internet route)
-    $currentIps = Get-NetIPAddress -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue
-    $hasCorrectIp = $false
+    # Assign a static 192.168.2.x/24 WITHOUT default gateway (prevents overriding host internet route).
+    # Windows can make a new adapter for each remote (or USB port), and the adapter of a remote set up
+    # before keeps its address even while that remote is unplugged (the adapter is hidden then).
+    # A new address is chosen among those no other adapter holds (static ones in the registry, live
+    # ones of any kind): 192.168.2.2, .3, ... The remote is always 192.168.2.1 and answers any host
+    # address in 192.168.2.0/24.
+    $ownGuid = [string]$adapter.InterfaceGuid
+    $usedByOthers = @{}
+    Get-ChildItem "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces" -ErrorAction SilentlyContinue |
+        Where-Object { $_.PSChildName -ne $ownGuid } | ForEach-Object {
+            foreach ($a in @((Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).IPAddress)) {
+                if ($a) { $usedByOthers[[string]$a] = $true }
+            }
+        }
+    Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+        Where-Object { $_.InterfaceIndex -ne $adapter.ifIndex } | ForEach-Object { $usedByOthers[[string]$_.IPAddress] = $true }
 
+    $currentIps = Get-NetIPAddress -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue
+    $hostIp = $null
     foreach ($ip in $currentIps) {
-        if ($ip.IPAddress -eq "192.168.2.2" -and $ip.PrefixLength -eq 24) {
-            $hasCorrectIp = $true
+        # Kept: a 192.168.2.x/24 that Windows did not mark Duplicate or Invalid, unless another adapter
+        # holds it and the remote does not answer on port 22
+        if (-not $hostIp -and $ip.IPAddress -like "192.168.2.*" -and $ip.IPAddress -ne "192.168.2.1" -and
+            $ip.PrefixLength -eq 24 -and
+            "$($ip.AddressState)" -ne "Duplicate" -and "$($ip.AddressState)" -ne "Invalid" -and
+            (-not $usedByOthers.ContainsKey($ip.IPAddress) -or
+             (Test-NetConnection -ComputerName "192.168.2.1" -Port 22 -WarningAction SilentlyContinue).TcpTestSucceeded)) {
+            $hostIp = $ip.IPAddress
         } elseif ($ip.IPAddress -notlike "169.254.*") {
             # Clean up old/conflicting static IPs on this interface
             Remove-NetIPAddress -InterfaceIndex $adapter.ifIndex -IPAddress $ip.IPAddress -Confirm:$false -ErrorAction SilentlyContinue
@@ -203,12 +227,15 @@ if ($adapter) {
     Get-NetRoute -InterfaceIndex $adapter.ifIndex -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue |
         Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue
 
-    if (-not $hasCorrectIp) {
-        Write-Host "[*] Assigning static IP 192.168.2.2/24 (no gateway) to '$($adapter.Name)'..." -ForegroundColor Yellow
-        New-NetIPAddress -InterfaceIndex $adapter.ifIndex -IPAddress 192.168.2.2 -PrefixLength 24 -Confirm:$false | Out-Null
-        Write-Host "[+] Configured 192.168.2.2/24 on '$($adapter.Name)'." -ForegroundColor Green
+    if ($hostIp) {
+        Write-Host "[+] IP $hostIp/24 already assigned to '$($adapter.Name)'." -ForegroundColor Green
     } else {
-        Write-Host "[+] IP 192.168.2.2/24 already assigned to '$($adapter.Name)'." -ForegroundColor Green
+        $hostIp = 2..254 | ForEach-Object { "192.168.2.$_" } | Where-Object { -not $usedByOthers.ContainsKey($_) } |
+            Select-Object -First 1
+        if (-not $hostIp) { throw "Every address in 192.168.2.2-254 is set on another adapter." }
+        Write-Host "[*] Assigning static IP $hostIp/24 (no gateway) to '$($adapter.Name)'..." -ForegroundColor Yellow
+        New-NetIPAddress -InterfaceIndex $adapter.ifIndex -IPAddress $hostIp -PrefixLength 24 -Confirm:$false | Out-Null
+        Write-Host "[+] Configured $hostIp/24 on '$($adapter.Name)'." -ForegroundColor Green
     }
 
     # 6. Test Connectivity to Remote

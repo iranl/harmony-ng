@@ -16,7 +16,7 @@ Run the automated PowerShell setup tool from the repository root:
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools/setup_remote_driver.ps1
 ```
-The tool asks for administrator rights itself (UAC prompt), installs the driver, restarts or removes a remote that Windows bound as a serial port so that it is matched again, gives the remote's network adapter the address `192.168.2.2/24` (no gateway) and tests ports 8088 and 22 of the remote at `192.168.2.1`. Add `-NonInteractive` to skip the key press at the end.
+The tool asks for administrator rights itself (UAC prompt), installs the driver, restarts or removes a remote that Windows bound as a serial port so that it is matched again, gives the remote's network adapter a static address in `192.168.2.0/24` (no gateway; `192.168.2.2`, or the next free one when another adapter, hidden ones included, already has it) and tests ports 8088 and 22 of the remote at `192.168.2.1`. Add `-NonInteractive` to skip the key press at the end.
 
 ## Manual Installation (Elevated Command Prompt or PowerShell)
 ```cmd

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Harmony Hub Control API
-  version: 2.5.3
+  version: 3.0.0
   description: |
     REST and WebSocket API for the open-source **Harmony Hub** firmware and **Harmony remote** RF daemon.
     
@@ -1271,6 +1271,7 @@ paths:
                 btTriggerCommandName: {type: string, description: "Command that starts the reconnect (also deviceId:Command)"}
                 plugin: {type: string, description: "Id of the plugin this device belongs to (a safe id: letters, digits, - and _; 400 otherwise). Only this field or a type plugin:<id> makes a device a plugin device; it then has no controlPort."}
                 config: {oneOf: [{type: object}, {type: string}], description: "Plugin device settings (the plugin's config_fields), an object or that object as a JSON string. A top-level key is copied into config only for a plugin device and only when its config_fields declare it."}
+                commands: {oneOf: [{type: array, items: {type: object}}, {type: string}], description: "Replaces the device's commands (a non-empty array, or that array as a JSON string). A command without a range key keeps the range of the device's command of that name; range null or [] removes it; a command new to a plugin device gets the range of the manifest's default_commands entry of that name."}
             example:
               deviceId: "70321456"
               name: LG OLED TV
@@ -1380,8 +1381,8 @@ paths:
                 oldName: {type: string, description: "Current name of the command, to rename it to name"}
                 raw: {type: string, description: "The code (also accepted as code). Left out on an update, the stored code is kept"}
                 script: {type: string, description: "Bluetooth macro; stored as the code BT:SCRIPT:<script>"}
-                port: {type: integer, description: "IR ports 1..7; left out, a new command uses the device's controlPort and an existing one keeps its port"}
-                repeats: {type: integer, default: 3, description: "Stored as 3 on every save that leaves it out"}
+                port: {type: integer, description: "The command's own IR port mask 1..7, used by a send instead of the device's controlPort; 0 removes it (the device's port applies); left out, the stored one is kept. Numeric text (form post) is accepted"}
+                repeats: {type: integer, default: 3, description: "1..20 (higher is 20); left out, the stored value is kept (3 for a new command). Numeric text (form post) is accepted"}
               required: [deviceId, name]
             example:
               deviceId: "70321456"
@@ -1480,6 +1481,7 @@ paths:
       tags:
         - Activities
       summary: List all activities
+      description: The list is in Display Order (order, lowest first; equal orders keep their place), as activities.json is kept.
       responses:
         '200':
           description: Activity list and current state
@@ -1758,7 +1760,7 @@ paths:
                 name: {type: string}
                 type: {type: string}
                 icon: {type: string}
-                order: {type: integer}
+                order: {type: integer, description: "Display Order. Left out, an existing activity keeps its order and a new one is put after the highest (99 at most)"}
                 startSequence: {type: array}
                 stopSequence: {type: array}
                 deviceIds: {type: array, items: {type: string}, description: "Devices of the activity (also accepted as devices)"}
@@ -1898,6 +1900,13 @@ paths:
                   enum: [press, down, hold, repeat, release, up, tap]
                   default: tap
                   description: Button action for key holding and repeating
+                live:
+                  type: boolean
+                  default: false
+                  description: >-
+                    A person's press (a remote view, a Bluetooth remote): sent without the gaps between
+                    commands, and for an HTTP or TCP device dropped when it waited too long in the send
+                    queue instead of sent late (API.md 3.9). Leave it out for automations.
                 pronto: {type: string, description: "Pronto hex, or a Harmony code (also accepted as code or raw)"}
                 port: {type: integer, default: 7}
                 repeats: {type: integer, default: 1}
@@ -1930,6 +1939,8 @@ paths:
             range" (a plugin command with a range); "value required (the command has a range)"
         '500':
           description: The send failed, or the device or the command is not known ("error":"IR transmit failed")
+        '503':
+          description: The command of an HTTP or TCP device found their send queue (16 sends) full ("error":"send queue full")
 
   /api/ir-raw:
     post:
@@ -2605,7 +2616,7 @@ paths:
         {"ok": true, "running": false, "state": "stopped", "connected": false,
         "pairing_active": false, "paired": false, "rf_address": "None", "hub_rf_address": "None",
         "slots": [{"slot": 1, "active": false, "address": "None", "rf_address": "None"},
-        {"slot": 2, ...}]}: check running before reading the reply of any /api/rf/* call.
+        ... slots 2 to 6]}: check running before reading the reply of any /api/rf/* call.
       responses:
         '200':
           description: RF status
@@ -2804,7 +2815,7 @@ paths:
             type: integer
             enum: [0, 1, 2, 3, 4, 5, 6]
             default: 0
-          description: Remote slot (0 for all active remotes, 1 for slot 1, 2 for slot 2)
+          description: Remote slot (0 for all active remotes, else 1 to 6)
       responses:
         '200':
           description: Sleep command dispatched
@@ -3163,6 +3174,26 @@ paths:
             application/json:
               example:
                 status: pairing_stopped
+
+  /api/rf/restart:
+    post:
+      tags:
+        - RF & Remote
+      summary: Restart hub_rf once idle (after a restored slot table)
+      description: |
+        hub_daemon asks for it after an import that changes rf_slot_map. hub_rf ends once no
+        config push, update or pairing runs, after it moved each remote's version file and
+        battery to the slot its radio pipe now is; init.sh starts it again within seconds.
+        hub_rf's loopback route, also reached through hub_daemon's /api/rf/ proxy on port 8089:
+        administrators only (any client while authentication is off).
+      responses:
+        '202':
+          description: Restart scheduled
+          content:
+            application/json:
+              example:
+                ok: true
+                status: restart_scheduled
 
   /api/rf/unpair:
     post:
@@ -4121,8 +4152,8 @@ paths:
         - Backup & Restore
       summary: Export configuration bundle or table
       description: |
-        A single target returns the stored file: JSON, except network (ethernet), wifi and auth,
-        which are text/plain. bundle returns one JSON object with version, timestamp and a
+        A single target returns the stored file: JSON, except network (ethernet), wifi, auth and
+        rf_slot_map, which are text/plain. bundle returns one JSON object with version, timestamp and a
         section per stored file: devices, activities, settings, mqtt, network, wifi, bluetooth,
         bt_remote_map, remote_slot1_map to remote_slot6_map, rf_slot_map, ui_remote_layout, auth, users, hub_id,
         plus btstack_keys (the Bluetooth key store, base64). The bundle holds secrets: the MQTT
@@ -4135,7 +4166,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [bundle, devices, activities, settings, mqtt, network, ethernet, wifi, bluetooth, bt_remote_map, remote-mapping, remote_slot1_map, remote_slot2_map, remote_slot3_map, remote_slot4_map, remote_slot5_map, remote_slot6_map, ui_remote_layout, ui-remote-layout, auth, users]
+            enum: [bundle, devices, activities, settings, mqtt, network, ethernet, wifi, bluetooth, bt_remote_map, remote-mapping, remote_slot1_map, remote_slot2_map, remote_slot3_map, remote_slot4_map, remote_slot5_map, remote_slot6_map, rf_slot_map, ui_remote_layout, ui-remote-layout, auth, users]
           description: Any other target answers 404. hub_id is only a section of bundle.
           example: bundle
       responses:
@@ -4162,8 +4193,9 @@ paths:
       description: |
         target is required (there is no default): bundle, or one of devices, activities,
         settings, mqtt, network (ethernet), wifi, bluetooth, bt_remote_map (remote-mapping),
-        remote_slot1_map to remote_slot6_map, ui_remote_layout (ui-remote-layout), auth, users.
-        For bundle the payload may be the bundle object, the bundle as a JSON string, or left
+        remote_slot1_map to remote_slot6_map, rf_slot_map, ui_remote_layout (ui-remote-layout),
+        auth, users. rf_slot_map must be six different numbers from 1 to 6; hub_rf restarts after
+        an import that changes it. For bundle the payload may be the bundle object, the bundle as a JSON string, or left
         out: the body itself is then taken as the bundle. Every section is checked first; when
         one is not valid nothing is changed. The body may be up to 2 MB.
       requestBody:

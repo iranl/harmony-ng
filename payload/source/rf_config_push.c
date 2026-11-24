@@ -17,6 +17,14 @@
 #include <unistd.h>
 #include <pthread.h>
 
+/* A push skipped because a remote update was being prepared or sent: pushed once the update
+ * state is idle again (rf_config_push_retry_skipped(), from the main loop) */
+static volatile bool s_skipped_for_update;
+/* The slot table and which slots hold a remote, when the running push picked its targets
+ * (config_push_worker() below) */
+static uint8_t s_push_table[2 * MAX_PAIRED_REMOTES];
+static void slot_table_now(uint8_t *table);
+
 /* Whether to send an icon name's image as a custom icon. An icon uploaded to the Hub always is.
    A stock image found under the name is sent only when the remote has no icon of its own for
    it: for keywords such as "ps" and "switch" the remote draws its theme's icon, and the stock
@@ -44,18 +52,20 @@ static void queue_name_tail(push_queue_t *q, uint8_t slot, uint8_t kind, int idx
 
 void rf_request_config_push(void) {
     pthread_t th;
-    if (pthread_create(&th, NULL, config_push_worker, NULL) == 0) pthread_detach(th);
+    if (rf_create_thread(&th, 128 * 1024, config_push_worker, NULL) == 0) pthread_detach(th);
 }
 
-void *config_push_worker(void *arg) {
+static void *config_push_once(void *arg) {
     (void)arg;
     static pthread_mutex_t push_lock = PTHREAD_MUTEX_INITIALIZER;
+    /* only the holder of s_push_gate (config_push_worker()) gets here; kept as a guard */
     if (pthread_mutex_trylock(&push_lock) != 0) {
         printf("[-] Config push already in progress\n");
         return NULL;
     }
     if (is_ota_busy() || g_rf_ota.status_code == 3) {
         printf("[-] Config push skipped: RF OTA in progress on slot %d\n", g_rf_ota.target_slot);
+        s_skipped_for_update = true;
         pthread_mutex_unlock(&push_lock);
         return NULL;
     }
@@ -76,48 +86,39 @@ void *config_push_worker(void *arg) {
         }
     }
     uint8_t config_ver = g_config_version;
+    slot_table_now(s_push_table); /* the targets below follow this table */
 
     rf_frame_t f;
     uint8_t target_slots[MAX_PAIRED_REMOTES] = {0};
     push_queue_t queue[MAX_PAIRED_REMOTES] = {{0}};
     int num_targets = 0;
 
-    for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {
-        uint8_t s = g_paired_remotes[i].slot;
-        if (is_companion_slot(s)) continue;
-        /* slots 3 to 6 only once their remote spoke since the start: after the update to six
-         * slots, old pipe-table entries showed as remotes and every push waited for them */
-        if (g_paired_remotes[i].active && !g_paired_remotes[i].link_lost && (s <= 2 || g_paired_remotes[i].heard)) {
-            target_slots[num_targets++] = s;
+    /* Every slot alike: a paired touchscreen remote that spoke since hub_rf started (an old
+     * pipe-table entry never speaks, and a push would wait for it). The linked ones; while all
+     * of them are asleep (link lost), all of them. A remote paired but not heard yet gets the
+     * push with its first frame (rf_slot_saw_protocol_frame, or the check at the end here when
+     * that frame came during this push). */
+    bool waiting = false;
+    bool unheard[MAX_PAIRED_REMOTES] = {false};
+    for (int pass = 0; pass < 2 && num_targets == 0; pass++) {
+        for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {
+            uint8_t s = g_paired_remotes[i].slot;
+            if (is_companion_slot(s) || !g_paired_remotes[i].active) continue;
+            if (!g_paired_remotes[i].heard) waiting = unheard[i] = true;
+            else if (pass == 1 || !g_paired_remotes[i].link_lost) target_slots[num_targets++] = s;
         }
     }
-    if (num_targets == 0) {
-        /* g_remote_slot follows any CC2544 report (slots 1..15), but only slots 1 to
-           MAX_PAIRED_REMOTES hold a remote */
-        /* Only a slot that holds a remote, or slots 1 and 2 while the Hub knows of no pairing
-           at all (as before there were 6 slots) */
-        uint8_t fallback_max = g_has_paired_device ? MAX_PAIRED_REMOTES : 2;
-        if (g_remote_slot >= 1 && g_remote_slot <= fallback_max && !is_companion_slot(g_remote_slot) &&
-            (g_paired_remotes[g_remote_slot - 1].active || !g_has_paired_device)) {
-            target_slots[num_targets++] = g_remote_slot;
-        }
-        for (uint8_t s = 1; s <= fallback_max && num_targets < MAX_PAIRED_REMOTES; s++) {
-            if (!is_companion_slot(s)) {
-                bool already = false;
-                for (int j = 0; j < num_targets; j++) {
-                    if (target_slots[j] == s) { already = true; break; }
-                }
-                if (!already && (g_paired_remotes[s - 1].active || !g_has_paired_device)) {
-                    target_slots[num_targets++] = s;
-                }
-            }
-        }
-    }
+    g_rf_push_deferred = waiting;
 
     if (num_targets == 0) {
-        printf("[*] Config push skipped: no active touchscreen remotes\n");
-        unlink("/data/harmony/rf_sync_pending.flag");
-        unlink("/data/harmony/rf_sync_pending_details.json");
+        if (waiting) {
+            /* the pending flag stays for the remote that has not spoken yet */
+            printf("[*] Config push deferred: no touchscreen remote heard since the start\n");
+        } else {
+            printf("[*] Config push skipped: no active touchscreen remotes\n");
+            unlink("/data/harmony/rf_sync_pending.flag");
+            unlink("/data/harmony/rf_sync_pending_details.json");
+        }
         g_config_push_running = false;
         pthread_mutex_unlock(&push_lock);
         return NULL;
@@ -951,7 +952,11 @@ void *config_push_worker(void *arg) {
         }
     }
 
-    if (failed_count == 0) {
+    if (failed_count == 0 && waiting) {
+        /* the pending flag stays for the remote that has not spoken yet */
+        printf("[+] Config v%d pushed to the heard remotes; one not heard yet gets it with its first frame\n",
+               config_ver);
+    } else if (failed_count == 0) {
         printf("[+] Config push complete (acts=%d devs=%d btns=%d steps=%d ver=%d)\n",
                act_count, dev_count, btn_count, total_step_count, config_ver);
         unlink("/data/harmony/rf_sync_pending.flag");
@@ -973,5 +978,89 @@ void *config_push_worker(void *arg) {
 
     g_config_push_running = false;
     pthread_mutex_unlock(&push_lock);
+    /* A remote left out as not heard spoke while this push ran: it gets its own now */
+    for (int i = 0; i < MAX_PAIRED_REMOTES && g_rf_push_deferred; i++) {
+        if (unheard[i] && g_paired_remotes[i].heard) {
+            g_rf_push_deferred = false;
+            rf_request_config_push();
+        }
+    }
     return NULL;
+}
+
+/* One push at a time. The targets of a push are fixed when it starts: a remote paired into a
+ * chosen slot asks for its push under its pipe's old slot, and the move to the chosen slot asks
+ * again while that push runs. That request used to be dropped, and the remote kept the config of
+ * its old slot (or none). Now a request that finds a push running is noted, and the running one
+ * pushes once more when it ends, if the slot table (or which slots hold a remote) changed after
+ * it picked its targets. Other requests, such as a remote asking again for its config every few
+ * seconds during a long push, are served by the push that runs. A flag and a trylock, no wait:
+ * the Hub's kernel has no futex. */
+static pthread_mutex_t s_push_gate = PTHREAD_MUTEX_INITIALIZER;
+static volatile bool s_push_again;
+static volatile bool s_push_active;
+
+/* The pipe of each slot, then whether it holds a remote: a pipe moved to a chosen slot changes
+ * the table first and the slots' state a moment later (rf_slot_map_claim_pipe()), and a push can
+ * pick its targets in between */
+static void slot_table_now(uint8_t *table) {
+    for (uint8_t s = 1; s <= MAX_PAIRED_REMOTES; s++) {
+        table[s - 1] = rf_slot_to_pipe(s);
+        table[MAX_PAIRED_REMOTES + s - 1] = g_paired_remotes[s - 1].active;
+    }
+}
+
+static bool slot_table_moved(const uint8_t *before) {
+    uint8_t now[2 * MAX_PAIRED_REMOTES];
+    slot_table_now(now);
+    return memcmp(before, now, sizeof(now)) != 0;
+}
+
+void *config_push_worker(void *arg) {
+    if (pthread_mutex_trylock(&s_push_gate) != 0) {
+        s_push_again = true;
+        printf("[-] Config push already in progress (noted: it runs again if a slot moved)\n");
+        return NULL;
+    }
+    s_push_active = true;
+    for (;;) {
+        slot_table_now(s_push_table); /* the push may end before it picks targets */
+        s_push_again = false;
+        config_push_once(arg);
+        if (s_push_again && slot_table_moved(s_push_table) && g_running) {
+            printf("[*] Config push asked for while a slot moved: pushing again\n");
+            continue;
+        }
+        s_push_active = false;
+        pthread_mutex_unlock(&s_push_gate);
+        /* a request between the check above and the unlock found the gate still taken */
+        if (!s_push_again || !slot_table_moved(s_push_table) || !g_running || pthread_mutex_trylock(&s_push_gate) != 0) break;
+        s_push_active = true;
+        printf("[*] Config push asked for while a slot moved: pushing again\n");
+    }
+    return NULL;
+}
+
+/* False for a moment after rf_request_config_push(): from pthread_create() until the new thread
+ * takes s_push_gate. A restart due in that window ends hub_rf before that push starts; the
+ * window is tiny and the restart happens either way, so it is left as is. */
+bool rf_config_push_active(void) {
+    return s_push_active || g_config_push_running;
+}
+
+int rf_config_push_retry_skipped(void) {
+    if (!s_skipped_for_update || is_ota_busy()) return 0;
+    int st = g_rf_ota.status_code;
+    if (st == 1 || st == 3) return 0; /* still preparing or sending */
+    s_skipped_for_update = false;
+    if (st == 2) {
+        /* the update was installed: the remote restarts and asks for its config itself, and
+         * that push goes to every linked remote (a push now would go to a remote that is
+         * restarting, and keep its own request out while it waits for it) */
+        printf("[*] Skipped config push dropped: the updated remote asks for its config after its restart\n");
+        return 0;
+    }
+    printf("[*] Config push skipped during the update: pushing now\n");
+    rf_request_config_push();
+    return 1;
 }

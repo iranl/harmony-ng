@@ -450,18 +450,14 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
         cJSON_AddStringToObject(err, "rf_address", "None");
         cJSON_AddStringToObject(err, "hub_rf_address", "None");
         cJSON *slots = cJSON_AddArrayToObject(err, "slots");
-        cJSON *s1 = cJSON_CreateObject();
-        cJSON_AddNumberToObject(s1, "slot", 1);
-        cJSON_AddBoolToObject(s1, "active", 0);
-        cJSON_AddStringToObject(s1, "address", "None");
-        cJSON_AddStringToObject(s1, "rf_address", "None");
-        cJSON_AddItemToArray(slots, s1);
-        cJSON *s2 = cJSON_CreateObject();
-        cJSON_AddNumberToObject(s2, "slot", 2);
-        cJSON_AddBoolToObject(s2, "active", 0);
-        cJSON_AddStringToObject(s2, "address", "None");
-        cJSON_AddStringToObject(s2, "rf_address", "None");
-        cJSON_AddItemToArray(slots, s2);
+        for (int n = 1; n <= REMOTE_SLOT_MAX; n++) {
+            cJSON *s = cJSON_CreateObject();
+            cJSON_AddNumberToObject(s, "slot", n);
+            cJSON_AddBoolToObject(s, "active", 0);
+            cJSON_AddStringToObject(s, "address", "None");
+            cJSON_AddStringToObject(s, "rf_address", "None");
+            cJSON_AddItemToArray(slots, s);
+        }
         send_cjson_resp(client_fd, 200, err);
         cJSON_Delete(err);
         close(client_fd);

@@ -195,6 +195,26 @@ class Fetch(unittest.TestCase):
         self.assertEqual((rc, body), (1, None))
         self.assertIn("https to http", err)
 
+    def test_connect_to(self):
+        """--connect-to: the caller's checked address, no lookup of the name; the name still
+        goes in Host and is checked against the certificate"""
+        p = self.plain.server_address[1]
+        rc, _, err = self.fetch("http://name.invalid:%d/plain" % p)
+        self.assertEqual(rc, 1)
+        SEEN.clear()
+        self.assertEqual(self.fetch("http://name.invalid:%d/plain" % p, "--connect-to", "192.0.2.1,127.0.0.1",
+                                    "-T", "1")[:2], (0, b"hello"))
+        self.assertEqual(SEEN[-1][0], "name.invalid:%d" % p)
+        url = "https://example.invalid:%d/plain" % self.wrong.server_address[1]
+        self.assertEqual(self.fetch(url, "--ca", self.ca, "--connect-to", "127.0.0.1")[:2], (0, b"hello"))
+        rc, _, err = self.fetch("https://localhost:%d/plain" % self.wrong.server_address[1], "--ca", self.ca,
+                                "--connect-to", "127.0.0.1")
+        self.assertEqual(rc, 1)
+        self.assertIn("host name", err)
+        rc, _, err = self.fetch("http://127.0.0.1:%d/plain" % p, "--connect-to", "localhost")
+        self.assertEqual(rc, 1)
+        self.assertIn("bad address", err)
+
     def test_bad_header(self):
         rc, _, err = self.fetch("http://127.0.0.1:%d/plain" % self.plain.server_address[1], "-H", "X-A: a\r\nB: c")
         self.assertEqual(rc, 1)

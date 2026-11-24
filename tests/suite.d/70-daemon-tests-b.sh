@@ -9,6 +9,8 @@ python3 "$SCRIPT_DIR/test_ws_keepalive.py"
 python3 "$SCRIPT_DIR/test_ws_slow_reader.py"
 python3 "$SCRIPT_DIR/test_sntp_nonblocking.py"
 python3 "$SCRIPT_DIR/test_ir_raw.py"
+# #260: a saved command's port and repeats from a form post, used by a send; activities in Display Order
+python3 "$SCRIPT_DIR/test_command_port_order.py"
 python3 "$SCRIPT_DIR/test_request_body_limit.py"
 python3 "$SCRIPT_DIR/test_activity_help_answer.py"
 python3 "$SCRIPT_DIR/test_mdns.py"

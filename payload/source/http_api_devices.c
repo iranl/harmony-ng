@@ -798,6 +798,7 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
         int repeats = 1;
         int btn_action = HW_BTN_ACTION_TAP;
         int value = 0, has_value = 0, bad_value = 0; /* a plugin command's numeric argument */
+        int live = 0; /* "live": true, a person's press: sent like a key from a remote */
         cJSON *req_j = body ? parse_request_params(body) : NULL;
         if (req_j) {
             cJSON *jid = cJSON_GetObjectItemCaseSensitive(req_j, "deviceId");
@@ -828,6 +829,8 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
             if (jpronto && cJSON_IsString(jpronto) && jpronto->valuestring && jpronto->valuestring[0]) {
                 pronto_buf = strdup(jpronto->valuestring);
             }
+
+            live = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(req_j, "live"));
 
             cJSON *jport = cJSON_GetObjectItemCaseSensitive(req_j, "port");
             if (jport && cJSON_IsNumber(jport) && jport->valueint > 0) port = jport->valueint;
@@ -874,8 +877,13 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
             }
             free(pronto_buf);
         } else if (dev_id[0] && cmd_name[0]) {
+            /* live: no gaps before it, and for an HTTP or TCP device dropped when it waited too
+             * long in the send queue (net_action.c), as a key from a remote. Not live (scripts,
+             * Home Assistant, MQTT): it waits its turn and goes out. */
+            g_live_remote_key = live;
             rc = has_value ? hw_device_command_send_value(dev_id, 0, cmd_name, btn_action, value)
                            : hw_device_command_send_action(dev_id, 0, cmd_name, btn_action);
+            g_live_remote_key = 0;
             if (rc == HW_ERR_VALUE_RANGE || rc == HW_ERR_VALUE_MISSING) {
                 send_json_error(client_fd, 400, rc == HW_ERR_VALUE_RANGE ? "value out of range"
                                                                          : "value required (the command has a range)");
@@ -892,8 +900,8 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
         cJSON_AddBoolToObject(resp, "ok", rc == 0);
         if (dev_id[0]) cJSON_AddStringToObject(resp, "deviceId", dev_id);
         if (cmd_name[0]) cJSON_AddStringToObject(resp, "command", cmd_name);
-        if (rc != 0) cJSON_AddStringToObject(resp, "error", "IR transmit failed");
-        send_cjson_resp(client_fd, rc == 0 ? 200 : 500, resp);
+        if (rc != 0) cJSON_AddStringToObject(resp, "error", rc == HW_ERR_QUEUE_FULL ? "send queue full" : "IR transmit failed");
+        send_cjson_resp(client_fd, rc == 0 ? 200 : rc == HW_ERR_QUEUE_FULL ? 503 : 500, resp);
         cJSON_Delete(resp);
         close(client_fd);
         return 1;
@@ -1535,6 +1543,7 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                         }
                     }
                     if (arr) {
+                        cmd_ranges_keep_stored(arr, stored_cmds);
                         cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "commands");
                         cJSON_AddItemToObject(found_dev, "commands", arr);
                     }

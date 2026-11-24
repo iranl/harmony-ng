@@ -4,9 +4,7 @@ import { api } from '../../api/index.js';
 import { t } from '../../i18n/index.js';
 import { toast } from '../../components/toast.js';
 import { confirm } from '../../components/confirm.js';
-import { createButtonEditor } from './remote-buttons.js';
-
-const RF_SLOT_COUNT = 6; /* the Hub's remote slots (REMOTE_SLOT_MAX) */
+import { createButtonEditor, RF_SLOT_COUNT } from './remote-buttons.js';
 
 export function createView() {
   const container = h('div', { className: 'setup-subview-rfremote', style: { display: 'flex', flexDirection: 'column', gap: '16px' } });
@@ -63,6 +61,8 @@ export function createView() {
   async function loadLinkStatus() {
     const st = await api.getRfStatus().catch(() => null);
     renderSlotButtons(st);
+    // a remote without a screen (Companion, Smart Control) cannot pick a device
+    if (st) buttons.setScreenless(st.slots?.find(s => s.slot === currentSlot)?.has_screen === false);
     const link = st?.slots?.find(s => s.slot === currentSlot)?.link;
     if (!link) { linkStatus.textContent = ''; return; }
     const seen = link.last_seen_s < 0 ? t('rf_link_never', 'never') : t('seconds_ago', '{s} s ago', { s: link.last_seen_s });

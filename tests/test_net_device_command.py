@@ -10,7 +10,10 @@ HTTP and TCP devices (payload/source/net_device.h, net_action.c, tls_client.c):
   {device}/{command}, headers, Basic auth, body; TCP text escapes and hex bytes;
 - TLS: pin mode pins the first key, refuses a changed key until the pin is forgotten; verify
   mode refuses a self-signed certificate; insecure mode accepts it;
-- /api/ir-send in dry run logs the request instead of sending it.
+- /api/ir-send in dry run logs the request instead of sending it;
+- the Hub itself is never a device: the test daemon keeps the loopback refusal and allows only
+  the ports of this test's servers (HARMONY_TEST_NET_LOOPBACK_PORTS), so a device at 2130706433
+  (127.0.0.1) on another port is refused and "localhost" is not saved.
 """
 
 import json
@@ -129,8 +132,10 @@ def main():
     cert_a, cert_b = make_cert(tmp, "a"), make_cert(tmp, "b")
     tls = http_server(cert_a)
     tls_port = tls.server_address[1]
+    other = http_server()   # a server on 127.0.0.1 whose port the daemon is not told
+    ports = ",".join(str(p) for p in (web.server_address[1], tcp.port, tls_port, tls_port + 1, 1))
     try:
-        with HubHarness(port=PORT, config_dir=cfg, log_path=log) as hub:
+        with HubHarness(port=PORT, config_dir=cfg, log_path=log, env={"HARMONY_TEST_NET_LOOPBACK_PORTS": ports}) as hub:
             def dev_by_id(dev_id):
                 st, r = hub.http_get("/api/devices")
                 return next((d for d in r.get("devices", []) if d.get("id") == dev_id), None)
@@ -255,8 +260,20 @@ def main():
             t0 = time.time()
             st, r = hub.http_post("/api/device-net-test", {"id": "55", "command": "X"}, timeout=15)
             check(r.get("ok") is False and time.time() - t0 < 5, "closed port reported", r)
+
+            # the Hub itself: refused before anything is sent
+            st, _ = hub.http_post("/api/device-save", {"id": "56", "name": "Self", "type": "HTTP", "netHost": "localhost",
+                                                       "netPort": other.server_address[1]})
+            check(st == 400, "localhost not saved", st)
+            hub.http_post("/api/device-save", {"id": "56", "name": "Self", "type": "HTTP", "netHost": "2130706433",
+                                               "netPort": other.server_address[1],
+                                               "commands": [{"name": "Ping", "httpPath": "/ping"}]})
+            n = len(REQUESTS)
+            st, r = hub.http_post("/api/device-net-test", {"id": "56", "command": "Ping"}, timeout=15)
+            check(r.get("ok") is False and "Hub itself" in r.get("error", ""), "2130706433 (127.0.0.1) refused", r)
+            check(len(REQUESTS) == n, "nothing sent to it", REQUESTS[n:])
     finally:
-        for s in (web, tls):
+        for s in (web, tls, other):
             try:
                 s.shutdown()
                 s.server_close()

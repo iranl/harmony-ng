@@ -24,6 +24,10 @@ for _b in /data/harmony/bin/dropbear /data/harmony/bin/dropbearmulti /data/dropb
         echo "$_b"
         exit 0
     fi
+    # -R creates a missing host key, but the server exits on an empty one (a cut key write)
+    for _k in /etc/dropbear/dropbear_ed25519_host_key /etc/dropbear/dropbear_rsa_host_key; do
+        [ -f "$_k" ] && [ ! -s "$_k" ] && rm -f "$_k"
+    done
     export PATH=/data/harmony/bin:/cache/bin:$PATH
     case "$_b" in
         *dropbearmulti) exec "$_b" dropbear -s -g -K 300 -R "$@" ;;

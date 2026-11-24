@@ -141,12 +141,16 @@ static void bs_finish(bit_stream_t *bs) {
             bs->buf[bs->len++] = 0;
         }
     }
-    /* Byte-swap and invert every 16-bit word (matches HAL hornet_i2s_write) */
+    /* Swap the two bytes of every 16-bit word and nothing else, as the stock hal's
+     * hornet_i2s_write does: a mark is 1 bits, silence 0 bits. (Only the receive side,
+     * hornet_i2s_read, also inverts.) An inverted stream still works through the air, where a
+     * receiver only looks for the carrier, but it lights the emitters through every space, and
+     * a device wired to a jack reads it as noise: an Arcam amplifier on jack 2 ignored every
+     * code until this matched stock. */
     for (size_t i = 0; i + 1 < bs->len; i += 2) {
         uint8_t b0 = bs->buf[i];
-        uint8_t b1 = bs->buf[i + 1];
-        bs->buf[i]     = (uint8_t)~b1;
-        bs->buf[i + 1] = (uint8_t)~b0;
+        bs->buf[i]     = bs->buf[i + 1];
+        bs->buf[i + 1] = b0;
     }
 }
 
@@ -257,7 +261,11 @@ static int ir_i2s_blast_locked(const bit_stream_t *bsp, uint8_t port_mask, uint3
     uint32_t sel = (port_mask & 0x07);
     if (sel == 0) sel = IR_I2S_EMITTER_ALL;
 
-    int start_arg = (int)(((sel & 0xffff) << 16) | ((uint32_t)bs.len & 0xffff));
+    /* START's low word is a flag, not a length: 0 plays what was written once, anything else
+     * makes ath_i2s play it again and again from where the last drain left off until the next
+     * drain (the stock hal's held-key mode). With the length there, a stream shorter than the
+     * wait below went out twice or more. */
+    int start_arg = (int)((sel & 0xffff) << 16);
     if (ioctl(fd, I2S_START, start_arg) < 0) {
         close(fd);
         s_i2s_tx_fd = -1;
@@ -584,7 +592,11 @@ static int ir_rx_session_open(ir_rx_session_t *s, char *err, size_t errlen) {
     ioctl(s->fd, I2S_START, 0);
     s->watch.target = pthread_self();
     ir_wake_open(&s->watch.wake);
-    s->watching = pthread_create(&s->watch_thread, NULL, ir_rx_watch, &s->watch) == 0;
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr, 64 * 1024);
+    s->watching = pthread_create(&s->watch_thread, &attr, ir_rx_watch, &s->watch) == 0;
+    pthread_attr_destroy(&attr);
     if (!s->watching) ir_wake_close(&s->watch.wake);
     return 0;
 }
@@ -931,7 +943,12 @@ static int capture_mode_set(int enable, ir_rx_signal_cb cb, void *user, char *er
     s_mode_error[0] = '\0';
     s_mode_exited = 0;
     ir_wake_open(&s_mode_wake);
-    if (pthread_create(&s_mode_thread, NULL, ir_mode_thread, NULL) != 0) {
+    pthread_attr_t mode_attr;
+    pthread_attr_init(&mode_attr);
+    pthread_attr_setstacksize(&mode_attr, 64 * 1024);
+    int mode_th_rc = pthread_create(&s_mode_thread, &mode_attr, ir_mode_thread, NULL);
+    pthread_attr_destroy(&mode_attr);
+    if (mode_th_rc != 0) {
         ir_wake_close(&s_mode_wake);
         pthread_mutex_unlock(&s_rx_lock);
         if (err) snprintf(err, errlen, "Could not start the capture thread");

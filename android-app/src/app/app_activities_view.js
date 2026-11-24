@@ -125,7 +125,7 @@ export class HarmonyAppActivitiesView extends HarmonyAppActivitiesState {
       availableDevices: this.inventory.devices || [],
       commandsMap: this.deviceCommandsMap,
       onSendCommand: async (devId, cmd, action) => {
-        await this.client.sendCommand(devId, cmd, action);
+        await this.client.sendCommand(devId, cmd, action, { live: true });
       }
     });
   }

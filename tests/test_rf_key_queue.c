@@ -30,6 +30,7 @@ static uint64_t clock_us(clockid_t id) {
 
 uint64_t get_monotonic_ms(void) { return clock_us(CLOCK_MONOTONIC) / 1000ULL; }
 void mark_remote_slot_active(uint8_t slot) { (void)slot; }
+bool is_companion_slot(uint8_t slot) { (void)slot; return false; }
 void rf_note_slot_family(uint8_t slot, remote_model_t family) { (void)slot; (void)family; }
 
 #define MAX_EVENTS 256

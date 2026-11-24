@@ -154,11 +154,15 @@ static void crash_sig_handler(int sig, siginfo_t *info, void *ucontext) {
 /* A thread remote_ui cannot work without: tried twice (a failure means no memory for its stack
  * at that moment), and said in the log when it did not start; the result was ignored */
 static int start_thread(pthread_t *th, void *(*fn)(void *), const char *what) {
-    int rc = pthread_create(th, NULL, fn, NULL);
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr, 128 * 1024);
+    int rc = pthread_create(th, &attr, fn, NULL);
     if (rc != 0) {
         usleep(200000);
-        rc = pthread_create(th, NULL, fn, NULL);
+        rc = pthread_create(th, &attr, fn, NULL);
     }
+    pthread_attr_destroy(&attr);
     if (rc != 0) fprintf(stderr, "[-] The %s thread did not start: %s\n", what, strerror(rc));
     return rc;
 }

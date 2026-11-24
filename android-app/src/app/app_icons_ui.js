@@ -31,7 +31,7 @@ import {
   getAllCachedKeys
 } from '../icon-cache.js';
 
-export const APP_VERSION = '2.5.3';
+export const APP_VERSION = '3.0.0';
 
 export let stockIconsAvailable = false;
 export let stockIconBaseUrl = '';

@@ -161,7 +161,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
       },
       commandsMap: this.deviceCommandsMap,
       onSendCommand: async (devId, cmd, action) => {
-        await this.client.sendCommand(devId, cmd, action);
+        await this.client.sendCommand(devId, cmd, action, { live: true });
       }
     });
   }
@@ -272,9 +272,11 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
       portEl.value = String(p);
     }
 
-    const isIr = !isPlugin && (dev.type === 'IR' || !dev.type || dev.type === 'Television' || dev.type === 'Amplifier' || dev.type === 'Media Player' || dev.type === 'HomeAppliance');
     const isBt = !isPlugin && (dev.type === 'BT' || dev.type === 'Bluetooth' || dev.isBt);
     const isMqtt = !isPlugin && !isBt && (dev.type === 'MQTT' || dev.mqttEnabled);
+    /* IR: not a plugin, Bluetooth, MQTT, HTTP or TCP device, as in the Edit box and the Hub's
+     * sanitizer (a type list hid the blaster row of an IR device of another type on a redraw) */
+    const isIr = !isPlugin && !isBt && !isMqtt && !this.isNetDevice(dev);
 
     const blasterBox = document.getElementById('curDevBlasterBox');
     if (blasterBox) blasterBox.style.display = isIr ? 'flex' : 'none';
@@ -782,6 +784,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     const devNameEl = document.getElementById('powerSeqDevName');
     if (devNameEl) devNameEl.textContent = dev.name || dev.model || dev.id;
 
+    this.powerSeqOwnerId = String(dev.id); // the step rows show and save this device (addSequenceStep)
     const pOn = dev.powerOnSequence || dev.power_on_sequence || dev.PowerOnActions || [];
     const pOff = dev.powerOffSequence || dev.power_off_sequence || dev.PowerOffActions || [];
     this.renderSequenceList('powerOnStepsList', Array.isArray(pOn) ? pOn : []);
@@ -790,6 +793,12 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     const stat = document.getElementById('powerSeqStatus');
     if (stat) stat.textContent = '';
     modal.style.display = 'flex';
+  }
+
+  closePowerSequenceModal() {
+    const modal = document.getElementById('powerSeqModal');
+    if (modal) modal.style.display = 'none';
+    this.powerSeqOwnerId = null; // only the power step lists read it; cleared so nothing else can
   }
 
   async saveDevicePowerSequences() {
@@ -809,10 +818,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
       dev.powerOnSequence = pOn;
       dev.powerOffSequence = pOff;
       if (stat) stat.innerHTML = `<span style="color:var(--success)">${t('saved_status')}</span>`;
-      setTimeout(() => {
-        const modal = document.getElementById('powerSeqModal');
-        if (modal) modal.style.display = 'none';
-      }, 1000);
+      setTimeout(() => this.closePowerSequenceModal(), 1000);
       await this.refreshData();
     } catch (err) {
       if (stat) stat.innerHTML = `<span style="color:var(--danger)">${escapeHtml(tf('error_msg', { error: err.message }))}</span>`;

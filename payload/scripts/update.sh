@@ -17,8 +17,10 @@ fi
 # until hub_util ota-verify has checked it: the Ed25519 signature of manifest.json against the
 # release keys built into the firmware, then the SHA-256 of every file against the signed manifest.
 # So when the certificate check fails (a clock not set yet, a server on a root outside the bundle),
-# the file is fetched again without it and the signature decides, as before hub_fetch existed:
-# otherwise the update that would bring a new CA bundle could never be fetched.
+# a file the signature covers is fetched again without it (and without the token of a private
+# source) and the signature decides, as before hub_fetch existed: otherwise the update that would
+# bring a new CA bundle could never be fetched. The version check (VERSION files, the GitHub
+# release list) is never fetched that way: nothing signs it.
 WGET="$BB wget"
 HUB_UTIL=/data/harmony/bin/hub_util
 HUB_FETCH=/data/harmony/bin/hub_fetch
@@ -92,12 +94,16 @@ set_update_state() {
 
 # fetch_once URL DST TIMEOUT OPTION...: one hub_fetch run; its messages go to stderr and to
 # $FETCH_ERR. The token goes in a header file (mode 600), not on the command line (ps shows it).
+# FETCH_NO_TOKEN=1: sent without the token (a server whose certificate was not checked).
+# FETCH_TOKEN: the token for this download (download_retry sets it; empty off the source).
 FETCH_ERR=/tmp/.update_fetch.$$.err
 FETCH_HDR=/tmp/.update_fetch.$$.hdr
+FETCH_NO_TOKEN=
+FETCH_TOKEN=
 fetch_once() {
   _u="$1"; _d="$2"; _t="$3"; shift 3
-  if [ -n "$TOKEN_ARG" ]; then
-    (umask 077; echo "Authorization: token ${TOKEN_ARG}" > "$FETCH_HDR")
+  if [ -n "$FETCH_TOKEN" ] && [ -z "$FETCH_NO_TOKEN" ]; then
+    (umask 077; echo "Authorization: token ${FETCH_TOKEN}" > "$FETCH_HDR")
     LD_LIBRARY_PATH="$HUB_LIB" "$HUB_FETCH" -T "$_t" --max "$FETCH_MAX" --header-file "$FETCH_HDR" "$@" -o "$_d" "$_u" 2>"$FETCH_ERR"
   else
     LD_LIBRARY_PATH="$HUB_LIB" "$HUB_FETCH" -T "$_t" --max "$FETCH_MAX" "$@" -o "$_d" "$_u" 2>"$FETCH_ERR"
@@ -108,12 +114,38 @@ fetch_once() {
   return $_rc
 }
 
+# download_retry URL DST [TIMEOUT] [ATTEMPTS] [signed]: "signed" marks a file the release signature
+# covers (the manifest, its signature, and files checked against the signed manifest before use).
+# Only such a file is fetched again without the certificate check when TLS fails, and never with
+# the token. Anything else (VERSION files, the GitHub release list) is not: an unchecked server
+# could show any version and would get the token of a private source.
 download_retry() {
   local url="$1"
   local dst="$2"
   local timeout="${3:-12}"
   local max_attempts="${4:-3}"
+  local signed="$5"
   local i=1
+  # The token is for the configured source only. The one URL elsewhere is the GitHub release
+  # list (do_check's fallback): asked only for the GitHub repository the source is on (the
+  # default source: the public project), never for another source, and never with the token (a
+  # private source's token went to GitHub).
+  FETCH_TOKEN="$TOKEN_ARG"
+  case "$url" in
+    "$REPO"/*) ;;
+    https://api.github.com/*)
+      case "$REPO" in
+        https://raw.githubusercontent.com/*/*) ;;
+        *) return 1 ;;
+      esac
+      _gh_repo=$(echo "${REPO#https://raw.githubusercontent.com/}" | cut -d/ -f1-2)
+      case "$url" in
+        "https://api.github.com/repos/$_gh_repo/"*) ;;
+        *) return 1 ;;
+      esac
+      FETCH_TOKEN="" ;;
+    *) FETCH_TOKEN="" ;;
+  esac
   if [ -z "$USE_FETCH" ]; then
     USE_FETCH=0
     if [ -x "$HUB_FETCH" ] && [ -s "$CA_BUNDLE" ] && LD_LIBRARY_PATH="$HUB_LIB" "$HUB_FETCH" --probe >/dev/null 2>&1; then
@@ -125,14 +157,21 @@ download_retry() {
     # the header is one argument: unquoted, the token was passed to wget as extra URLs
     if [ "$USE_FETCH" = 1 ]; then
       fetch_once "$url" "$dst" "$timeout" --ca "$CA_BUNDLE"
-      # any TLS failure (a certificate, an unsupported signature, "TLS error N"): for update
-      # files the release signature decides, not TLS. The token goes along, as with busybox wget.
+      # any TLS failure (a certificate, an unsupported signature, "TLS error N"): for a signed
+      # update file the release signature decides, not TLS
       if [ ! -s "$dst" ] && grep -q 'TLS' "$FETCH_ERR" 2>/dev/null; then
-        echo "[!] ${url%%\?*}: $(sed -n 's/.*\(TLS.*\)/\1/p' "$FETCH_ERR" | sed -n 1p). Fetched without the certificate check: the release signature decides." >&2
-        fetch_once "$url" "$dst" "$timeout" --insecure
+        _why=$(sed -n 's/^hub_fetch: [^ ]*: //p' "$FETCH_ERR" | sed -n 1p)
+        if [ "$signed" = signed ]; then
+          echo "[!] ${url%%\?*}: ${_why}. Fetched again without the certificate check and without the token: the release signature decides." >&2
+          FETCH_NO_TOKEN=1
+          fetch_once "$url" "$dst" "$timeout" --insecure
+          FETCH_NO_TOKEN=
+        else
+          echo "[!] ${url%%\?*}: ${_why}. Not fetched without the certificate check: no signature covers this file." >&2
+        fi
       fi
-    elif [ -n "$TOKEN_ARG" ]; then
-      $WGET -q -T "$timeout" --header "Authorization: token ${TOKEN_ARG}" -O "$dst" "$url" 2>/dev/null
+    elif [ -n "$FETCH_TOKEN" ]; then
+      $WGET -q -T "$timeout" --header "Authorization: token ${FETCH_TOKEN}" -O "$dst" "$url" 2>/dev/null
     else
       $WGET -q -T "$timeout" -O "$dst" "$url" 2>/dev/null
     fi
@@ -152,11 +191,11 @@ download_retry() {
 fetch_signed_manifest() {
   local dir="$1"
   rm -f "$dir/manifest.json" "$dir/manifest.json.sig"
-  if ! download_retry "${REPO}/manifest.json?_=${TIMESTAMP}" "$dir/manifest.json" 10 3; then
+  if ! download_retry "${REPO}/manifest.json?_=${TIMESTAMP}" "$dir/manifest.json" 10 3 signed; then
     echo "[-] Release manifest (manifest.json) missing from ${REPO}." >&2
     return 1
   fi
-  if ! download_retry "${REPO}/manifest.json.sig?_=${TIMESTAMP}" "$dir/manifest.json.sig" 10 3; then
+  if ! download_retry "${REPO}/manifest.json.sig?_=${TIMESTAMP}" "$dir/manifest.json.sig" 10 3 signed; then
     echo "[-] Release signature (manifest.json.sig) missing from ${REPO}." >&2
     return 1
   fi
@@ -303,14 +342,20 @@ pkg_dropbear() {
   fi
 }
 
-# Root's authorized_keys (dropbear reads the one in root's home) holds an Ed25519 key: a line
-# that is not a comment and has an Ed25519 key blob (they all start with AAAAC3NzaC1lZDI1NTE5),
-# options in front allowed. "ssh-ed25519" in a comment or in another key's comment does not count.
+# Root's authorized_keys (dropbear reads the one in root's home) holds an Ed25519 key line in the
+# shape dropbear reads: the key type at the very start of the line, or after one options field and
+# one blank (blanks before the options are allowed; option names are not checked), then one space
+# and the whole 68-character key blob, then a space or the end of the line. Not a comment, not a
+# key whose first word is another key type, not a cut or joined key, not "ssh-ed25519" in another
+# key's comment. The same patterns are in build/deploy_hub.py (ED25519_KEY_SKIP,
+# ED25519_KEY_LINE); stock BusyBox 1.13.4 grep.
 has_ed25519_user_key() {
   _home=$(awk -F: '$1=="root"{print $6}' /etc/passwd 2>/dev/null)
   _ak="${_home:-/home/root}/.ssh/authorized_keys"
   [ -f "$_ak" ] || return 1
-  grep -v "^[ 	]*#" "$_ak" 2>/dev/null | grep -q 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5'
+  grep -v '^[[:blank:]]*#' "$_ak" 2>/dev/null |
+    grep -v '^[[:blank:]]*\(ssh-\|ecdsa-\|sk-\)[^[:blank:]]*[[:blank:]]ssh-ed25519 ' |
+    grep -q '^\([[:blank:]]*\([^[:blank:]"]\|"[^"]*"\)\{1,\}[[:blank:]]\)\{0,1\}ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI[A-Za-z0-9+/]\{43\}\( \|$\)'
 }
 
 # link_dropbear [PKG_BINARY]: the multi-call links. Given the package's dropbearmulti (checked
@@ -580,7 +625,7 @@ do_apply() {
   OTA_BUNDLE_OK=0
   INSTALL_OK=0
   echo "[*] Checking for unified Hub package (hub_ota.tar.gz)..."
-  if download_retry "${REPO}/hub_ota.tar.gz?_=${TIMESTAMP}" "$TMPDIR/hub_ota.tar.gz" 35 3; then
+  if download_retry "${REPO}/hub_ota.tar.gz?_=${TIMESTAMP}" "$TMPDIR/hub_ota.tar.gz" 35 3 signed; then
     echo "[+] Downloaded unified OTA package to RAM ($TMPDIR/hub_ota.tar.gz)."
 
     # The package must match the SHA-256 in the signed manifest
@@ -620,7 +665,12 @@ do_apply() {
       # D. Install extended BusyBox applets strictly to /cache/bin (/bin/sh is NEVER touched)
       rm -f /data/bin/sh /data/bin/ash /data/bin/busybox 2>/dev/null || true
       if [ -x /cache/bin/busybox ]; then
-        /cache/bin/busybox --install -s /cache/bin 2>/dev/null || true
+        # Links to busybox in /usr/bin (older deploys) and of removed applets in /cache/bin go
+        _bb=/cache/bin/busybox
+        for _l in /usr/bin/* /cache/bin/*; do
+          [ -L "$_l" ] && [ "$($_bb readlink "$_l" 2>/dev/null)" = "$_bb" ] && rm -f "$_l" 2>/dev/null || true
+        done
+        $_bb --install -s /cache/bin 2>/dev/null || true
         ln -sf /cache/bin/busybox /data/harmony/bin/busybox 2>/dev/null || true
       fi
 
@@ -664,13 +714,13 @@ do_apply() {
   if [ "$OTA_BUNDLE_OK" != "1" ]; then
     echo "[*] Falling back to modular asset download..."
     FB_FILES=""
-    if download_retry "${REPO}/www.tar.gz?_=${TIMESTAMP}" "$TMPDIR/www.tar.gz" 30 3; then
+    if download_retry "${REPO}/www.tar.gz?_=${TIMESTAMP}" "$TMPDIR/www.tar.gz" 30 3 signed; then
       FB_FILES="$FB_FILES www.tar.gz=$TMPDIR/www.tar.gz"
     fi
     FB_BINS=""
     FB_MISSING=""
     for b in hub_util hub_daemon hub_fetch hub_rf hub_btstack register_ehci eth_fix hub_sync; do
-      if download_retry "${REPO}/bin/mips/${b}?_=${TIMESTAMP}" "$TMPDIR/$b" 30 3; then
+      if download_retry "${REPO}/bin/mips/${b}?_=${TIMESTAMP}" "$TMPDIR/$b" 30 3 signed; then
         FB_FILES="$FB_FILES bin/mips/$b=$TMPDIR/$b"
         FB_BINS="$FB_BINS $b"
       elif grep -q "\"bin/mips/$b\"" "$TMPDIR/manifest.json" 2>/dev/null; then
@@ -679,7 +729,7 @@ do_apply() {
     done
     FB_LIB=""
     if grep -q '"lib/libbearssl.so.0"' "$TMPDIR/manifest.json" 2>/dev/null; then
-      if download_retry "${REPO}/lib/libbearssl.so.0?_=${TIMESTAMP}" "$TMPDIR/libbearssl.so.0" 30 3; then
+      if download_retry "${REPO}/lib/libbearssl.so.0?_=${TIMESTAMP}" "$TMPDIR/libbearssl.so.0" 30 3 signed; then
         FB_FILES="$FB_FILES lib/libbearssl.so.0=$TMPDIR/libbearssl.so.0"
         FB_LIB=1
       else
@@ -807,10 +857,10 @@ do_fetch_remote_ota() {
 
   # The image is kept only together with its manifest and signature: hub_rf verifies them before
   # it sends anything to the remote, and treats an image without a manifest as staged by hand.
-  if download_retry "${REPO}/manifest.json?_=${TIMESTAMP}" "${manifest}" 10 1 &&
-     download_retry "${REPO}/manifest.json.sig?_=${TIMESTAMP}" "${sig}" 10 1; then
-    if download_retry "${REPO}/bin/arm/remote_ui.ota.gz?_=${TIMESTAMP}" "${target}" 20 1 ||
-       download_retry "${REPO}/bin/arm/elite_ui.ota.gz?_=${TIMESTAMP}" "${target}" 20 1; then
+  if download_retry "${REPO}/manifest.json?_=${TIMESTAMP}" "${manifest}" 10 1 signed &&
+     download_retry "${REPO}/manifest.json.sig?_=${TIMESTAMP}" "${sig}" 10 1 signed; then
+    if download_retry "${REPO}/bin/arm/remote_ui.ota.gz?_=${TIMESTAMP}" "${target}" 20 1 signed ||
+       download_retry "${REPO}/bin/arm/elite_ui.ota.gz?_=${TIMESTAMP}" "${target}" 20 1 signed; then
       echo "[+] Remote OTA package downloaded to ${target}."
       return 0
     fi
@@ -924,7 +974,7 @@ do_repair_tls() {
       echo "[-] $_f is not in the signed manifest of v${LOCAL_VER#v}: cannot repair it."
       continue
     fi
-    download_retry "${REPO}/${_f}?_=${TIMESTAMP}" "$TMPDIR/${_f##*/}" 20 3 && _files="$_files $_f=$TMPDIR/${_f##*/}"
+    download_retry "${REPO}/${_f}?_=${TIMESTAMP}" "$TMPDIR/${_f##*/}" 20 3 signed && _files="$_files $_f=$TMPDIR/${_f##*/}"
   done
   # shellcheck disable=SC2086
   if [ -z "$_files" ] || ! verify_files $_files; then
@@ -965,6 +1015,13 @@ proc_start() {
   sed 's/.*) //' "/proc/$1/stat" 2>/dev/null | awk '{print $20}'
 }
 apply_lock_owner_runs() {
+  # A lock without its pid file belongs to a run between its mkdir and its first write: wait for
+  # the file (3 s) before taking the lock over, or both runs would hold it
+  _w=0
+  while [ ! -s "$APPLY_LOCK/pid" ] && [ -d "$APPLY_LOCK" ] && [ $_w -lt 3 ]; do
+    sleep 1
+    _w=$((_w + 1))
+  done
   _owner=$(cat "$APPLY_LOCK/pid" 2>/dev/null)
   _start=$(cat "$APPLY_LOCK/start" 2>/dev/null)
   [ -n "$_owner" ] && [ -d "/proc/$_owner" ] || return 1

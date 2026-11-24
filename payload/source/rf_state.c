@@ -3,6 +3,7 @@
 #include "rf_proto.h"
 #include "cJSON.h"
 #include "atomic_file.h"
+#include "rf_slot_table.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -272,28 +273,114 @@ uint8_t rf_pipe_to_slot(uint8_t pipe) {
     return slot;
 }
 
+_Static_assert(MAX_PAIRED_REMOTES == RF_SLOT_TABLE_SLOTS, "the slot table has one pipe per slot");
+
 void rf_slot_map_load(void) {
     uint8_t pipes[MAX_PAIRED_REMOTES];
-    bool ok = false;
-    FILE *f = fopen(g_rf_slot_map_path, "r");
-    if (f) {
-        unsigned seen = 0;
-        ok = true;
-        for (int i = 0; i < MAX_PAIRED_REMOTES && ok; i++) {
-            int v = 0;
-            if (fscanf(f, "%d", &v) != 1 || v < 1 || v > MAX_PAIRED_REMOTES || (seen & (1u << v))) ok = false;
-            else { seen |= 1u << v; pipes[i] = (uint8_t)v; }
-        }
-        fclose(f);
-        if (!ok) printf("[-] %s is not a slot table, slots and pipes are the same\n", g_rf_slot_map_path);
-    }
-    if (!ok)
-        for (int i = 0; i < MAX_PAIRED_REMOTES; i++) pipes[i] = (uint8_t)(i + 1);
+    /* no file: slots and pipes the same; a file that is no table: the same, said once */
+    if (!rf_slot_table_read(g_rf_slot_map_path, pipes) && access(g_rf_slot_map_path, F_OK) == 0)
+        printf("[-] %s is not a slot table, slots and pipes are the same\n", g_rf_slot_map_path);
     pthread_mutex_lock(&s_slot_map_lock);
     slot_map_set_locked(pipes);
     pthread_mutex_unlock(&s_slot_map_lock);
     for (int s = 1; s <= MAX_PAIRED_REMOTES; s++)
         if (pipes[s - 1] != s) printf("[*] Slot %d is CC2544 pipe %d\n", s, pipes[s - 1]);
+}
+
+/* A slot holds nothing worth a file: what rf_slot_forget() leaves */
+static bool version_state_empty(const remote_version_t *v) {
+    return !v->remote_id[0] && !v->skin && !v->caps && !v->config_version && strcmp(v->sw_version, "unknown") == 0;
+}
+
+/* The remote's own settings (remote_slot<N>_config.json, sent back to it with every config
+ * push): read whole, NULL when the file is missing or unreadable */
+static char *remote_config_read(int slot) {
+    char path[160];
+    snprintf(path, sizeof(path), "%s/remote_slot%d_config.json", g_rf_version_dir, slot);
+    FILE *f = fopen(path, "rb");
+    if (!f) return NULL;
+    char *text = NULL;
+    if (fseek(f, 0, SEEK_END) == 0) {
+        long sz = ftell(f);
+        if (sz >= 0 && sz <= 16384 && fseek(f, 0, SEEK_SET) == 0 && (text = (char *)malloc((size_t)sz + 1))) {
+            if (fread(text, 1, (size_t)sz, f) == (size_t)sz) {
+                text[sz] = 0;
+            } else {
+                free(text);
+                text = NULL;
+            }
+        }
+    }
+    fclose(f);
+    return text;
+}
+
+/* Slot <slot> takes the settings file read from another slot (text NULL: it has none) */
+static void remote_config_move_to(int slot, const char *text) {
+    char path[160];
+    snprintf(path, sizeof(path), "%s/remote_slot%d_config.json", g_rf_version_dir, slot);
+    cJSON *root = text ? cJSON_Parse(text) : NULL;
+    char *out = NULL;
+    if (root) {
+        cJSON_DeleteItemFromObject(root, "slot"); /* the file names its slot */
+        cJSON_AddNumberToObject(root, "slot", slot);
+        out = cJSON_PrintUnformatted(root);
+        cJSON_Delete(root);
+    }
+    if (out && atomic_file_write_str(path, out) == 0) {
+        free(out);
+        return;
+    }
+    free(out);
+    unlink(path); /* no settings for this remote (or not readable): the stored ones are another's */
+}
+
+int rf_slot_map_follow_file(void) {
+    uint8_t pipes[MAX_PAIRED_REMOTES];
+    rf_slot_table_read(g_rf_slot_map_path, pipes); /* no table: slots and pipes the same */
+    uint8_t old_slot_of_pipe[MAX_PAIRED_REMOTES + 1];
+    pthread_mutex_lock(&s_slot_map_lock);
+    slot_map_ensure_locked();
+    memcpy(old_slot_of_pipe, s_slot_of_pipe, sizeof(old_slot_of_pipe));
+    slot_map_set_locked(pipes);
+    pthread_mutex_unlock(&s_slot_map_lock);
+
+    /* a restored table is a permutation (two remotes can swap slots): copy every slot's state
+     * first, then give each slot the state of the slot its pipe had */
+    remote_version_t versions[MAX_PAIRED_REMOTES];
+    remote_battery_t batteries[MAX_PAIRED_REMOTES];
+    memcpy(versions, g_remote_versions, sizeof(versions));
+    memcpy(batteries, g_remote_batteries, sizeof(batteries));
+    char *configs[MAX_PAIRED_REMOTES] = {0};
+    for (int s = 1; s <= MAX_PAIRED_REMOTES; s++) {
+        uint8_t from = old_slot_of_pipe[pipes[s - 1]];
+        if (from != s && from >= 1 && from <= MAX_PAIRED_REMOTES) configs[from - 1] = remote_config_read(from);
+    }
+    int changed = 0;
+    for (int s = 1; s <= MAX_PAIRED_REMOTES; s++) {
+        uint8_t from = old_slot_of_pipe[pipes[s - 1]];
+        if (from == s || from < 1 || from > MAX_PAIRED_REMOTES) continue;
+        changed++;
+        g_remote_versions[s - 1] = versions[from - 1];
+        g_remote_batteries[s - 1] = batteries[from - 1];
+        char path[160];
+        if (version_state_empty(&g_remote_versions[s - 1])) {
+            snprintf(path, sizeof(path), "%s/remote_slot%d_version.json", g_rf_version_dir, s);
+            unlink(path);
+        } else {
+            rf_state_save_version_file(s);
+        }
+        if (g_remote_batteries[s - 1].last_update_ms) {
+            battery_cache_write(s);
+        } else {
+            battery_cache_path(s, path, sizeof(path));
+            unlink(path);
+        }
+        remote_config_move_to(s, version_state_empty(&g_remote_versions[s - 1]) ? NULL : configs[from - 1]);
+        printf("[*] Slot %d (CC2544 pipe %d) takes the remote state of slot %d\n", s, pipes[s - 1], from);
+    }
+    for (int i = 0; i < MAX_PAIRED_REMOTES; i++) free(configs[i]);
+    return changed;
 }
 
 /* [pipe]: the last pipe-table reply showed a remote; and the same when the window opened */
@@ -395,12 +482,32 @@ void rf_slot_move_state(uint8_t from, uint8_t to) {
 }
 
 void (*g_rf_push_starter)(void) = NULL;
+volatile bool g_rf_push_deferred = false;
 
 bool rf_any_slot_active(void) {
     for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {
         if (g_paired_remotes[i].active) return true;
     }
     return false;
+}
+
+int rf_sync_pending_slot(char *diff, size_t diff_len) {
+    int slot = 0;
+    FILE *pdf = fopen("/data/harmony/rf_sync_pending_details.json", "r");
+    if (!pdf) return 0;
+    char dline[512] = {0};
+    if (fread(dline, 1, sizeof(dline) - 1, pdf) > 0) {
+        cJSON *pj = cJSON_Parse(dline);
+        if (pj) {
+            cJSON *ps = cJSON_GetObjectItem(pj, "slot");
+            cJSON *pd = cJSON_GetObjectItem(pj, "diff");
+            if (cJSON_IsNumber(ps)) slot = ps->valueint;
+            if (diff && diff_len && cJSON_IsString(pd)) snprintf(diff, diff_len, "%s", pd->valuestring);
+            cJSON_Delete(pj);
+        }
+    }
+    fclose(pdf);
+    return slot;
 }
 
 bool is_companion_slot(uint8_t slot) {
@@ -514,8 +621,15 @@ void rf_note_slot_family(uint8_t slot, remote_model_t family) {
 
 void rf_slot_saw_protocol_frame(uint8_t slot) {
     if (slot < 1 || slot > MAX_PAIRED_REMOTES) return;
+    bool was_heard = g_paired_remotes[slot - 1].heard;
     g_paired_remotes[slot - 1].heard = true;
     if (g_paired_remotes[slot - 1].equad_id == 0) rf_note_slot_family(slot, REMOTE_MODEL_JUNIPER);
+    /* A push put off for this remote: it is awake now, so it can take it */
+    if (!was_heard && g_rf_push_deferred && !g_config_push_running &&
+        g_paired_remotes[slot - 1].active && !is_companion_slot(slot)) {
+        g_rf_push_deferred = false;
+        if (g_rf_push_starter) g_rf_push_starter();
+    }
 }
 
 /* Key event counter, per slot. Key frames are sent once and never acknowledged; a remote that

@@ -145,7 +145,8 @@ class UpdateScript(unittest.TestCase):
 
     def test_certificate_failure_retried_without_the_check(self):
         """The signature decides for update files: a certificate the bundle does not know (or a
-        clock not set yet) must not block the update that brings a new bundle."""
+        clock not set yet) must not block the update that brings a new bundle. Only a signed
+        file is fetched that way (the manifest here); test_update_downloads.py has the rest."""
         log = self.root / "fetch.log"
         hub_fetch = self.root / "data" / "harmony" / "bin" / "hub_fetch"
         hub_fetch.parent.mkdir(parents=True, exist_ok=True)
@@ -158,9 +159,10 @@ class UpdateScript(unittest.TestCase):
             'echo "hub_fetch: x: TLS: certificate not trusted (no CA in the bundle)" >&2; exit 1\n')
         hub_fetch.chmod(0o755)
         (self.root / "data" / "harmony" / "cacert.pem").write_text("x\n")
-        res = self.run_update("check", "https://example.invalid/ota")
+        res = self.run_update("repair-tls", "https://example.invalid/ota")
         calls = log.read_text().splitlines()
         self.assertIn("--ca", calls[0])
+        self.assertIn("manifest.json", calls[0])
         self.assertIn("--insecure", calls[1])
         self.assertIn("the release signature decides", res.stdout + res.stderr)
         self.assertFalse(self.wget_log.exists())

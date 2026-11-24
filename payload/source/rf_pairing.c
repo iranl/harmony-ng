@@ -79,7 +79,7 @@ void hub_led_show_failure(void) {
     hub_led_write(HUB_LED_RED_SLOW);
     pthread_mutex_unlock(&s_led_lock);
     pthread_t th;
-    if (pthread_create(&th, NULL, failure_restore_worker, (void *)(uintptr_t)shown) == 0) {
+    if (rf_create_thread(&th, 64 * 1024, failure_restore_worker, (void *)(uintptr_t)shown) == 0) {
         pthread_detach(th);
     } else {
         led_restore_if_unchanged(shown);
@@ -121,7 +121,7 @@ void start_pairing_mode(int slot) {
     hub_led_show(HUB_LED_GREEN_FAST);
 
     pthread_t timer_th;
-    if (pthread_create(&timer_th, NULL, pairing_timeout_worker, (void *)(uintptr_t)window) == 0) {
+    if (rf_create_thread(&timer_th, 64 * 1024, pairing_timeout_worker, (void *)(uintptr_t)window) == 0) {
         pthread_detach(timer_th);
     } else {
         /* without the timer nothing would end the pairing mode: the CC2544 closes its lock
@@ -207,7 +207,9 @@ void unpair_device(int slot) {
     for (int fs = 1; fs <= MAX_PAIRED_REMOTES; fs++)
         held[fs] = slot == fs || (slot == 0 && g_paired_remotes[fs - 1].active);
     for (int target = first_slot; target <= last_slot; target++) {
-        if (held[target]) {
+        /* the notice only for a touchscreen remote: a Companion or Smart Control does not
+         * handle it */
+        if (held[target] && !is_companion_slot((uint8_t)target)) {
             rf_frame_t unpair_msg;
             memset(&unpair_msg, 0, sizeof(unpair_msg));
             unpair_msg.report_id = 0x20;
@@ -231,6 +233,13 @@ void unpair_device(int slot) {
      * unpair the remote asked for) */
     for (int fs = 1; fs <= MAX_PAIRED_REMOTES; fs++) {
         if (held[fs]) rf_slot_forget((uint8_t)fs);
+    }
+    /* a push waiting for an unpaired remote has no remote left to go to; the status only hid it
+     * while the slot was still known as a Companion */
+    int pending = rf_sync_pending_slot(NULL, 0);
+    if (pending >= 1 && pending <= MAX_PAIRED_REMOTES && held[pending]) {
+        unlink("/data/harmony/rf_sync_pending.flag");
+        unlink("/data/harmony/rf_sync_pending_details.json");
     }
     if (!rf_any_slot_active()) {
         g_has_paired_device = false;

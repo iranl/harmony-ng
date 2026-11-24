@@ -70,10 +70,9 @@ NO_FAKE_SSH = ("the tools start ssh and scp by name, and Windows then starts onl
 
 
 def kh_option(path: pathlib.Path) -> str:
-    """The UserKnownHostsFile option the tools must pass for path: in double quotes, with
-    forward slashes on Windows."""
+    """The UserKnownHostsFile option the tools must pass for path: with forward slashes on Windows."""
     text = path.as_posix() if WINDOWS else str(path)
-    return f'UserKnownHostsFile="{text}"'
+    return f"UserKnownHostsFile={text}"
 
 
 def locked_folder(test: unittest.TestCase, path: pathlib.Path) -> pathlib.Path:

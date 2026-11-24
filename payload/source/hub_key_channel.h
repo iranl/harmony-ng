@@ -10,7 +10,8 @@
  *
  * seq counts the events hub_rf sent since it started; ts is CLOCK_MONOTONIC in ms when hub_rf
  * received the key from the remote (the same clock in both processes). deviceId and command
- * are present when hub_rf mapped the key to a device command.
+ * are present when hub_rf mapped the key to a device command. action "tap" is a screen button or
+ * a device page command of a touchscreen remote: the device command once, no button event.
  *
  * hub_daemon sends the device command and gives the button event, as POST /api/ir-send and
  * POST /api/button-press do, without the gaps between commands that sequences get

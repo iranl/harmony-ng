@@ -8,6 +8,16 @@
 #include "cJSON.h"
 #include "rf_proto.h"
 
+
+static inline int rf_create_thread(pthread_t *th, size_t stack_size, void *(*start_routine)(void *), void *arg) {
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr, stack_size > 0 ? stack_size : (64 * 1024));
+    int rc = pthread_create(th, &attr, start_routine, arg);
+    pthread_attr_destroy(&attr);
+    return rc;
+}
+
 #define RFSPI_DEV          "/dev/rfspi"
 #define RFFW_DEV           "/dev/rffw"
 #define CC2544_FW          "/lib/firmware/cc2544.bin"
@@ -190,6 +200,11 @@ extern const char *g_rf_slot_map_path;
 uint8_t rf_slot_to_pipe(uint8_t slot);
 uint8_t rf_pipe_to_slot(uint8_t pipe);
 void rf_slot_map_load(void);
+/* The table file changed under a running hub_rf (a backup import): takes it over and gives each
+ * slot the per-slot state of the remote whose pipe it now is (version file, battery cache,
+ * settings file; a slot left without a remote loses them). For the restart that follows: the new hub_rf reads
+ * those by slot number. Returns the number of slots that changed. */
+int rf_slot_map_follow_file(void);
 /* The next remote that pairs goes to this slot (0: the slot of the pipe the radio picks) */
 /* The slot a pairing should land in (0: none). new_window: the pairing window opens now, so
  * the pipes that hold a remote are noted; a second request in the same window only changes
@@ -211,6 +226,9 @@ void rf_request_config_push(void);
 /* What rf_slot_move_state() calls to start that push: set by main() (NULL: none, as in tests that
  * link the state code without the push code) */
 extern void (*g_rf_push_starter)(void);
+/* A push left out a paired touchscreen slot not heard since the start: the first frame of such a
+ * slot starts the push again (rf_slot_saw_protocol_frame) */
+extern volatile bool g_rf_push_deferred;
 bool is_ota_busy(void);
 /* A config push is running (config_push_worker): an OTA start waits for it to end */
 extern volatile bool g_config_push_running;
@@ -229,6 +247,9 @@ void rf_state_note_config_pushed(int slot, int config_ver);
 int http_request_local(int port, const char *method, const char *endpoint, const char *json_body,
                        char *resp, size_t resp_len, int timeout_ms);
 bool is_companion_slot(uint8_t slot);
+/* The slot named by rf_sync_pending_details.json (0: every remote, or no details); its "diff"
+ * text goes to diff when one is given */
+int rf_sync_pending_slot(char *diff, size_t diff_len);
 /* Family name for logs: "juniper", "companion", "smart_control", "unknown" */
 const char *get_remote_model_name(remote_model_t model);
 

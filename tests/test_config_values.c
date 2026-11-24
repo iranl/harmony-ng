@@ -64,7 +64,7 @@ int main(void) {
     cJSON_Delete(root);
 
     printf("[-] limits\n");
-    root = cJSON_Parse("{\"devices\":[{\"id\":\"1\",\"name\":\"TV\",\"controlPort\":3,\"powerOnDelay\":2000000000,"
+    root = cJSON_Parse("{\"commandPorts\":1,\"devices\":[{\"id\":\"1\",\"name\":\"TV\",\"controlPort\":3,\"powerOnDelay\":2000000000,"
                        "\"powerOnSequence\":[{\"type\":\"Delay\",\"delay\":2000000000}],"
                        "\"commands\":[{\"name\":\"A\",\"keyCode\":\"x\",\"port\":99,\"repeats\":-7},"
                        "{\"name\":\"B\",\"keyCode\":\"x\",\"port\":5,\"repeats\":1}]}]}");
@@ -74,10 +74,24 @@ int main(void) {
     cJSON *step = cJSON_GetArrayItem(cJSON_GetObjectItemCaseSensitive(d, "powerOnSequence"), 0);
     CHECK(num_of(step, "delay") == STEP_DELAY_MAX_MS, "Delay step lowered to its limit");
     cJSON *cmds = cJSON_GetObjectItemCaseSensitive(d, "commands");
-    CHECK(num_of(cJSON_GetArrayItem(cmds, 0), "port") == 3, "port 99 becomes the device port");
+    CHECK(cJSON_GetObjectItemCaseSensitive(cJSON_GetArrayItem(cmds, 0), "port") == NULL,
+          "port 99 removed: the command uses the device port");
     CHECK(num_of(cJSON_GetArrayItem(cmds, 0), "repeats") == 3, "repeats -7 becomes 3");
     CHECK(num_of(cJSON_GetArrayItem(cmds, 1), "port") == 5 && num_of(cJSON_GetArrayItem(cmds, 1), "repeats") == 1,
           "valid port and repeats kept");
+    cJSON_Delete(root);
+
+    printf("[-] command ports copied from the device before commandPorts 1\n");
+    root = cJSON_Parse("{\"devices\":[{\"id\":\"1\",\"name\":\"TV\",\"controlPort\":3,"
+                       "\"commands\":[{\"name\":\"A\",\"keyCode\":\"x\",\"port\":3}]}]}");
+    sanitize_devices_json(root);
+    cmds = cJSON_GetObjectItemCaseSensitive(dev_of(root, 0), "commands");
+    CHECK(cJSON_GetObjectItemCaseSensitive(cJSON_GetArrayItem(cmds, 0), "port") == NULL, "copied port dropped once");
+    CHECK(num_of(root, "commandPorts") == 1, "file marked commandPorts 1");
+    cJSON_AddNumberToObject(cJSON_GetArrayItem(cmds, 0), "port", 2);
+    sanitize_devices_json(root);
+    cmds = cJSON_GetObjectItemCaseSensitive(dev_of(root, 0), "commands");
+    CHECK(num_of(cJSON_GetArrayItem(cmds, 0), "port") == 2, "a port set after that is kept");
     cJSON_Delete(root);
 
     printf("[-] command range\n");

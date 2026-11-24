@@ -53,6 +53,21 @@ import {
 } from './app_icons_ui.js';
 import { HarmonyAppActivitiesView } from './app_activities_view.js';
 
+// Step lists of the device power dialog (app_devices_studio.js): their steps belong to one device
+const POWER_STEP_LISTS = new Set(['powerOnStepsList', 'powerOffStepsList']);
+
+// Device a step row shows, and whether it is locked. A device's own power steps always go to
+// that device (the Hub ignores their deviceId, which the migration stores as "0"), so the power
+// dialog shows that device, locked; it used to show the first device in the list, whose commands
+// a new step then offered. Activity steps keep their own device, else the first one.
+export function stepDeviceChoice(containerId, initialData, devices, powerSeqOwnerId) {
+  if (POWER_STEP_LISTS.has(containerId) && powerSeqOwnerId) {
+    return { devId: String(powerSeqOwnerId), locked: true };
+  }
+  const devId = initialData?.deviceId ? String(initialData.deviceId) : String(devices[0]?.id ?? '');
+  return { devId, locked: false };
+}
+
 export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
   openActivityEditor(act) {
     if (this.userRole === 'user') return;
@@ -101,14 +116,18 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
       if (idInput) idInput.value = act.id;
       if (nameInput) nameInput.value = act.name || '';
       if (typeSelect) typeSelect.value = act.type || 'Custom';
-      if (orderInput) orderInput.value = act.order || 1;
+      if (orderInput) orderInput.value = Number.isFinite(Number(act.order)) ? Number(act.order) : 1;
       if (delBtn) delBtn.style.display = (String(act.id) === '-1') ? 'none' : 'block';
     } else {
       if (titleEl) titleEl.textContent = t('create_new_activity');
       if (idInput) idInput.value = '';
       if (nameInput) nameInput.value = '';
       if (typeSelect) typeSelect.value = 'Custom';
-      if (orderInput) orderInput.value = 1;
+      if (orderInput) {
+        /* a new activity goes last: the Hub lists activities by this order */
+        const orders = (this.activitiesData?.activities || []).map(a => Number(a.order)).filter(Number.isFinite);
+        orderInput.value = orders.length ? Math.min(99, Math.max(...orders) + 1) : 1;
+      }
       if (delBtn) delBtn.style.display = 'none';
     }
 
@@ -276,7 +295,7 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
     const isSwitched = (normType === 'Switched');
 
     const devices = this.inventory.devices || [];
-    const initDevId = initialData?.deviceId ? String(initialData.deviceId) : (devices[0]?.id || '');
+    const { devId: initDevId, locked: devLocked } = stepDeviceChoice(containerId, initialData, devices, this.powerSeqOwnerId);
     const initDelay = initialData?.delay !== undefined ? initialData.delay : (isDelay ? 1000 : 0);
 
     row.innerHTML = `
@@ -286,7 +305,7 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
           <option value="Delay" ${isDelay ? 'selected' : ''}>${t('step_type_delay')}</option>
           <option value="Switched" ${isSwitched ? 'selected' : ''}>${t('step_type_switched')}</option>
         </select>
-        <select class="form-control step-dev-select" style="max-width: 130px; font-size: 12px; padding: 4px 6px; display: ${(!isDelay && !isSwitched) ? 'block' : 'none'};">
+        <select class="form-control step-dev-select" ${devLocked ? 'disabled' : ''} style="max-width: 130px; font-size: 12px; padding: 4px 6px; display: ${(!isDelay && !isSwitched) ? 'block' : 'none'};">
           ${devices.map(d => `<option value="${escapeHtml(d.id)}" ${String(d.id) === initDevId ? 'selected' : ''}>${escapeHtml(d.name || d.model || d.id)}</option>`).join('')}
         </select>
         <span class="step-dev-icon" style="display: ${(!isDelay && !isSwitched) ? 'inline-flex' : 'none'}; align-items: center;"></span>
@@ -435,7 +454,9 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
     const id = document.getElementById('actEditId')?.value;
     const name = document.getElementById('actEditName')?.value.trim();
     const type = document.getElementById('actEditType')?.value;
-    const order = Number(document.getElementById('actEditOrder')?.value) || 1;
+    const orderRaw = document.getElementById('actEditOrder')?.value;
+    // An emptied field sends no order: the Hub keeps the stored one (a new activity goes last)
+    const order = (orderRaw !== '' && Number.isFinite(Number(orderRaw))) ? Number(orderRaw) : undefined;
     const statusEl = document.getElementById('actEditorStatus');
 
     if (!name) return alert(t("act_name_required"));

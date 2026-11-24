@@ -832,6 +832,7 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
          * device never holds this lock. */
         ret = (action == HW_BTN_ACTION_RELEASE || action == HW_BTN_ACTION_REPEAT) ? 0 :
               net_action_send(target_dev, target_cmd, actual_dev_id, dev_name, command, g_live_remote_key);
+        if (ret == -3) ret = HW_ERR_QUEUE_FULL; /* -3 is also an infrared sender's code */
     } else if (is_ble_adv) {
         /* One broadcast per press: the receiver acts on the packet, not on how long it is held */
         if (action == HW_BTN_ACTION_RELEASE || action == HW_BTN_ACTION_REPEAT) {
@@ -1037,7 +1038,13 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
             if (j_rep && cJSON_IsNumber(j_rep) && j_rep->valuedouble > 0 && j_rep->valuedouble <= 20) {
                 repeats = (uint8_t)j_rep->valuedouble;
             }
-            ret = ir_send_keycode(keycode_str, ir_ports, repeats, action == HW_BTN_ACTION_PRESS ? held_key : NULL);
+            /* a command's own port (Emitter Port of the saved command) before the device's */
+            uint8_t cmd_ports = ir_ports;
+            cJSON *j_cport = cJSON_GetObjectItemCaseSensitive(target_cmd, "port");
+            if (cJSON_IsNumber(j_cport) && j_cport->valuedouble >= 1 && j_cport->valuedouble <= 7) {
+                cmd_ports = (uint8_t)j_cport->valuedouble;
+            }
+            ret = ir_send_keycode(keycode_str, cmd_ports, repeats, action == HW_BTN_ACTION_PRESS ? held_key : NULL);
         }
     }
 
