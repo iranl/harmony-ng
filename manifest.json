@@ -1,0 +1,85 @@
+{
+  "version": "3.0.0",
+  "files": {
+    "bin/mips/hub_util": {
+      "size": 188824,
+      "md5": "8c5d96aaad90b43e6d9b79e5106c373c",
+      "sha256": "52ed985a29c3729e53e4081b5e16b2cf707e6e34cedb6e11130ad9dc5fea71d7"
+    },
+    "bin/mips/hub_daemon": {
+      "size": 749484,
+      "md5": "b8ea0da03ab38b9870d316d0e56e24e6",
+      "sha256": "f74e2015d0b70bbea70bbd6def1b5aa85164776c355f6dbb3f79c9c181a5294c"
+    },
+    "bin/mips/hub_fetch": {
+      "size": 26292,
+      "md5": "279fd10eddd461920e92bda9d6d129e1",
+      "sha256": "a4274963b740e57160960192b716ae8ca7c50f2f0322825e6baf230ae3689598"
+    },
+    "bin/mips/hub_rf": {
+      "size": 383480,
+      "md5": "21bca2e504fda22fd8fbf8f00d573110",
+      "sha256": "ce191ac6b2be699210c27e038ffbeb295f3f98d5969f87efa0d7f35ae12f75a8"
+    },
+    "bin/mips/hub_btstack": {
+      "size": 383500,
+      "md5": "4d9e9e4320bc2a57e8146f1021b6b8e1",
+      "sha256": "222800a9ba70056200fcfab0bb4c97515e99c0362e9cac0406c07bd94530efb8"
+    },
+    "bin/mips/hub_sntp": {
+      "size": 188824,
+      "md5": "8c5d96aaad90b43e6d9b79e5106c373c",
+      "sha256": "52ed985a29c3729e53e4081b5e16b2cf707e6e34cedb6e11130ad9dc5fea71d7"
+    },
+    "bin/mips/hub_sync": {
+      "size": 188824,
+      "md5": "8c5d96aaad90b43e6d9b79e5106c373c",
+      "sha256": "52ed985a29c3729e53e4081b5e16b2cf707e6e34cedb6e11130ad9dc5fea71d7"
+    },
+    "bin/mips/mknod": {
+      "size": 188824,
+      "md5": "8c5d96aaad90b43e6d9b79e5106c373c",
+      "sha256": "52ed985a29c3729e53e4081b5e16b2cf707e6e34cedb6e11130ad9dc5fea71d7"
+    },
+    "bin/mips/register_ehci": {
+      "size": 188824,
+      "md5": "8c5d96aaad90b43e6d9b79e5106c373c",
+      "sha256": "52ed985a29c3729e53e4081b5e16b2cf707e6e34cedb6e11130ad9dc5fea71d7"
+    },
+    "bin/mips/eth_fix": {
+      "size": 188824,
+      "md5": "8c5d96aaad90b43e6d9b79e5106c373c",
+      "sha256": "52ed985a29c3729e53e4081b5e16b2cf707e6e34cedb6e11130ad9dc5fea71d7"
+    },
+    "lib/libbearssl.so.0": {
+      "size": 164268,
+      "md5": "c0463a65a53ac26c38d0fef0385c9300",
+      "sha256": "d3f65a2bbd37a030ac51d66a371ac01e3f18c92188ea3e14035b663d304b2b7f"
+    },
+    "bin/arm/remote_ui": {
+      "size": 490788,
+      "md5": "cd843e4e2f8549e8de9d789be110b6fa",
+      "sha256": "ef4165c8437707a86dd9ebb190c9d7ce21e90c4add69a8a4d7f4bbefeec6b73c"
+    },
+    "bin/arm/remote_ui.ota.gz": {
+      "size": 439517,
+      "md5": "04f1e809640d53e6990f3cfaf0f136a3",
+      "sha256": "30d90130f0806d8b6f6eb35fac5cb2d249c5e71fbe682f4ca210a9ef306be76a"
+    },
+    "bin/arm/elite_ui.ota.gz": {
+      "size": 439517,
+      "md5": "04f1e809640d53e6990f3cfaf0f136a3",
+      "sha256": "30d90130f0806d8b6f6eb35fac5cb2d249c5e71fbe682f4ca210a9ef306be76a"
+    },
+    "www.tar.gz": {
+      "size": 599391,
+      "md5": "bf2eb9c00fde90012700258a86ea958e",
+      "sha256": "2d765ddd00089b6553f0ff2feb4d0d07b441f2e6471bcf66a3332c5e21ff188a"
+    },
+    "hub_ota.tar.gz": {
+      "size": 2931411,
+      "md5": "e238ccbba3e991f33b79980c453a20b9",
+      "sha256": "7c20ad073251da84a53ae5841cb63fdd9f164f3b35e58e452550e368647b3137"
+    }
+  }
+}
