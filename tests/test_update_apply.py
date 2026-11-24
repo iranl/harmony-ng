@@ -24,6 +24,8 @@ import unittest
 REPO_DIR = pathlib.Path(__file__).resolve().parent.parent
 SCRIPT = REPO_DIR / "payload" / "scripts" / "update.sh"
 
+# A whole Ed25519 public key line (the Hub's key check wants the full 68-character blob)
+ED_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAiiACbtw7zFBaJ9uICKf3GGoYrHCkZPnK1d7B0o4saR owner"
 OLD_VER = "2.4.2"
 NEW_VER = "2.9.9"
 REPO = "http://pkg.invalid/ota"
@@ -137,7 +139,7 @@ class UpdateApply(unittest.TestCase):
         # /home/root and the result depended on the machine.
         self.auth_keys = self.root / "home/root/.ssh/authorized_keys"
         self.write(self.root / "etc/passwd", f"root:x:0:0:root:{self.root}/home/root:/bin/sh\n")
-        self.write(self.auth_keys, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakeFakeFakeFakeFakeFakeFakeFakeFakeFakeFake owner\n", 0o600)
+        self.write(self.auth_keys, ED_KEY + "\n", 0o600)
 
         # New release in the served directory
         serve = self.root / "serve"
@@ -298,7 +300,11 @@ class UpdateApply(unittest.TestCase):
         cases = (("no file", None),
                  ("rsa only", "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQfake owner\n"),
                  ("commented out", "ssh-rsa AAAAB3Nfake owner\n# ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFake old\n"),
-                 ("word in a comment", "ssh-rsa AAAAB3Nfake replaces ssh-ed25519 key of old pc\n"))
+                 ("word in a comment", "ssh-rsa AAAAB3Nfake replaces ssh-ed25519 key of old pc\n"),
+                 # lines that hold an Ed25519 key but that dropbear does not take for it
+                 ("Ed25519 key as an RSA key's comment", f"ssh-rsa AAAAB3Nfake {ED_KEY}\n"),
+                 ("RSA and Ed25519 lines joined", f"ssh-rsa AAAAB3Nfake owner {ED_KEY}\n"),
+                 ("key cut after the prefix", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI owner\n"))
         for label, keys in cases:
             with self.subTest(keys=label):
                 self.tearDown()
@@ -321,7 +327,7 @@ class UpdateApply(unittest.TestCase):
                 self.assertEqual(self.leftovers(), [])
 
     def test_key_with_options_counts(self):
-        self.auth_keys.write_text('no-port-forwarding ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFake owner\n')
+        self.auth_keys.write_text(f'no-port-forwarding {ED_KEY}\n')
         self.serve_bundle()
         r = self.run_apply()
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
