@@ -126,7 +126,8 @@ static cJSON *eth_driver_json(void) {
                 char *save = NULL;
                 for (char *m = strtok_r(v, " ", &save); m; m = strtok_r(NULL, " ", &save))
                     if (eth_module_name_ok(m)) cJSON_AddItemToArray(missing, cJSON_CreateString(m));
-            } else if (strcmp(line, "loaded") == 0 || strcmp(line, "unsupported") == 0) {
+            } else if (strcmp(line, "loaded") == 0 || strcmp(line, "unsupported") == 0 ||
+                       strcmp(line, "slow") == 0) {
                 cJSON_AddBoolToObject(o, line, atoi(v) == 1);
             }
         }

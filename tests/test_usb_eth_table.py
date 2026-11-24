@@ -152,6 +152,29 @@ class UsbEthDriver(unittest.TestCase):
         self.assertEqual(self.loaded(root), [])
         self.assertEqual(self.state(root).get("unsupported"), "1")
 
+    def test_full_speed_adapter_loads_no_driver(self):
+        # an OTG cable with a USB 1.1 hub: through the transaction translator the Hub freezes on
+        # the adapter's first receive, so nothing is loaded; the stick (bulk only) still counts
+        # as fine, and the same adapter at high speed gets its driver
+        def bus(speed):
+            return {
+                "1-1": {"idVendor": "0a05", "idProduct": "7211", "bDeviceClass": "09", "speed": speed},
+                "1-1.1": dict(self.adapter("0b95:772b"), speed=speed),
+                "1-1.4": {"idVendor": "0781", "idProduct": "5581", "bDeviceClass": "00",
+                          "if_class": "08", "speed": speed},
+            }
+        root = self.sandbox(bus("12"))
+        self.assertEqual(self.loaded(root), [])
+        st = self.state(root)
+        self.assertEqual((st.get("vid"), st.get("pid"), st.get("slow"), st.get("loaded")),
+                         ("0b95", "772b", "1", "0"))
+        root = self.sandbox(bus("480"))
+        self.assertEqual(self.loaded(root), ["usbnet", "asix"])
+        self.assertEqual(self.state(root).get("slow"), "0")
+        # a full-speed stick alone is no reason to report anything
+        root = self.sandbox({"1-1.4": bus("12")["1-1.4"]})
+        self.assertEqual(self.state(root), {})
+
     def test_no_adapter_no_state(self):
         root = self.sandbox({"1-1": {"idVendor": "0781", "idProduct": "5567", "bDeviceClass": "00",
                                      "if_class": "08"}})

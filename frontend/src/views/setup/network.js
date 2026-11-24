@@ -140,13 +140,17 @@ export function createView() {
   let drvPoll = null;
   function ethDriverNotice(drv) {
     clearTimeout(drvPoll);
-    if (!drv || (!drv.unsupported && !(drv.missing && drv.missing.length) && !drv.installing && !drv.install_failed)) return null;
+    if (!drv || (!drv.slow && !drv.unsupported && !(drv.missing && drv.missing.length) && !drv.installing && !drv.install_failed)) return null;
     const id = drv.vid && drv.pid ? `${drv.vid}:${drv.pid}` : '';
     const driver = drv.driver || '';
     const box = h('div', { className: 'card', style: { margin: '8px 0 0', padding: '8px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' } });
     if (drv.installing) {
       box.appendChild(h('span', { className: 'text-dim', text: t('eth_driver_downloading', 'Downloading the Ethernet driver {driver}...', { driver }) }));
       drvPoll = setTimeout(() => loadNetStatus(), 3000);
+      return box;
+    }
+    if (drv.slow) {
+      box.appendChild(h('span', { text: t('eth_driver_slow', 'USB adapter {id} runs at full speed (USB 1.1), which freezes the Hub, so Ethernet stays off. Use a USB 2.0 (high-speed) adapter, hub or OTG cable.', { id }) }));
       return box;
     }
     if (drv.unsupported) {

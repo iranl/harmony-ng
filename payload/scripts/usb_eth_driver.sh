@@ -53,7 +53,7 @@ is_candidate() {
 }
 
 write_state() {
-  # vid pid driver missing(list) loaded(0/1) unsupported(0/1)
+  # vid pid driver missing(list) loaded(0/1) unsupported(0/1) slow(0/1)
   {
     echo "vid=$1"
     echo "pid=$2"
@@ -61,7 +61,25 @@ write_state() {
     echo "missing=$4"
     echo "loaded=$5"
     echo "unsupported=$6"
+    echo "slow=${7:-0}"
   } > "$STATE.new" 2>/dev/null && mv -f "$STATE.new" "$STATE" 2>/dev/null
+}
+
+# slow_candidate: the first network candidate at full or low speed (a USB 1.1 adapter, or one
+# behind a USB 1.1 hub as in some OTG cables with a hub). Through the controller's transaction
+# translator the Hub freezes (only a power cycle helps) as soon as a driver waits for received
+# data from it, and a loaded driver binds every matching device: while one is present no network
+# driver is loaded at all.
+slow_candidate() {
+  for _dev in "$USB_DEVICES"/*; do
+    case "${_dev##*/}" in [0-9]*-*) ;; *) continue ;; esac
+    case "${_dev##*/}" in *:*) continue ;; esac
+    case "$(cat "$_dev/speed" 2>/dev/null)" in 12|1.5) ;; *) continue ;; esac
+    is_candidate "$_dev" || continue
+    echo "$_dev"
+    return 0
+  done
+  return 1
 }
 
 # Wait briefly for the adapter's interface and turn off its checksum offload (MIPS fix)
@@ -87,6 +105,13 @@ eth_fix_new_iface() {
 }
 
 do_scan() {
+  if _slow=$(slow_candidate); then
+    _vid=$(cat "$_slow/idVendor" 2>/dev/null)
+    _pid=$(cat "$_slow/idProduct" 2>/dev/null)
+    echo "[USB_ETH] USB device $_vid:$_pid on ${_slow##*/} runs at full speed (USB 1.1): no network driver is loaded, as it would freeze the Hub. Use a USB 2.0 (high-speed) adapter, hub or OTG cable."
+    write_state "$_vid" "$_pid" "" "" 0 0 1
+    return 0
+  fi
   for _dev in "$USB_DEVICES"/*; do
     # devices are 1-1, 1-1.2, ...; usb1 is the root hub and 1-1:1.0 an interface
     case "${_dev##*/}" in [0-9]*-*) ;; *) continue ;; esac

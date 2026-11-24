@@ -470,7 +470,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
   renderEthDriver(drv) {
     const el = document.getElementById('netEthDriver');
     if (!el) return;
-    if (!drv || (!drv.unsupported && !(drv.missing && drv.missing.length) && !drv.installing && !drv.install_failed)) {
+    if (!drv || (!drv.slow && !drv.unsupported && !(drv.missing && drv.missing.length) && !drv.installing && !drv.install_failed)) {
       el.style.display = 'none';
       el.innerHTML = '';
       return;
@@ -481,6 +481,10 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
       el.innerHTML = `<span style="color:var(--text-muted);">${escapeHtml(tf('eth_driver_downloading', { driver: drv.driver || '' }))}</span>`;
       clearTimeout(this._ethDriverPoll);
       this._ethDriverPoll = setTimeout(() => this.refreshNetworkStatus(), 3000);
+      return;
+    }
+    if (drv.slow) {
+      el.innerHTML = `<span style="color:var(--warning);">${escapeHtml(tf('eth_driver_slow', { id }))}</span>`;
       return;
     }
     if (drv.unsupported) {

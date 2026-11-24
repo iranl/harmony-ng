@@ -1264,6 +1264,7 @@ export default {
     "eth_driver_downloading": "Ethernet-Treiber {driver} wird heruntergeladen...",
     "eth_driver_failed": "Der Ethernet-Treiber {driver} konnte nicht heruntergeladen werden.",
     "eth_driver_unsupported": "USB-Adapter {id} wird von dieser Firmware nicht unterstützt.",
+    "eth_driver_slow": "USB-Adapter {id} läuft mit Full Speed (USB 1.1), was den Hub einfriert. Ethernet bleibt daher aus. Verwende einen USB-2.0-Adapter (High Speed), -Hub oder ein USB-2.0-OTG-Kabel.",
     "update_source": "Update-Quelle",
     "update_source_desc": "Woher der Hub Updates, Fernbedienungs-Firmware und Ethernet-Treiber lädt. Leer lassen für die offizielle Quelle.",
     "update_source_saved": "Update-Quelle gespeichert",

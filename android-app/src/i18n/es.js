@@ -1937,6 +1937,7 @@ export default {
     "eth_driver_downloading": "Descargando el controlador Ethernet {driver}...",
     "eth_driver_failed": "No se pudo descargar el controlador Ethernet {driver}.",
     "eth_driver_unsupported": "Este firmware no admite el adaptador USB {id}.",
+    "eth_driver_slow": "El adaptador USB {id} funciona a velocidad completa (USB 1.1), lo que bloquea el Hub, así que Ethernet sigue desactivado. Usa un adaptador, hub o cable OTG USB 2.0 (alta velocidad).",
     "usb_storage_title": "Almacenamiento USB",
     "usb_storage_desc": "Una memoria USB (mediante un cable concentrador USB en el puerto del Hub) puede guardar el archivo de iconos, los iconos personalizados y los plugins para liberar flash. El Hub sigue funcionando si se retira la memoria; solo faltan los iconos y los plugins hasta que vuelva.",
     "usb_storage_none": "No hay ninguna memoria USB conectada.",

@@ -1264,6 +1264,7 @@ export default {
     "eth_driver_downloading": "Ethernet-stuurprogramma {driver} wordt gedownload...",
     "eth_driver_failed": "Het ethernet-stuurprogramma {driver} kon niet worden gedownload.",
     "eth_driver_unsupported": "USB-adapter {id} wordt niet ondersteund door deze firmware.",
+    "eth_driver_slow": "USB-adapter {id} werkt op full speed (USB 1.1), waardoor de Hub vastloopt. Ethernet blijft daarom uit. Gebruik een USB 2.0-adapter (high speed), -hub of -OTG-kabel.",
     "update_source": "Updatebron",
     "update_source_desc": "Waar de Hub updates, afstandsbediening-firmware en ethernet-stuurprogramma's downloadt. Laat leeg voor de officiële bron.",
     "update_source_saved": "Updatebron opgeslagen",
