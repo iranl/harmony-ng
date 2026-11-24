@@ -292,6 +292,49 @@ static bool version_state_empty(const remote_version_t *v) {
     return !v->remote_id[0] && !v->skin && !v->caps && !v->config_version && strcmp(v->sw_version, "unknown") == 0;
 }
 
+/* The remote's own settings (remote_slot<N>_config.json, sent back to it with every config
+ * push): read whole, NULL when the file is missing or unreadable */
+static char *remote_config_read(int slot) {
+    char path[160];
+    snprintf(path, sizeof(path), "%s/remote_slot%d_config.json", g_rf_version_dir, slot);
+    FILE *f = fopen(path, "rb");
+    if (!f) return NULL;
+    char *text = NULL;
+    if (fseek(f, 0, SEEK_END) == 0) {
+        long sz = ftell(f);
+        if (sz >= 0 && sz <= 16384 && fseek(f, 0, SEEK_SET) == 0 && (text = (char *)malloc((size_t)sz + 1))) {
+            if (fread(text, 1, (size_t)sz, f) == (size_t)sz) {
+                text[sz] = 0;
+            } else {
+                free(text);
+                text = NULL;
+            }
+        }
+    }
+    fclose(f);
+    return text;
+}
+
+/* Slot <slot> takes the settings file read from another slot (text NULL: it has none) */
+static void remote_config_move_to(int slot, const char *text) {
+    char path[160];
+    snprintf(path, sizeof(path), "%s/remote_slot%d_config.json", g_rf_version_dir, slot);
+    cJSON *root = text ? cJSON_Parse(text) : NULL;
+    char *out = NULL;
+    if (root) {
+        cJSON_DeleteItemFromObject(root, "slot"); /* the file names its slot */
+        cJSON_AddNumberToObject(root, "slot", slot);
+        out = cJSON_PrintUnformatted(root);
+        cJSON_Delete(root);
+    }
+    if (out && atomic_file_write_str(path, out) == 0) {
+        free(out);
+        return;
+    }
+    free(out);
+    unlink(path); /* no settings for this remote (or not readable): the stored ones are another's */
+}
+
 int rf_slot_map_follow_file(void) {
     uint8_t pipes[MAX_PAIRED_REMOTES];
     rf_slot_table_read(g_rf_slot_map_path, pipes); /* no table: slots and pipes the same */
@@ -308,6 +351,11 @@ int rf_slot_map_follow_file(void) {
     remote_battery_t batteries[MAX_PAIRED_REMOTES];
     memcpy(versions, g_remote_versions, sizeof(versions));
     memcpy(batteries, g_remote_batteries, sizeof(batteries));
+    char *configs[MAX_PAIRED_REMOTES] = {0};
+    for (int s = 1; s <= MAX_PAIRED_REMOTES; s++) {
+        uint8_t from = old_slot_of_pipe[pipes[s - 1]];
+        if (from != s && from >= 1 && from <= MAX_PAIRED_REMOTES) configs[from - 1] = remote_config_read(from);
+    }
     int changed = 0;
     for (int s = 1; s <= MAX_PAIRED_REMOTES; s++) {
         uint8_t from = old_slot_of_pipe[pipes[s - 1]];
@@ -328,8 +376,10 @@ int rf_slot_map_follow_file(void) {
             battery_cache_path(s, path, sizeof(path));
             unlink(path);
         }
+        remote_config_move_to(s, version_state_empty(&g_remote_versions[s - 1]) ? NULL : configs[from - 1]);
         printf("[*] Slot %d (CC2544 pipe %d) takes the remote state of slot %d\n", s, pipes[s - 1], from);
     }
+    for (int i = 0; i < MAX_PAIRED_REMOTES; i++) free(configs[i]);
     return changed;
 }
 

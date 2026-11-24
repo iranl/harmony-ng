@@ -2252,8 +2252,9 @@ Exports complete hub configuration bundle or individual configuration elements.
     an import that changes it, hub_daemon asks hub_rf to restart (`POST /api/rf/restart`), which
     it does once no config push, update or pairing runs; `init.sh` starts it again within
     seconds, and the remotes are off the air for that time. Before it ends, hub_rf moves each
-    remote's version file and battery to the slot its radio pipe now is, so the new hub_rf shows
-    every remote with its id and version in its new slot. An import whose table equals the one
+    remote's version file, battery and settings file (`remote_slot<N>_config.json`) to the slot
+    its radio pipe now is, so the new hub_rf shows every remote with its id and version in its
+    new slot and the next config push sends each remote its own settings. An import whose table equals the one
     in use does not restart hub_rf. When hub_rf is not running the table applies at its next
     start. It names the pipes of this Hub's radio: on another Hub, or after remotes were paired
     again, it puts the maps on other remotes.

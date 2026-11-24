@@ -4,8 +4,9 @@ POST /api/rf/restart on the real hub_rf (host build of its sources with their ow
 mock library for /data, a unix socket in place of /dev/rfspi that answers the pipe-table queries).
 
 1. A restored slot table moves remotes to other slots. The new hub_rf reads each slot's version
-   file and battery cache by slot number, so the old hub_rf moves them to the slot the remote's
-   pipe now is before it ends; a slot left without a remote loses them. Here two remotes swap
+   file, battery cache and settings file (remote_slot<N>_config.json, sent back to the remote with
+   every config push) by slot number, so the old hub_rf moves them to the slot the remote's pipe
+   now is before it ends; a slot left without a remote loses them. Here two remotes swap
    slots (2 and 4) and one moves to an empty slot (3 to 5).
 2. The restart ends the process even when a thread is stuck: here closing the radio never
    returns (tests/rf_close_hang.c). hub_rf arms alarm(5) on the way out; without it the process
@@ -196,6 +197,11 @@ def main():
                 with open(battery_path(s), "w") as f:
                     json.dump({"percent": 11 * s, "charging": False, "voltage_mv": 3900, "reported_at": 0,
                                "mono_ms": now_ms}, f)
+            with open(os.path.join(data, "remote_slot%d_config.json" % s), "w") as f:
+                json.dump({"slot": s, "brightness": s, "timeout": 10 * s, "language": "l%d" % s}, f)
+        # a settings file left in slot 5, which holds no remote (pipe 5): it must not reach slot 3
+        with open(os.path.join(data, "remote_slot5_config.json"), "w") as f:
+            json.dump({"slot": 5, "brightness": 9, "timeout": 99, "language": "stale"}, f)
         radio = Radio(md, {1, 2, 3, 4})
         p = start(md, os.path.join(root, "a.log"))
         before = slots(md)
@@ -217,9 +223,16 @@ def main():
                   "slot %d's version file is the remote of old slot %d" % (new, old), str(v))
             b = read_json(battery_path(new)) or {}
             check(b.get("percent") == 11 * old, "slot %d's battery is that remote's" % new, str(b))
+            c = read_json(os.path.join(data, "remote_slot%d_config.json" % new)) or {}
+            check(c.get("language") == "l%d" % old and c.get("brightness") == old and c.get("timeout") == 10 * old
+                  and c.get("slot") == new, "slot %d's settings file is that remote's (slot field %d)" % (new, new), str(c))
         check(read_json(os.path.join(data, "remote_slot3_version.json")) is None,
               "slot 3 (no remote now) has no version file")
         check(not os.path.exists(battery_path(3)), "slot 3 has no battery")
+        check(not os.path.exists(os.path.join(data, "remote_slot3_config.json")),
+              "slot 3 has no settings file (not slot 5's leftover)")
+        c1 = read_json(os.path.join(data, "remote_slot1_config.json")) or {}
+        check(c1.get("language") == "l1", "slot 1's settings file unchanged", str(c1))
         v1 = read_json(os.path.join(data, "remote_slot1_version.json")) or {}
         check(v1.get("remote_id") == "20200101000001-000001", "slot 1 (same pipe) unchanged", str(v1))
 
@@ -230,6 +243,14 @@ def main():
             check(s.get("active") is True and s.get("remote_id") == "2020010100000%d-00000%d" % (old, old)
                   and s.get("sw_version") == "2.5.%d" % old,
                   "after the restart: slot %d shows the remote of pipe %d" % (new, old), str(s)[:200])
+        for new, old in expect.items():
+            st, body = api("GET", "/api/rf/remote-config?slot=%d" % new)
+            try:
+                c = json.loads(body) if st == 200 else {}
+            except ValueError:
+                c = {}
+            check(c.get("language") == "l%d" % old, "after the restart: slot %d's settings are that remote's" % new,
+                  "%s %s" % (st, body[:120]))
         s3 = after.get(3, {})
         check(not s3.get("active") and not s3.get("remote_id"), "after the restart: slot 3 is empty", str(s3)[:200])
         p.kill()
