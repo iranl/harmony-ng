@@ -654,6 +654,7 @@ int http_auth_is_user_role_permitted(const char *method, const char *clean_path)
             strcmp(clean_path, "/api/icons/archive") == 0 ||
             strcmp(clean_path, "/api/custom-icons") == 0 ||
             strcmp(clean_path, "/api/ui-remote-layout") == 0 ||
+            strcmp(clean_path, "/api/rf/layer") == 0 ||
             strcmp(clean_path, "/assets/icons.tar.gz") == 0 ||
             strncmp(clean_path, "/api/icons/", 11) == 0 ||
             strncmp(clean_path, "/assets/", 8) == 0) {
@@ -686,7 +687,8 @@ int http_auth_is_user_role_permitted(const char *method, const char *clean_path)
             strcmp(clean_path, "/api/bt-key") == 0 ||
             strcmp(clean_path, "/api/bt-text") == 0 ||
             strcmp(clean_path, "/api/bt-mouse") == 0 ||
-            strcmp(clean_path, "/api/v1/bt/mouse") == 0) {
+            strcmp(clean_path, "/api/v1/bt/mouse") == 0 ||
+            strcmp(clean_path, "/api/rf/layer") == 0) { /* a remote's key layer, as a key press */
             return 1;
         }
         return 0;

@@ -6,6 +6,12 @@ build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_keymap
     "$SCRIPT_DIR/test_rf_keymap_fallback.c" "$REPO_ROOT/payload/source/rf_keymap.c" "$REPO_ROOT/payload/source/cJSON.c" \
     -Wl,--wrap=fopen -lpthread -lm
 "$BUILD_DIR/test_rf_keymap_fallback"
+# The key layer: a layer_toggle key turns a slot's layer on or off and sends its command, the layer's keys
+# come first while it is on, and another activity turns it off
+build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_keymap_layer" \
+    "$SCRIPT_DIR/test_rf_keymap_layer.c" "$REPO_ROOT/payload/source/rf_keymap.c" "$REPO_ROOT/payload/source/cJSON.c" \
+    -Wl,--wrap=fopen -lpthread -lm
+"$BUILD_DIR/test_rf_keymap_layer"
 if command -v node >/dev/null 2>&1; then node "$SCRIPT_DIR/test_frontend_key_fallback.mjs"; else echo "    (node not found, test_frontend_key_fallback.mjs skipped)"; fi
 
 # The remote follows a Hub activity change only on home and activity screens; Settings, pairing

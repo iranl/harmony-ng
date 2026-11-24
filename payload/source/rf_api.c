@@ -450,6 +450,31 @@ void *api_server_worker(void *arg) {
                 int rlen = snprintf(res, sizeof(res),
                     "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"log_level\":%d,\"ok\":true}", g_log_level);
                 write(cli, res, rlen);
+            } else if (route_is(buf, "GET /api/rf/layer") || route_is(buf, "POST /api/rf/layer")) {
+                /* The key layers (rf_keymap.h): POST ?slot=N&on=0|1[&name=] turns one off, or on in
+                 * the running activity (the activity's own, or the named one), without sending
+                 * anything; both answer every slot's state, a bad slot or name 400 */
+                char sv[8], ov[8], nv[32] = "";
+                int bad = 0;
+                if (route_is(buf, "POST /api/rf/layer") && query_param(buf, "slot", sv, sizeof(sv)) &&
+                    query_param(buf, "on", ov, sizeof(ov))) {
+                    query_param(buf, "name", nv, sizeof(nv));
+                    bad = rf_keymap_layer_set((uint8_t)atoi(sv), atoi(ov) != 0, nv) != 0;
+                }
+                /* Activity ids and layer names hold no character JSON would need escaped */
+                char res[256 + MAX_PAIRED_REMOTES * 128];
+                int rlen = snprintf(res, sizeof(res),
+                    "HTTP/1.1 %s\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"ok\":%s,\"slots\":[",
+                    bad ? "400 Bad Request" : "200 OK", bad ? "false" : "true");
+                for (int ls = 1; ls <= MAX_PAIRED_REMOTES; ls++) {
+                    char la[32], ln[24];
+                    int lon = rf_keymap_layer_active((uint8_t)ls, la, sizeof(la), ln, sizeof(ln));
+                    rlen += snprintf(res + rlen, sizeof(res) - (size_t)rlen,
+                        "%s{\"slot\":%d,\"on\":%s,\"activity\":\"%s\",\"name\":\"%s\"}",
+                        ls > 1 ? "," : "", ls, lon ? "true" : "false", la, ln);
+                }
+                rlen += snprintf(res + rlen, sizeof(res) - (size_t)rlen, "]}");
+                write(cli, res, rlen);
             } else if (strstr(buf, "GET /api/rf/send?hex=") == buf) {
                 if (is_ota_busy()) {
                     const char *res = "HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"RF OTA in progress\",\"ok\":false}";
