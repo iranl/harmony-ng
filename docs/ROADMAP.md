@@ -1,6 +1,6 @@
 # HarmonyNG roadmap
 
-Version 0.2 (2026-11-18). Status: proposal for review. It collects the items of issue #17, the
+Version 0.3 (2026-11-24). Status: proposal for review. It collects the items of issue #17, the
 work in progress on branches and the open design questions into phases with tasks, priorities
 and a status for each task.
 
@@ -134,7 +134,7 @@ device switched off by hand is switched on again; a failed step is shown with a 
 | 3.4 | Device state module with the sources Bluetooth link and network probe | P1 | M | open |
 | 3.5 | Reported state: one report format for outside reporters, with its rules (never invented, stale after silence, RAM only, rate limited) | P1 | M | open |
 | 3.6 | Verified steps and skipping: wait for a state instead of a delay; leave out a power or input command that is already satisfied | P1 | M | open |
-| 3.7 | `device_command` and `device_state` events on WebSocket and MQTT | P1 | S | open |
+| 3.7 | `device_command` and `device_state` events on WebSocket and MQTT: `device_command` covers every command the Hub sends, whatever started it (remote key, web UI, `/api/ir-send`, MQTT, activity step), and names that source; the `button` event stays for physical keys | P1 | S | open |
 | 3.8 | Repair: list of single fixes for the running activity with state hints, "resend what is needed" | P1 | M | open |
 | 3.9 | Step state on the remote's start screen and repair list on its Help screen | P2 | M | open |
 | 3.10 | Editors: completion rule and failure rule per step, state source per device, preview with criteria | P1 | M | open |
@@ -163,6 +163,7 @@ open.
 | 4.7 | Hub devices mirrored into Home Assistant per device (power switch, input select, command buttons), opt-in | P2 | M | open |
 | 4.8 | Integration follows the Hub without reloads: new and removed remotes, hosts and devices | P1 | M | open (in the integration's repository) |
 | 4.9 | MQTT command roles (which account may send which command) and MQTT over TLS | P2 | M | open (deferred in #220) |
+| 4.10 | Home Assistant UI Control Primitives: the controls the remote's touchscreen needs for Home Assistant entities (momentary button, toggle, segmented action with optional PIN, slider or stepper, option list, text input and checklist, date and time picker; optional colour picker and D-pad mapping), with the entity domains each one serves (design in the board item; builds on 4.4 to 4.6) | P2 | L | open |
 
 ## Phase 5. One app
 
@@ -210,6 +211,7 @@ version.
 | 6.11 | Recovery when the Hub is on no network: Wi-Fi set over USB from a computer, as the stock firmware did | P1 | M | done (#234, #236); emergency boot path and an Ethernet adapter on the port not yet tested on hardware |
 | 6.12 | Free flash on the Hub: one copy of the SSH server, stock resources that can be emptied | P1 | S | in progress (#239 done; `feat/empty-stock-resources`) |
 | 6.13 | RF protocol version exchanged between Hub and remote, so mixed versions are detected | P2 | M | open (deferred in #220) |
+| 6.14 | Allow OTA using dev/beta builds, OTA from PRs: an update channel besides the releases, so a Hub and its remotes can take a development or beta build, or the build of a pull request, for testing | P2 | M | open (a configurable update source is in draft #250) |
 
 ## Items of issue #17
 
@@ -276,3 +278,4 @@ this repository) holds the state.
 |---|---|---|
 | 0.1 | 2026-11-13 | First proposal (not published) |
 | 0.2 | 2026-11-18 | Status of every task after v2.4.2 and the work merged since; items of #17 with their status; tasks 0.13, 2.13, 4.9, 5.15, 6.11, 6.12, 6.13 added; tracking on the project board with draft items instead of one issue per task |
+| 0.3 | 2026-11-24 | Task 3.7 says that `device_command` covers commands from every source (web UI and API sends give no event today); tasks 4.10 and 6.14 added from the board |
