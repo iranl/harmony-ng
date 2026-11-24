@@ -14,7 +14,9 @@
  * "Name: value" per line), --data-file f (request body / TCP bytes), --max bytes,
  * --no-redirect, --ca file, --insecure, --pin HEX (the server key must have this SHA-256),
  * --pin-any (any key, reported), --tls (TCP), --read bytes (TCP: answer bytes to keep),
- * --status-file f (writes status=, fingerprint=, error= lines; for the caller).
+ * --status-file f (writes status=, fingerprint=, error= lines; for the caller), --connect-to
+ * ADDR[,ADDR...] (numeric addresses to connect to instead of resolving the host, which still
+ * names the server for SNI, the certificate and Host; the first request only, not a redirect).
  * Exit 0 on a 2xx answer (TCP: sent), 1 on any other answer or error (one line on stderr, the
  * output file removed unless --status-file is given), 2 on bad arguments.
  */
@@ -33,9 +35,9 @@ static int usage(void)
 {
     fprintf(stderr, "usage: hub_fetch [-T sec] [-X method] [-H 'Name: value']... [--header-file f] [--data-file f]\n"
                     "         [--max bytes] [--no-redirect] [--ca file] [--insecure|--pin hex|--pin-any]\n"
-                    "         [--status-file f] -o out|- url\n"
+                    "         [--status-file f] [--connect-to addr[,addr...]] -o out|- url\n"
                     "       hub_fetch --tcp [-T sec] [--tls] [--insecure|--pin hex|--pin-any] [--data-file f]\n"
-                    "         [--read bytes] [--status-file f] -o out|- host port\n");
+                    "         [--read bytes] [--status-file f] [--connect-to addr[,addr...]] -o out|- host port\n");
     return 2;
 }
 
@@ -101,6 +103,7 @@ int main(int argc, char **argv)
         else if (strcmp(a, "--ca") == 0) { req.conn.ca_bundle = v; i++; }
         else if (strcmp(a, "--pin") == 0) { req.conn.verify = NET_TLS_PIN; pin = v; i++; }
         else if (strcmp(a, "--status-file") == 0) { status_path = v; i++; }
+        else if (strcmp(a, "--connect-to") == 0) { req.conn.connect_addrs = v; i++; }
         else if (a[0] == '-' && a[1]) return usage();
         else if (!arg1) arg1 = a;
         else if (!arg2) arg2 = a;

@@ -892,8 +892,8 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
         cJSON_AddBoolToObject(resp, "ok", rc == 0);
         if (dev_id[0]) cJSON_AddStringToObject(resp, "deviceId", dev_id);
         if (cmd_name[0]) cJSON_AddStringToObject(resp, "command", cmd_name);
-        if (rc != 0) cJSON_AddStringToObject(resp, "error", "IR transmit failed");
-        send_cjson_resp(client_fd, rc == 0 ? 200 : 500, resp);
+        if (rc != 0) cJSON_AddStringToObject(resp, "error", rc == HW_ERR_QUEUE_FULL ? "send queue full" : "IR transmit failed");
+        send_cjson_resp(client_fd, rc == 0 ? 200 : rc == HW_ERR_QUEUE_FULL ? 503 : 500, resp);
         cJSON_Delete(resp);
         close(client_fd);
         return 1;

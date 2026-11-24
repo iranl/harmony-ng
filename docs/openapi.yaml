@@ -1925,6 +1925,8 @@ paths:
             range" (a plugin command with a range); "value required (the command has a range)"
         '500':
           description: The send failed, or the device or the command is not known ("error":"IR transmit failed")
+        '503':
+          description: The command of an HTTP or TCP device found their send queue (16 sends) full ("error":"send queue full")
 
   /api/ir-raw:
     post:

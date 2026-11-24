@@ -361,22 +361,12 @@ static void set_tls_error(net_conn *c)
 }
 #endif
 
-static int tcp_connect(const char *host, int port, int timeout_ms, char *err, size_t err_sz)
+/* Tries each address of res in turn; the connected socket, or -1 with err */
+static int connect_any(const struct addrinfo *res, const char *host, int port, int timeout_ms,
+                       char *err, size_t err_sz)
 {
-    struct addrinfo hints, *res = NULL, *ai;
-    char ps[8];
-    memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    snprintf(ps, sizeof ps, "%d", port);
-    int gai = getaddrinfo(host, ps, &hints, &res);
-    if (gai != 0 || !res) {
-        snprintf(err, err_sz, "cannot resolve %s", host);
-        return -1;
-    }
     int fd = -1;
-    snprintf(err, err_sz, "cannot connect to %s:%d", host, port);
-    for (ai = res; ai; ai = ai->ai_next) {
+    for (const struct addrinfo *ai = res; ai; ai = ai->ai_next) {
         fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
         if (fd < 0) continue;
         fcntl(fd, F_SETFD, FD_CLOEXEC);
@@ -398,12 +388,48 @@ static int tcp_connect(const char *host, int port, int timeout_ms, char *err, si
         }
         if (rc == 0) {
             fcntl(fd, F_SETFL, fl);
-            break;
+            return fd;
         }
         close(fd);
         fd = -1;
     }
-    freeaddrinfo(res);
+    return -1;
+}
+
+static int tcp_connect(const char *host, const char *addrs, int port, int timeout_ms, char *err, size_t err_sz)
+{
+    struct addrinfo hints, *res = NULL;
+    char ps[8];
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    snprintf(ps, sizeof ps, "%d", port);
+    int fd = -1;
+    if (addrs && addrs[0]) {
+        /* addresses the caller resolved and checked: numeric only, never a second lookup */
+        char list[512];
+        snprintf(list, sizeof list, "%s", addrs);
+        hints.ai_flags = AI_NUMERICHOST;
+        int parsed = 0;
+        snprintf(err, err_sz, "cannot connect to %s:%d", host, port);
+        for (char *save = NULL, *a = strtok_r(list, ",", &save); a && fd < 0; a = strtok_r(NULL, ",", &save)) {
+            if (getaddrinfo(a, ps, &hints, &res) != 0 || !res) continue;
+            parsed = 1;
+            fd = connect_any(res, host, port, timeout_ms, err, err_sz);
+            freeaddrinfo(res);
+            res = NULL;
+        }
+        if (!parsed) snprintf(err, err_sz, "bad address for %s", host);
+    } else {
+        int gai = getaddrinfo(host, ps, &hints, &res);
+        if (gai != 0 || !res) {
+            snprintf(err, err_sz, "cannot resolve %s", host);
+            return -1;
+        }
+        snprintf(err, err_sz, "cannot connect to %s:%d", host, port);
+        fd = connect_any(res, host, port, timeout_ms, err, err_sz);
+        freeaddrinfo(res);
+    }
     if (fd < 0) return -1;
     err[0] = '\0'; /* a failed earlier address left its message: the connection is up */
     struct timeval tv;
@@ -560,7 +586,7 @@ net_conn *net_conn_open(const char *host, int port, const net_conn_opts *opts,
         snprintf(err, err_sz, "out of memory");
         return NULL;
     }
-    c->fd = tcp_connect(host, port, timeout_ms, err, err_sz);
+    c->fd = tcp_connect(host, opts ? opts->connect_addrs : NULL, port, timeout_ms, err, err_sz);
     if (c->fd < 0) {
         free(c);
         return NULL;

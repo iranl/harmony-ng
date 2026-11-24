@@ -500,6 +500,7 @@ cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin) {
             if (rc == -6) return ack(req, action, 0, 404, "Command not found");
             if (rc == HW_ERR_VALUE_RANGE) return ack(req, action, 0, 400, "value out of range");
             if (rc == HW_ERR_VALUE_MISSING) return ack(req, action, 0, 400, "value required (the command has a range)");
+            if (rc == HW_ERR_QUEUE_FULL) return ack(req, action, 0, 503, "send queue full");
             return (rc == 0) ? ack(req, action, 1, 200, NULL) : ack(req, action, 0, 500, "IR transmit failed");
         }
         /* queued commands carry no value: a ranged plugin command among them is refused now,

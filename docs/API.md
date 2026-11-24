@@ -926,7 +926,12 @@ Runs a command of an HTTP or TCP device now and waits for it (up to about 4 time
   the last 10 s, is dropped (`dropped:` in the log). Only a live key from a remote is dropped:
   activity steps, `ir-send`, MQTT and WebSocket sends wait in the queue and go out in order. A
   send answers `ok` when it is queued, also one that is dropped later; a lone `hold` or `repeat`
-  answers `ok` and sends nothing. A host that resolves to the Hub itself (loopback) is refused.
+  answers `ok` and sends nothing. The queue holds 16 sends. When it is full, a send is refused:
+  `ir-send` answers `503` `"send queue full"`, an activity step is lost and logged once (`[!] Orch:
+  activity '<id>' step '<step>' lost`), and a live key takes the place of the oldest live key
+  that is already late (it would be dropped anyway). The host is resolved once per send; a host
+  with any address on the Hub itself (loopback) is refused, and the connection goes to the
+  addresses that were checked.
 - **Response `400`**: not an HTTP or TCP device. **`404`**: no device with that id, or no
   command of that name.
 
@@ -1179,7 +1184,8 @@ Answers the question for one device of the last Help. `"on": false` sends that d
 #### `POST /api/ir-send` or `POST /ir/send`
 Transmits an IR command either by device ID and one command name, or raw Pronto hex. `command`
 (also accepted as `name`) must be one string: a list answers `400`. The reply also carries
-`deviceId` and `command`; a failed send answers `500` with `"error": "IR transmit failed"`.
+`deviceId` and `command`; a failed send answers `500` with `"error": "IR transmit failed"`, and a
+command of an HTTP or TCP device that finds their send queue full `503` `"send queue full"`.
 - **Request by Device Command**:
   ```json
   {
@@ -1249,6 +1255,8 @@ Transmits an IR command either by device ID and one command name, or raw Pronto 
 - **Error `500`**: `{"ok": false, "deviceId": "70321456", "command": "PowerToggle", "error": "IR transmit failed"}`
   when the send failed: an unknown device or command, a code the encoder does not understand, or
   a transmit error (the text is the same for a Bluetooth or MQTT device).
+- **Error `503`**: `{"ok": false, "deviceId": "50", "command": "Power", "error": "send queue full"}`
+  when the command of an HTTP or TCP device finds their send queue (16 sends) full (3.9).
 
 ### 5.2 Raw Pronto Blast
 #### `POST /api/pronto-blast`
