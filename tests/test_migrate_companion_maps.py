@@ -36,7 +36,11 @@ MAP_LIST = {"ButtonMaps": [
         hard("Guide", TV, "SmartHub"),
         soft(0, TV, "Exit"),
     ]},
-    {"ButtonMapIdentifier": "16417Root", "RemoteId-": REMOTE_ID, "Buttons": []},
+    # A touchscreen remote's Root map with a device command: not imported, as hub_rf would send
+    # it in every activity that leaves the key unmapped
+    {"ButtonMapIdentifier": "16417Root", "RemoteId-": REMOTE_ID, "Buttons": [
+        hard("VolumeUp", SOUNDBAR, "VolumeUp"),
+    ]},
     {"ButtonMapIdentifier": f"16422Activity{WATCH}", "RemoteId-": REMOTE_ID, "Buttons": [
         hard("Guide", TV, "Select"),
         hard("PrevChannel", TV, "Return"),
@@ -92,6 +96,20 @@ class CompanionMapsTest(unittest.TestCase):
         self.assertNotIn("MusicActivity", keys)
         self.assertTrue(self.warned("key 'MusicActivity' starts unknown activity 99999999"))
         self.assertTrue(self.warned("root map: not supported by hub_rf, dropped: 1 long/double presses"))
+
+    def test_a_root_map_keeps_only_its_activity_keys(self):
+        self.assertNotIn("-1", self.slot1["activities"])
+        self.assertTrue(self.warned("stock remote 16417: 1 device command key(s) of its root map not imported"))
+        self.assertEqual(set(self.slot2["activities"]["-1"]), {"WatchTVActivity", "MovieActivity"})
+
+    def test_a_remote_beyond_the_slots_is_skipped_with_a_warning(self):
+        maps = [{"remote": f"Stock remote {n}"} for n in range(mig.REMOTE_SLOT_MAX + 2)]
+        warnings = []
+        kept = mig.fit_stock_remote_maps(maps, warnings)
+        self.assertEqual(kept, maps[:mig.REMOTE_SLOT_MAX])
+        self.assertEqual(warnings, [f"stock remote {n}: only {mig.REMOTE_SLOT_MAX} RF slots are imported, map skipped"
+                                    for n in (mig.REMOTE_SLOT_MAX, mig.REMOTE_SLOT_MAX + 1)])
+        self.assertEqual(mig.fit_stock_remote_maps(maps[:2], warnings), maps[:2])
 
     def test_empty_maps_count_as_none(self):
         self.assertNotIn("-1", self.slot1["activities"])

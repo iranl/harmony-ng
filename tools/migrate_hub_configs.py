@@ -662,6 +662,14 @@ def generate_default_remote_map(activities_obj: Dict[str, Any], devices_obj: Dic
     return {"remote": remote_name, "activities": act_mappings, "devices": {}}
 
 
+def fit_stock_remote_maps(maps: List[Dict[str, Any]], warnings: List[str]) -> List[Dict[str, Any]]:
+    """The stock remote maps that get a slot: the first REMOTE_SLOT_MAX, a warning for each other."""
+    for extra in maps[REMOTE_SLOT_MAX:]:
+        warnings.append(f"{str(extra.get('remote') or 'stock remote').lower()}: only {REMOTE_SLOT_MAX} RF slots "
+                        "are imported, map skipped")
+    return maps[:REMOTE_SLOT_MAX]
+
+
 def generate_stock_remote_maps(map_list_path: str, devices_obj: Dict[str, Any], dev_map: Dict[str, str],
                                act_map: Dict[str, str], warnings: List[str]) -> List[Dict[str, Any]]:
     """Convert the stock MapList.json ButtonMaps into hub_rf remote maps, one per stock remote.
@@ -670,6 +678,8 @@ def generate_stock_remote_maps(map_list_path: str, devices_obj: Dict[str, Any], 
     devices -> id -> button, an activity's screen buttons become its screen_buttons list. A
     remote's Root map (the keys with nothing running) becomes the "-1" entry, and a key that
     starts an activity (a Companion's or Smart Control's activity keys) an activity_start entry.
+    Only those keys are kept from a Root map: hub_rf also uses "-1" for any key the running
+    activity leaves unmapped, so a Root map's device commands would be sent in every activity.
     hub_rf has no long press, double press or gestures, so those are reported and dropped.
     Maps are returned with the remote that has screen buttons first.
     """
@@ -702,6 +712,7 @@ def generate_stock_remote_maps(map_list_path: str, devices_obj: Dict[str, Any], 
         label = "root map" if kind == "Root" else f"{kind.lower()} {ctx}"
         dropped: Dict[str, int] = {}
         soft = []
+        root_commands = 0
 
         for b in bm.get("Buttons") or []:
             if not isinstance(b, dict):
@@ -717,6 +728,9 @@ def generate_stock_remote_maps(map_list_path: str, devices_obj: Dict[str, Any], 
                 entry = {"action": "activity_start", "activityId": aid}
             elif act.get("__type") != "ButtonCommandAction":
                 dropped["non-command buttons"] = dropped.get("non-command buttons", 0) + 1
+                continue
+            elif kind == "Root":
+                root_commands += 1
                 continue
             else:
                 did = dev_map.get(str(act.get("DeviceId-")), str(act.get("DeviceId-")))
@@ -751,6 +765,9 @@ def generate_stock_remote_maps(map_list_path: str, devices_obj: Dict[str, Any], 
             # (_complete_remote_map()), and an empty "-1" would stop hub_rf's fallback to a
             # map's only activity
             del (rmap["devices"] if kind == "Device" else rmap["activities"])[ctx]
+        if root_commands:
+            warnings.append(f"stock remote {rid}: {root_commands} device command key(s) of its root map not "
+                            "imported: hub_rf would send them in every activity that leaves the key unmapped")
         if dropped:
             warnings.append(f"{label}: not supported by hub_rf, dropped: "
                             + ", ".join(f"{n} {k}" for k, n in sorted(dropped.items())))
@@ -1207,7 +1224,8 @@ def migrate_directory(source_root: str, dest_harmony: str) -> Dict[str, Any]:
                  for aid, r in stock_activity_roles(os.path.join(res_dir, "ActivityList.json"), id_map).items()}
         map_list = os.path.join(res_dir, "MapList.json")
         if os.path.isfile(map_list):
-            stock_maps = generate_stock_remote_maps(map_list, devices_obj, dev_map, id_map, warnings)
+            stock_maps = fit_stock_remote_maps(
+                generate_stock_remote_maps(map_list, devices_obj, dev_map, id_map, warnings), warnings)
 
     # Write devices.json and activities.json
     if devices_obj:
