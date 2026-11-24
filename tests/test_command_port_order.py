@@ -76,6 +76,8 @@ def main():
               "activities.json written back in Display Order at load", str([a["id"] for a in on_flash]))
         check(next(a for a in on_flash if a["id"] == "21").get("order") == 4,
               "an activity without an order gets one after the highest", str(on_flash))
+        check(os.path.exists(os.path.join(hub.data_dir, "rf_sync_pending.flag")),
+              "the write-back at load marks a push to the remotes as pending")
         st, r = hub.http_get("/api/activities")
         got = [a.get("id") for a in (r.get("activities") if isinstance(r, dict) else r) or []]
         check(got == ["22", "20", "23", "21"], "GET /api/activities in the same order", str(got))

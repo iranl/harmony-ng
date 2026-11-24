@@ -485,7 +485,7 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
           const isPlugin = !!(dev.plugin || (dev.type && (dev.type.startsWith('plugin:') || this.getPluginForType(dev.type))));
           const isBt = (dev.type === 'BT' || dev.type === 'Bluetooth' || dev.isBt);
           const isMqtt = (dev.type === 'MQTT' || dev.mqttEnabled);
-          const isIr = !isPlugin && !isBt && !isMqtt;
+          const isIr = !isPlugin && !isBt && !isMqtt && !this.isNetDevice(dev);
           const devEditBtBox = document.getElementById('devEditBtReconnectBox');
           if (devEditBtBox) devEditBtBox.style.display = isBt ? 'block' : 'none';
           const devEditTimingsBox = document.getElementById('devEditTimingsBox');
@@ -563,7 +563,7 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
       const isBt = (val === 'BT');
       const isPlugin = val.startsWith('plugin:') || !!this.getPluginForType(val);
       const isMqtt = (val === 'MQTT');
-      const isIr = !isBt && !isPlugin && !isMqtt;
+      const isIr = !isBt && !isPlugin && !isMqtt && val !== 'HTTP' && val !== 'TCP';
       const devEditBtBox = document.getElementById('devEditBtReconnectBox');
       if (devEditBtBox) devEditBtBox.style.display = isBt ? 'block' : 'none';
       const devEditTimingsBox = document.getElementById('devEditTimingsBox');

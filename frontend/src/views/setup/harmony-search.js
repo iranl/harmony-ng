@@ -16,11 +16,12 @@ import {
 } from '../../utils/irdb.js';
 
 // The commands of an archive codeset as /api/commands-batch takes them (codes without a Pronto
-// form are left out, as in the legacy UI)
-export function codesetToBatch(codeset, port = 7) {
+// form are left out, as in the legacy UI). No port: an imported command follows the device's
+// Blaster Assignment.
+export function codesetToBatch(codeset) {
   return (codeset?.commands || [])
     .filter(c => c && c.name && (c.pronto || c.raw))
-    .map(c => ({ name: String(c.name), raw: c.pronto || c.raw, repeats: 3, port }));
+    .map(c => ({ name: String(c.name), raw: c.pronto || c.raw, repeats: 3 }));
 }
 
 export function createView() {
@@ -145,8 +146,7 @@ export function createView() {
   async function importCodes(codeset, deviceId, btn) {
     const dev = (store.get('devices') || []).find(d => String(d.id) === String(deviceId));
     if (!dev) return toast.warn(t('choose_import_device', 'Choose a device to import into'));
-    const port = dev.controlPort ?? dev.control_port ?? 7;
-    const batch = codesetToBatch(codeset, port);
+    const batch = codesetToBatch(codeset);
     if (!batch.length) return toast.warn(t('codeset_no_sendable', 'This codeset has no codes the Hub can send'));
     if (btn) btn.disabled = true;
     try {

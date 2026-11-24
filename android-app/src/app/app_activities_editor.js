@@ -440,7 +440,8 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
     const name = document.getElementById('actEditName')?.value.trim();
     const type = document.getElementById('actEditType')?.value;
     const orderRaw = document.getElementById('actEditOrder')?.value;
-    const order = (orderRaw !== '' && Number.isFinite(Number(orderRaw))) ? Number(orderRaw) : 1;
+    // An emptied field sends no order: the Hub keeps the stored one (a new activity goes last)
+    const order = (orderRaw !== '' && Number.isFinite(Number(orderRaw))) ? Number(orderRaw) : undefined;
     const statusEl = document.getElementById('actEditorStatus');
 
     if (!name) return alert(t("act_name_required"));

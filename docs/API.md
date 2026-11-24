@@ -840,7 +840,7 @@ Adds or updates a single command for a device.
   - `repeats` (1 to 20, higher is 20) and `port` are numbers or, from a form post, numeric text.
     `repeats` left out keeps the stored value (3 for a new command).
   - `port`: the command's own IR port mask, 1 to 7, used by a send instead of the device's
-    `controlPort`. `0` (Default (Device Setting)) removes it, so the device's port applies; left
+    `controlPort`, also when that is `0` (No Blasters). `0` (Default (Device Setting)) removes it, so the device's port applies; left
     out, the stored one is kept. For a Bluetooth or MQTT device, and for a Bluetooth (`HID:`,
     `G:HID`) or MQTT (`G:MQTT`) code, `port` and `repeats` are not stored. 3.6 treats both fields
     the same way.
