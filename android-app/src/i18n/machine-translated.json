@@ -929,7 +929,9 @@
     "plg_confirm_timeout",
     "hide_in_devices_tab",
     "devices_all_hidden",
-    "slot_n_empty"
+    "slot_n_empty",
+    "press_min_repeats",
+    "press_min_repeats_title"
   ],
   "fr": [
     "map_action_help",
@@ -1860,7 +1862,9 @@
     "plg_confirm_timeout",
     "hide_in_devices_tab",
     "devices_all_hidden",
-    "slot_n_empty"
+    "slot_n_empty",
+    "press_min_repeats",
+    "press_min_repeats_title"
   ],
   "nl": [
     "map_action_help",
@@ -2791,7 +2795,9 @@
     "plg_confirm_timeout",
     "hide_in_devices_tab",
     "devices_all_hidden",
-    "slot_n_empty"
+    "slot_n_empty",
+    "press_min_repeats",
+    "press_min_repeats_title"
   ],
   "es": [
     "map_action_help",
@@ -3722,7 +3728,9 @@
     "plg_confirm_timeout",
     "hide_in_devices_tab",
     "devices_all_hidden",
-    "slot_n_empty"
+    "slot_n_empty",
+    "press_min_repeats",
+    "press_min_repeats_title"
   ],
   "it": [
     "map_action_help",
@@ -4653,6 +4661,8 @@
     "plg_confirm_timeout",
     "hide_in_devices_tab",
     "devices_all_hidden",
-    "slot_n_empty"
+    "slot_n_empty",
+    "press_min_repeats",
+    "press_min_repeats_title"
   ]
 }

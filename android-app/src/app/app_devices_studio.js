@@ -413,6 +413,8 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     setInputVal('devInterKeyDelay', dev.inter_key_delay !== undefined ? dev.inter_key_delay : dev.interKeyDelay, 100);
     setInputVal('devHoldInterKeyDelay', dev.hold_inter_key_delay !== undefined ? dev.hold_inter_key_delay : dev.holdInterKeyDelay, 200);
     setInputVal('devPowerOnDelay', dev.power_on_delay !== undefined ? dev.power_on_delay : dev.powerOnDelay, 1500);
+    // empty when the device has none: the Hub then uses 3 (the placeholder)
+    setInputVal('devPressMinRepeats', dev.pressMinRepeats, '');
     const pwrAlwaysCheck = document.getElementById('devIsPowerAlwaysOn');
     if (pwrAlwaysCheck) pwrAlwaysCheck.checked = Boolean(dev.is_power_always_on || dev.isPowerAlwaysOn);
     const hideCheck = document.getElementById('devHideOnRemote');

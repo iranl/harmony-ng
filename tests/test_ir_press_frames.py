@@ -14,7 +14,8 @@ tests/test_ir_hold.py, whose frame reader this test uses.
 
 Checks:
  1. pressMinRepeats is kept by the loader and shown by GET /api/inventory, a device without it
-    gets none; /api/device-save sets it, clamps it to 20, removes it with null and refuses text
+    gets none; /api/device-save sets it, clamps it to 20, removes it with null and refuses text;
+    the web UI's form post sets it and removes it with an empty field
  2. a tap of a "()(code)()" command: pressMinRepeats 1 -> 1 frame, 0 -> 1 frame, absent -> 3
  3. a tap of a "(code)(Repeat)()" command with pressMinRepeats 1: the frame + 1 repeat code
  4. a learned "F..." command: one send, also without pressMinRepeats
@@ -105,6 +106,13 @@ def test_field(hub):
     st, _ = hub.http_post("/api/device-save", {"deviceId": "23", "pressMinRepeats": None})
     check(st == 200 and "pressMinRepeats" not in inventory(hub).get("23", {"pressMinRepeats": "?"}),
           "device-save with null removes it", str(st))
+    # the legacy web UI posts a form (/ir/device): a number as text sets it, an empty field removes it
+    form = {"Content-Type": "application/x-www-form-urlencoded"}
+    st, _ = hub.http_post("/ir/device", None, headers=form, raw=b"deviceId=23&pressMinRepeats=4")
+    check(st == 200 and inventory(hub).get("23", {}).get("pressMinRepeats") == 4, "form post sets it", str(st))
+    st, _ = hub.http_post("/ir/device", None, headers=form, raw=b"deviceId=23&pressMinRepeats=")
+    check(st == 200 and "pressMinRepeats" not in inventory(hub).get("23", {"pressMinRepeats": "?"}),
+          "form post with an empty field removes it", str(st))
 
 
 def tap(hub, tx, dev):

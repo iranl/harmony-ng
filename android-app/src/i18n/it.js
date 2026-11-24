@@ -2146,4 +2146,6 @@ export default {
     "net_no_pin": "Nessuna chiave memorizzata per questo dispositivo",
     "net_cmd_name_required": "Inserisci un nome per il comando",
     "net_cmd_saved": "Comando salvato",
+    "press_min_repeats": "Ripetizioni per pressione",
+    "press_min_repeats_title": "Frame che una pressione invia dopo il primo, come PressMinRepeats dell'account Logitech. Vuoto = 3.",
 };

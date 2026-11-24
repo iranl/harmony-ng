@@ -2146,4 +2146,6 @@ export default {
     "net_no_pin": "No hay clave fijada para este dispositivo",
     "net_cmd_name_required": "Introduce un nombre de comando",
     "net_cmd_saved": "Comando guardado",
+    "press_min_repeats": "Repeticiones por pulsación",
+    "press_min_repeats_title": "Tramas que envía una pulsación después de la primera, como PressMinRepeats de la cuenta Logitech. Vacío = 3.",
 };

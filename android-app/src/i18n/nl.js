@@ -2146,4 +2146,6 @@ export default {
     "net_no_pin": "Geen sleutel vastgelegd voor dit apparaat",
     "net_cmd_name_required": "Voer een opdrachtnaam in",
     "net_cmd_saved": "Opdracht opgeslagen",
+    "press_min_repeats": "Herhalingen per druk",
+    "press_min_repeats_title": "Frames die een druk na het eerste verstuurt, zoals PressMinRepeats van het Logitech-account. Leeg = 3.",
 };

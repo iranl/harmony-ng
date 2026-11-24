@@ -756,7 +756,7 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
     let fields = Array.isArray(plug.device_definition?.config_fields)
       ? plug.device_definition.config_fields.filter(f => f && f.key) : null;
     if (!fields && cfgObj && typeof cfgObj === 'object') {
-      const knownKeys = Object.keys(cfgObj).filter(k => !['id', 'name', 'type', 'config', 'commands', 'icon', 'manufacturer', 'model', 'interDeviceDelay', 'interKeyDelay', 'holdInterKeyDelay', 'powerOnDelay', 'isPowerAlwaysOn'].includes(k));
+      const knownKeys = Object.keys(cfgObj).filter(k => !['id', 'name', 'type', 'config', 'commands', 'icon', 'manufacturer', 'model', 'interDeviceDelay', 'interKeyDelay', 'holdInterKeyDelay', 'powerOnDelay', 'pressMinRepeats', 'isPowerAlwaysOn'].includes(k));
       if (knownKeys.length > 0) {
         fields = knownKeys.map(k => ({ key: k, label: k.replace(/_/g, ' ').toUpperCase(), type: typeof cfgObj[k] === 'number' ? 'number' : 'string' }));
       }

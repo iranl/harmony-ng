@@ -2146,4 +2146,6 @@ export default {
     "net_no_pin": "No key pinned for this device",
     "net_cmd_name_required": "Enter a command name",
     "net_cmd_saved": "Command saved",
+    "press_min_repeats": "Press Repeats",
+    "press_min_repeats_title": "Frames a press sends after the first, as the Logitech account's PressMinRepeats. Empty = 3.",
 };

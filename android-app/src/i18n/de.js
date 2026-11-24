@@ -2146,4 +2146,6 @@ export default {
     "net_no_pin": "Für dieses Gerät ist kein Schlüssel gemerkt",
     "net_cmd_name_required": "Befehlsnamen eingeben",
     "net_cmd_saved": "Befehl gespeichert",
+    "press_min_repeats": "Wiederholungen pro Druck",
+    "press_min_repeats_title": "Frames, die ein Tastendruck nach dem ersten sendet, wie PressMinRepeats im Logitech-Konto. Leer = 3.",
 };

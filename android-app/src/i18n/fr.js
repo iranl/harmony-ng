@@ -2146,4 +2146,6 @@ export default {
     "net_no_pin": "Aucune clé mémorisée pour cet appareil",
     "net_cmd_name_required": "Saisissez un nom de commande",
     "net_cmd_saved": "Commande enregistrée",
+    "press_min_repeats": "Répétitions par appui",
+    "press_min_repeats_title": "Trames qu'un appui envoie après la première, comme PressMinRepeats du compte Logitech. Vide = 3.",
 };
