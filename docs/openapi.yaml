@@ -3366,6 +3366,61 @@ paths:
         '500':
           description: The settings were sent to the remote but could not be saved on the Hub
 
+  /api/rf/layer:
+    get:
+      tags:
+        - RF & Remote
+      summary: Read every remote slot's key layer
+      responses:
+        '200':
+          description: Each slot's key layer
+          content:
+            application/json:
+              example:
+                ok: true
+                slots:
+                  - slot: 1
+                    'on': false
+                    activity: ''
+                    name: ''
+    post:
+      tags:
+        - RF & Remote
+      summary: Turn a remote slot's key layer on or off, without sending a key
+      parameters:
+        - name: slot
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 6
+        - name: 'on'
+          in: query
+          required: true
+          schema:
+            type: integer
+            enum: [0, 1]
+        - name: name
+          in: query
+          required: false
+          description: A named layer of the slot's mapping; left out, the running activity's own
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Each slot's key layer after the change
+          content:
+            application/json:
+              example:
+                ok: true
+                slots:
+                  - slot: 1
+                    'on': false
+                    activity: ''
+                    name: ''
+        '400':
+          description: A slot outside 1 to 6, or a name with characters other than letters, digits, _ and -
   /api/rf/push-config:
     get:
       tags:

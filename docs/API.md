@@ -1983,6 +1983,52 @@ Returns physical button and screen mappings for the remote in the slot (1 to 6).
 Saves button assignments for the specified slot. The body must be one JSON object of less than 262144 bytes (256 KB): `400` otherwise, `413` when larger; the stored mapping is then kept.
 - **Query Parameter**: `slot` (`1` or `2`, defaults to `1`).
 
+#### Key layers: other keys within one activity
+A slot's mapping may hold a top-level `"layers"` object beside `"activities"`. A layer is a set of key bindings that, while
+it is on, come before the running activity's own: a key the layer binds uses the layer's binding, a key it leaves out
+keeps the activity's, and a key it binds to `{}` sends nothing. So a few keys can mean something else for a while,
+such as the arrows, OK and Back driving a TV's own menu during an activity that sends them to a set-top box.
+- **The activity's own layer** is `layers` → `<activity id>`. A key bound as
+  `{"action": "layer_toggle", "on": {"deviceId": "3", "command": "Green"}, "off": {"deviceId": "3", "command": "Blue"}}`
+  turns it on and sends `on`; pressed again, it turns the layer off and sends `off`. The release sends the release of
+  the same command. Bind it in the activity, not in the layer.
+- **A named layer** is `layers` → `<name>` (letters, digits, `_` and `-`, at most 23 characters), for any activity. It is
+  turned on through `POST /api/rf/layer`. A `layer_toggle` key pressed while any layer is on turns it off and sends `off`.
+- **Off** (`PowerOffActivity`) stops the activity, unless the layer that is on binds it: then it is that binding.
+- A layer belongs to the activity it was turned on in: it is off once another activity, or none, runs. It is kept in
+  memory only, so it is off after `hub_rf` restarts.
+```json
+{
+  "activities": {
+    "1": {
+      "DirectionUp": {"action": "device_cmd", "deviceId": "2", "command": "DirectionUp"},
+      "Guide": {"action": "layer_toggle", "on": {"deviceId": "3", "command": "Green"}, "off": {"deviceId": "3", "command": "Blue"}}
+    }
+  },
+  "layers": {
+    "1": {"DirectionUp": {"action": "device_cmd", "deviceId": "3", "command": "DirectionUp"}},
+    "amp": {
+      "DirectionUp": {"action": "device_cmd", "deviceId": "1", "command": "DirectionUp"},
+      "PowerOffActivity": {"action": "device_cmd", "deviceId": "1", "command": "PowerToggle"},
+      "Dvr": {}
+    }
+  }
+}
+```
+
+#### `GET /api/rf/layer` or `POST /api/rf/layer?slot={1..6}&on={0|1}[&name={layer}]`
+Reads every slot's key layer, or sets one without sending any key. Open to the `user` role (11.5), as a key press is.
+- **Query Parameters** (POST): `slot` (1 to 6), `on` (`1` on, `0` off), `name` (optional: a named layer; left out or
+  empty, the running activity's own). `on=1` with no activity running leaves the layer off.
+- **Response `200 OK`** (both methods): each slot's state; `activity` is the activity the layer was turned on in and
+  `name` its name, both `""` when it is off or the activity's own.
+  ```json
+  {"ok": true, "slots": [{"slot": 1, "on": false, "activity": "", "name": ""},
+                         {"slot": 2, "on": true, "activity": "1", "name": "amp"}]}
+  ```
+  The list has an entry for each of the 6 slots.
+- **Response `400`**: a slot outside 1 to 6 or a name with other characters; the body is the same, with `"ok": false`.
+
 #### `POST /api/rf-mapping-copy?from={1..6}&to={1..6}`
 Copies entire button mapping configuration from one remote slot to another.
 - **Query Parameters**: `from` (source slot, 1 to 6, default 1), `to` (destination slot, 1 to 6, default 2). Both may also be given in a JSON body (`{"from": 1, "to": 2}`), which wins over the query.
@@ -3038,8 +3084,8 @@ With authentication on, each request is checked before its route runs:
 
   | Method | Paths |
   | --- | --- |
-  | `GET`, `HEAD` | `/api/status`, `/api/auth/me`, `/api/activities`, `/api/activity`, `/api/current_activity`, `/api/devices`, `/api/inventory`, `/api/icons`, `/api/icons/...`, `/api/icons/archive`, `/api/custom-icons`, `/api/ui-remote-layout`, `/assets/...` |
-  | `POST` | `/api/auth/logout`, `/api/activity`, `/api/activity-start`, `/api/activity-stop`, `/api/poweroff`, `/api/activity-cancel`, `/api/ir-send`, `/ir/send`, `/api/ir-raw`, `/api/button-press`, `/api/mqtt-publish`, `/api/bt-key`, `/api/bt-text`, `/api/bt-mouse`, `/api/v1/bt/mouse` |
+  | `GET`, `HEAD` | `/api/status`, `/api/auth/me`, `/api/activities`, `/api/activity`, `/api/current_activity`, `/api/devices`, `/api/inventory`, `/api/icons`, `/api/icons/...`, `/api/icons/archive`, `/api/custom-icons`, `/api/ui-remote-layout`, `/api/rf/layer`, `/assets/...` |
+  | `POST` | `/api/auth/logout`, `/api/activity`, `/api/activity-start`, `/api/activity-stop`, `/api/poweroff`, `/api/activity-cancel`, `/api/ir-send`, `/ir/send`, `/api/ir-raw`, `/api/button-press`, `/api/mqtt-publish`, `/api/bt-key`, `/api/bt-text`, `/api/bt-mouse`, `/api/v1/bt/mouse`, `/api/rf/layer` |
 
   `/api/bt-key` and `/api/bt-text` are not REST routes: the two entries only decide whether a
   `user` may send the WebSocket `bt_key` and `bt_text` actions.
