@@ -74,6 +74,9 @@ find_blockdev() {
       for _p in "$_b/$_disk"*; do
         [ -f "$_p/dev" ] && { _part=${_p##*/}; break; }
       done
+      # the disk shows up before the kernel has read its partition table: give the partitions
+      # a few seconds before the whole disk is taken (a stick without a partition table)
+      [ -z "$_part" ] && [ "$_i" -lt 4 ] && break
       _name=${_part:-$_disk}
       _devfile="$_b/dev"
       [ -n "$_part" ] && _devfile="$_b/$_part/dev"
@@ -278,8 +281,12 @@ do_restore() {
     is_mounted "$ICONS" && $BB umount "$ICONS" 2>/dev/null
     mkdir -p "$ICONS"
     if [ -f "$DIR/icons.tar.gz" ]; then
+      # an earlier restore may have copied it already: a second 2 MB copy does not fit
+      if [ ! -f "$ARCHIVE_FLASH" ] || [ "$(md5sum "$DIR/icons.tar.gz" | cut -d' ' -f1)" != "$(md5sum "$ARCHIVE_FLASH" | cut -d' ' -f1)" ]; then
+        copy_verified "$DIR/icons.tar.gz" "$ARCHIVE_FLASH" || { echo "[-] No room on flash for the icon archive"; use_offload; return 1; }
+      fi
+      # the link changes only once the flash copy is there
       rm -f "$ARCHIVE_LINK" 2>/dev/null
-      copy_verified "$DIR/icons.tar.gz" "$ARCHIVE_FLASH" || { echo "[-] No room on flash for the icon archive"; use_offload; return 1; }
       ln -sf "$ARCHIVE_FLASH" "$ARCHIVE_LINK" 2>/dev/null
     fi
     for _f in "$DIR/custom_icons"/*; do
@@ -287,7 +294,19 @@ do_restore() {
       copy_verified "$_f" "$ICONS/${_f##*/}" || { echo "[-] No room on flash for ${_f##*/}"; use_offload; return 1; }
     done
     if [ -d "$DIR/plugins" ]; then
-      is_mounted "$PLUGINS" && { stop_plugins; $BB umount "$PLUGINS" 2>/dev/null; }
+      # a stopped plugin can hold the folder for a moment (umount: busy): while the bind mount
+      # stays, copy_tree would copy the stick onto itself and leave the flash folder empty
+      _i=0
+      while is_mounted "$PLUGINS" && [ "$_i" -lt 5 ]; do
+        stop_plugins
+        $BB umount "$PLUGINS" 2>/dev/null || sleep 1
+        _i=$(expr "$_i" + 1)
+      done
+      if is_mounted "$PLUGINS"; then
+        echo "[-] The plugin folder on the stick is still in use; try again"
+        use_offload
+        return 1
+      fi
       ( copy_tree "$DIR/plugins" "$PLUGINS" ) || { echo "[-] No room on flash for the plugins"; use_offload; return 1; }
     fi
   else
