@@ -1,6 +1,6 @@
 # HarmonyNG roadmap
 
-Version 0.2 (2026-11-18). Status: proposal for review. It collects the items of issue #17, the
+Version 0.3 (2026-11-24). Status: proposal for review. It collects the items of issue #17, the
 work in progress on branches and the open design questions into phases with tasks, priorities
 and a status for each task.
 
@@ -134,7 +134,7 @@ device switched off by hand is switched on again; a failed step is shown with a 
 | 3.4 | Device state module with the sources Bluetooth link and network probe | P1 | M | open |
 | 3.5 | Reported state: one report format for outside reporters, with its rules (never invented, stale after silence, RAM only, rate limited) | P1 | M | open |
 | 3.6 | Verified steps and skipping: wait for a state instead of a delay; leave out a power or input command that is already satisfied | P1 | M | open |
-| 3.7 | `device_command` and `device_state` events on WebSocket and MQTT | P1 | S | open |
+| 3.7 | `device_command` and `device_state` events on WebSocket and MQTT. `device_command` covers every command the Hub sends, whatever started it (remote key, web UI, `/api/ir-send`, MQTT, activity step), and names that source; the `button` event stays for physical keys | P1 | S | open |
 | 3.8 | Repair: list of single fixes for the running activity with state hints, "resend what is needed" | P1 | M | open |
 | 3.9 | Step state on the remote's start screen and repair list on its Help screen | P2 | M | open |
 | 3.10 | Editors: completion rule and failure rule per step, state source per device, preview with criteria | P1 | M | open |
@@ -276,3 +276,4 @@ this repository) holds the state.
 |---|---|---|
 | 0.1 | 2026-11-13 | First proposal (not published) |
 | 0.2 | 2026-11-18 | Status of every task after v2.4.2 and the work merged since; items of #17 with their status; tasks 0.13, 2.13, 4.9, 5.15, 6.11, 6.12, 6.13 added; tracking on the project board with draft items instead of one issue per task |
+| 0.3 | 2026-11-24 | Task 3.7 says that `device_command` covers commands from every source (web UI and API sends give no event today) |
