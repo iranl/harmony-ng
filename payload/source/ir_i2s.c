@@ -261,7 +261,11 @@ static int ir_i2s_blast_locked(const bit_stream_t *bsp, uint8_t port_mask, uint3
     uint32_t sel = (port_mask & 0x07);
     if (sel == 0) sel = IR_I2S_EMITTER_ALL;
 
-    int start_arg = (int)(((sel & 0xffff) << 16) | ((uint32_t)bs.len & 0xffff));
+    /* START's low word is a flag, not a length: 0 plays what was written once, anything else
+     * makes ath_i2s play it again and again from where the last drain left off until the next
+     * drain (the stock hal's held-key mode). With the length there, a stream shorter than the
+     * wait below went out twice or more. */
+    int start_arg = (int)((sel & 0xffff) << 16);
     if (ioctl(fd, I2S_START, start_arg) < 0) {
         close(fd);
         s_i2s_tx_fd = -1;
