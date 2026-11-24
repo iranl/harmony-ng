@@ -721,8 +721,11 @@ class HubDeployer:
                 self.deploy_file_if_changed(local_bb, "/cache/bin/busybox", "755")
                 bb_setup = (
                     "ln -sf /cache/bin/busybox /data/harmony/bin/busybox 2>/dev/null; "
-                    "/cache/bin/busybox --install -s /cache/bin 2>/dev/null || true; "
-                    'for _app in $(/cache/bin/busybox --list 2>/dev/null); do [ ! -e "/bin/$_app" ] && [ ! -e "/usr/bin/$_app" ] && ln -sf /cache/bin/busybox "/usr/bin/$_app" 2>/dev/null || true; done; '
+                    # readlink by path: the stock BusyBox has none, and /usr/bin/readlink is one of
+                    # the links removed here. /cache/bin is cleaned too (links of removed applets).
+                    "bb=/cache/bin/busybox; "
+                    "for _l in /usr/bin/* /cache/bin/*; do [ -L \"$_l\" ] && [ \"$($bb readlink \"$_l\" 2>/dev/null)\" = \"$bb\" ] && rm -f \"$_l\" 2>/dev/null || true; done; "
+                    "$bb --install -s /cache/bin 2>/dev/null || true; "
                     "mkdir -p /etc/profile.d 2>/dev/null; echo 'export PATH=/cache/bin:/data/harmony/bin:$PATH' > /etc/profile.d/00-harmony.sh 2>/dev/null; chmod 644 /etc/profile.d/00-harmony.sh 2>/dev/null || true"
                 )
                 if not self.dry_skip("install BusyBox applet links and /etc/profile.d/00-harmony.sh"):

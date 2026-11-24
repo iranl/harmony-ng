@@ -577,7 +577,12 @@ do_apply() {
       # D. Install extended BusyBox applets strictly to /cache/bin (/bin/sh is NEVER touched)
       rm -f /data/bin/sh /data/bin/ash /data/bin/busybox 2>/dev/null || true
       if [ -x /cache/bin/busybox ]; then
-        /cache/bin/busybox --install -s /cache/bin 2>/dev/null || true
+        # Links to busybox in /usr/bin (older deploys) and of removed applets in /cache/bin go
+        _bb=/cache/bin/busybox
+        for _l in /usr/bin/* /cache/bin/*; do
+          [ -L "$_l" ] && [ "$($_bb readlink "$_l" 2>/dev/null)" = "$_bb" ] && rm -f "$_l" 2>/dev/null || true
+        done
+        $_bb --install -s /cache/bin 2>/dev/null || true
         ln -sf /cache/bin/busybox /data/harmony/bin/busybox 2>/dev/null || true
       fi
 

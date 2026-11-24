@@ -178,7 +178,7 @@ The installer automatically:
 6. Restarts the services (`init.sh restart`) and checks with `pidof`, for up to about 11 s, that a Hub daemon runs (`hub_daemon`, `hub_rf` or `hub_btstack`). With `--reboot` it reboots the Hub and checks nothing. It requests no API: open `http://<YOUR_HUB_IP>:8089` to check the Hub answers.
 
 The installer also changes the Hub outside `/data/harmony` and removes old files, on every run:
-- links every BusyBox applet the Hub lacks into `/usr/bin`, writes `/etc/profile.d/00-harmony.sh` (PATH) and rewrites `/root/.profile` and `/home/root/.profile`;
+- links every BusyBox applet into `/cache/bin` and removes the links to it that older versions made in `/usr/bin` (a login shell has `/cache/bin` on its PATH; a command sent over ssh without one has only the stock applets, so call `/cache/bin/busybox <applet>` there), writes `/etc/profile.d/00-harmony.sh` (PATH) and rewrites `/root/.profile` and `/home/root/.profile`;
 - renames `/data/harmony/mqtt_config.json`, `elite_remote_map.json` and `bt_devices.json` to their current names (`mqtt.json`, `remote_slot1_map.json`, `bt-devices.json`) when no file of the new name exists, and deletes them otherwise; deletes other files of older layouts without converting them, among them `/data/harmony/devices.json`, `/data/devices.json` and `/data/activities.json`; the current configuration lives in `/data/harmony/config/`. `--dry-run` lists this step as one line.
 
 ### Stock configuration import

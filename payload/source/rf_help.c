@@ -119,7 +119,7 @@ void rf_help_request(const rf_frame_t *f) {
     s_job.slot = slot;
     copy_id(s_job.act_id, sizeof(s_job.act_id), f->payload, 12);
     pthread_t th;
-    s_running = pthread_create(&th, NULL, help_worker, &s_job) == 0;
+    s_running = rf_create_thread(&th, 64 * 1024, help_worker, &s_job) == 0;
     if (s_running) pthread_detach(th);
     pthread_mutex_unlock(&s_lock);
     if (!s_running) send_code(slot, RF_HELP_FAILED, false);

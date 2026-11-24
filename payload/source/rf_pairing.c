@@ -79,7 +79,7 @@ void hub_led_show_failure(void) {
     hub_led_write(HUB_LED_RED_SLOW);
     pthread_mutex_unlock(&s_led_lock);
     pthread_t th;
-    if (pthread_create(&th, NULL, failure_restore_worker, (void *)(uintptr_t)shown) == 0) {
+    if (rf_create_thread(&th, 64 * 1024, failure_restore_worker, (void *)(uintptr_t)shown) == 0) {
         pthread_detach(th);
     } else {
         led_restore_if_unchanged(shown);
@@ -121,7 +121,7 @@ void start_pairing_mode(int slot) {
     hub_led_show(HUB_LED_GREEN_FAST);
 
     pthread_t timer_th;
-    if (pthread_create(&timer_th, NULL, pairing_timeout_worker, (void *)(uintptr_t)window) == 0) {
+    if (rf_create_thread(&timer_th, 64 * 1024, pairing_timeout_worker, (void *)(uintptr_t)window) == 0) {
         pthread_detach(timer_th);
     } else {
         /* without the timer nothing would end the pairing mode: the CC2544 closes its lock

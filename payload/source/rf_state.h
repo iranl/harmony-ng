@@ -8,6 +8,16 @@
 #include "cJSON.h"
 #include "rf_proto.h"
 
+
+static inline int rf_create_thread(pthread_t *th, size_t stack_size, void *(*start_routine)(void *), void *arg) {
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr, stack_size > 0 ? stack_size : (64 * 1024));
+    int rc = pthread_create(th, &attr, start_routine, arg);
+    pthread_attr_destroy(&attr);
+    return rc;
+}
+
 #define RFSPI_DEV          "/dev/rfspi"
 #define RFFW_DEV           "/dev/rffw"
 #define CC2544_FW          "/lib/firmware/cc2544.bin"

@@ -44,7 +44,7 @@ static void queue_name_tail(push_queue_t *q, uint8_t slot, uint8_t kind, int idx
 
 void rf_request_config_push(void) {
     pthread_t th;
-    if (pthread_create(&th, NULL, config_push_worker, NULL) == 0) pthread_detach(th);
+    if (rf_create_thread(&th, 128 * 1024, config_push_worker, NULL) == 0) pthread_detach(th);
 }
 
 void *config_push_worker(void *arg) {

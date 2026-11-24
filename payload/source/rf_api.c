@@ -500,7 +500,7 @@ void *api_server_worker(void *arg) {
                             snprintf(job->type, sizeof(job->type), "%s", type_str);
                             snprintf(job->id, sizeof(job->id), "%s", id_str);
                             pthread_t ith;
-                            if (pthread_create(&ith, NULL, icon_push_worker, job) == 0) {
+                            if (rf_create_thread(&ith, 128 * 1024, icon_push_worker, job) == 0) {
                                 pthread_detach(ith);
                                 started = 1;
                             } else {
@@ -528,7 +528,7 @@ void *api_server_worker(void *arg) {
                     for (uint8_t s = 1; s <= MAX_PAIRED_REMOTES; s++) rf_keymap_invalidate_map(s);
                     rf_config_version_bump();
                     pthread_t push_th;
-                    int push_ok = (pthread_create(&push_th, NULL, config_push_worker, NULL) == 0);
+                    int push_ok = (rf_create_thread(&push_th, 128 * 1024, config_push_worker, NULL) == 0);
                     if (push_ok) pthread_detach(push_th);
                     for (uint8_t s = 1; s <= MAX_PAIRED_REMOTES; s++) {
                         if (g_paired_remotes[s - 1].active && !is_companion_slot(s)) rf_notify_update_available(s);
@@ -814,7 +814,7 @@ void *api_server_worker(void *arg) {
                             saved = 0;
                         } else if (is_slot_direct_mode(slot)) {
                             pthread_t push_th;
-                            if (pthread_create(&push_th, NULL, config_push_worker, NULL) == 0) pthread_detach(push_th);
+                            if (rf_create_thread(&push_th, 128 * 1024, config_push_worker, NULL) == 0) pthread_detach(push_th);
                         }
                     }
                     const char *res = saved
@@ -859,7 +859,7 @@ void *api_server_worker(void *arg) {
                 } else {
                     s_wake_in_progress = 1;
                     pthread_t wth;
-                    int ok = (pthread_create(&wth, NULL, rf_wake_worker, (void *)(uintptr_t)slot) == 0);
+                    int ok = (rf_create_thread(&wth, 64 * 1024, rf_wake_worker, (void *)(uintptr_t)slot) == 0);
                     if (ok) pthread_detach(wth);
                     else s_wake_in_progress = 0;
                     rlen = snprintf(res, sizeof(res),
@@ -887,7 +887,7 @@ void *api_server_worker(void *arg) {
                         g_rf_ota.status_code = 3;
                         snprintf(g_rf_ota.error_msg, sizeof(g_rf_ota.error_msg), "Preparing OTA update...");
                         pthread_t ota_th;
-                        if (pthread_create(&ota_th, NULL, rf_ota_sender_worker, (void *)(uintptr_t)slot) == 0) {
+                        if (rf_create_thread(&ota_th, 64 * 1024, rf_ota_sender_worker, (void *)(uintptr_t)slot) == 0) {
                             pthread_detach(ota_th);
                             started = 1;
                         } else {
