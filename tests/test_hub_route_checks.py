@@ -18,8 +18,10 @@ Route checks of hub_daemon (port 9101, own mock root, clients bound to 127.0.0.2
     follows a link at /data/resources, and reports a file it could not remove
  9  a packed icon archive (tools/icon_pack.py): icons are served from it, listed from its index,
     and the copy an older firmware unpacked into /tmp is removed
-10  a packed icon archive of another pack version (after a downgrade) is logged once and not
-    unpacked into /tmp (RAM); a plain tar.gz still is
+10  a packed icon archive of another pack version (after a downgrade) is unpacked into /tmp
+    (RAM) as a plain archive only when the free RAM allows it, logged once either way; a plain
+    tar.gz is unpacked whatever the RAM; the pack version of tools/icon_pack.py and the firmware
+    match
 """
 
 import base64
@@ -227,50 +229,88 @@ def wait_for_path(path, secs):
     return os.path.exists(path)
 
 
+def header_pack_version():
+    """ICON_PACK_VERSION from payload/source/icon_pack.h"""
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(root, "payload", "source", "icon_pack.h")) as f:
+        for line in f:
+            parts = line.split()
+            if len(parts) >= 3 and parts[:2] == ["#define", "ICON_PACK_VERSION"]:
+                return int(parts[2])
+    return None
+
+
 def test_other_version_pack():
-    print("[-] 10 a packed icon archive of another pack version is not unpacked into /tmp (RAM)")
+    print("[-] 10 a packed icon archive of another pack version: unpacked into /tmp (RAM) only when it fits")
     import shutil
     import icon_pack
     import test_icon_pack
+    check(header_pack_version() == icon_pack.EXTRA_VERSION, "tools/icon_pack.py and icon_pack.h: same pack version",
+          "%r %r" % (header_pack_version(), icon_pack.EXTRA_VERSION))
+    other = icon_pack.EXTRA_VERSION + 1
     tmp_icons = os.path.join(TMP_WWW, "assets", "icons")
-    shutil.rmtree(tmp_icons, ignore_errors=True)
-    os.makedirs(os.path.join(TMP_WWW, "assets"), exist_ok=True)
     files = test_icon_pack.make_files()
     log_path = os.path.join(TMP_WWW, "route_checks_%d.log" % os.getpid())
-    msg = "pack version 2, this firmware reads version 1"
-    try:
-        with HubHarness(port=PORT, host=HOST, log_path=log_path) as hub:
-            os.makedirs(os.path.join(hub.mock_dir, "cache"), exist_ok=True)
-            archive = os.path.join(hub.mock_dir, "cache", "icons.tar.gz")
-            test_icon_pack.make_archive(archive, files)
-            icon_pack.pack(archive, archive)
-            blob = bytearray(read(archive))
-            blob[16] = 2  # pack version byte of the 'HI' gzip field
-            with open(archive + ".new", "wb") as f:
-                f.write(blob)
-            os.rename(archive + ".new", archive)
-            for _ in range(3):
-                raw("GET", "/api/icons")
-                st, b = raw("GET", "/assets/icons/shared.png", binary=True)
-            check(st != 200, "icon of the version 2 pack not served", "%s %r" % (st, b[:20]))
-            st, r = raw("GET", "/api/status")
-            check(isinstance(r, dict) and r.get("has_icons") is False, "has_icons false", repr(r)[:80])
-            check(not wait_for_path(tmp_icons, 3), "version 2 pack not unpacked into /tmp")
-            with open(log_path, "rb") as f:
-                n = f.read().decode(errors="replace").count(msg)
-            check(n == 1, "version 2 pack logged once", "%d lines" % n)
+    head = "pack version %d, this firmware reads version %d: " % (other, icon_pack.EXTRA_VERSION)
+    refused = head + "not unpacked into /tmp"
+    unpacked = head + "unpacked into /tmp as a plain archive"
 
-            # control: a plain tar.gz in its place is still unpacked into /tmp
-            test_icon_pack.make_archive(archive + ".new", files)
-            os.rename(archive + ".new", archive)
-            raw("GET", "/api/icons")
-            check(wait_for_path(os.path.join(tmp_icons, "shared.png"), 10), "plain archive unpacked into /tmp")
-    finally:
+    def other_pack(archive):
+        test_icon_pack.make_archive(archive, files)
+        icon_pack.pack(archive, archive)
+        blob = bytearray(read(archive))
+        blob[16] = other  # pack version byte of the 'HI' gzip field
+        with open(archive + ".new", "wb") as f:
+            f.write(blob)
+        os.rename(archive + ".new", archive)
+
+    def log_count(msg):
+        with open(log_path, "rb") as f:
+            return f.read().decode(errors="replace").count(msg)
+
+    for free_kb, fits in (("1024", False), ("1048576", True)):
         shutil.rmtree(tmp_icons, ignore_errors=True)
+        os.makedirs(os.path.join(TMP_WWW, "assets"), exist_ok=True)
         try:
-            os.unlink(log_path)
-        except OSError:
-            pass
+            with HubHarness(port=PORT, host=HOST, log_path=log_path,
+                            env={"HARMONY_TEST_FREE_RAM_KB": free_kb}) as hub:
+                os.makedirs(os.path.join(hub.mock_dir, "cache"), exist_ok=True)
+                archive = os.path.join(hub.mock_dir, "cache", "icons.tar.gz")
+                other_pack(archive)
+                for _ in range(3):
+                    raw("GET", "/api/icons")
+                if not fits:
+                    st, b = raw("GET", "/assets/icons/shared.png", binary=True)
+                    check(st != 200, "%s KB free: icon of the version %d pack not served" % (free_kb, other),
+                          "%s %r" % (st, b[:20]))
+                    st, r = raw("GET", "/api/status")
+                    check(isinstance(r, dict) and r.get("has_icons") is False, "%s KB free: has_icons false" % free_kb,
+                          repr(r)[:80])
+                    check(not wait_for_path(tmp_icons, 3), "%s KB free: not unpacked into /tmp" % free_kb)
+                    n = log_count(refused)
+                    check(n == 1, "%s KB free: refusal logged once over three requests" % free_kb, "%d lines" % n)
+
+                    # a plain tar.gz is unpacked whatever the RAM
+                    test_icon_pack.make_archive(archive + ".new", files)
+                    os.rename(archive + ".new", archive)
+                    raw("GET", "/api/icons")
+                    check(wait_for_path(os.path.join(tmp_icons, "shared.png"), 10),
+                          "%s KB free: plain archive unpacked into /tmp" % free_kb)
+                else:
+                    check(wait_for_path(os.path.join(tmp_icons, "shared.png"), 10),
+                          "%s KB free: version %d pack unpacked into /tmp" % (free_kb, other))
+                    st, b = raw("GET", "/assets/icons/shared.png", binary=True)
+                    check(st == 200 and b == files["icons/b/shared.png"], "%s KB free: icon served from /tmp" % free_kb,
+                          "%s %r" % (st, b[:20]))
+                    n = log_count(unpacked)
+                    check(n == 1, "%s KB free: unpacking logged once" % free_kb, "%d lines" % n)
+                    check(log_count(refused) == 0, "%s KB free: no refusal logged" % free_kb)
+        finally:
+            shutil.rmtree(tmp_icons, ignore_errors=True)
+            try:
+                os.unlink(log_path)
+            except OSError:
+                pass
 
 
 def test_query_params():

@@ -6,10 +6,12 @@ aflip.tar.gz         a.tar.gz with one byte of big.png's part changed: same size
                      the part still inflates to its length but to other bytes
 badcrc.tar.gz        set a packed, every part CRC in the index wrong by one bit
 cut.tar.gz, cut2.tar.gz   the first half / third of a.tar.gz (a copy cut short)
-v2.tar.gz            a.tar.gz with pack version 2 in its header (a pack this firmware does not read)
+vnext.tar.gz         a.tar.gz with the next pack version in its header (a pack this firmware does not read)
+hi_other.tar.gz      a gzip file whose first subfield is 'HI' but not the pack layout (XLEN 26)
 plain.tar.gz         set a, not packed
 Usage: icon_pack_verify_fixture.py OUT"""
 
+import gzip
 import pathlib
 import random
 import struct
@@ -92,9 +94,15 @@ def main():
     (out / "badcrc.tar.gz").write_bytes(wrong_crcs(a))
     (out / "cut.tar.gz").write_bytes(a[:len(a) // 2])
     (out / "cut2.tar.gz").write_bytes(a[:len(a) // 3])
-    v2 = bytearray(a)
-    v2[16] = 2
-    (out / "v2.tar.gz").write_bytes(bytes(v2))
+    vnext = bytearray(a)
+    vnext[16] = icon_pack.EXTRA_VERSION + 1
+    (out / "vnext.tar.gz").write_bytes(bytes(vnext))
+    # gzip of another tool: FEXTRA, XLEN 26, subfield 'HI' with 22 bytes, then plain set a
+    tar = gzip.decompress((out / "a.plain.tar.gz").read_bytes())
+    co = zlib.compressobj(9, zlib.DEFLATED, -15)
+    hi = (b"\x1f\x8b\x08\x04" + bytes(6) + struct.pack("<H", 26) + b"HI" + struct.pack("<H", 22) + bytes(22)
+          + co.compress(tar) + co.flush() + struct.pack("<II", zlib.crc32(tar), len(tar) & 0xFFFFFFFF))
+    (out / "hi_other.tar.gz").write_bytes(hi)
 
 
 if __name__ == "__main__":

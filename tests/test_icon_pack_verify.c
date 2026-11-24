@@ -245,18 +245,35 @@ int main(int argc, char **argv) {
     CHECK(log_count(msg) == before + 2, "another cut: logged once more");
     char p[600];
     snprintf(p, sizeof(p), "%s/icons.tar.gz", s_dir);
-    CHECK(icon_pack_is_pack_file(p), "cut pack is still a pack file (not unpacked into RAM)");
+    int ver = -2;
+    CHECK(icon_pack_file_kind(p, &ver) == ICON_ARCHIVE_PACK && ver == ICON_PACK_VERSION,
+          "cut pack is still a pack of this version (not unpacked into RAM)");
     install("plain.tar.gz");
     (void)icon_pack_available();
-    CHECK(log_count(msg) == before + 2 && !icon_pack_is_pack_file(p), "plain archive: no pack, nothing logged");
+    CHECK(log_count(msg) == before + 2 && icon_pack_file_kind(p, &ver) == ICON_ARCHIVE_PLAIN && ver == -1,
+          "plain archive: no pack, nothing logged");
 
-    /* a pack of another version (a downgrade): not read, not unpacked into /tmp, logged once */
-    const char *vmsg = "pack version 2, this firmware reads version 1: no stock icons until a matching archive is deployed";
-    install("v2.tar.gz");
+    /* a pack of another version (a downgrade): not read here, nothing logged here (the caller
+     * that may unpack it logs the outcome), reported as PACK_OTHER with its version */
+    const char *vmsg = "this firmware reads version";
+    int vbefore = log_count(vmsg);
+    install("vnext.tar.gz");
     avail = icon_pack_available() + icon_pack_available() + icon_pack_available();
-    CHECK(avail == 0, "pack version 2: not read here");
-    CHECK(icon_pack_is_pack_file(p), "pack version 2: a pack file, callers do not unpack it into RAM");
-    CHECK(log_count(vmsg) == 1, "pack version 2 logged once over three calls (%d)", log_count(vmsg));
+    CHECK(avail == 0, "pack version %d: not read here", ICON_PACK_VERSION + 1);
+    CHECK(icon_pack_file_kind(p, &ver) == ICON_ARCHIVE_PACK_OTHER && ver == ICON_PACK_VERSION + 1,
+          "pack version %d: another pack version (%d)", ICON_PACK_VERSION + 1, ver);
+    char ap[600];
+    struct stat ast;
+    ver = -2;
+    CHECK(icon_pack_archive(ap, sizeof(ap), &ast, &ver) == ICON_ARCHIVE_PACK_OTHER && strcmp(ap, p) == 0 &&
+              ver == ICON_PACK_VERSION + 1 && ast.st_size > 0,
+          "icon_pack_archive names the file icon_pack reads (%s)", ap);
+    CHECK(log_count(vmsg) == vbefore, "pack of another version: icon_pack logs nothing");
+
+    /* a gzip file of another tool whose first subfield happens to be 'HI' (XLEN not 24): plain */
+    install("hi_other.tar.gz");
+    CHECK(icon_pack_file_kind(p, &ver) == ICON_ARCHIVE_PLAIN && ver == -1, "'HI' subfield, other layout: plain");
+    CHECK(icon_pack_archive(ap, sizeof(ap), NULL, NULL) == ICON_ARCHIVE_PLAIN, "and for icon_pack_archive");
 
     install("a.tar.gz");
     CHECK(icon_pack_available() && read_all(0), "set a once more");
