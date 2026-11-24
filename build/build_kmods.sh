@@ -44,8 +44,13 @@ sed -i -e 's/^CONFIG_MIPS_MT_SMP=y/# CONFIG_MIPS_MT_SMP is not set\nCONFIG_MIPS_
 echo 'CONFIG_USB_STORAGE=m' >> .config
 { yes '' || :; } | "${MAKE[@]}" oldconfig >/dev/null 2>&1
 sed -i 's/^CONFIG_SUSPEND=y/# CONFIG_SUSPEND is not set/' .config
+# The stock kernel has a 32-bit sector_t: its blk_rq_init clears a 196-byte struct request and
+# sets __sector with one word. With LBDAF on, struct request is 200 bytes and scsi_mod hits a
+# BUG in scsi_setup_blk_pc_cmnd at the first scan. The CRCs come from the stock image, so
+# modversions cannot catch such a layout difference.
+sed -i 's/^CONFIG_LBDAF=y/# CONFIG_LBDAF is not set/' .config
 { yes '' || :; } | "${MAKE[@]}" oldconfig >/dev/null 2>&1
-for opt in SMP HOTPLUG SUSPEND FREEZER; do
+for opt in SMP HOTPLUG SUSPEND FREEZER LBDAF; do
     if grep -q "^CONFIG_$opt=y" .config; then
         echo "Error: CONFIG_$opt is still on; the modules would not match the stock kernel" >&2
         exit 1
