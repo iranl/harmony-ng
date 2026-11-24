@@ -4,6 +4,7 @@
  *    -fsanitize=float-cast-overflow -fno-sanitize-recover=all, so an out-of-range cast ends it)
  *  - a device that is Bluetooth only by "transport": 32 stays Bluetooth over two passes
  *  - powerOnDelay, Delay steps, command port and repeats are kept in range
+ *  - pressMinRepeats is kept (0..20, numeric text), dropped when not a count, never added
  *  - an unknown Area/City timezone is reported as unknown (it ran as Central European time)
  *
  * Build: gcc -Wall -O2 -fsanitize=float-cast-overflow -fno-sanitize-recover=all -Ipayload/source \
@@ -79,6 +80,25 @@ int main(void) {
     CHECK(num_of(cJSON_GetArrayItem(cmds, 0), "repeats") == 3, "repeats -7 becomes 3");
     CHECK(num_of(cJSON_GetArrayItem(cmds, 1), "port") == 5 && num_of(cJSON_GetArrayItem(cmds, 1), "repeats") == 1,
           "valid port and repeats kept");
+    cJSON_Delete(root);
+
+    printf("[-] pressMinRepeats (frames an IR press sends after the first)\n");
+    root = cJSON_Parse("{\"devices\":[{\"id\":\"1\",\"name\":\"A\",\"pressMinRepeats\":0},"
+                       "{\"id\":\"2\",\"name\":\"B\",\"pressMinRepeats\":\" 2 \"},"
+                       "{\"id\":\"3\",\"name\":\"C\",\"pressMinRepeats\":25},"
+                       "{\"id\":\"4\",\"name\":\"D\",\"pressMinRepeats\":\"x2\"},"
+                       "{\"id\":\"5\",\"name\":\"E\",\"pressMinRepeats\":-1},"
+                       "{\"id\":\"6\",\"name\":\"F\",\"pressMinRepeats\":true},"
+                       "{\"id\":\"7\",\"name\":\"G\"}]}");
+    sanitize_devices_json(root);
+    sanitize_devices_json(root);
+    CHECK(num_of(dev_of(root, 0), "pressMinRepeats") == 0, "0 kept");
+    CHECK(num_of(dev_of(root, 1), "pressMinRepeats") == 2, "numeric text \" 2 \" kept as 2");
+    CHECK(num_of(dev_of(root, 2), "pressMinRepeats") == 20, "25 lowered to 20");
+    CHECK(!cJSON_GetObjectItemCaseSensitive(dev_of(root, 3), "pressMinRepeats"), "text that is no number dropped");
+    CHECK(!cJSON_GetObjectItemCaseSensitive(dev_of(root, 4), "pressMinRepeats"), "negative dropped (not set)");
+    CHECK(!cJSON_GetObjectItemCaseSensitive(dev_of(root, 5), "pressMinRepeats"), "true dropped");
+    CHECK(!cJSON_GetObjectItemCaseSensitive(dev_of(root, 6), "pressMinRepeats"), "none added to a device without it");
     cJSON_Delete(root);
 
     printf("[-] command ports copied from the device before commandPorts 1\n");

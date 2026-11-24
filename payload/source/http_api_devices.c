@@ -95,7 +95,7 @@ static int device_key_reserved(const char *key) {
     static const char *const reserved_dev_keys[] = {
         "id", "deviceId", "name", "type", "manufacturer", "model", "icon", "plugin", "config",
         "commands", "controlPort", "interDeviceDelay", "interKeyDelay", "holdInterKeyDelay",
-        "defaultInterDeviceDelay", "powerOnDelay", "isPowerAlwaysOn", "mqttEnabled", "mqttTopic", "mqttPulseMs",
+        "defaultInterDeviceDelay", "powerOnDelay", "pressMinRepeats", "isPowerAlwaysOn", "mqttEnabled", "mqttTopic", "mqttPulseMs",
         "bdaddr", "btHost", "btAutoReconnect", "btReconnectDurationSec", "btReconnectDelaySec",
         "btTriggerDeviceId", "btTriggerCommandName", "powerOnSequence", "powerOffSequence",
         "netHost", "netPort", "netTls", "netTlsVerify", "netTimeoutMs", "httpHeaders",
@@ -1187,7 +1187,8 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
          strcmp(clean_path, "/ir/device-mqtt") == 0 || strcmp(clean_path, "/ir/device-power") == 0 ||
          strcmp(clean_path, "/ir/new-device") == 0 || strcmp(clean_path, "/api/new-device") == 0) && strcmp(method, "POST") == 0) {
         cJSON *p = parse_request_params(body);
-        if (p && (!device_int_fields_valid(p) || !device_delay_fields_in_range(p))) {
+        if (p && (!device_int_fields_valid(p) || !device_delay_fields_in_range(p) ||
+                  press_min_repeats_value(cJSON_GetObjectItemCaseSensitive(p, "pressMinRepeats"), NULL) < 0)) {
             /* A timing field of the wrong type, or a send delay out of range: refuse the whole save (400) */
             cJSON_Delete(p);
             p = NULL;
@@ -1371,6 +1372,14 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                     device_int_field(j_pod, &val);
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "powerOnDelay");
                     cJSON_AddNumberToObject(found_dev, "powerOnDelay", val);
+                }
+
+                /* present: set; null, "" or negative: removed (the Hub's default applies) */
+                cJSON *j_pmr = cJSON_GetObjectItemCaseSensitive(p, "pressMinRepeats");
+                if (j_pmr) {
+                    int val = 0;
+                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "pressMinRepeats");
+                    if (press_min_repeats_value(j_pmr, &val) == 1) cJSON_AddNumberToObject(found_dev, "pressMinRepeats", val);
                 }
 
                 cJSON *j_pao = cJSON_GetObjectItemCaseSensitive(p, "isPowerAlwaysOn");
