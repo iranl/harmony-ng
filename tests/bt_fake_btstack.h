@@ -172,7 +172,15 @@ static int s_reports[4];
 
 /* ---- BTstack ---- */
 static uint32_t s_now_ms;
-void btstack_run_loop_add_timer(btstack_timer_source_t *ts) { ts->armed = true; }
+/* BTstack's own add_timer does not take a timer that is already in its list: counted here. A test
+ * may set the hook to note each timer (for a clock of its own). */
+static int s_timer_double_adds;
+static void (*s_fake_on_add_timer)(btstack_timer_source_t *ts);
+void btstack_run_loop_add_timer(btstack_timer_source_t *ts) {
+    if (ts->armed) s_timer_double_adds++;
+    ts->armed = true;
+    if (s_fake_on_add_timer) s_fake_on_add_timer(ts);
+}
 int btstack_run_loop_remove_timer(btstack_timer_source_t *ts) { ts->armed = false; return 0; }
 void btstack_run_loop_set_timer(btstack_timer_source_t *ts, uint32_t ms) { ts->timeout = ms; }
 void btstack_run_loop_set_timer_handler(btstack_timer_source_t *ts, void (*h)(btstack_timer_source_t *)) { ts->process = h; }
@@ -227,6 +235,8 @@ void gap_set_class_of_device(uint32_t cod) { UNUSED(cod); }
 /* bt_page (raw HCI paging) and the BLE broadcast command */
 uint8_t hci_send_cmd_packet(uint8_t *packet, int size) { UNUSED(packet); UNUSED(size); return 0; }
 void gap_local_bd_addr(bd_addr_t out) { memset(out, 0, 6); }
+/* A test that builds the real bt_adv.c and bt_listen.c defines BT_FAKE_REAL_LISTEN_ADV */
+#ifndef BT_FAKE_REAL_LISTEN_ADV
 void bt_adv_handle_cmd(const char *args) { UNUSED(args); }
 bool bt_adv_borrowed_addr(void) { return false; }
 bool g_adv_listen_active = false;
@@ -236,6 +246,7 @@ void bt_listen_on_report(const uint8_t *packet) { UNUSED(packet); }
 static int s_listen_ends;
 void bt_listen_end(const char *why) { UNUSED(why); s_listen_ends++; g_adv_listen_active = false; }
 void bt_listen_end_for_remote(void) { s_listen_ends++; g_adv_listen_active = false; }
+#endif
 void gap_stop_scan(void) {}
 void gap_start_scan(void) {}
 void gap_set_scan_parameters(uint8_t t, uint16_t i, uint16_t w) { UNUSED(t); UNUSED(i); UNUSED(w); }

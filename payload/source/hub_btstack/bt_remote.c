@@ -1,6 +1,7 @@
 #include "bt_remote.h"
 #include "bt_pairing.h"
 #include "bt_hid.h"
+#include "bt_listen.h"
 
 static cJSON *g_cached_map_json = NULL;
 static btstack_timer_source_t g_remote_watchdog_timer;
@@ -534,6 +535,7 @@ void handle_gatt_notification_event(uint8_t packet_type, uint16_t channel, uint8
     if (btn) {
         if (app_state != APP_READY) {
             app_state = APP_READY;
+            bt_listen_remote_ready();
             update_status("ready");
         }
         if (g_active_remote_btn[0] && strcmp(g_active_remote_btn, btn) == 0) {
@@ -589,6 +591,7 @@ void handle_gatt_client_event(uint8_t packet_type, uint16_t channel, uint8_t *pa
                 btstack_run_loop_set_timer(&g_remote_wake_grace_timer, 2500);
                 btstack_run_loop_add_timer(&g_remote_wake_grace_timer);
                 app_state = APP_READY;
+                bt_listen_remote_ready();
                 update_status("ready");
                 bt_tlv_store_if_changed(TLV_TAG_HOGD, (const uint8_t *)&remote_device, sizeof(remote_device));
             } else {

@@ -18,20 +18,52 @@ static btstack_timer_source_t g_listen_timer;
  * the run loop clock is 32-bit milliseconds and wraps after 49.7 days) */
 static bool g_listen_hold;
 static btstack_timer_source_t g_listen_hold_timer;
-/* The remote ended a listen and then did not connect (bond lost, or another device sends from
- * its address): its reports end no listen until it is connected again */
+/* The remote ended a listen and then was not ready once during the whole hold (bond lost, or
+ * another device sends from its address): its reports end no listen until it is ready, and for
+ * one listen at most (its end, or ADV_LISTEN_MAX_S of it with renewals), so a remote that never
+ * connects still ends every second listen */
 static bool g_listen_ignore_remote;
+static btstack_timer_source_t g_listen_ignore_timer;
+/* The remote was ready at some point since the hold began */
+static bool g_listen_hold_ready;
+
+static void listen_ignore_clear(void) {
+    g_listen_ignore_remote = false;
+    btstack_run_loop_remove_timer(&g_listen_ignore_timer);
+}
+
+static void listen_ignore_end(btstack_timer_source_t *ts) {
+    UNUSED(ts);
+    g_listen_ignore_remote = false;
+}
+
+/* Starts the one-listen limit of the flag when a listen runs (a renewal does not restart it) */
+static void listen_ignore_arm(void) {
+    if (!g_listen_ignore_remote || !g_adv_listen_active) return;
+    btstack_run_loop_remove_timer(&g_listen_ignore_timer);
+    btstack_run_loop_set_timer_handler(&g_listen_ignore_timer, &listen_ignore_end);
+    btstack_run_loop_set_timer(&g_listen_ignore_timer, ADV_LISTEN_MAX_S * 1000);
+    btstack_run_loop_add_timer(&g_listen_ignore_timer);
+}
 
 static void listen_hold_end(btstack_timer_source_t *ts) {
     UNUSED(ts);
     g_listen_hold = false;
-    if (connection_handle == HCI_CON_HANDLE_INVALID) g_listen_ignore_remote = true;
+    if (g_listen_hold_ready || app_state == APP_READY) return;
+    g_listen_ignore_remote = true;
+    listen_ignore_arm();
+}
+
+void bt_listen_remote_ready(void) {
+    g_listen_hold_ready = true;
+    listen_ignore_clear();
 }
 
 static void listen_stop(const char *why) {
     if (!g_adv_listen_active) return;
     g_adv_listen_active = false;
     btstack_run_loop_remove_timer(&g_listen_timer);
+    listen_ignore_clear();
     if (g_listen_sock >= 0) {
         close(g_listen_sock);
         g_listen_sock = -1;
@@ -53,6 +85,7 @@ void bt_listen_end(const char *why) {
 void bt_listen_end_for_remote(void) {
     if (!g_adv_listen_active || g_listen_ignore_remote) return;
     g_listen_hold = true;
+    g_listen_hold_ready = false;
     btstack_run_loop_remove_timer(&g_listen_hold_timer);
     btstack_run_loop_set_timer_handler(&g_listen_hold_timer, &listen_hold_end);
     btstack_run_loop_set_timer(&g_listen_hold_timer, ADV_LISTEN_REMOTE_HOLD_MS);
@@ -90,7 +123,6 @@ void bt_listen_handle_cmd(const char *args) {
         log_msg("adv_listen: a remote scan or pairing runs, refused");
         return;
     }
-    if (connection_handle != HCI_CON_HANDLE_INVALID) g_listen_ignore_remote = false;
     if (g_listen_hold && connection_handle == HCI_CON_HANDLE_INVALID) {
         log_msg("adv_listen: the remote is connecting, refused");
         return;
@@ -121,7 +153,10 @@ void bt_listen_handle_cmd(const char *args) {
         gap_connect_cancel();
         app_state = APP_SCANNING;
     }
-    g_adv_listen_active = true;
+    if (!g_adv_listen_active) {
+        g_adv_listen_active = true;
+        listen_ignore_arm();
+    }
     gap_set_scan_parameters(0, 96, 48); /* passive, 50 %: no scan requests; the plugin drops repeats */
     /* while a host is paged the scan stays paused: the page end starts it (bt_main.c) */
     if (!g_host_connecting) gap_start_scan();
