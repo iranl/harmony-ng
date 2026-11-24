@@ -15,6 +15,27 @@ import subprocess
 import sys
 
 
+def npm_command() -> str:
+    return "npm.cmd" if sys.platform == "win32" else "npm"
+
+
+def ensure_node_modules(app_dir: pathlib.Path) -> bool:
+    """Install the web UI's packages with `npm ci` when they are missing or older than the lock
+    file (a fresh clone or worktree has none, and `npm run build` then stops at "vite: not
+    found"). False when the install failed."""
+    lock = app_dir / "package-lock.json"
+    marker = app_dir / "node_modules" / ".package-lock.json"  # written by npm at every install
+    if marker.is_file() and (not lock.is_file() or marker.stat().st_mtime >= lock.stat().st_mtime):
+        return True
+    args = ["ci"] if lock.is_file() else ["install"]
+    print(f"[*] Installing web UI packages (npm {args[0]} in {app_dir.name})...")
+    res = subprocess.run([npm_command(), *args], cwd=app_dir)
+    if res.returncode != 0:
+        print(f"[-] npm {args[0]} failed in {app_dir.name} (exit code {res.returncode})", file=sys.stderr)
+        return False
+    return True
+
+
 def build_extras(app_dir: pathlib.Path, repo_root: pathlib.Path) -> bool:
     """When emcc is there, build the remote screen renderer (WebAssembly) and the theme
     packages into <app>/public/assets for the screen preview. False when one of them failed
@@ -96,10 +117,12 @@ def build_webui(ui: str = "legacy", repo_root: pathlib.Path | None = None) -> bo
     if not build_extras(app_dir, repo_root):
         return False
 
+    if not ensure_node_modules(app_dir):
+        return False
+
     # 1. Run Vite build
     print(f"[*] Compiling frontend bundle with Vite in {app_dir.name}...")
-    npm_cmd = "npm.cmd" if sys.platform == "win32" else "npm"
-    res = subprocess.run([npm_cmd, "run", "build"], cwd=app_dir)
+    res = subprocess.run([npm_command(), "run", "build"], cwd=app_dir)
     if res.returncode != 0:
         print(f"[-] Vite build failed with exit code {res.returncode}", file=sys.stderr)
         return False

@@ -842,9 +842,12 @@ class HubDeployer:
                     print("[-] WebUI build failed. Nothing deployed from this step.", file=sys.stderr)
                     return False
 
+                if not build_webui.ensure_node_modules(ui_src_dir):
+                    print("[-] WebUI build failed. Nothing deployed from this step.", file=sys.stderr)
+                    return False
+
                 print(f"[*] Compiling frontend bundle with Vite ({ui_src_dir.name})...")
-                npm_cmd = "npm.cmd" if sys.platform == "win32" else "npm"
-                build_res = subprocess.run([npm_cmd, "run", "build"], cwd=ui_src_dir)
+                build_res = subprocess.run([build_webui.npm_command(), "run", "build"], cwd=ui_src_dir)
                 if build_res.returncode != 0 or not (ui_src_dir / "dist" / "index.html").is_file():
                     print(f"[-] WebUI build failed in {ui_src_dir.name}. Nothing deployed from this step.", file=sys.stderr)
                     return False
