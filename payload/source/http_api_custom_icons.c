@@ -87,6 +87,8 @@ static int custom_icon_name_ok(const char *fn) {
     return 1;
 }
 
+/* An extraction runs: set by the one HTTP worker that wins the compare-and-swap, cleared by the
+ * extraction thread when it ends */
 static volatile int g_icons_extracting = 0;
 /* The copy in /tmp was removed since the pack became readable; cleared when an extraction starts,
  * so a copy made while the pack was not readable goes once it is again. Several HTTP workers
@@ -94,7 +96,9 @@ static volatile int g_icons_extracting = 0;
 static int s_tmp_copy_removed;
 
 static void *extract_icons_thread(void *arg) {
-    const char *tar_path = (const char *)arg;
+    char *tar_path = (char *)arg; /* the starting worker's copy, freed here */
+    printf("[+] Unpacking icon archive %s into " HARMONY_TMP_WWW "\n", tar_path);
+    fflush(stdout);
     mkdir(HARMONY_TMP_WWW, 0755);
     mkdir(HARMONY_TMP_WWW "/assets", 0755);
     char cmd[512];
@@ -108,7 +112,8 @@ static void *extract_icons_thread(void *arg) {
         "done",
         tar_path);
     system(cmd);
-    g_icons_extracting = 0;
+    free(tar_path);
+    __sync_lock_release(&g_icons_extracting);
     return NULL;
 }
 
@@ -175,25 +180,38 @@ void http_ensure_icons_extracted(void) {
     if (access(HARMONY_TMP_WWW "/assets/icons", F_OK) == 0) return;
     if (g_icons_extracting) return;
 
-    static char s_tar_path[256];
+    char path[256];
     int ver = -1;
     struct stat st;
     /* the file icon_pack looks at, so a pack it cannot read is the one judged here */
-    int kind = icon_pack_archive(s_tar_path, sizeof(s_tar_path), &st, &ver);
-    if (kind == ICON_ARCHIVE_NONE) s_tar_path[0] = '\0';
+    int kind = icon_pack_archive(path, sizeof(path), &st, &ver);
+    if (kind == ICON_ARCHIVE_NONE) return;
     /* a packed archive whose index is not readable right now (being copied, cut): unpacking it
      * into /tmp cannot help, it is read from flash once it is whole again */
     if (kind == ICON_ARCHIVE_PACK) return;
-    if (kind == ICON_ARCHIVE_PACK_OTHER && !other_pack_fits_in_ram(s_tar_path, &st, ver)) return;
-    if (s_tar_path[0]) {
-        __sync_lock_release(&s_tmp_copy_removed);
-        g_icons_extracting = 1;
-        pthread_t th;
-        if (pthread_create(&th, NULL, extract_icons_thread, (void *)s_tar_path) == 0) {
-            pthread_detach(th);
-        } else {
-            g_icons_extracting = 0;
-        }
+    if (kind == ICON_ARCHIVE_PACK_OTHER && !other_pack_fits_in_ram(path, &st, ver)) return;
+#ifdef TEST_HARNESS
+    /* widens the window between the checks above and the claim, so the route test can see two
+     * workers in it */
+    const char *d = getenv("HARMONY_TEST_EXTRACT_DELAY_MS");
+    if (d && *d) usleep((useconds_t)strtoul(d, NULL, 10) * 1000);
+#endif
+    /* several HTTP workers get here at once: only the one that sets the flag starts the
+     * extraction, and it looks again whether one finished in the meantime */
+    if (!__sync_bool_compare_and_swap(&g_icons_extracting, 0, 1)) return;
+    char *arg = strdup(path);
+    if (!arg || access(HARMONY_TMP_WWW "/assets/icons", F_OK) == 0) {
+        free(arg);
+        __sync_lock_release(&g_icons_extracting);
+        return;
+    }
+    __sync_lock_release(&s_tmp_copy_removed);
+    pthread_t th;
+    if (pthread_create(&th, NULL, extract_icons_thread, arg) == 0) {
+        pthread_detach(th);
+    } else {
+        free(arg);
+        __sync_lock_release(&g_icons_extracting);
     }
 }
 

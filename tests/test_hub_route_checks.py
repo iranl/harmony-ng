@@ -20,7 +20,7 @@ Route checks of hub_daemon (port 9101, own mock root, clients bound to 127.0.0.2
     and the copy an older firmware unpacked into /tmp is removed
 10  a packed icon archive of another pack version (after a downgrade) is unpacked into /tmp
     (RAM) as a plain archive only when the free RAM allows it, logged once either way; a plain
-    tar.gz is unpacked whatever the RAM; the pack version of tools/icon_pack.py and the firmware
+    tar.gz is unpacked whatever the RAM, by one extraction for 16 requests at once; the pack version of tools/icon_pack.py and the firmware
     match
 """
 
@@ -273,7 +273,7 @@ def test_other_version_pack():
         os.makedirs(os.path.join(TMP_WWW, "assets"), exist_ok=True)
         try:
             with HubHarness(port=PORT, host=HOST, log_path=log_path,
-                            env={"HARMONY_TEST_FREE_RAM_KB": free_kb}) as hub:
+                            env={"HARMONY_TEST_FREE_RAM_KB": free_kb, "HARMONY_TEST_EXTRACT_DELAY_MS": "200"}) as hub:
                 os.makedirs(os.path.join(hub.mock_dir, "cache"), exist_ok=True)
                 archive = os.path.join(hub.mock_dir, "cache", "icons.tar.gz")
                 other_pack(archive)
@@ -290,12 +290,21 @@ def test_other_version_pack():
                     n = log_count(refused)
                     check(n == 1, "%s KB free: refusal logged once over three requests" % free_kb, "%d lines" % n)
 
-                    # a plain tar.gz is unpacked whatever the RAM
+                    # a plain tar.gz is unpacked whatever the RAM, by one extraction even when
+                    # many HTTP workers ask for the icons at once
                     test_icon_pack.make_archive(archive + ".new", files)
                     os.rename(archive + ".new", archive)
-                    raw("GET", "/api/icons")
+                    import threading
+                    workers = [threading.Thread(target=raw, args=("GET", "/api/icons")) for _ in range(16)]
+                    for w in workers:
+                        w.start()
+                    for w in workers:
+                        w.join()
                     check(wait_for_path(os.path.join(tmp_icons, "shared.png"), 10),
                           "%s KB free: plain archive unpacked into /tmp" % free_kb)
+                    time.sleep(1)
+                    n = log_count("[+] Unpacking icon archive ")
+                    check(n == 1, "%s KB free: 16 requests at once start one extraction" % free_kb, "%d" % n)
                 else:
                     check(wait_for_path(os.path.join(tmp_icons, "shared.png"), 10),
                           "%s KB free: version %d pack unpacked into /tmp" % (free_kb, other))

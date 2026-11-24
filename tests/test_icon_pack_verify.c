@@ -2,8 +2,9 @@
  * computed once per loaded index (not at every icon read) and again after the archive is
  * replaced; a damaged pack is still refused; a reader racing archive swaps never gets wrong
  * bytes; a file with the pack header whose index is not readable is logged once per file state;
- * a pack of another version is logged once and is still a pack file (callers do not unpack it
- * into /tmp).
+ * a pack of another version is not read and is reported with its version (callers unpack it
+ * into /tmp only when the RAM allows it); a gzip file with an 'HI' subfield of another layout
+ * is a plain archive.
  * Archives from tests/icon_pack_verify_fixture.py DIR. Built with -DICON_PACK_TEST and
  * -DICON_PACK_ARCHIVES='{"DIR/icons.tar.gz"}'. Usage: test_icon_pack_verify DIR */
 #include "icon_pack.h"
