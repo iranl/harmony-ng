@@ -141,12 +141,16 @@ static void bs_finish(bit_stream_t *bs) {
             bs->buf[bs->len++] = 0;
         }
     }
-    /* Byte-swap and invert every 16-bit word (matches HAL hornet_i2s_write) */
+    /* Swap the two bytes of every 16-bit word and nothing else, as the stock hal's
+     * hornet_i2s_write does: a mark is 1 bits, silence 0 bits. (Only the receive side,
+     * hornet_i2s_read, also inverts.) An inverted stream still works through the air, where a
+     * receiver only looks for the carrier, but it lights the emitters through every space, and
+     * a device wired to a jack reads it as noise: an Arcam amplifier on jack 2 ignored every
+     * code until this matched stock. */
     for (size_t i = 0; i + 1 < bs->len; i += 2) {
         uint8_t b0 = bs->buf[i];
-        uint8_t b1 = bs->buf[i + 1];
-        bs->buf[i]     = (uint8_t)~b1;
-        bs->buf[i + 1] = (uint8_t)~b0;
+        bs->buf[i]     = bs->buf[i + 1];
+        bs->buf[i + 1] = b0;
     }
 }
 

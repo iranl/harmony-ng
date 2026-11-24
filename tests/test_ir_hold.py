@@ -98,8 +98,8 @@ class Frame:
         self.start = start_us
         self.dur = dur_us
         self.end = start_us + dur_us
-        # the stream as built: bytes of every 16-bit word swapped and inverted, MSB first
-        raw = bytes((~data[i ^ 1]) & 0xFF for i in range(len(data)))
+        # the stream as built: bytes of every 16-bit word swapped, a mark is 1 bits, MSB first
+        raw = bytes(data[i ^ 1] for i in range(len(data)))
         bits = bin(int.from_bytes(raw, "big"))[2:].zfill(len(raw) * 8)
         self.us_per_bit = dur_us / float(len(bits))
         body = bits.strip("0")
