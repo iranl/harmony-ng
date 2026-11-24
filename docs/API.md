@@ -2275,13 +2275,21 @@ Exports complete hub configuration bundle or individual configuration elements.
   - `bluetooth`
   - `bt_remote_map` (also `remote-mapping`)
   - `remote_slot1_map` to `remote_slot6_map`
-  - `rf_slot_map` (text: which radio pipe each slot is). `hub_rf` reads it at its start: after an
-    import that carries it, hub_daemon asks hub_rf to restart (`POST /api/rf/restart` on its
-    loopback API), which it does once no config push, update or pairing runs; `init.sh` starts it
-    again within seconds, and the remotes are off the air for that time. When hub_rf is not
-    running the table applies at its next start. It names the pipes
-    of this Hub's radio: on another Hub, or after remotes were paired again, it puts the maps on
-    other remotes.
+  - `rf_slot_map` (text: which radio pipe each slot is, six different numbers from 1 to 6, such
+    as `1 4 3 2 5 6`; `1 2 3 4 5 6` when the Hub has no table file. A bundle leaves out a file
+    that is no such table, which hub_rf ignores as well). `hub_rf` reads it at its start: after
+    an import that changes it, hub_daemon asks hub_rf to restart (`POST /api/rf/restart`), which
+    it does once no config push, update or pairing runs; `init.sh` starts it again within
+    seconds, and the remotes are off the air for that time. Before it ends, hub_rf moves each
+    remote's version file, battery and settings file (`remote_slot<N>_config.json`) to the slot
+    its radio pipe now is, so the new hub_rf shows every remote with its id and version in its
+    new slot and the next config push sends each remote its own settings. An import whose table equals the one
+    in use does not restart hub_rf. When hub_rf is not running the table applies at its next
+    start. It names the pipes of this Hub's radio: on another Hub, or after remotes were paired
+    again, it puts the maps on other remotes.
+    `POST /api/rf/restart` (answer `202 {"ok":true,"status":"restart_scheduled"}`) is a route of
+    hub_rf's loopback API, and hub_daemon's `/api/rf/` proxy on port 8089 passes it on too: there
+    it needs an administrator (any client while authentication is off), as the unpair route does.
   - `users` (the web UI accounts)
   - `ui_remote_layout` (also `ui-remote-layout`)
   - `auth`
@@ -2316,7 +2324,8 @@ as the new web UI calls it). An import of the accounts that turns authentication
 - Every section is checked before anything is written: `devices` must be an object with a `devices`
   array, `activities` an object with an `activities` array, and `settings`, `mqtt`, `bluetooth`,
   `bt_remote_map`, `remote_slot1_map` to `remote_slot6_map`, `ui_remote_layout` and `users` JSON objects
-  (sent as objects, or as strings that parse completely). `network`, `wifi`, `auth`, `rf_slot_map` and `hub_id` are
+  (sent as objects, or as strings that parse completely). `rf_slot_map` must be text with six
+  different numbers from 1 to 6 (written as `a b c d e f`). `network`, `wifi`, `auth` and `hub_id` are
   text files and are written as sent. An empty `devices` or `activities` list in a bundle (what an
   export holds when the file could not be read) is skipped.
 - The new files are written under temporary names first and then renamed into place.

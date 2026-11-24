@@ -200,6 +200,11 @@ extern const char *g_rf_slot_map_path;
 uint8_t rf_slot_to_pipe(uint8_t slot);
 uint8_t rf_pipe_to_slot(uint8_t pipe);
 void rf_slot_map_load(void);
+/* The table file changed under a running hub_rf (a backup import): takes it over and gives each
+ * slot the per-slot state of the remote whose pipe it now is (version file, battery cache,
+ * settings file; a slot left without a remote loses them). For the restart that follows: the new hub_rf reads
+ * those by slot number. Returns the number of slots that changed. */
+int rf_slot_map_follow_file(void);
 /* The next remote that pairs goes to this slot (0: the slot of the pipe the radio picks) */
 /* The slot a pairing should land in (0: none). new_window: the pairing window opens now, so
  * the pipes that hold a remote are noted; a second request in the same window only changes
