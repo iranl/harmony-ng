@@ -68,4 +68,25 @@ await t.check('the power controls (power sequences, power-on delay, keep powered
   }
 });
 
+await t.check('closing the dialog forgets its device, and the section headings match their content', () => {
+  const studio = readFileSync(new URL('../android-app/src/app/app_devices_studio.js', import.meta.url), 'utf8');
+  const close = studio.slice(studio.indexOf('closePowerSequenceModal() {'));
+  assert.ok(studio.includes('closePowerSequenceModal() {'), 'no close method');
+  assert.match(close.slice(0, close.indexOf('\n  }')), /this\.powerSeqOwnerId = null/, 'the close does not clear the device');
+  const nav = readFileSync(new URL('../android-app/src/app/app_events_nav.js', import.meta.url), 'utf8');
+  for (const id of ['btnPowerSeqClose', 'btnPowerSeqCancel']) {
+    const h = nav.slice(nav.indexOf(`'${id}'`), nav.indexOf(`'${id}'`) + 200);
+    assert.match(h, /this\.closePowerSequenceModal\(\)/, `${id} does not use the close method`);
+  }
+  const html = readFileSync(new URL('../android-app/index.html', import.meta.url), 'utf8');
+  assert.ok(!html.includes('data-i18n="device_timings_power"'), 'the IR timing section still says "Timings & Power"');
+  const power = html.slice(html.indexOf('id="devEditPowerBox"'));
+  assert.ok(power.indexOf('data-i18n="device_power"') > 0 && power.indexOf('data-i18n="device_power"') < power.indexOf('devPowerOnDelay'),
+    'the power section has no heading');
+  for (const lang of ['en', 'de', 'es', 'fr', 'it', 'nl']) {
+    const src = readFileSync(new URL(`../android-app/src/i18n/${lang}.js`, import.meta.url), 'utf8');
+    assert.ok(src.includes('"device_timings":') && src.includes('"device_power":'), `${lang}: heading strings missing`);
+  }
+});
+
 t.finish();

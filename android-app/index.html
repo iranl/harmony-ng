@@ -1130,11 +1130,11 @@
                 </div>
               </div>
 
-              <!-- Device Timings & Power Config -->
+              <!-- Device timings (IR devices) -->
               <div id="devEditTimingsBox" style="margin-top: 10px; border-top: 1px dotted var(--border); padding-top: 8px;">
                 <strong
-                  style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--accent);" data-i18n="device_timings_power">Device
-                  Timings & Power</strong>
+                  style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--accent);" data-i18n="device_timings">Device
+                  Timings</strong>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px;">
                   <div>
                     <label class="mini muted" for="devInterDeviceDelay"
@@ -1163,6 +1163,8 @@
               <!-- Power (every device type: the Hub powers Bluetooth, MQTT and plugin devices too, with
                    their power-on delay and power sequences; the timings above are IR only) -->
               <div id="devEditPowerBox" style="margin-top: 10px; border-top: 1px dotted var(--border); padding-top: 8px;">
+                <strong
+                  style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--accent);" data-i18n="device_power">Power</strong>
                 <div style="max-width: 50%;">
                   <label class="mini muted" for="devPowerOnDelay"
                     title="Delay needed after power-on before device accepts further commands"

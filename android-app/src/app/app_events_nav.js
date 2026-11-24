@@ -831,12 +831,10 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
       this.openPowerSequenceModal();
     });
     document.getElementById('btnPowerSeqClose')?.addEventListener('click', () => {
-      const m = document.getElementById('powerSeqModal');
-      if (m) m.style.display = 'none';
+      this.closePowerSequenceModal();
     });
     document.getElementById('btnPowerSeqCancel')?.addEventListener('click', () => {
-      const m = document.getElementById('powerSeqModal');
-      if (m) m.style.display = 'none';
+      this.closePowerSequenceModal();
     });
     document.getElementById('btnPowerSeqSave')?.addEventListener('click', async () => {
       await this.saveDevicePowerSequences();

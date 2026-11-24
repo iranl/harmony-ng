@@ -793,6 +793,12 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     modal.style.display = 'flex';
   }
 
+  closePowerSequenceModal() {
+    const modal = document.getElementById('powerSeqModal');
+    if (modal) modal.style.display = 'none';
+    this.powerSeqOwnerId = null; // only the power step lists read it; cleared so nothing else can
+  }
+
   async saveDevicePowerSequences() {
     const devId = this.selectedIrDeviceId || document.getElementById('manageDeviceSelect')?.value;
     const dev = (this.inventory.devices || []).find(d => String(d.id) === String(devId));
@@ -810,10 +816,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
       dev.powerOnSequence = pOn;
       dev.powerOffSequence = pOff;
       if (stat) stat.innerHTML = `<span style="color:var(--success)">${t('saved_status')}</span>`;
-      setTimeout(() => {
-        const modal = document.getElementById('powerSeqModal');
-        if (modal) modal.style.display = 'none';
-      }, 1000);
+      setTimeout(() => this.closePowerSequenceModal(), 1000);
       await this.refreshData();
     } catch (err) {
       if (stat) stat.innerHTML = `<span style="color:var(--danger)">${escapeHtml(tf('error_msg', { error: err.message }))}</span>`;
