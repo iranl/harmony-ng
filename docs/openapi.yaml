@@ -1251,6 +1251,7 @@ paths:
                 interDeviceDelay: {type: integer, minimum: 0, maximum: 10000, default: 500, description: "ms waited before a command to this device after one to another device"}
                 interKeyDelay: {type: integer, minimum: 0, maximum: 10000, default: 100, description: "ms between two different commands to this device"}
                 holdInterKeyDelay: {type: integer, minimum: 0, maximum: 10000, default: 200, description: "ms between repeats of the same command"}
+                pressMinRepeats: {oneOf: [{type: integer}, {type: string}, {type: "null"}], description: "Infrared devices: frames a press sends after the first, as the Logitech account's PressMinRepeats: 0 to 20 (a larger number is lowered to 20; numeric text accepted). null, an empty string or a negative number removes it (the Hub then uses 3); left out, the stored value is kept; other text answers 400"}
                 icon: {oneOf: [{type: string}, {type: integer}]}
                 powerOnDelay: {type: integer}
                 isPowerAlwaysOn: {type: boolean}
@@ -1377,7 +1378,7 @@ paths:
                 raw: {type: string, description: "The code (also accepted as code). Left out on an update, the stored code is kept"}
                 script: {type: string, description: "Bluetooth macro; stored as the code BT:SCRIPT:<script>"}
                 port: {type: integer, description: "The command's own IR port mask 1..7, used by a send instead of the device's controlPort; 0 removes it (the device's port applies); left out, the stored one is kept. Numeric text (form post) is accepted"}
-                repeats: {type: integer, default: 3, description: "1..20 (higher is 20); left out, the stored value is kept (3 for a new command). Numeric text (form post) is accepted"}
+                repeats: {type: integer, default: 3, description: "1..20 (higher is 20); left out, the stored value is kept (3 for a new command). Numeric text (form post) is accepted. Stored only: how many frames a press sends comes from the device's pressMinRepeats"}
               required: [deviceId, name]
             example:
               deviceId: "70321456"
