@@ -711,6 +711,7 @@ static void sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
             if (status == ERROR_CODE_SUCCESS) {
                 log_msg("Link re-encryption complete -> Remote READY");
                 app_state = APP_READY;
+                bt_listen_remote_ready();
                 update_status("ready");
                 gap_request_connection_parameter_update(connection_handle, 6, 12, 0, 200);
             } else if (status == ERROR_CODE_PIN_OR_KEY_MISSING) {

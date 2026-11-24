@@ -22,7 +22,8 @@ typedef struct {
     uint16_t ms;
     bool has_addr;   /* sent from this address (as the random address), not the Hub's */
     bd_addr_t addr;
-    uint32_t queued_ms; /* run loop time when it was queued (unsigned differences: no wrap issue) */
+    bool waiting;       /* it had to wait for the remote's link at the head of the queue */
+    uint32_t wait_ms;   /* run loop time of its first wait (unsigned differences: no wrap issue) */
 } adv_entry_t;
 
 // Broadcasts run one after another so each receiver hears every packet in an activity sequence
@@ -70,7 +71,13 @@ static bool remote_link_setup(void) {
 static void adv_start_next(void) {
     while (g_adv_count > 0 && g_adv_queue[g_adv_head].has_addr && remote_link_setup()) {
         adv_entry_t *h = &g_adv_queue[g_adv_head];
-        if ((uint32_t)(btstack_run_loop_get_time_ms() - h->queued_ms) > ADV_ADDR_WAIT_MAX_MS) {
+        /* the 10 s count from its first wait, not from the queueing: time spent behind other
+         * broadcasts is no wait for the remote */
+        if (!h->waiting) {
+            h->waiting = true;
+            h->wait_ms = btstack_run_loop_get_time_ms();
+        }
+        if ((uint32_t)(btstack_run_loop_get_time_ms() - h->wait_ms) > ADV_ADDR_WAIT_MAX_MS) {
             log_msg("BLE broadcast dropped: its address could not be used for 10 s (the remote was connecting or pairing)");
             g_adv_head = (g_adv_head + 1) % ADV_QUEUE_LEN;
             g_adv_count--;
@@ -111,6 +118,9 @@ static void adv_start_next(void) {
     gap_advertisements_enable(1);
     g_adv_active = true;
 
+    /* the retry timer of a waiting addr= broadcast may still be armed: BTstack's own add_timer
+     * does not take a timer that is already in its list */
+    btstack_run_loop_remove_timer(&g_adv_timer);
     btstack_run_loop_set_timer_handler(&g_adv_timer, &adv_timer_handler);
     btstack_run_loop_set_timer(&g_adv_timer, e->ms);
     btstack_run_loop_add_timer(&g_adv_timer);
@@ -163,7 +173,8 @@ void bt_adv_handle_cmd(const char *args) {
     e->ms = (uint16_t)ms;
     e->has_addr = a != NULL;
     if (a) memcpy(e->addr, addr, 6);
-    e->queued_ms = btstack_run_loop_get_time_ms();
+    e->waiting = false;
+    e->wait_ms = 0;
     g_adv_count++;
 
     char msg[96];
