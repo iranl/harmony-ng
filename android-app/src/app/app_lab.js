@@ -170,14 +170,12 @@ export class HarmonyAppLab extends HarmonyAppDevicesIrdb {
     const devId = document.getElementById('labDevice')?.value;
     if (!devId || devId === '__auto_lab__') return alert(t("select_real_stored_device"));
     // Saved like the IR database tab does (/api/commands-batch): the Hub has no IR Lab import route
-    const dev = (this.inventory?.devices || []).find(d => String(d.id) === String(devId));
-    const port = dev?.controlPort ?? dev?.control_port ?? 7;
     const cmds = [];
     document.querySelectorAll('.lab-pick:checked').forEach(cb => {
       const idx = Number(cb.getAttribute('data-index'));
       const c = this.labQueue[idx];
       const code = c?.raw || c?.keycode;
-      if (c && code) cmds.push({ name: c.name, raw: code, repeats: 3, port });
+      if (c && code) cmds.push({ name: c.name, raw: code, repeats: 3 });
     });
     if (!cmds.length) return alert(t('no_cmds_selected', 'No commands selected.'));
     try {

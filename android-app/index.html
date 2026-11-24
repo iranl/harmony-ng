@@ -1249,28 +1249,28 @@
                 </div>
               </div>
 
+              <!-- IR Blaster Assignment (IR Devices Only) -->
+              <div id="curDevBlasterBox"
+                style="display: none; align-items: center; justify-content: space-between; margin-top: 10px; border-top: 1px dotted var(--border); padding-top: 8px;">
+                <span class="muted mini" data-i18n="blaster_assignment">Blaster Assignment:</span>
+                <select id="curDevPortSelect" class="form-control form-control-sm"
+                  style="width: auto; padding: 2px 8px; font-size: 11px;">
+                  <option value="0" data-i18n="no_blasters">No Blasters / Disabled (Virtual, MQTT, BT)</option>
+                  <option value="7" data-i18n="all_blasters">All Blasters (Hub + Port 1 & 2)</option>
+                  <option value="4" data-i18n="hub_internal_ir_only">Hub Internal IR Only</option>
+                  <option value="1" data-i18n="precision_blaster_1">Precision Blaster Port 1</option>
+                  <option value="2" data-i18n="precision_blaster_2">Precision Blaster Port 2</option>
+                  <option value="5" data-i18n="hub_plus_blaster_1">Hub + Precision Blaster 1</option>
+                  <option value="6" data-i18n="hub_plus_blaster_2">Hub + Precision Blaster 2</option>
+                  <option value="3" data-i18n="blaster_1_plus_2">Precision Blaster 1 + 2</option>
+                </select>
+              </div>
+
               <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
                 <button type="button" id="btnSaveDevDetails" class="btn btn-xs btn-primary"
                   data-i18n="save_changes">Save Changes</button>
                 <span id="devEditStatus" class="mini subtle"></span>
               </div>
-            </div>
-
-            <!-- IR Blaster Assignment (IR Devices Only) -->
-            <div id="curDevBlasterBox"
-              style="display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--border); padding-top: 8px; margin-top: 8px;">
-              <span class="muted mini" data-i18n="blaster_assignment">Blaster Assignment:</span>
-              <select id="curDevPortSelect" class="form-control form-control-sm"
-                style="width: auto; padding: 2px 8px; font-size: 11px;">
-                <option value="0" data-i18n="no_blasters">No Blasters / Disabled (Virtual, MQTT, BT)</option>
-                <option value="7" data-i18n="all_blasters">All Blasters (Hub + Port 1 & 2)</option>
-                <option value="4" data-i18n="hub_internal_ir_only">Hub Internal IR Only</option>
-                <option value="1" data-i18n="precision_blaster_1">Precision Blaster Port 1</option>
-                <option value="2" data-i18n="precision_blaster_2">Precision Blaster Port 2</option>
-                <option value="5" data-i18n="hub_plus_blaster_1">Hub + Precision Blaster 1</option>
-                <option value="6" data-i18n="hub_plus_blaster_2">Hub + Precision Blaster 2</option>
-                <option value="3" data-i18n="blaster_1_plus_2">Precision Blaster 1 + 2</option>
-              </select>
             </div>
 
             <!-- Bluetooth Host Pairing & Settings (BT Devices Only) -->

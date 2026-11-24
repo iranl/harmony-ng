@@ -272,9 +272,11 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
       portEl.value = String(p);
     }
 
-    const isIr = !isPlugin && (dev.type === 'IR' || !dev.type || dev.type === 'Television' || dev.type === 'Amplifier' || dev.type === 'Media Player' || dev.type === 'HomeAppliance');
     const isBt = !isPlugin && (dev.type === 'BT' || dev.type === 'Bluetooth' || dev.isBt);
     const isMqtt = !isPlugin && !isBt && (dev.type === 'MQTT' || dev.mqttEnabled);
+    /* IR: not a plugin, Bluetooth, MQTT, HTTP or TCP device, as in the Edit box and the Hub's
+     * sanitizer (a type list hid the blaster row of an IR device of another type on a redraw) */
+    const isIr = !isPlugin && !isBt && !isMqtt && !this.isNetDevice(dev);
 
     const blasterBox = document.getElementById('curDevBlasterBox');
     if (blasterBox) blasterBox.style.display = isIr ? 'flex' : 'none';

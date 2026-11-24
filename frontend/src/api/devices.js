@@ -65,7 +65,8 @@ export function createDevicesApi(client) {
             };
             if (!isBtCmd && !isMqttCmd && !isNet) {
               cmdObj.repeats = c.repeats !== undefined ? c.repeats : 3;
-              cmdObj.port = c.port !== undefined ? c.port : (c.controlPort || dev.controlPort || 7);
+              // The command's own port only (none: it follows the device's controlPort)
+              if (c.port !== undefined) cmdObj.port = c.port;
             }
             if (c.isMacro) cmdObj.isMacro = true;
             return cmdObj;

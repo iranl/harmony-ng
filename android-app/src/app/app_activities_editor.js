@@ -116,14 +116,18 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
       if (idInput) idInput.value = act.id;
       if (nameInput) nameInput.value = act.name || '';
       if (typeSelect) typeSelect.value = act.type || 'Custom';
-      if (orderInput) orderInput.value = act.order || 1;
+      if (orderInput) orderInput.value = Number.isFinite(Number(act.order)) ? Number(act.order) : 1;
       if (delBtn) delBtn.style.display = (String(act.id) === '-1') ? 'none' : 'block';
     } else {
       if (titleEl) titleEl.textContent = t('create_new_activity');
       if (idInput) idInput.value = '';
       if (nameInput) nameInput.value = '';
       if (typeSelect) typeSelect.value = 'Custom';
-      if (orderInput) orderInput.value = 1;
+      if (orderInput) {
+        /* a new activity goes last: the Hub lists activities by this order */
+        const orders = (this.activitiesData?.activities || []).map(a => Number(a.order)).filter(Number.isFinite);
+        orderInput.value = orders.length ? Math.min(99, Math.max(...orders) + 1) : 1;
+      }
       if (delBtn) delBtn.style.display = 'none';
     }
 
@@ -450,7 +454,9 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
     const id = document.getElementById('actEditId')?.value;
     const name = document.getElementById('actEditName')?.value.trim();
     const type = document.getElementById('actEditType')?.value;
-    const order = Number(document.getElementById('actEditOrder')?.value) || 1;
+    const orderRaw = document.getElementById('actEditOrder')?.value;
+    // An emptied field sends no order: the Hub keeps the stored one (a new activity goes last)
+    const order = (orderRaw !== '' && Number.isFinite(Number(orderRaw))) ? Number(orderRaw) : undefined;
     const statusEl = document.getElementById('actEditorStatus');
 
     if (!name) return alert(t("act_name_required"));

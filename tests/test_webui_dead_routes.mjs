@@ -75,7 +75,8 @@ await t.check('legacy IR Lab import saves through /api/commands-batch', async ()
   assert.ok(post, `no batch save (${hubCalls().map(c => c.path).join(', ')})`);
   const sent = JSON.parse(post.body);
   assert.equal(sent.deviceId, '3');
-  assert.deepEqual(sent.commands.map(c => [c.name, c.raw, c.port]), [['Power', '0000 006D', 2], ['Input', 'NEC:0x04:0x0B', 2]]);
+  assert.deepEqual(sent.commands.map(c => [c.name, c.raw, c.port]), [['Power', '0000 006D', undefined], ['Input', 'NEC:0x04:0x0B', undefined]],
+    'no port: an imported command follows the device');
 });
 
 // ── New UI: IR Lab batch run ──
@@ -147,7 +148,7 @@ await t.check('new UI Harmony DB search imports the codes into a device', async 
   assert.ok(post, `no import (${hubCalls().map(c => c.path).join(', ')})`);
   const sent = JSON.parse(post.body);
   assert.equal(sent.deviceId, '3');
-  assert.deepEqual(sent.commands, [{ name: 'PowerOn', raw: '0000 006D 0001 0000 0010 0020', repeats: 3, port: 7 }]);
+  assert.deepEqual(sent.commands, [{ name: 'PowerOn', raw: '0000 006D 0001 0000 0010 0020', repeats: 3 }]);
   view.remove();
 });
 

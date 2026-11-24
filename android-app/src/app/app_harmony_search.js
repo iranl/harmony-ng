@@ -309,12 +309,11 @@ export class HarmonyAppHarmonySearch extends HarmonyAppBluetooth {
       if (importStatusEl) importStatusEl.innerHTML = escapeHtml(tf('hs_importing_into', { count: selectedCmds.length, name: targetDev.name }));
 
       try {
-        const targetPort = (targetDev.controlPort !== undefined) ? targetDev.controlPort : ((targetDev.control_port !== undefined) ? targetDev.control_port : 7);
+        // No port: an imported command follows the device's Blaster Assignment
         const cmdPayloads = selectedCmds.map(c => ({
           name: c.name,
           raw: c.pronto || c.raw || '',
-          repeats: 3,
-          port: targetPort
+          repeats: 3
         })).filter(c => c.raw);
 
         let ok = false;
@@ -331,8 +330,7 @@ export class HarmonyAppHarmonySearch extends HarmonyAppBluetooth {
               deviceId: targetDevId,
               name: cmd.name,
               raw: cmd.raw,
-              repeats: cmd.repeats,
-              port: cmd.port
+              repeats: cmd.repeats
             });
           }
         }

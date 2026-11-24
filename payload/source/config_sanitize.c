@@ -215,6 +215,16 @@ void sanitize_devices_json(cJSON *root) {
     cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
     if (!devs || !cJSON_IsArray(devs)) return;
 
+    /* Before commandPorts 1 every IR command was given its device's controlPort of that time,
+     * and no send read it. A command's port is now used before the device's: those copies are
+     * dropped once, so a later Blaster Assignment still reaches every command. */
+    cJSON *jcp_ver = cJSON_GetObjectItemCaseSensitive(root, "commandPorts");
+    int own_ports = cJSON_IsNumber(jcp_ver) && jcp_ver->valuedouble >= 1;
+    if (!own_ports) {
+        cJSON_DeleteItemFromObjectCaseSensitive(root, "commandPorts");
+        cJSON_AddNumberToObject(root, "commandPorts", 1);
+    }
+
     cJSON *clean_devs = cJSON_CreateArray();
 
     cJSON *src_d = NULL;
@@ -491,13 +501,10 @@ void sanitize_devices_json(cJSON *root) {
                 cJSON_AddStringToObject(ccmd, "raw", raw_val);
 
                 if (!is_bt && !is_mqtt && !is_plugin && !net_kind) {
+                    /* a command's own port mask 1..7 (Emitter Port); none: the device's controlPort */
                     cJSON *cp_item = cJSON_GetObjectItemCaseSensitive(c, "port");
-                    cJSON *dev_cp = cJSON_GetObjectItemCaseSensitive(cdev, "controlPort");
-                    /* ports are the same 0..7 as controlPort; the sender keeps repeats in 8 bits */
-                    int dev_port = dev_cp ? dev_cp->valueint : 7;
-                    int port_val = (cp_item && cJSON_IsNumber(cp_item)) ? json_number_int(cp_item, -1, 8, dev_port) : dev_port;
-                    if (port_val < 0 || port_val > 7) port_val = dev_port;
-                    cJSON_AddNumberToObject(ccmd, "port", port_val);
+                    int port_val = (own_ports && cp_item && cJSON_IsNumber(cp_item)) ? json_number_int(cp_item, -1, 8, 0) : 0;
+                    if (port_val >= 1 && port_val <= 7) cJSON_AddNumberToObject(ccmd, "port", port_val);
 
                     cJSON *crep = cJSON_GetObjectItemCaseSensitive(c, "repeats");
                     int rep_val = (crep && cJSON_IsNumber(crep)) ? json_number_int(crep, -1, 256, 3) : 3;
@@ -633,10 +640,80 @@ void sanitize_activity_steps(cJSON *steps) {
     cJSON_Delete(new_arr);
 }
 
+/* The activity's Display Order; one without a number goes after all numbered ones */
+static double activity_order(const cJSON *a) {
+    const cJSON *o = cJSON_IsObject(a) ? cJSON_GetObjectItemCaseSensitive(a, "order") : NULL;
+    return cJSON_IsNumber(o) ? o->valuedouble : 1e18;
+}
+
+/* Every reader (both web UIs, the remotes' "yours" order, hbus, MQTT) lists the activities in
+ * array order, so the array is kept sorted by Display Order. Stable: equal orders keep their
+ * place. */
+static int sort_activities_by_order(cJSON *acts) {
+    int n = cJSON_GetArraySize(acts);
+    if (n < 2) return 0;
+    cJSON **items = malloc((size_t)n * sizeof(*items));
+    if (!items) return 0;
+    int k = 0;
+    cJSON *a = NULL;
+    cJSON_ArrayForEach(a, acts) items[k++] = a;
+    int moved = 0;
+    for (int i = 1; i < n; i++) {
+        cJSON *cur = items[i];
+        double ord = activity_order(cur);
+        int j = i - 1;
+        while (j >= 0 && activity_order(items[j]) > ord) {
+            items[j + 1] = items[j];
+            j--;
+            moved = 1;
+        }
+        items[j + 1] = cur;
+    }
+    if (moved) {
+        for (int i = 0; i < n; i++) cJSON_DetachItemViaPointer(acts, items[i]);
+        for (int i = 0; i < n; i++) cJSON_AddItemToArray(acts, items[i]);
+    }
+    free(items);
+    return moved;
+}
+
+/* An activity without a Display Order gets its own, after the highest one (99 at most, as the
+ * editor's field), so both web UIs show the number the Hub sorts by. Returns how many got one. */
+static int number_unordered_activities(cJSON *acts) {
+    double max = 0;
+    int missing = 0;
+    cJSON *a = NULL;
+    cJSON_ArrayForEach(a, acts) {
+        if (!cJSON_IsObject(a)) continue;
+        const cJSON *o = cJSON_GetObjectItemCaseSensitive(a, "order");
+        if (cJSON_IsNumber(o)) {
+            if (o->valuedouble > max) max = o->valuedouble;
+        } else {
+            missing++;
+        }
+    }
+    if (!missing) return 0;
+    cJSON_ArrayForEach(a, acts) {
+        if (!cJSON_IsObject(a) || cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(a, "order"))) continue;
+        if (max < 99) max = max + 1 > 99 ? 99 : max + 1;
+        cJSON_DeleteItemFromObjectCaseSensitive(a, "order");
+        cJSON_AddNumberToObject(a, "order", max);
+    }
+    return missing;
+}
+
 void sanitize_activities_json(cJSON *root) {
-    if (!root) return;
+    (void)sanitize_activities_json_changed(root);
+}
+
+int sanitize_activities_json_changed(cJSON *root) {
+    if (!root) return 0;
     cJSON *acts = cJSON_GetObjectItemCaseSensitive(root, "activities");
-    if (!acts || !cJSON_IsArray(acts)) return;
+    if (!acts || !cJSON_IsArray(acts)) return 0;
+
+    /* sorted first: the ones without an order are last, and keep that place with their number */
+    int changed = sort_activities_by_order(acts);
+    changed |= number_unordered_activities(acts) > 0;
 
     cJSON *a = NULL;
     cJSON_ArrayForEach(a, acts) {
@@ -679,4 +756,5 @@ void sanitize_activities_json(cJSON *root) {
         cJSON *stop_seq = cJSON_GetObjectItemCaseSensitive(a, "stopSequence");
         if (stop_seq) sanitize_activity_steps(stop_seq);
     }
+    return changed;
 }

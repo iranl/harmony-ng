@@ -115,11 +115,19 @@ int config_store_init(void) {
     const char *act_path = HARMONY_ACTIVITIES_FILE;
     cJSON *activities = NULL;
     char *act_raw = read_file_text(act_path, 2 * 1024 * 1024);
+    int reordered = 0;
     if (act_raw) {
         activities = cJSON_Parse(act_raw);
         free(act_raw);
-        if (activities) {
-            sanitize_activities_json(activities);
+        /* sorted by Display Order here: written back once, because hub_rf (the remotes' list)
+         * and MQTT read the file, not this copy */
+        if (activities && sanitize_activities_json_changed(activities)) {
+            char *out = cJSON_Print(activities);
+            if (!out || write_file_atomic(act_path, out) != 0)
+                fprintf(stderr, "[-] Could not save %s in Display Order (flash full?)\n", act_path);
+            else
+                reordered = 1;
+            free(out);
         }
     }
     if (!activities) {
@@ -129,6 +137,8 @@ int config_store_init(void) {
     }
     if (cfg_snap_publish(&g_activities_snap, activities) != 0) cJSON_Delete(activities);
     pthread_mutex_unlock(&g_cfg_lock);
+    /* the remotes still have the old order: offer the push once */
+    if (reordered) notify_rf_push_config();
     return 0;
 }
 
