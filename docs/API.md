@@ -923,13 +923,17 @@ Runs a command of an HTTP or TCP device now and waits for it (up to about 4 time
   certificate, not the SubjectPublicKeyInfo, so not what `openssl x509 -pubkey` hashes to);
   `pinned` is set when this run pinned it. A command from a remote key is sent once per press (a
   held key sends no repeats), and one still queued after 2 s, or for a device that timed out in
-  the last 10 s, is dropped (`dropped:` in the log). Only a live key from a remote is dropped:
-  activity steps, `ir-send`, MQTT and WebSocket sends wait in the queue and go out in order. A
+  the last 10 s, is dropped (`dropped:` in the log). Only a live key is dropped: a person's press
+  that arrives late is wrong, while a command of an automation must arrive. Live keys are the
+  hard keys, the screen buttons and the device pages of a touchscreen remote (hub_rf), the keys
+  of a Bluetooth remote, the remote views of both web UIs, and any `ir-send` or `send_command`
+  with `"live": true` (5.1, 10.3). Activity steps and every other `ir-send`, MQTT and WebSocket
+  send (Home Assistant, scripts, the Logitech protocol) wait in the queue and go out in order. A
   send answers `ok` when it is queued, also one that is dropped later; a lone `hold` or `repeat`
   answers `ok` and sends nothing. The queue holds 16 sends. When it is full, a send is refused:
   `ir-send` answers `503` `"send queue full"`, an activity step is lost and logged once (`[!] Orch:
   activity '<id>' step '<step>' lost`), and a live key takes the place of the oldest live key
-  that is already late (it would be dropped anyway). The host is resolved once per send; a host
+  that is over 1 s old (late for a key pressed now). The host is resolved once per send; a host
   with any address on the Hub itself (loopback) is refused, and the connection goes to the
   addresses that were checked.
 - **Response `400`**: not an HTTP or TCP device. **`404`**: no device with that id, or no
@@ -1244,6 +1248,11 @@ command of an HTTP or TCP device that finds their send queue full `503` `"send q
   - `repeats`: Repeat count (default: 1).
   - `code` or `raw` is accepted for `pronto`. A Harmony code (`G:<protocol>:...`, or the raw timing
     form `F<carrier>P...S...` of 5.2a) given here is sent as that keycode.
+- **`live`** (optional, default `false`): `true` marks a person's press (a remote view, a
+  Bluetooth remote). It is sent like a key from a remote: without the gaps between commands
+  (`interKeyDelay`, `interDeviceDelay`), and for an HTTP or TCP device it is dropped when it
+  waited too long in the send queue, and may take the place of a live key over 1 s old when the
+  queue is full (3.9). Leave it out for automations: their commands wait their turn and go out.
 - **Other names**: `device_id`, `device` or `id` for `deviceId`; for `action`, `down` = `press`,
   `repeat` = `hold`, `up` = `release`.
 - **Duplicate filter**: a second `tap` or `press` of the same command of the same device that
@@ -2403,6 +2412,9 @@ Multiple commands or repeats can be queued as an array:
   `press` and `hold` without `hold_secs` are sent as taps.
 - `ir_send` is another name of this action.
 - A single command with no repeat or hold is sent at once, unless a job is still running.
+- `live` (optional): `true` sends such a single command as a person's press, as `live` of
+  `POST /api/ir-send` (5.1). A list, repeats, holds and a command queued behind a job are never
+  live.
 
 **Response**:
 ```json

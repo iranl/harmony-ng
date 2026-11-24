@@ -9,6 +9,8 @@
  *            -Wl,--wrap=http_post_local -lpthread -lm
  * Usage: rf_key_client <daemon port> <key socket path> <linger ms> < events
  *   one event per line: <ms to wait before it> <press|hold|release> <button> [deviceId]
+ *   or <ms to wait before it> device <deviceId> <command>: a screen button or device page
+ *   command (enqueue_remote_device_cmd)
  * After the last event it gives the dispatch thread <linger ms> to send what is queued.
  */
 #include <stdio.h>
@@ -48,7 +50,8 @@ int main(int argc, char **argv) {
         char action[16] = {0}, button[64] = {0}, dev[16] = {0};
         if (sscanf(line, "%d %15s %63s %15s", &wait_ms, action, button, dev) < 3) continue;
         if (wait_ms > 0) usleep((useconds_t)wait_ms * 1000);
-        enqueue_remote_button(1, button, action, dev[0] ? dev : NULL);
+        if (strcmp(action, "device") == 0) enqueue_remote_device_cmd(button, dev);
+        else enqueue_remote_button(1, button, action, dev[0] ? dev : NULL);
     }
     usleep((useconds_t)atoi(argv[3]) * 1000);
     g_running = false;

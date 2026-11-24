@@ -88,14 +88,17 @@ export function createDevicesApi(client) {
 
     /* action: 'tap' (default, a full keystroke), or 'press' / 'hold' / 'release' for a key
        that is held down. A 'press' must be followed by a 'release': a Bluetooth device keeps
-       the key down until then. */
-    async sendCommand(deviceId, command, action = 'tap') {
+       the key down until then. opts.live: a person's press on the remote view; the Hub drops
+       it when it would go out late instead of sending it late. */
+    async sendCommand(deviceId, command, action = 'tap', opts = {}) {
+      const live = opts && opts.live ? { live: true } : {};
       if (client.isWsConnected()) {
         try {
           await client.sendWsCommand('send_command', {
             deviceId: String(deviceId),
             command: String(command),
-            cmdAction: String(action)
+            cmdAction: String(action),
+            ...live
           });
           return { ok: true, ws: true };
         } catch {
@@ -105,7 +108,8 @@ export function createDevicesApi(client) {
       return client.postJson('/api/ir-send', {
         deviceId: String(deviceId),
         command: String(command),
-        action: String(action)
+        action: String(action),
+        ...live
       });
     },
 

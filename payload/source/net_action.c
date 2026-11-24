@@ -31,6 +31,9 @@
 /* A key press still queued after this is dropped: sent late, it acts long after the user
  * pressed (and a toggle may then undo a later press) */
 #define NET_QUEUE_MAX_AGE_MS 2000
+/* A live key that finds the queue full takes the place of a queued key press older than this:
+ * the key channel already skips a remote key older than 1 s (HUB_KEY_STALE_MS) */
+#define NET_QUEUE_ROOM_AGE_MS 1000
 /* After a device timed out, its queued presses are dropped for this long instead of each
  * waiting out the timeout again in front of the other devices */
 #define NET_SLOW_HOLD_MS 10000
@@ -842,12 +845,12 @@ static int enqueue(net_job *j)
     }
     net_job *late = NULL;
     if (s_count >= NET_QUEUE_LEN && j->live_key && !j->sync) {
-        /* Full, and this is a key pressed now: the oldest key press that is already late makes
-         * room (the worker would drop it as late anyway). Never a sync job or any other send. */
+        /* Full, and this is a key pressed now: the oldest key press that is over 1 s old makes
+         * room (it is late for a key pressed now). Never a sync job or any other send. */
         uint64_t now = mono_ms();
         for (int k = 0; k < s_count; k++) {
             net_job *q = s_queue[(s_head + k) % NET_QUEUE_LEN];
-            if (!q->live_key || q->sync || now - q->queued_ms <= NET_QUEUE_MAX_AGE_MS) continue;
+            if (!q->live_key || q->sync || now - q->queued_ms <= NET_QUEUE_ROOM_AGE_MS) continue;
             late = q;
             for (int m = k; m < s_count - 1; m++)
                 s_queue[(s_head + m) % NET_QUEUE_LEN] = s_queue[(s_head + m + 1) % NET_QUEUE_LEN];

@@ -245,10 +245,12 @@ uint8_t gap_disconnect(hci_con_handle_t h) { record("gap_disconnect %04x", h); r
 int gap_delete_bonding(bd_addr_type_t t, bd_addr_t a) { UNUSED(t); UNUSED(a); return 0; }
 void gap_drop_link_key_for_bd_addr(bd_addr_t a) { record("gap_drop_link_key %02X", a[5]); }
 
-/* ---- bt_remote.c ---- */
+/* ---- bt_remote.c (a test that builds the real one defines BT_FAKE_WITH_REMOTE) ---- */
+#ifndef BT_FAKE_WITH_REMOTE
 static char s_activity[16] = "1";
 void read_current_activity(char *out, size_t outlen) { snprintf(out, outlen, "%s", s_activity); }
 void bt_remote_invalidate_map(void) {}
+#endif
 
 /* ---- the key store ---- */
 static int s_store_calls;

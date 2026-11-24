@@ -232,14 +232,17 @@ export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
 
   /* action: 'tap' (default, a full keystroke), or 'press' / 'hold' / 'release' from a button
      that is held down. A 'press' must be followed by a 'release': a Bluetooth device keeps
-     the key down until then. */
-  async sendCommand(deviceId, command, action = 'tap') {
+     the key down until then. opts.live: a person's press on a remote view; the Hub drops it
+     when it would go out late instead of sending it late. */
+  async sendCommand(deviceId, command, action = 'tap', opts = {}) {
+    const live = opts && opts.live ? { live: true } : {};
     if (this.isWsConnected()) {
       try {
         const res = await this.sendWsCommand('send_command', {
           deviceId: String(deviceId),
           command: String(command),
-          cmdAction: String(action)
+          cmdAction: String(action),
+          ...live
         });
         if (res && res.ok === false) {
           throw new Error(res.error || 'WS send_command failed');
@@ -255,7 +258,8 @@ export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
     return this.postJson('/api/ir-send', {
       deviceId: String(deviceId),
       command: String(command),
-      action: String(action)
+      action: String(action),
+      ...live
     });
   }
 

@@ -494,8 +494,11 @@ cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin) {
             return ack(req, action, 0, 400, "value takes a single command");
 
         if (cmd_count == 1 && num_repeats <= 1 && hold_secs <= 0.0 && (j_val || !hub_mqtt_queue_busy())) {
+            /* "live": true, a person's press (a remote view): sent like POST /api/ir-send with live */
+            g_live_remote_key = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(req, "live"));
             int rc = j_val ? hw_device_command_send_value(dev_buf, 0, cmd_list[0], btn_action, j_val->valueint)
                            : hw_device_command_send_action(dev_buf, 0, cmd_list[0], btn_action);
+            g_live_remote_key = 0;
             if (rc == -5) return ack(req, action, 0, 404, "Device not found");
             if (rc == -6) return ack(req, action, 0, 404, "Command not found");
             if (rc == HW_ERR_VALUE_RANGE) return ack(req, action, 0, 400, "value out of range");

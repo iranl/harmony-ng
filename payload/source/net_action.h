@@ -12,7 +12,7 @@
  * device or command cannot be sent (no host or port), -3 when the queue is full. live_key: a key
  * pressed on a remote now; only such a send is dropped when it is late or its device just timed
  * out (an activity step, an API or MQTT send always goes out, in order), and a live key that
- * finds the queue full takes the place of the oldest live key that is already late. */
+ * finds the queue full takes the place of the oldest live key over 1 s old. */
 int net_action_send(const cJSON *dev, const cJSON *cmd, const char *dev_id, const char *dev_name,
                     const char *command, int live_key);
 

@@ -2,11 +2,12 @@
 """
 The send queue of HTTP and TCP devices (payload/source/net_action.c, 16 jobs) when it is full.
 Test daemon with dry run off; local devices: FAST answers at once, MUTE takes the connection and
-never answers (timeout 4 s), so it holds the one worker.
+never answers (timeout 4 s; MID is the same server with a 3 s timeout), so it holds the one worker.
 
 - a live key (the key channel of hub_rf) that finds the queue full takes the place of the
-  oldest live key that is already late (the worker would drop it as late anyway), and goes out;
-  before, the new key was refused and the late ones were dropped a moment later;
+  oldest live key that is over 1 s old, and goes out: the measured case, a new key at 2.0 s
+  when the oldest queued key is 1.9 s old (before, a key made room only behind one over 2 s
+  old, and before that it was refused; the late ones were dropped a moment later);
 - POST /api/ir-send answers 503 "send queue full" (it said 500 "IR transmit failed", the text
   of an infrared failure);
 - an activity step lost to a full queue is logged once, with the activity and the step.
@@ -102,9 +103,10 @@ def main():
         with HubHarness(port=PORT, log_path=log, env=env, args=["--key-socket", sock]) as hub:
             post = hub.http_post
             check(post("/api/settings", {"dry_run": False})[0] == 200, "dry run off")
-            for did, name, port in (("63", "Fast", FAST_PORT), ("64", "Mute", MUTE_PORT)):
+            for did, name, port, tmo in (("63", "Fast", FAST_PORT, 4000), ("64", "Mute", MUTE_PORT, 4000),
+                                         ("65", "Mid", MUTE_PORT, 3000)):
                 st, r = post("/api/device-save", {"id": did, "name": name, "type": "HTTP", "netHost": "127.0.0.1",
-                                                  "netPort": port, "netTimeoutMs": 4000, "isPowerAlwaysOn": True,
+                                                  "netPort": port, "netTimeoutMs": tmo, "isPowerAlwaysOn": True,
                                                   "commands": [{"name": c, "httpPath": "/" + c.lower()} for c in cmds]})
                 check(st == 200, "device %s saved" % name, (st, r))
             for _ in range(50):
@@ -116,19 +118,19 @@ def main():
                 with open(log, errors="replace") as f:
                     return f.read()[mark:]
 
-            # 1. Live keys: MUTE holds the worker for 4 s; 16 FAST keys (0.1 to 0.85 s) fill the
-            # queue; at 2.6 s the oldest of them is late, and a new key for FAST takes its place.
-            # At 4 s all 16 are late (dropped) and the new one is 1.4 s old (sent).
+            # 1. Live keys: MID holds the worker for 3 s; 16 FAST keys (0.1 to 0.85 s) fill the
+            # queue; at 2.0 s the oldest of them is 1.9 s old, and a new key for FAST takes its
+            # place. At 3 s the 15 left are over 2 s old (dropped) and the new one is 1 s old (sent).
             def at(t):
                 time.sleep(max(0.0, T0[0] + t - time.time()))
             mark = os.path.getsize(log)
             del GOT[:]
             T0[0] = time.time()
-            tap(sock, "64", "VolUp")
+            tap(sock, "65", "VolUp")
             for i in range(16):
                 at(0.1 + 0.05 * i)
                 tap(sock, "63", cmds[i % 6])
-            at(2.6)
+            at(2.0)
             tap(sock, "63", "Down")
             time.sleep(4.5)
             text = log_since(mark)

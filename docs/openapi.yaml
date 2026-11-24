@@ -1893,6 +1893,13 @@ paths:
                   enum: [press, down, hold, repeat, release, up, tap]
                   default: tap
                   description: Button action for key holding and repeating
+                live:
+                  type: boolean
+                  default: false
+                  description: >-
+                    A person's press (a remote view, a Bluetooth remote): sent without the gaps between
+                    commands, and for an HTTP or TCP device dropped when it waited too long in the send
+                    queue instead of sent late (API.md 3.9). Leave it out for automations.
                 pronto: {type: string, description: "Pronto hex, or a Harmony code (also accepted as code or raw)"}
                 port: {type: integer, default: 7}
                 repeats: {type: integer, default: 1}
