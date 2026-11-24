@@ -679,6 +679,25 @@ int ir_encode_harmony_keycode(const char *keycode, uint8_t min_repeats,
         }
         const uint32_t repeat[] = { 9025, 2283, 525, 95419 };
         return ir_encode_sequences(carrier_hz, timings, timing_count, repeat, 4, parsed_repeats, out_buf, out_len);
+    } else if (strstr(proto, "Sky 28 Bit")) {
+        /* Sky boxes (Sky Q, Sky+ HD), as a stock Hub's ProtocolList.json defines "Sky 28 Bit":
+         * RC6 mode 6 at 36 kHz. A fixed header (the leader, the start bit, mode bits 110 and the
+         * double-length trailer bit), then 28 bi-phase bits, MSB first, in the stock table's
+         * terms: 0 = 430 mark + 460 space, 1 = 460 space + 430 mark. The frame is padded to
+         * 150.5 ms. No toggle bit. */
+        static const int32_t sky_header[] = { 2650, -910, 430, -460, 430, -460, 430, -890, 430, -890, 875 };
+        carrier_hz = 36000;
+        unsigned long val = strtoul(hex, NULL, 16);
+        for (size_t i = 0; i < sizeof(sky_header) / sizeof(sky_header[0]); i++) {
+            timings_add(timings, &timing_count, sky_header[i] > 0,
+                        (uint32_t)(sky_header[i] > 0 ? sky_header[i] : -sky_header[i]));
+        }
+        for (int b = 27; b >= 0; b--) {
+            int one = (val >> b) & 1;
+            timings_add(timings, &timing_count, !one, one ? 460 : 430);
+            timings_add(timings, &timing_count, one, one ? 430 : 460);
+        }
+        timings_pad_to(timings, &timing_count, 0, 150500);
     } else if (strstr(proto, "RC5Ex")) {
         /* Philips RC5 extended ("0x<field,toggle,address>_1x<command,data>"): a start
          * mark, 7 bits, a 3.5 ms gap, then 12 bits padded to 95.7 ms */
