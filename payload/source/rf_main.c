@@ -397,7 +397,7 @@ void handle_rf_frame(const rf_frame_t *f) {
 
 /* A restart was asked for (POST /api/rf/restart) and nothing runs that it would cut short */
 bool rf_restart_due(void) {
-    return g_restart_requested && !g_config_push_running && !is_ota_busy() && g_rf_ota.status_code != 3 &&
+    return g_restart_requested && !rf_config_push_active() && !is_ota_busy() && g_rf_ota.status_code != 3 &&
            !g_pairing_mode;
 }
 
@@ -563,14 +563,17 @@ int main(int argc, char **argv) {
      * it into an rf_status event; the link counters and the battery voltage are not changes. */
     char *last_key = NULL;
     int push_failing = 0;
+    bool restarting = false;
     while (g_running) {
         sleep(1);
         if (rf_restart_due()) {
             /* the same way out as SIGTERM: /dev/rfspi is closed below, init.sh starts hub_rf again */
             printf("[*] hub_rf restarts to read the restored slot table\n");
+            restarting = true;
             g_running = false;
             break;
         }
+        rf_config_push_retry_skipped();
         rf_battery_fix_times(); /* a report from before the clock was set gets its reported_at */
         char key[8192]; /* 6 slots */
         if (rf_build_status_json(key, sizeof(key), RF_STATUS_STABLE_ONLY) < 0) continue;
@@ -597,7 +600,18 @@ int main(int argc, char **argv) {
     }
     free(last_key);
 
+    /* The process must end now, also when a thread is stuck: the receive thread sits in the
+     * CC2544 driver's read(), and exit() runs libc's clean-up, which takes stdio locks a stuck
+     * thread may hold (a contended lock spins on the Hub, its kernel has no futex). SIGALRM has
+     * no handler here (no thread blocks it, uClibc's sleep() and usleep() use nanosleep), so the
+     * kernel ends the whole process after 5 s, also when this thread is stuck in rf_spi_close()
+     * or a flash write below; only a thread asleep uninterruptibly in a driver could delay it.
+     * init.sh starts hub_rf again either way; after SIGTERM, init.sh stop sends SIGKILL 3 s
+     * later anyway. */
+    alarm(5);
     printf("[+] Shutting down hub_rf...\n");
     rf_spi_close();
+    /* after the close: no frame is handled under the old table any more */
+    if (restarting) rf_slot_map_follow_file();
     return g_rf_read_failed ? 1 : 0;
 }

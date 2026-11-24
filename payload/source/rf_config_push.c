@@ -17,6 +17,14 @@
 #include <unistd.h>
 #include <pthread.h>
 
+/* A push skipped because a remote update was being prepared or sent: pushed once the update
+ * state is idle again (rf_config_push_retry_skipped(), from the main loop) */
+static volatile bool s_skipped_for_update;
+/* The slot table and which slots hold a remote, when the running push picked its targets
+ * (config_push_worker() below) */
+static uint8_t s_push_table[2 * MAX_PAIRED_REMOTES];
+static void slot_table_now(uint8_t *table);
+
 /* Whether to send an icon name's image as a custom icon. An icon uploaded to the Hub always is.
    A stock image found under the name is sent only when the remote has no icon of its own for
    it: for keywords such as "ps" and "switch" the remote draws its theme's icon, and the stock
@@ -47,7 +55,7 @@ void rf_request_config_push(void) {
     if (pthread_create(&th, NULL, config_push_worker, NULL) == 0) pthread_detach(th);
 }
 
-void *config_push_worker(void *arg) {
+static void *config_push_once(void *arg) {
     (void)arg;
     static pthread_mutex_t push_lock = PTHREAD_MUTEX_INITIALIZER;
     if (pthread_mutex_trylock(&push_lock) != 0) {
@@ -56,6 +64,7 @@ void *config_push_worker(void *arg) {
     }
     if (is_ota_busy() || g_rf_ota.status_code == 3) {
         printf("[-] Config push skipped: RF OTA in progress on slot %d\n", g_rf_ota.target_slot);
+        s_skipped_for_update = true;
         pthread_mutex_unlock(&push_lock);
         return NULL;
     }
@@ -76,6 +85,7 @@ void *config_push_worker(void *arg) {
         }
     }
     uint8_t config_ver = g_config_version;
+    slot_table_now(s_push_table); /* the targets below follow this table */
 
     rf_frame_t f;
     uint8_t target_slots[MAX_PAIRED_REMOTES] = {0};
@@ -974,4 +984,78 @@ void *config_push_worker(void *arg) {
     g_config_push_running = false;
     pthread_mutex_unlock(&push_lock);
     return NULL;
+}
+
+/* One push at a time. The targets of a push are fixed when it starts: a remote paired into a
+ * chosen slot asks for its push under its pipe's old slot, and the move to the chosen slot asks
+ * again while that push runs. That request used to be dropped, and the remote kept the config of
+ * its old slot (or none). Now a request that finds a push running is noted, and the running one
+ * pushes once more when it ends, if the slot table (or which slots hold a remote) changed after
+ * it picked its targets. Other requests, such as a remote asking again for its config every few
+ * seconds during a long push, are served by the push that runs. A flag and a trylock, no wait:
+ * the Hub's kernel has no futex. */
+static pthread_mutex_t s_push_gate = PTHREAD_MUTEX_INITIALIZER;
+static volatile bool s_push_again;
+static volatile bool s_push_active;
+
+/* The pipe of each slot, then whether it holds a remote: a pipe moved to a chosen slot changes
+ * the table first and the slots' state a moment later (rf_slot_map_claim_pipe()), and a push can
+ * pick its targets in between */
+static void slot_table_now(uint8_t *table) {
+    for (uint8_t s = 1; s <= MAX_PAIRED_REMOTES; s++) {
+        table[s - 1] = rf_slot_to_pipe(s);
+        table[MAX_PAIRED_REMOTES + s - 1] = g_paired_remotes[s - 1].active;
+    }
+}
+
+static bool slot_table_moved(const uint8_t *before) {
+    uint8_t now[2 * MAX_PAIRED_REMOTES];
+    slot_table_now(now);
+    return memcmp(before, now, sizeof(now)) != 0;
+}
+
+void *config_push_worker(void *arg) {
+    if (pthread_mutex_trylock(&s_push_gate) != 0) {
+        s_push_again = true;
+        printf("[-] Config push already in progress (noted: it runs again if a slot moved)\n");
+        return NULL;
+    }
+    s_push_active = true;
+    for (;;) {
+        slot_table_now(s_push_table); /* the push may end before it picks targets */
+        s_push_again = false;
+        config_push_once(arg);
+        if (s_push_again && slot_table_moved(s_push_table) && g_running) {
+            printf("[*] Config push asked for while a slot moved: pushing again\n");
+            continue;
+        }
+        s_push_active = false;
+        pthread_mutex_unlock(&s_push_gate);
+        /* a request between the check above and the unlock found the gate still taken */
+        if (!s_push_again || !slot_table_moved(s_push_table) || !g_running || pthread_mutex_trylock(&s_push_gate) != 0) break;
+        s_push_active = true;
+        printf("[*] Config push asked for while a slot moved: pushing again\n");
+    }
+    return NULL;
+}
+
+bool rf_config_push_active(void) {
+    return s_push_active || g_config_push_running;
+}
+
+int rf_config_push_retry_skipped(void) {
+    if (!s_skipped_for_update || is_ota_busy()) return 0;
+    int st = g_rf_ota.status_code;
+    if (st == 1 || st == 3) return 0; /* still preparing or sending */
+    s_skipped_for_update = false;
+    if (st == 2) {
+        /* the update was installed: the remote restarts and asks for its config itself, and
+         * that push goes to every linked remote (a push now would go to a remote that is
+         * restarting, and keep its own request out while it waits for it) */
+        printf("[*] Skipped config push dropped: the updated remote asks for its config after its restart\n");
+        return 0;
+    }
+    printf("[*] Config push skipped during the update: pushing now\n");
+    rf_request_config_push();
+    return 1;
 }

@@ -6,6 +6,7 @@
 #include "bt_common.h"
 #include "hub_cmd.h"
 #include "cJSON.h"
+#include "rf_slot_table.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -45,6 +46,19 @@ static int import_prepare(const char *key, const char *path, const cJSON *sec, s
     out->path = path;
     out->text = NULL;
     out->len = 0;
+    if (strcmp(key, "rf_slot_map") == 0) {
+        /* six different pipes 1..6, the check hub_rf makes at its start: anything else became
+         * the file, and hub_rf then dropped the table (slots and pipes the same), moving the
+         * remotes of swapped slots */
+        uint8_t pipes[RF_SLOT_TABLE_SLOTS];
+        char table[32];
+        if (!cJSON_IsString(sec) || !rf_slot_table_parse(sec->valuestring, pipes)) return -1;
+        rf_slot_table_format(pipes, table, sizeof(table));
+        out->text = strdup(table);
+        if (!out->text) return -1;
+        out->len = strlen(out->text);
+        return 1;
+    }
     if (!import_is_json_section(key)) {
         if (cJSON_IsString(sec)) out->text = strdup(sec->valuestring ? sec->valuestring : "");
         else out->text = cJSON_PrintUnformatted(sec);
@@ -72,6 +86,16 @@ static int import_prepare(const char *key, const char *path, const cJSON *sec, s
     }
     cJSON_Delete(parsed);
     return rc;
+}
+
+/* An imported slot table (prepared text) that is not the one hub_rf uses now: a missing file, or
+ * one that is no table, means slots and pipes the same, as hub_rf reads it. Only then does
+ * hub_rf restart after the import (the restart takes the remotes off the air for seconds). */
+static int slot_table_changes(const struct import_file *f) {
+    uint8_t live[RF_SLOT_TABLE_SLOTS], imported[RF_SLOT_TABLE_SLOTS];
+    rf_slot_table_read(f->path, live);
+    rf_slot_table_parse(f->text, imported);
+    return memcmp(live, imported, sizeof(live)) != 0;
 }
 
 /* Writes every prepared file under a temporary name first (flushed to flash), then renames them
@@ -189,6 +213,13 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
                 const char *use_path = b_files[i].path;
                 size_t flen = 0;
                 char *txt = read_file_text_alloc(use_path, 2000000, &flen);
+                uint8_t pipes[RF_SLOT_TABLE_SLOTS];
+                if (txt && strcmp(b_files[i].key, "rf_slot_map") == 0 && !rf_slot_table_parse(txt, pipes)) {
+                    /* hub_rf ignores such a file (slots and pipes the same, as with none), and the
+                     * import refuses it: the bundle leaves it out like a missing file */
+                    free(txt);
+                    txt = NULL;
+                }
                 if (txt) {
                     /* text files stay text: cJSON_Parse read "1 2 3 4 5 6" (rf_slot_map) or a
                      * hub_id like "20130507121425-002126" as just their first number */
@@ -315,6 +346,11 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
             file_to_send = config_store_path("remote_slot6_map.json");
             download_name = "remote_slot6_map.json";
             fallback_content = "{\"remote\":{\"name\":\"Harmony Slot 6\"},\"activities\":{},\"devices\":{}}\n";
+        } else if (strcmp(tgt, "rf_slot_map") == 0) {
+            file_to_send = config_store_path("rf_slot_map.txt");
+            download_name = "rf_slot_map.txt";
+            ctype = "text/plain; charset=utf-8";
+            fallback_content = "1 2 3 4 5 6\n"; /* no file: slots and pipes the same */
         } else if (strcmp(tgt, "ui-remote-layout") == 0 || strcmp(tgt, "ui_remote_layout") == 0) {
             file_to_send = config_store_path("web_remote_layouts.json");
             download_name = "web_remote_layouts.json";
@@ -370,7 +406,7 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
          * is refused rather than written past the end (it was 16 for 21 possible files) */
         struct import_file files[28];
         const int files_max = (int)(sizeof(files) / sizeof(files[0]));
-        int slot_map_restored = 0; /* the bundle carried rf_slot_map: hub_rf restarts after the import */
+        int slot_map_restored = 0; /* the import changes the slot table: hub_rf restarts after it */
         int nfiles = 0;
         const char *refused = NULL; /* the section that is not valid */
         int write_failed = 0;
@@ -449,7 +485,8 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
                             if (pr < 0) refused = b_files[i].key;
                             else if (pr > 0) {
                                 nfiles++;
-                                if (strcmp(b_files[i].key, "rf_slot_map") == 0) slot_map_restored = 1;
+                                if (strcmp(b_files[i].key, "rf_slot_map") == 0)
+                                    slot_map_restored = slot_table_changes(&files[nfiles - 1]);
                             }
                         }
                     }
@@ -520,6 +557,7 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
                 else if (strcmp(tgt, "remote_slot5_map") == 0) { file_to_write = "/data/harmony/remote_slot5_map.json"; }
                 else if (strcmp(tgt, "remote_slot6_map") == 0) { file_to_write = "/data/harmony/remote_slot6_map.json"; }
                 else if (strcmp(tgt, "ui-remote-layout") == 0 || strcmp(tgt, "ui_remote_layout") == 0) { file_to_write = "/data/harmony/web_remote_layouts.json"; key = "ui_remote_layout"; }
+                else if (strcmp(tgt, "rf_slot_map") == 0) { file_to_write = "/data/harmony/rf_slot_map.txt"; }
                 else if (strcmp(tgt, "auth") == 0) { file_to_write = "/data/harmony/webui_auth.conf"; }
                 else if (strcmp(tgt, "users") == 0) { file_to_write = HARMONY_USERS_JSON; }
 
@@ -529,6 +567,7 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
                         refused = tgt;
                     } else {
                         nfiles = 1;
+                        if (strcmp(tgt, "rf_slot_map") == 0) slot_map_restored = slot_table_changes(&files[0]);
                         if (import_commit(files, nfiles) != 0) write_failed = 1;
                         else success = 1;
                     }
@@ -542,6 +581,9 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
                         if (strcmp(tgt, "remote-mapping") == 0 || strcmp(tgt, "bt_remote_map") == 0) {
                             hub_send_btstack_cmd("reload_map");
                         }
+                        /* as for a bundle: hub_rf reads the table at its start */
+                        if (slot_map_restored && hub_rf_request("POST", "/api/rf/restart", "{}") != 202)
+                            printf("[-] Import: hub_rf not reached, the slot table applies at its next start\n");
                         if (strcmp(tgt, "auth") == 0 || strcmp(tgt, "users") == 0) {
                             struct user_account tmp_u[MAX_HTTP_USERS];
                             int tmp_en = 0;

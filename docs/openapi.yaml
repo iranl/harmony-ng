@@ -3159,6 +3159,26 @@ paths:
               example:
                 status: pairing_stopped
 
+  /api/rf/restart:
+    post:
+      tags:
+        - RF & Remote
+      summary: Restart hub_rf once idle (after a restored slot table)
+      description: |
+        hub_daemon asks for it after an import that changes rf_slot_map. hub_rf ends once no
+        config push, update or pairing runs, after it moved each remote's version file and
+        battery to the slot its radio pipe now is; init.sh starts it again within seconds.
+        hub_rf's loopback route, also reached through hub_daemon's /api/rf/ proxy on port 8089:
+        administrators only (any client while authentication is off).
+      responses:
+        '202':
+          description: Restart scheduled
+          content:
+            application/json:
+              example:
+                ok: true
+                status: restart_scheduled
+
   /api/rf/unpair:
     post:
       tags:
@@ -4038,8 +4058,8 @@ paths:
         - Backup & Restore
       summary: Export configuration bundle or table
       description: |
-        A single target returns the stored file: JSON, except network (ethernet), wifi and auth,
-        which are text/plain. bundle returns one JSON object with version, timestamp and a
+        A single target returns the stored file: JSON, except network (ethernet), wifi, auth and
+        rf_slot_map, which are text/plain. bundle returns one JSON object with version, timestamp and a
         section per stored file: devices, activities, settings, mqtt, network, wifi, bluetooth,
         bt_remote_map, remote_slot1_map to remote_slot6_map, rf_slot_map, ui_remote_layout, auth, users, hub_id,
         plus btstack_keys (the Bluetooth key store, base64). The bundle holds secrets: the MQTT
@@ -4052,7 +4072,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [bundle, devices, activities, settings, mqtt, network, ethernet, wifi, bluetooth, bt_remote_map, remote-mapping, remote_slot1_map, remote_slot2_map, remote_slot3_map, remote_slot4_map, remote_slot5_map, remote_slot6_map, ui_remote_layout, ui-remote-layout, auth, users]
+            enum: [bundle, devices, activities, settings, mqtt, network, ethernet, wifi, bluetooth, bt_remote_map, remote-mapping, remote_slot1_map, remote_slot2_map, remote_slot3_map, remote_slot4_map, remote_slot5_map, remote_slot6_map, rf_slot_map, ui_remote_layout, ui-remote-layout, auth, users]
           description: Any other target answers 404. hub_id is only a section of bundle.
           example: bundle
       responses:
@@ -4079,8 +4099,9 @@ paths:
       description: |
         target is required (there is no default): bundle, or one of devices, activities,
         settings, mqtt, network (ethernet), wifi, bluetooth, bt_remote_map (remote-mapping),
-        remote_slot1_map to remote_slot6_map, ui_remote_layout (ui-remote-layout), auth, users.
-        For bundle the payload may be the bundle object, the bundle as a JSON string, or left
+        remote_slot1_map to remote_slot6_map, rf_slot_map, ui_remote_layout (ui-remote-layout),
+        auth, users. rf_slot_map must be six different numbers from 1 to 6; hub_rf restarts after
+        an import that changes it. For bundle the payload may be the bundle object, the bundle as a JSON string, or left
         out: the body itself is then taken as the bundle. Every section is checked first; when
         one is not valid nothing is changed. The body may be up to 2 MB.
       requestBody:
