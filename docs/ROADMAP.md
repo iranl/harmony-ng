@@ -1,6 +1,6 @@
 # HarmonyNG roadmap
 
-Version 0.3 (2026-11-24). Status: proposal for review. It collects the items of issue #17, the
+Version 0.4 (2026-11-24). Status: proposal for review. It collects the items of issue #17, the
 work in progress on branches and the open design questions into phases with tasks, priorities
 and a status for each task.
 
@@ -122,6 +122,7 @@ toggle fires once from every input.
 | 2.11 | Favourite channels on the touch remotes | P2 | M | open |
 | 2.12 | Screenless remotes (Companion, Smart Control): long press on the activity keys, same editor as the touch remotes | P2 | M | open (unpair of screenless remotes, #263; long press open) |
 | 2.13 | Acknowledged key delivery over RF, if the loss counter of #209 shows losses in real use | P2 | M | open |
+| 2.14 | Key layers: a set of key bindings per remote slot that comes before the running activity's own while it is on, turned on and off by a key or over the API (map format, RF key handling, API; the editors are open) | P2 | M | in progress (`feat/key-layers`) |
 
 ## Phase 3. Activity engine
 
@@ -284,3 +285,4 @@ this repository) holds the state.
 | 0.1 | 2026-11-13 | First proposal (not published) |
 | 0.2 | 2026-11-18 | Status of every task after v2.4.2 and the work merged since; items of #17 with their status; tasks 0.13, 2.13, 4.9, 5.15, 6.11, 6.12, 6.13 added; tracking on the project board with draft items instead of one issue per task |
 | 0.3 | 2026-11-24 | Task 3.7 says that `device_command` covers commands from every source (web UI and API sends give no event today); tasks 4.10 and 6.14 added from the board |
+| 0.4 | 2026-11-24 | Task 2.14 (key layers) added with its pull request |
