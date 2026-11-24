@@ -6,6 +6,10 @@
   version check (VERSION files, the GitHub release list), which nothing signs, is not fetched
   again that way and never sends the token to an unchecked server;
 - the log line names the whole reason hub_fetch gave (it was cut at the last "TLS");
+- the token goes only to the configured source; the version check's fallback to the GitHub
+  release list is asked only for the GitHub repository the source is on (the default source on
+  this code) and never with the token (with a custom source and a token, the token went to api.github.com when
+  the source's VERSION files could not be fetched), with hub_fetch and with busybox wget;
 - a lock directory whose pid file is not written yet belongs to a run that is starting: a second
   run waits for the pid file and stays out (it took the lock over at once, so both ran);
 - the init.sh loop that repairs hub_fetch and libbearssl.so.0 keeps /tmp/update_repair.log at
@@ -108,6 +112,96 @@ class TlsRetry(Sandbox):
         self.assertTrue(insecure, "the signed manifest is fetched again without the check: %s" % calls)
         self.assertFalse([c for c in insecure if "tok123" in c], "never the token without the check: %s" % insecure)
         self.assertIn(TLS_REASON + ". Fetched again without the certificate check", res.stderr)
+
+
+class GithubFallback(Sandbox):
+    """Every download fails, so the version check reaches its fallback. The downloader stub logs
+    each URL with the token it was given (hub_fetch: header file; wget: --header)."""
+
+    def setUp(self):
+        super().setUp()
+        self.calls = self.root / "fetch.log"
+
+    def use_hub_fetch(self):
+        hub_fetch = self.root / "data" / "harmony" / "bin" / "hub_fetch"
+        hub_fetch.write_text(
+            "#!/bin/sh\n"
+            '[ "$1" = --probe ] && exit 0\n'
+            'hdr=""; url=""\n'
+            "while [ $# -gt 0 ]; do\n"
+            '  case "$1" in\n'
+            '    --header-file) hdr="$2"; shift ;;\n'
+            '    -o|-T|--max|--ca) shift ;;\n'
+            '    --insecure) ;;\n'
+            '    *) url="$1" ;;\n'
+            "  esac\n"
+            "  shift\n"
+            "done\n"
+            f'echo "$url header=$([ -n "$hdr" ] && cat "$hdr")" >> \'{self.calls}\'\n'
+            'echo "hub_fetch: $url: HTTP 404" >&2; exit 1\n')
+        hub_fetch.chmod(0o755)
+        (self.root / "data" / "harmony" / "cacert.pem").write_text("x\n")
+
+    def use_wget(self):
+        (self.root / "stub" / "busybox").write_text(
+            "#!/bin/sh\n"
+            'if [ "$1" = wget ]; then\n'
+            '  shift; hdr=""; url=""\n'
+            "  while [ $# -gt 0 ]; do\n"
+            '    case "$1" in\n'
+            '      --header) hdr="$2"; shift ;;\n'
+            '      -O|-T) shift ;;\n'
+            '      -q) ;;\n'
+            '      *) url="$1" ;;\n'
+            "    esac\n"
+            "    shift\n"
+            "  done\n"
+            f'  echo "$url header=$hdr" >> \'{self.calls}\'\n'
+            "  exit 1\n"
+            "fi\n"
+            'exec "$@"\n')
+
+    def lines(self) -> list[str]:
+        return self.calls.read_text().splitlines() if self.calls.exists() else []
+
+    def check_custom(self):
+        self.run_update("check", "https://updates.example.invalid/ota", "tok123")
+        calls = self.lines()
+        self.assertTrue(calls, "the source was asked")
+        self.assertFalse([c for c in calls if "api.github.com" in c], "no GitHub fallback for a custom source: %s" % calls)
+        self.assertFalse([c for c in calls if "tok123" in c and not c.startswith("https://updates.example.invalid/")],
+                         "the token reaches no other host: %s" % calls)
+
+    def check_default(self):
+        self.run_update("check", "", "tok123")
+        gh = [c for c in self.lines() if c.startswith("https://api.github.com/")]
+        self.assertTrue(gh, "the default source keeps the GitHub fallback: %s" % self.lines())
+        self.assertFalse([c for c in gh if "tok123" in c], "never the token to GitHub: %s" % gh)
+
+    def test_other_github_repo_hub_fetch(self):
+        # a source on another GitHub repository: never the public project's release list; only
+        # its own repository's (if the version check asks one at all), without the token
+        self.use_hub_fetch()
+        self.run_update("check", "https://raw.githubusercontent.com/someone/fork/ota", "tok123")
+        gh = [c for c in self.lines() if "api.github.com" in c]
+        self.assertFalse([c for c in gh if "/repos/someone/fork/" not in c], "not the public project's releases: %s" % gh)
+        self.assertFalse([c for c in gh if "tok123" in c], "never the token to GitHub: %s" % gh)
+
+    def test_custom_source_hub_fetch(self):
+        self.use_hub_fetch()
+        self.check_custom()
+
+    def test_default_source_hub_fetch(self):
+        self.use_hub_fetch()
+        self.check_default()
+
+    def test_custom_source_wget(self):
+        self.use_wget()
+        self.check_custom()
+
+    def test_default_source_wget(self):
+        self.use_wget()
+        self.check_default()
 
 
 class LockStarting(Sandbox):

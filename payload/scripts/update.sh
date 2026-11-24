@@ -74,13 +74,15 @@ set_update_state() {
 # fetch_once URL DST TIMEOUT OPTION...: one hub_fetch run; its messages go to stderr and to
 # $FETCH_ERR. The token goes in a header file (mode 600), not on the command line (ps shows it).
 # FETCH_NO_TOKEN=1: sent without the token (a server whose certificate was not checked).
+# FETCH_TOKEN: the token for this download (download_retry sets it; empty off the source).
 FETCH_ERR=/tmp/.update_fetch.$$.err
 FETCH_HDR=/tmp/.update_fetch.$$.hdr
 FETCH_NO_TOKEN=
+FETCH_TOKEN=
 fetch_once() {
   _u="$1"; _d="$2"; _t="$3"; shift 3
-  if [ -n "$TOKEN_ARG" ] && [ -z "$FETCH_NO_TOKEN" ]; then
-    (umask 077; echo "Authorization: token ${TOKEN_ARG}" > "$FETCH_HDR")
+  if [ -n "$FETCH_TOKEN" ] && [ -z "$FETCH_NO_TOKEN" ]; then
+    (umask 077; echo "Authorization: token ${FETCH_TOKEN}" > "$FETCH_HDR")
     LD_LIBRARY_PATH="$HUB_LIB" "$HUB_FETCH" -T "$_t" --max "$FETCH_MAX" --header-file "$FETCH_HDR" "$@" -o "$_d" "$_u" 2>"$FETCH_ERR"
   else
     LD_LIBRARY_PATH="$HUB_LIB" "$HUB_FETCH" -T "$_t" --max "$FETCH_MAX" "$@" -o "$_d" "$_u" 2>"$FETCH_ERR"
@@ -103,6 +105,26 @@ download_retry() {
   local max_attempts="${4:-3}"
   local signed="$5"
   local i=1
+  # The token is for the configured source only. The one URL elsewhere is the GitHub release
+  # list (do_check's fallback): asked only for the GitHub repository the source is on (the
+  # default source: the public project), never for another source, and never with the token (a
+  # private source's token went to GitHub).
+  FETCH_TOKEN="$TOKEN_ARG"
+  case "$url" in
+    "$REPO"/*) ;;
+    https://api.github.com/*)
+      case "$REPO" in
+        https://raw.githubusercontent.com/*/*) ;;
+        *) return 1 ;;
+      esac
+      _gh_repo=$(echo "${REPO#https://raw.githubusercontent.com/}" | cut -d/ -f1-2)
+      case "$url" in
+        "https://api.github.com/repos/$_gh_repo/"*) ;;
+        *) return 1 ;;
+      esac
+      FETCH_TOKEN="" ;;
+    *) FETCH_TOKEN="" ;;
+  esac
   if [ -z "$USE_FETCH" ]; then
     USE_FETCH=0
     if [ -x "$HUB_FETCH" ] && [ -s "$CA_BUNDLE" ] && LD_LIBRARY_PATH="$HUB_LIB" "$HUB_FETCH" --probe >/dev/null 2>&1; then
@@ -127,8 +149,8 @@ download_retry() {
           echo "[!] ${url%%\?*}: ${_why}. Not fetched without the certificate check: no signature covers this file." >&2
         fi
       fi
-    elif [ -n "$TOKEN_ARG" ]; then
-      $WGET -q -T "$timeout" --header "Authorization: token ${TOKEN_ARG}" -O "$dst" "$url" 2>/dev/null
+    elif [ -n "$FETCH_TOKEN" ]; then
+      $WGET -q -T "$timeout" --header "Authorization: token ${FETCH_TOKEN}" -O "$dst" "$url" 2>/dev/null
     else
       $WGET -q -T "$timeout" -O "$dst" "$url" 2>/dev/null
     fi
