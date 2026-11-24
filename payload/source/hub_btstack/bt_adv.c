@@ -71,8 +71,10 @@ static bool remote_link_setup(void) {
 static void adv_start_next(void) {
     while (g_adv_count > 0 && g_adv_queue[g_adv_head].has_addr && remote_link_setup()) {
         adv_entry_t *h = &g_adv_queue[g_adv_head];
-        /* the 10 s count from its first wait, not from the queueing: time spent behind other
-         * broadcasts is no wait for the remote */
+        /* the 10 s count from its first wait at the head of the queue, not from the queueing:
+         * time spent behind other broadcasts before that is no wait for the remote. Once it has
+         * waited, time spent while plain broadcasts that moved ahead of it are on air still
+         * counts: the remote was connecting all that time too */
         if (!h->waiting) {
             h->waiting = true;
             h->wait_ms = btstack_run_loop_get_time_ms();
