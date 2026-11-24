@@ -465,7 +465,8 @@ void dispatch_button_event(const char *btn, int is_press) {
         /* Non-BT device (IR / MQTT) */
         char body[256];
         const char *act_name = (is_press == 2) ? "hold" : (is_press == 0 ? "release" : "press");
-        snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\",\"action\":\"%s\"}", target, cmd, act_name);
+        /* live: a person's press, dropped by hub_daemon when it is late, as a key from the RF remote */
+        snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\",\"action\":\"%s\",\"live\":true}", target, cmd, act_name);
         trigger_http_post("/api/ir-send", body);
         snprintf(msg, sizeof(msg), "Dispatched device_cmd %s: dev=%s cmd=%s", act_name, target, cmd);
         hub_bt_log_debug(msg);

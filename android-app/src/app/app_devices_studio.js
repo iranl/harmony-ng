@@ -161,7 +161,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
       },
       commandsMap: this.deviceCommandsMap,
       onSendCommand: async (devId, cmd, action) => {
-        await this.client.sendCommand(devId, cmd, action);
+        await this.client.sendCommand(devId, cmd, action, { live: true });
       }
     });
   }

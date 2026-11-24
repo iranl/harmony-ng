@@ -51,10 +51,16 @@ static int net_text_ok(const char *s, size_t max, int multiline) {
 int net_host_valid(const char *h) {
     size_t n = h ? strlen(h) : 0;
     if (n == 0 || n > 253 || h[0] == '-') return 0;
-#ifndef TEST_HARNESS /* the host tests run their devices on 127.0.0.1 */
     if (strcasecmp(h, "localhost") == 0 || strcasecmp(h, "localhost.") == 0 || strncmp(h, "127.", 4) == 0 ||
-            strcmp(h, "::1") == 0 || strcmp(h, "0.0.0.0") == 0 || strcmp(h, "::") == 0) return 0;
+            strcmp(h, "::1") == 0 || strcmp(h, "0.0.0.0") == 0 || strcmp(h, "::") == 0) {
+#ifdef TEST_HARNESS
+        /* the host tests run their devices on 127.0.0.1 and name their ports in
+         * HARMONY_TEST_NET_LOOPBACK_PORTS; net_action.c checks the port of every send */
+        const char *tp = getenv("HARMONY_TEST_NET_LOOPBACK_PORTS");
+        if (!(tp && tp[0] && strcmp(h, "127.0.0.1") == 0))
 #endif
+        return 0;
+    }
     for (const char *p = h; *p; p++) {
         if (!isalnum((unsigned char)*p) && *p != '.' && *p != '-' && *p != '_' && *p != ':') return 0;
     }

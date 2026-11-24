@@ -298,6 +298,7 @@ int http_request(const char *url_in, const http_req *req, http_resp *resp)
 
         net_conn_opts opts = req->conn;
         opts.tls = u.tls;
+        if (redirects > 0) opts.connect_addrs = NULL; /* the caller's addresses are for the first URL */
         net_conn *c = net_conn_open(u.host, u.port, &opts, resp->pin, resp->err, sizeof resp->err);
         if (!c) return -1;
         if (net_conn_write(c, head, hl) != 0 || (body_len && net_conn_write(c, body, body_len) != 0)) {

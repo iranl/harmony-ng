@@ -29,6 +29,9 @@ typedef struct {
     const char *pin;         /* NET_TLS_PIN: expected key hash (hex), NULL or "" = accept any */
     const char *ca_bundle;   /* NET_TLS_VERIFY: PEM file, NULL = TLS_DEFAULT_CA_BUNDLE */
     int timeout_ms;          /* connect timeout, then the timeout of each read and write */
+    const char *connect_addrs; /* NULL: resolve host. Else numeric addresses, comma separated,
+                                * tried in order without a lookup (the caller resolved and
+                                * checked them); host still names the server: SNI, certificate */
 } net_conn_opts;
 
 /* Connects (and completes the TLS handshake). NULL on failure with a message in err.

@@ -591,7 +591,7 @@ Executes `/data/harmony/update.sh` in the background and restarts services.
   `update-check`. `repo` chooses the server the new firmware is downloaded from, so like every
   route that changes the Hub this one is for admins once authentication is on (11.5). With
   authentication off (the default after install) any client on the LAN may call it.
-- **Signed releases only**: the update source (the official `ota` branch, or `repo`) must publish `manifest.json` and `manifest.json.sig`, the Ed25519 signature of the manifest by a release key built into the Hub firmware (`payload/source/ota_keys.h`). `update.sh` checks the signature with `hub_util ota-verify`, takes the version from the signed manifest, and installs a file only when its SHA-256 matches the manifest. Without a valid signature nothing is changed, whatever server `repo` names. Downloads use `hub_fetch`, which checks the server certificate against the CA bundle (`/data/harmony/cacert.pem`); a Hub without `hub_fetch` (the first update from an older release) or without the bundle falls back to BusyBox `wget`, which checks no certificate. The signature check does not depend on TLS either way.
+- **Signed releases only**: the update source (the official `ota` branch, or `repo`) must publish `manifest.json` and `manifest.json.sig`, the Ed25519 signature of the manifest by a release key built into the Hub firmware (`payload/source/ota_keys.h`). `update.sh` checks the signature with `hub_util ota-verify`, takes the version from the signed manifest, and installs a file only when its SHA-256 matches the manifest. Without a valid signature nothing is changed, whatever server `repo` names. Downloads use `hub_fetch`, which checks the server certificate against the CA bundle (`/data/harmony/cacert.pem`); a Hub without `hub_fetch` (the first update from an older release) or without the bundle falls back to BusyBox `wget`, which checks no certificate. The signature check does not depend on TLS either way. When the certificate check fails, a file the signature covers (the manifest, its signature, the package and the files checked against the manifest) is fetched again without it and without the token of a private source, and the signature decides; the version check (`VERSION` files, the GitHub release list) is not fetched that way, since nothing signs it, and fails instead.
 - **Services restart, no reboot**: once every file is installed, `update.sh` restarts the Hub services with `init.sh restart`, as `build/deploy_hub.py` does by default. An update has no kernel modules. Waiting for the next boot: a new `rcS.local`, the running SSH server (it keeps its old binary) and the USB port mode chosen at boot. `update.sh` removes what a reboot used to clear and the new daemon would reuse: the icons extracted from the old `icons.tar.gz` (`/tmp/www/assets/icons`) and a remote image kept for a resume (`/tmp/remote_ui.ota.gz`, `/tmp/remote_manifest.json*`). Without an executable `init.sh` it reboots the Hub (`safe_reboot.sh`) instead.
 - **Not during an activity switch**: the update ends with a services restart, which must not cut an activity switch in the middle. While a switch runs, a request is queued behind it, or the steps after the switch point are still being sent, the request is refused with **`409 Conflict`** and starts nothing:
   ```json
@@ -930,10 +930,19 @@ Runs a command of an HTTP or TCP device now and waits for it (up to about 4 time
   certificate, not the SubjectPublicKeyInfo, so not what `openssl x509 -pubkey` hashes to);
   `pinned` is set when this run pinned it. A command from a remote key is sent once per press (a
   held key sends no repeats), and one still queued after 2 s, or for a device that timed out in
-  the last 10 s, is dropped (`dropped:` in the log). Only a live key from a remote is dropped:
-  activity steps, `ir-send`, MQTT and WebSocket sends wait in the queue and go out in order. A
+  the last 10 s, is dropped (`dropped:` in the log). Only a live key is dropped: a person's press
+  that arrives late is wrong, while a command of an automation must arrive. Live keys are the
+  hard keys, the screen buttons and the device pages of a touchscreen remote (hub_rf), the keys
+  of a Bluetooth remote, the remote views of both web UIs, and any `ir-send` or `send_command`
+  with `"live": true` (5.1, 10.3). Activity steps and every other `ir-send`, MQTT and WebSocket
+  send (Home Assistant, scripts, the Logitech protocol) wait in the queue and go out in order. A
   send answers `ok` when it is queued, also one that is dropped later; a lone `hold` or `repeat`
-  answers `ok` and sends nothing. A host that resolves to the Hub itself (loopback) is refused.
+  answers `ok` and sends nothing. The queue holds 16 sends. When it is full, a send is refused:
+  `ir-send` answers `503` `"send queue full"`, an activity step is lost and logged once (`[!] Orch:
+  activity '<id>' step '<step>' lost`), and a live key takes the place of the oldest live key
+  that is over 1 s old (late for a key pressed now). The host is resolved once per send; a host
+  with any address on the Hub itself (loopback) is refused, and the connection goes to the
+  addresses that were checked.
 - **Response `400`**: not an HTTP or TCP device. **`404`**: no device with that id, or no
   command of that name.
 
@@ -1190,7 +1199,8 @@ Answers the question for one device of the last Help. `"on": false` sends that d
 #### `POST /api/ir-send` or `POST /ir/send`
 Transmits an IR command either by device ID and one command name, or raw Pronto hex. `command`
 (also accepted as `name`) must be one string: a list answers `400`. The reply also carries
-`deviceId` and `command`; a failed send answers `500` with `"error": "IR transmit failed"`.
+`deviceId` and `command`; a failed send answers `500` with `"error": "IR transmit failed"`, and a
+command of an HTTP or TCP device that finds their send queue full `503` `"send queue full"`.
 - **Request by Device Command**:
   ```json
   {
@@ -1251,6 +1261,11 @@ Transmits an IR command either by device ID and one command name, or raw Pronto 
   - `repeats`: Repeat count (default: 1).
   - `code` or `raw` is accepted for `pronto`. A Harmony code (`G:<protocol>:...`, or the raw timing
     form `F<carrier>P...S...` of 5.2a) given here is sent as that keycode.
+- **`live`** (optional, default `false`): `true` marks a person's press (a remote view, a
+  Bluetooth remote). It is sent like a key from a remote: without the gaps between commands
+  (`interKeyDelay`, `interDeviceDelay`), and for an HTTP or TCP device it is dropped when it
+  waited too long in the send queue, and may take the place of a live key over 1 s old when the
+  queue is full (3.9). Leave it out for automations: their commands wait their turn and go out.
 - **Other names**: `device_id`, `device` or `id` for `deviceId`; for `action`, `down` = `press`,
   `repeat` = `hold`, `up` = `release`.
 - **Duplicate filter**: a second `tap` or `press` of the same command of the same device that
@@ -1262,6 +1277,8 @@ Transmits an IR command either by device ID and one command name, or raw Pronto 
 - **Error `500`**: `{"ok": false, "deviceId": "70321456", "command": "PowerToggle", "error": "IR transmit failed"}`
   when the send failed: an unknown device or command, a code the encoder does not understand, or
   a transmit error (the text is the same for a Bluetooth or MQTT device).
+- **Error `503`**: `{"ok": false, "deviceId": "50", "command": "Power", "error": "send queue full"}`
+  when the command of an HTTP or TCP device finds their send queue (16 sends) full (3.9).
 
 ### 5.2 Raw Pronto Blast
 #### `POST /api/pronto-blast`
@@ -2407,6 +2424,9 @@ Multiple commands or repeats can be queued as an array:
   `press` and `hold` without `hold_secs` are sent as taps.
 - `ir_send` is another name of this action.
 - A single command with no repeat or hold is sent at once, unless a job is still running.
+- `live` (optional): `true` sends such a single command as a person's press, as `live` of
+  `POST /api/ir-send` (5.1). A list, repeats, holds and a command queued behind a job are never
+  live.
 
 **Response**:
 ```json

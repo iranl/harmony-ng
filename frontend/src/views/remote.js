@@ -164,7 +164,7 @@ export function createRemoteView(options = {}) {
       currentLayout,
       async (deviceId, command) => {
         try {
-          await api.sendCommand(deviceId, command);
+          await api.sendCommand(deviceId, command, 'tap', { live: true });
         } catch (e) {
           toast.error(e.message);
         }
@@ -305,7 +305,7 @@ export function createRemoteView(options = {}) {
                 onclick: async () => {
                   engine.triggerHaptic();
                   try {
-                    await api.sendCommand(dev.id, cName);
+                    await api.sendCommand(dev.id, cName, 'tap', { live: true });
                   } catch (e) {
                     toast.error(e.message);
                   }
@@ -348,7 +348,7 @@ export function createRemoteView(options = {}) {
             const pat = btnText.toLowerCase();
             for (const d of scopeDevices) {
               try {
-                await api.sendCommand(d.id, pat);
+                await api.sendCommand(d.id, pat, 'tap', { live: true });
                 break;
               } catch {}
             }

@@ -586,11 +586,13 @@ echo "$!" >> /tmp/harmony_supervisors.pid
 if { [ ! -x /data/harmony/bin/hub_fetch ] || [ ! -s /data/harmony/lib/libbearssl.so.0 ]; } && \
    [ -x /data/harmony/update.sh ]; then
   (
-    # 6 tries 10 minutes apart, then one an hour (the network may come back much later)
+    # 6 tries 10 minutes apart, then one an hour (the network may come back much later). The log
+    # (RAM) keeps the first 6 tries, then only the latest one.
     _try=0
     sleep 120
     while :; do
       [ -f /tmp/harmony_stop ] && exit 0
+      [ $_try -ge 6 ] && : > /tmp/update_repair.log
       /bin/sh /data/harmony/update.sh repair-tls >> /tmp/update_repair.log 2>&1 && exit 0
       _try=$((_try + 1))
       if [ $_try -lt 6 ]; then sleep 600; else sleep 3600; fi
