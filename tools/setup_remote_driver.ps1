@@ -190,10 +190,11 @@ if ($adapter) {
     Write-Host "[+] Found Network Adapter: '$($adapter.Name)' ($($adapter.InterfaceDescription))" -ForegroundColor Green
 
     # Assign a static 192.168.2.x/24 WITHOUT default gateway (prevents overriding host internet route).
-    # Windows makes a new adapter for every remote, and the adapter of a remote set up before keeps
-    # its address even while that remote is unplugged (the adapter is hidden then). The same address
-    # on two adapters breaks the new one, so each adapter gets its own: 192.168.2.2, .3, ...
-    # The remote is always 192.168.2.1 and answers any host address in 192.168.2.0/24.
+    # Windows can make a new adapter for each remote (or USB port), and the adapter of a remote set up
+    # before keeps its address even while that remote is unplugged (the adapter is hidden then).
+    # A new address is chosen among those no other adapter holds (static ones in the registry, live
+    # ones of any kind): 192.168.2.2, .3, ... The remote is always 192.168.2.1 and answers any host
+    # address in 192.168.2.0/24.
     $ownGuid = [string]$adapter.InterfaceGuid
     $usedByOthers = @{}
     Get-ChildItem "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces" -ErrorAction SilentlyContinue |
@@ -202,14 +203,19 @@ if ($adapter) {
                 if ($a) { $usedByOthers[[string]$a] = $true }
             }
         }
+    Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+        Where-Object { $_.InterfaceIndex -ne $adapter.ifIndex } | ForEach-Object { $usedByOthers[[string]$_.IPAddress] = $true }
 
     $currentIps = Get-NetIPAddress -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue
     $hostIp = $null
     foreach ($ip in $currentIps) {
-        # Kept: a 192.168.2.x/24 no other adapter has, that Windows did not mark Duplicate or Invalid
+        # Kept: a 192.168.2.x/24 that Windows did not mark Duplicate or Invalid, unless another adapter
+        # holds it and the remote does not answer on port 22
         if (-not $hostIp -and $ip.IPAddress -like "192.168.2.*" -and $ip.IPAddress -ne "192.168.2.1" -and
-            $ip.PrefixLength -eq 24 -and -not $usedByOthers.ContainsKey($ip.IPAddress) -and
-            "$($ip.AddressState)" -ne "Duplicate" -and "$($ip.AddressState)" -ne "Invalid") {
+            $ip.PrefixLength -eq 24 -and
+            "$($ip.AddressState)" -ne "Duplicate" -and "$($ip.AddressState)" -ne "Invalid" -and
+            (-not $usedByOthers.ContainsKey($ip.IPAddress) -or
+             (Test-NetConnection -ComputerName "192.168.2.1" -Port 22 -WarningAction SilentlyContinue).TcpTestSucceeded)) {
             $hostIp = $ip.IPAddress
         } elseif ($ip.IPAddress -notlike "169.254.*") {
             # Clean up old/conflicting static IPs on this interface

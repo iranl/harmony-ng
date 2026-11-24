@@ -406,18 +406,23 @@ def detect_remote_usb_state(check_firmware: bool = True) -> UsbState:
                 state.adapter_name = matching_adapter.get("Name")
                 state.adapter_desc = matching_adapter.get("InterfaceDescription")
 
-            # Every remote gets its own adapter, and the adapter of a remote set up before keeps
-            # its address while hidden. The same address on two adapters breaks this one.
+            # Windows can make a new adapter for each remote (or USB port), and the adapter of a
+            # remote set up before keeps its address while hidden. Addresses held by other
+            # adapters (static ones in the registry, live ones of any kind) are not offered again.
             used = _windows_static_ips((matching_adapter or {}).get("InterfaceGuid"))
+            used |= {e.get("IPAddress", "") for e in ips
+                     if e.get("InterfaceAlias") != (matching_adapter or {}).get("Name")}
 
             if matching_adapter:
                 for ip_entry in ips:
                     if ip_entry.get("InterfaceAlias") == state.adapter_name:
                         assigned_ip = ip_entry.get("IPAddress", "")
                         state.ip_address = assigned_ip
+                        # Bad when Windows marks it Duplicate or Invalid, or when another adapter
+                        # holds it and the remote does not answer. A working address is kept.
                         if assigned_ip.startswith("192.168.2.") and assigned_ip != "192.168.2.1" and \
-                                assigned_ip not in used and \
-                                ip_entry.get("AddressState") not in ("Duplicate", "Invalid"):
+                                ip_entry.get("AddressState") not in ("Duplicate", "Invalid") and \
+                                (assigned_ip not in used or state.http_reachable or state.ssh_reachable):
                             state.ip_valid = True
                         break
 
@@ -518,10 +523,15 @@ def print_usb_state_banner(state: UsbState, label: str = "USB DEVICE & NETWORK S
             if state.adapter_desc:
                 print(f" Description:      {state.adapter_desc}")
         if state.ip_address:
-            ip_status = "[+] Correct (192.168.2.x)" if state.ip_valid else f"[-] INCORRECT (Found {state.ip_address})"
+            if state.ip_valid:
+                ip_status = "[+] Correct (192.168.2.x)"
+            elif state.ip_address.startswith("192.168.2."):
+                ip_status = "[-] INCORRECT (duplicate, or held by another adapter and the remote does not answer)"
+            else:
+                ip_status = f"[-] INCORRECT (Found {state.ip_address})"
             print(f" Host IPv4:        {state.ip_address} -> {ip_status}")
         else:
-            print(" Host IPv4:        [-] Not Assigned (Requires static IP 192.168.2.2)")
+            print(" Host IPv4:        [-] Not Assigned (Requires a static IP in 192.168.2.0/24)")
 
         http_str = "[+] Online" if state.http_reachable else "[-] Offline"
         ssh_str = "[+] Online (Port 22)" if state.ssh_reachable else "[-] Offline"

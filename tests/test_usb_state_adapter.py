@@ -89,6 +89,71 @@ class WindowsAdapter(unittest.TestCase):
         self.assertTrue(state.ip_valid)
         self.assertIsNone(state.remediation_cmd)
 
+    def _state(self, ip, address_state, used, reachable=False, extra_ips=()):
+        new = dict(REMOTE, Status="Up", InterfaceGuid="{NEW}")
+        ips = [{"InterfaceAlias": "Ethernet 3", "IPAddress": ip, "AddressState": address_state}, *extra_ips]
+        with patch("tools.harmony_hid.HarmonyHid.open", return_value=False), \
+                patch("tools.usb_state._windows_static_ips", return_value=set(used)), \
+                patch("tools.usb_state._query_windows_state", return_value=(None, REMOTE_PNP, [new], ips)), \
+                patch("tools.usb_state.probe_tcp", return_value=reachable), \
+                patch("sys.platform", "win32"):
+            return detect_remote_usb_state(check_firmware=False)
+
+    def test_held_by_hidden_adapter_and_remote_silent(self):
+        state = self._state("192.168.2.2", "Preferred", {"192.168.2.2"})
+        self.assertFalse(state.ip_valid)
+        self.assertIn("-IPAddress 192.168.2.3 ", state.remediation_cmd)
+
+    def test_held_by_hidden_adapter_but_remote_answers(self):
+        state = self._state("192.168.2.2", "Preferred", {"192.168.2.2"}, reachable=True)
+        self.assertTrue(state.ip_valid, "a working address was moved")
+        self.assertIsNone(state.remediation_cmd)
+
+    def test_duplicate_without_other_holder(self):
+        state = self._state("192.168.2.2", "Duplicate", set())
+        self.assertFalse(state.ip_valid)
+        self.assertIn("-IPAddress 192.168.2.2 -Confirm", state.remediation_cmd)
+
+    def test_remote_address_is_not_a_host_address(self):
+        state = self._state("192.168.2.1", "Preferred", set(), reachable=True)
+        self.assertFalse(state.ip_valid)
+
+    def test_live_address_of_another_adapter_is_used(self):
+        lan = {"InterfaceAlias": "Ethernet", "IPAddress": "192.168.2.2", "AddressState": "Preferred"}
+        state = self._state("192.168.2.2", "Duplicate", set(), extra_ips=[lan])
+        self.assertIn("New-NetIPAddress -InterfaceAlias \"Ethernet 3\" -IPAddress 192.168.2.3 ", state.remediation_cmd)
+
+    def test_windows_static_ips_reads_registry(self):
+        """Fake winreg: the own adapter is left out, only the IPAddress value counts."""
+        values = {"{OWN}": {"IPAddress": ["192.168.2.9"]},
+                  "{OLD}": {"IPAddress": ["192.168.2.2", ""], "DhcpIPAddress": "192.168.2.50"},
+                  "{LAN}": {"DhcpIPAddress": "10.0.0.5"}}
+        names = list(values)
+
+        class Key:
+            def __init__(self, name=None):
+                self.name = name
+            def __enter__(self):
+                return self
+            def __exit__(self, *a):
+                return False
+
+        def query_value(key, name):
+            try:
+                return values[key.name][name], 7
+            except KeyError:
+                raise OSError(name)
+
+        fake = type(sys)("winreg")
+        fake.HKEY_LOCAL_MACHINE = object()
+        fake.OpenKey = lambda parent, sub: Key(sub if isinstance(parent, Key) else None)
+        fake.QueryInfoKey = lambda key: (len(names), 0, 0)
+        fake.EnumKey = lambda key, i: names[i]
+        fake.QueryValueEx = query_value
+        with patch.dict(sys.modules, {"winreg": fake}):
+            self.assertEqual(usb_state._windows_static_ips("{own}"), {"192.168.2.2"})
+            self.assertEqual(usb_state._windows_static_ips(None), set())
+
     def test_free_host_ip(self):
         self.assertEqual(usb_state.free_host_ip(set()), "192.168.2.2")
         self.assertEqual(usb_state.free_host_ip({"192.168.2.2", "192.168.2.3"}), "192.168.2.4")
