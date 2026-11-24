@@ -176,10 +176,10 @@ def resolve_ssh_key(pubkey_path: str | None = None, authorize: bool = True) -> t
         key=lambda k: k.stat().st_mtime,
         reverse=True,
     )
-    if authorize:
-        # the newest Ed25519 one: an older RSA key next to it must not stop the tool
-        ed = [k for k in existing_keys if k.read_text(encoding="utf-8").startswith("ssh-ed25519 ")]
-        existing_keys = ed or existing_keys
+    # the newest Ed25519 one, also without authorize (restore_stock.py --skip-usb-root logs in to a
+    # Hub whose server takes Ed25519 keys only): an RSA key next to it must not be picked
+    ed = [k for k in existing_keys if k.read_text(encoding="utf-8").startswith("ssh-ed25519 ")]
+    existing_keys = ed or existing_keys
     if existing_keys:
         chosen = existing_keys[0]
         print(f"[*] Using existing SSH key: {chosen}")

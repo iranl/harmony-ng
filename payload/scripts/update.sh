@@ -266,14 +266,20 @@ pkg_dropbear() {
   fi
 }
 
-# Root's authorized_keys (dropbear reads the one in root's home) holds an Ed25519 key: a line
-# that is not a comment and has an Ed25519 key blob (they all start with AAAAC3NzaC1lZDI1NTE5),
-# options in front allowed. "ssh-ed25519" in a comment or in another key's comment does not count.
+# Root's authorized_keys (dropbear reads the one in root's home) holds an Ed25519 key line in the
+# shape dropbear reads: the key type at the very start of the line, or after one options field and
+# one blank (blanks before the options are allowed; option names are not checked), then one space
+# and the whole 68-character key blob, then a space or the end of the line. Not a comment, not a
+# key whose first word is another key type, not a cut or joined key, not "ssh-ed25519" in another
+# key's comment. The same patterns are in build/deploy_hub.py (ED25519_KEY_SKIP,
+# ED25519_KEY_LINE); stock BusyBox 1.13.4 grep.
 has_ed25519_user_key() {
   _home=$(awk -F: '$1=="root"{print $6}' /etc/passwd 2>/dev/null)
   _ak="${_home:-/home/root}/.ssh/authorized_keys"
   [ -f "$_ak" ] || return 1
-  grep -v "^[ 	]*#" "$_ak" 2>/dev/null | grep -q 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5'
+  grep -v '^[[:blank:]]*#' "$_ak" 2>/dev/null |
+    grep -v '^[[:blank:]]*\(ssh-\|ecdsa-\|sk-\)[^[:blank:]]*[[:blank:]]ssh-ed25519 ' |
+    grep -q '^\([[:blank:]]*\([^[:blank:]"]\|"[^"]*"\)\{1,\}[[:blank:]]\)\{0,1\}ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI[A-Za-z0-9+/]\{43\}\( \|$\)'
 }
 
 # link_dropbear [PKG_BINARY]: the multi-call links. Given the package's dropbearmulti (checked

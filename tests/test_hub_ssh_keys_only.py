@@ -9,7 +9,8 @@ PATH that holds only applets of the stock Hub BusyBox (no readlink, no cmp).
 
 - payload/scripts/hub_sshd finds the binary in the documented order and passes -s -g -K 300 -R
   before the caller's own arguments; --binary only prints the binary; a script at
-  /usr/sbin/dropbearmulti (the USB root tool's boot script) is never started
+  /usr/sbin/dropbearmulti (the USB root tool's boot script) is never started; an empty host key
+  file is removed before the server starts (it would exit on it)
 - rcS.local copies it to /usr/sbin/dropbear (the stock boot script starts that path right after
   it), on a normal and an emergency boot, rewrites nothing on the next boot, and keeps SSH when the
   wrapper is missing, empty, or the old link dangles; an older build deployed over this one leaves
@@ -183,6 +184,27 @@ class Wrapper(unittest.TestCase):
     def test_no_binary_fails(self):
         self.assertNotEqual(self.s.run(self.wrapper).returncode, 0)
         self.assertNotEqual(self.s.run(self.wrapper, "--binary").returncode, 0)
+
+    def test_empty_host_key_removed_before_start(self):
+        """-R creates a missing host key, but the server exits on an empty file: the wrapper
+        removes an empty one before it starts the server, keeps a good one, and --binary leaves
+        both alone"""
+        self.s.fake_server("data/dropbearmulti")
+        keys = self.s.root / "etc" / "dropbear"
+        empty = keys / "dropbear_ed25519_host_key"
+        rsa_empty = keys / "dropbear_rsa_host_key"
+        self.s.write(empty, "", 0o600)
+        self.s.write(rsa_empty, "", 0o600)
+        self.s.run(self.wrapper, "--binary")
+        self.assertTrue(empty.exists() and rsa_empty.exists(), "--binary starts nothing and changes nothing")
+        res = self.s.run(self.wrapper, stock_path=True)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertFalse(empty.exists())
+        self.assertFalse(rsa_empty.exists())
+        self.assertEqual(self.s.started(), [f"{self.s.root}/data/dropbearmulti dropbear -s -g -K 300 -R"])
+        self.s.write(empty, "good key\n", 0o600)
+        self.s.run(self.wrapper, stock_path=True)
+        self.assertEqual(empty.read_text(), "good key\n")
 
 
 class BootScripts(unittest.TestCase):
