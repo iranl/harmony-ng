@@ -7,6 +7,32 @@ on:
     branches: [ '**' ]
 
 jobs:
+  changes:
+    # A pull request that only changes Markdown files no test reads (the roadmap, guides) skips
+    # the builds and the firmware tests; every other change, and every push to main, runs them.
+    # The rule is in .github/scripts/code_changed.sh (tested by tests/test_ci_code_changed.sh).
+    name: Changed Files
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.check.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - name: Docs-only change?
+        id: check
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # the checkout is the merge of the pull request into main: its first parent is main
+          files=$(git diff --name-only HEAD^1 HEAD) || files=""
+          code=$(printf '%s\n' "$files" | sh .github/scripts/code_changed.sh)
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
   check-version-sync:
     name: Check Version Consistency
     runs-on: ubuntu-latest
@@ -25,6 +51,9 @@ jobs:
 
   build-webui:
     name: Build WebUI & Validate Assets
+    needs: changes
+    # a failed or missing check runs the job anyway; only "false" skips it
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -54,6 +83,9 @@ jobs:
 
   build-remote:
     name: Compile Remote ARM Binaries
+    needs: changes
+    # a failed or missing check runs the job anyway; only "false" skips it
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -86,6 +118,9 @@ jobs:
 
   build-hub:
     name: Compile Hub MIPS Binaries
+    needs: changes
+    # a failed or missing check runs the job anyway; only "false" skips it
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -112,10 +147,14 @@ jobs:
 
   test-mock-system:
     # Firmware code (Hub daemons, remote UI, device scripts, web UI) built and run on the host
-    # against mock hardware; Python only drives the tests. Runs on every change. The host tools
+    # against mock hardware; Python only drives the tests. Runs on every change except one made of
+    # Markdown files no test reads (job "changes" above). The host tools
     # have their own workflow (host-tools.yml). The tests are split in four groups that run on
     # separate machines at the same time (tests/run_mock_suite.sh, SUITE_GROUP).
     name: Firmware Tests (group ${{ matrix.group }} of 4)
+    needs: changes
+    # a failed or missing check runs the job anyway; only "false" skips it
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     # The host gcc builds every test: a pinned image keeps it from changing under the suite
     # (implicit declarations are errors from gcc 14 on; the suite treats them as errors anyway)
     runs-on: ubuntu-24.04

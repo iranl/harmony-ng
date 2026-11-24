@@ -1206,8 +1206,10 @@ Transmits an IR command either by device ID and one command name, or raw Pronto 
   command; the WebSocket and MQTT `send_command` take `"value"` for a single command. Other
   command types ignore the value and their `range`. `POST /api/command-save` and
   `/api/commands-batch` take `"range": [min, max]`, remove it with `null` or `[]`, and answer
-  `400` for any other range. A plugin device saved with commands that have no `range` gets the
-  one of the manifest's `default_commands` entry of the same name.
+  `400` for any other range. In `POST /api/device-save`, a command without a `range` key keeps
+  the range the device's command of that name had, `null` or `[]` removes it (a removed range
+  stays removed), and a command the device did not have gets the one of the plugin manifest's
+  `default_commands` entry of the same name.
 - **Lists, repeats, delays and holds are not taken by this route.** `num_repeats`, `delay_secs`
   and `hold_secs` are ignored here. They work with the `send_command` action of the WebSocket
   (10.3) and MQTT (8.1), which takes this form:
@@ -1602,12 +1604,12 @@ the one listed here) with the RF status of 7.1 and `200`, not `404`, and does no
 method and path given in this section: a `POST /api/rf/sync`, for example, only returns the status.
 
 Other `hub_rf` routes:
-- `GET` or `POST /api/rf/pull-config?slot={1|2}`: asks the remote to send its settings back
+- `GET` or `POST /api/rf/pull-config?slot={1..6}`: asks the remote to send its settings back
   (`RF_MSG_CONFIG_PULL_REQ`). `{"status":"pull_requested","slot":1,"ok":true}`; `400` for a
   Companion slot, `409` during an RF OTA.
 - `GET` or `POST /api/rf/log-level?level={0..3}`: sets `hub_rf`'s log level (3 = debug) until it
   restarts; without `level` it only reports it. `{"log_level":1,"ok":true}`.
-- `GET` or `POST /api/rf/push-icon?id=<id>&type=<type>&slot={0|1|2}`: sends a custom icon to the
+- `GET` or `POST /api/rf/push-icon?id=<id>&type=<type>&slot={0..6}`: sends a custom icon to the
   remote (slot `0` or none: every paired remote). `id` and `type` are 1 to 19 characters of
   `A-Z a-z 0-9 _ -` (`400` otherwise; `type` defaults to `activity`). The transfer runs in the
   background: the answer is `202` `{"status":"icon_push_started","id":"<id>","slot":0,"ok":true}`
@@ -1697,9 +1699,8 @@ Returns CC2544 radio state, paired remote slots, model identification, screen ca
   slot is `in_sync` when its remote reported the same number as `config_version` (always `true`
   for a Companion or Smart Control, which takes no configuration).
 - `ota`: the state of the RF firmware update, the same object as `GET /api/rf/ota-status` (7.5).
-- The Hub has 6 remote slots (the CC2544 pipe table). The objects of slots 1 and 2 are always
-  there, with every field; a slot without a remote has `"active": false`. Slots 3 to 6 are listed
-  only while a remote is paired there (or the radio still has an address for the slot). `sw_version`: the remote software's version as it reported it (`"unknown"`
+- The Hub has 6 remote slots (the CC2544 pipe table). Every slot is
+  listed, in slot order, with every field; a slot without a remote has `"active": false`. `sw_version`: the remote software's version as it reported it (`"unknown"`
   before its first report, `"N/A"` for a remote without a screen).
 - `slots[].link`: RF traffic with the remote since `hub_rf` started: protocol frames received, frames sent that wait for an ACK (resends included) and how many were ACKed, resends, sends the Hub's CC2544 refused (NAK), and seconds since the last frame from the remote (`-1` before the first).
 - `slots[].link.key_*`: key frames of a touchscreen remote since `hub_rf` started. A key frame is sent once, with no acknowledgement and no resend; a remote that numbers its key frames (`docs/HARMONY_RF_PROTOCOL.md`, `RF_MSG_BUTTON_PRESS`) lets the Hub count the ones that did not arrive. `key_events`: key frames received that carry a number. `key_events_lost`: numbers missing between them. The lost ones are split by what the frames around the gap show: `key_lost_press` (a hold or release arrived for a key whose press was not seen: the key did nothing or started late), `key_lost_release` (a key frame arrived while the key before it was still down: that key stayed down), `key_lost_other` (holds, or nothing to tell them by); the three add up to `key_events_lost`. All stay `0` for a remote that does not number its key frames (older remote software, Companion, Smart Control). Each gap is also one line in the Hub log: `[!] RF key events lost: slot 1, 2 missing before #57 (release DirectionRight)`. Like the other link counters they are read on request: a change does not send an `rf_status` event.
@@ -1743,7 +1744,7 @@ Returns CC2544 radio state, paired remote slots, model identification, screen ca
   {"ok": true, "running": false, "state": "stopped", "connected": false, "pairing_active": false,
    "paired": false, "rf_address": "None", "hub_rf_address": "None",
    "slots": [{"slot": 1, "active": false, "address": "None", "rf_address": "None"},
-             {"slot": 2, "active": false, "address": "None", "rf_address": "None"}]}
+             ... slots 2 to 6 the same]}
   ```
 
 #### `POST /api/rf/status-changed` (internal)
@@ -1768,8 +1769,9 @@ Opens the Hub's pairing window for Harmony touchscreen remotes (Elite, Ultimate)
   of the backup bundle (`rf_slot_map`).
 - **Slots 3 to 6 after the update to six slots**: the Hub now reads the whole pipe table, so a
   remote paired by an earlier owner, or a replaced Companion, shows up there. Unpair what you do
-  not know. Such a slot gets no config push until its remote has sent a frame since `hub_rf`
-  started.
+  not know. A config push goes to a touchscreen remote (in any slot) only once it has sent a
+  frame since `hub_rf` started; one that has not stays pending and gets the push with its first
+  frame.
 - **Without `slot`** (or `0` / `all`): the remote takes the slot of the pipe the radio picks. The
   Hub's pairing button pairs into the lowest slot without a remote.
 - **Response `200 OK`**: `{"status": "pairing_started"}` (also when the window is already open)
@@ -1791,8 +1793,7 @@ The RF routes read `slot` from the query, or from a JSON body (`"slot": 1`) when
 none. A value other than `1` to `6` is answered with `400`; `0` and `all` ("every remote") are
 accepted by pair, unpair, sleep and push-icon only. Routes match the path exactly
 (`/api/rf/pairing-state` is not `/api/rf/pair`). For `POST /api/rf/remote-config`
-a `"slot"` of `1` to `6` in the body wins over the query, and for the `POST` of
-remote-direct-buttons a `"slot": 2` in the body does.
+a `"slot"` of `1` to `6` in the body wins over the query.
 
 ### 7.3 Raw RF Frame Transmit
 #### `GET /api/rf/send?hex={hex_stream}`
@@ -1803,10 +1804,10 @@ any other form gets the status object of 7.1.
   was sent; there is no `ok` field. `409` `{"error":"RF OTA in progress","ok":false}` during an RF OTA.
 
 ### 7.4 RF Remote Configuration & OTA Push
-#### `GET /api/rf/remote-config?slot={1|2}`
+#### `GET /api/rf/remote-config?slot={1..6}`
 Returns brightness, display timeout, tilt gyro, touch sensitivity, night mode, and nav button configuration for the touchscreen remote: the stored `/data/harmony/remote_slot<N>_config.json` (every setting under its camelCase name and its snake_case name, as the `POST` stores it), or the defaults when nothing was saved yet. For a Companion or Smart Control slot the answer is `{"slot": 2, "model": "companion", "has_screen": false, "supports_ota": false, "in_sync": true}`.
 
-#### `POST /api/rf/remote-config?slot={1|2}`
+#### `POST /api/rf/remote-config?slot={1..6}`
 Saves remote preferences and transmits push packet to the remote over RF. The body replaces the
 whole stored configuration: a setting left out is not kept, it is set to its default (below). Send
 every setting each time.
@@ -1857,18 +1858,18 @@ Increments config version and broadcasts instant over-the-air sync packet to rem
 Forces remote activity display synchronization with hub current state.
 - **Response `200 OK`**: `{"status": "synced"}`
 
-#### `GET /api/rf/sleep?slot={0|1|2}` or `POST /api/rf/sleep?slot={0|1|2}`
+#### `GET /api/rf/sleep?slot={0..6}` or `POST /api/rf/sleep?slot={0..6}`
 Puts paired touchscreen remotes to sleep (immediate Suspend-to-RAM on battery).
-- **Query Parameter**: `slot` (optional: `1` for remote 1, `2` for remote 2, `0` or omitted for all active remotes).
+- **Query Parameter**: `slot` (optional: `1` to `6` for that remote, `0` or omitted for all active remotes).
 - **Response `200 OK`**: `{"status": "sleep_dispatched", "slot": 1, "sent": 1, "ok": true}` (`slot` is `0` for "all"; `sent` counts the remotes the request was sent to; a Companion or Smart Control slot is skipped). `409` during an RF OTA.
-- **MQTT equivalent**: Publish to `<base>/remote/1/sleep` or `<base>/remote/2/sleep` (`<base>/remote/sleep` is slot 1). One slot per message: MQTT and the WebSocket action `rf_sleep` (10.7b) have no "all remotes" form.
-- **Home Assistant**: Auto-discovered as `button.<hub>_remote_1_sleep`.
+- **MQTT equivalent**: Publish to `<base>/remote/<n>/sleep`, `<n>` 1 to 6 (`<base>/remote/sleep` is slot 1). One slot per message: MQTT and the WebSocket action `rf_sleep` (10.7b) have no "all remotes" form.
+- **Home Assistant**: Auto-discovered as `button.<hub>_remote_<n>_sleep`, one per slot.
 
 ### 7.5 Direct Buttons & Firmware OTA (Touchscreen Remotes)
-#### `GET /api/rf/remote-direct-buttons?slot={1|2}`
+#### `GET /api/rf/remote-direct-buttons?slot={1..6}`
 Returns the stored direct-buttons file of the slot (`/data/harmony/remote_slot<N>_direct_buttons.json`), or `{"page1":[],"page2":[],"buttons":{}}` when there is none.
 
-#### `POST /api/rf/remote-direct-buttons?slot={1|2}`
+#### `POST /api/rf/remote-direct-buttons?slot={1..6}`
 Stores the request body as that file and answers `{"status":"saved","ok":true}` (`500` when the
 file cannot be written, `409` during an RF OTA). Kept for old clients only:
 the remote's direct mode was removed (every remote runs in activity mode, `remoteMode` is always
@@ -1920,18 +1921,18 @@ Starts background remote firmware update (touchscreen remotes only).
 - **Staged image age**: an image in `/tmp/remote_ui.ota.gz` older than 2 hours is deleted when an update starts, and the published one is downloaded instead.
 
 ### 7.6 Physical Remote Key Mappings (Touchscreen Remotes, Companion, Smart Control)
-#### `GET /api/rf-mapping?slot={1|2}`
-Returns physical button and screen mappings for the remote in Slot 1 or Slot 2.
+#### `GET /api/rf-mapping?slot={1..6}`
+Returns physical button and screen mappings for the remote in the slot (1 to 6).
 - **Query Parameter**: `slot` (`1` or `2`, defaults to `1`).
 - **File Persistence**: Slot N (1 to 6) uses `/data/harmony/remote_slot<N>_map.json`. Only `POST /api/rf-mapping-copy` falls back to the old name `/data/harmony/elite_remote_map.json` when slot 1's file is missing.
 - **Remote Model Awareness**: Mappings apply to any paired remote in that slot: a Harmony touchscreen remote (Elite, Ultimate), Harmony Companion, or Harmony Smart Control.
 - **Which mapping a key uses**: the running activity's entry under `activities`. A key that activity does not map, or any key while nothing runs, uses the `"-1"` entry, then `"default"`, then the map's only activity when the map has exactly one. With several activities and neither `"-1"` nor `"default"`, the key is not sent. The "only activity" counts the non-empty entries in the map. A `"-1"` or `"default"` entry, or a key binding, that is not an object (`null` in a hand-edited map) binds nothing and ends the search. This also covers `activity_start` bindings: a Companion or Smart Control activity key bound in one activity's entry starts nothing from Off or from the other activities; put keys meant for every activity and for Off under `"-1"`. `PowerOffActivity` is handled before the map and always works. A key pressed while the remote browses a device uses that device's entry under `devices`, then the device command with the button's name.
 
-#### `POST /api/rf-mapping-save?slot={1|2}`
+#### `POST /api/rf-mapping-save?slot={1..6}`
 Saves button assignments for the specified slot. The body must be one JSON object of less than 262144 bytes (256 KB): `400` otherwise, `413` when larger; the stored mapping is then kept.
 - **Query Parameter**: `slot` (`1` or `2`, defaults to `1`).
 
-#### `POST /api/rf-mapping-copy?from={1|2}&to={1|2}`
+#### `POST /api/rf-mapping-copy?from={1..6}&to={1..6}`
 Copies entire button mapping configuration from one remote slot to another.
 - **Query Parameters**: `from` (source slot, 1 to 6, default 1), `to` (destination slot, 1 to 6, default 2). Both may also be given in a JSON body (`{"from": 1, "to": 2}`), which wins over the query.
 - A source slot without a mapping file is copied as the empty mapping `{"activities":{},"devices":{}}`. The destination slot is marked as waiting for a push (`sync_pending`, 7.1).
@@ -1951,7 +1952,7 @@ Saves virtual remote keypad layout for WebUI and Android App. The body must be o
 Answers of the mapping routes of this section: `GET /api/rf-mapping` returns the stored file as it
 is, or `{"ok": true, "mappings": []}` when the slot has none. `POST /api/rf-mapping-save` and
 `POST /api/ui-remote-layout` answer `{"ok": true}`, `500` when the file could not be written. In
-the body of `rf-mapping-save` a top-level `"slot": 2` wins over the query; the save marks the slot
+the body of `rf-mapping-save` a top-level `"slot"` of `2` to `6` wins over the query; the save marks the slot
 as waiting for a push (`sync_pending`, 7.1).
 
 ---
@@ -2065,7 +2066,7 @@ They answer nothing on `cmd/response`; use `<base>/cmd` for acknowledged command
 `action` is `press`, `hold` or `release` (a tap otherwise); `hold` without a hold time holds the
 key for 0.5 s. The limits of 10.3 apply (32 commands, 50 repeats, 60 s delay, 10 s hold, 16 jobs,
 300 s per job). `<base>/remote/<n>/sleep` takes slot 1 to 6 only: there is no "all remotes" topic. Home Assistant
-discovery announces the sleep buttons of slots 1 and 2.
+discovery announces the sleep button of every slot.
 
 #### MQTT-type devices
 A device of type `MQTT` (or with `mqttEnabled`) is driven through the broker instead of IR or

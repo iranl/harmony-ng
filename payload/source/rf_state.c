@@ -395,12 +395,32 @@ void rf_slot_move_state(uint8_t from, uint8_t to) {
 }
 
 void (*g_rf_push_starter)(void) = NULL;
+volatile bool g_rf_push_deferred = false;
 
 bool rf_any_slot_active(void) {
     for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {
         if (g_paired_remotes[i].active) return true;
     }
     return false;
+}
+
+int rf_sync_pending_slot(char *diff, size_t diff_len) {
+    int slot = 0;
+    FILE *pdf = fopen("/data/harmony/rf_sync_pending_details.json", "r");
+    if (!pdf) return 0;
+    char dline[512] = {0};
+    if (fread(dline, 1, sizeof(dline) - 1, pdf) > 0) {
+        cJSON *pj = cJSON_Parse(dline);
+        if (pj) {
+            cJSON *ps = cJSON_GetObjectItem(pj, "slot");
+            cJSON *pd = cJSON_GetObjectItem(pj, "diff");
+            if (cJSON_IsNumber(ps)) slot = ps->valueint;
+            if (diff && diff_len && cJSON_IsString(pd)) snprintf(diff, diff_len, "%s", pd->valuestring);
+            cJSON_Delete(pj);
+        }
+    }
+    fclose(pdf);
+    return slot;
 }
 
 bool is_companion_slot(uint8_t slot) {
@@ -514,8 +534,15 @@ void rf_note_slot_family(uint8_t slot, remote_model_t family) {
 
 void rf_slot_saw_protocol_frame(uint8_t slot) {
     if (slot < 1 || slot > MAX_PAIRED_REMOTES) return;
+    bool was_heard = g_paired_remotes[slot - 1].heard;
     g_paired_remotes[slot - 1].heard = true;
     if (g_paired_remotes[slot - 1].equad_id == 0) rf_note_slot_family(slot, REMOTE_MODEL_JUNIPER);
+    /* A push put off for this remote: it is awake now, so it can take it */
+    if (!was_heard && g_rf_push_deferred && !g_config_push_running &&
+        g_paired_remotes[slot - 1].active && !is_companion_slot(slot)) {
+        g_rf_push_deferred = false;
+        if (g_rf_push_starter) g_rf_push_starter();
+    }
 }
 
 /* Key event counter, per slot. Key frames are sent once and never acknowledged; a remote that

@@ -180,7 +180,8 @@ Query command: `10 FF 83 B5 <pipe> 00 00`:
 - **Unpair Slot**: `10 FF 80 B2 03 <pipe> 00` (`0x01` to `0x06`). The CC2544 has six pipes
   (pipe table `0x20..0x25`). `hub_rf` sends the pipe of the slot, and for "every remote" one
   command per pipe, as the stock `libhal_rf_command_unpair` does (it never sends index `0x00`
-  either). An `RF_MSG_UNPAIR_NOTIFY` goes first, only to slots that hold a remote.
+  either). An `RF_MSG_UNPAIR_NOTIFY` goes first, only to slots that hold a touchscreen remote (a Companion
+  or Smart Control does not handle it).
 - **Clear Bonding (Remote)**: when it is unpaired, `remote_ui` writes `10 FF 80 D0 01 00 00`, then the 20-byte reports `11 FF 82 B5 20 00 ...` and `11 FF 82 B5 30 00 ...` (zeroed pipe entries), then `10 FF 80 D0 00 00 00`, 50 ms apart (`cc2544_clear_bonding()`).
 
 ### 4.5 Hardware Link Events & Notifications

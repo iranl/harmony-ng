@@ -419,9 +419,69 @@ killall -9 bluetoothd 2>/dev/null || true
       _lock_wait=0
     fi
 
+    # Re-attach Bluetooth radio if hciattach died or hci0 device is missing.
+    # rcS.local sets the radio up in the background at boot, next to this loop: in the
+    # first minute of uptime, or while a bccmd runs, the radio is left to it (hub_btstack
+    # waits up to 15 s for hci0 by itself).
+    _up=$(cut -d. -f1 /proc/uptime 2>/dev/null)
+    if [ "${_up:-0}" -ge 60 ] 2>/dev/null && ! pidof bccmd >/dev/null 2>&1 && \
+       { ! pidof hciattach >/dev/null 2>&1 || ! hciconfig hci0 >/dev/null 2>&1; }; then
+      echo "$(date) Bluetooth radio not attached (hciattach/hci0 missing), re-attaching..." >> "$LOG"
+      killall -9 hub_btstack 2>/dev/null || true
+      killall -9 hciattach 2>/dev/null || true
+      sleep 1
+
+      # A file present means the boot set-up ran: the chip then runs its keys at 115200.
+      # A chip in its power-on state talks at 38400 (bccmd's default).
+      _bcsp="-t bcsp -b 115200"
+      if [ ! -f /tmp/pskeys.psr ]; then
+        _mfg=/dev/$(grep mfg /proc/mtd 2>/dev/null | cut -d: -f1)
+        _hw_ver=$(sed -n '/hw_ver/{N N N N s/^[^0-9]*\([0-9][0-9]\)/\1/p}' "$_mfg" 2>/dev/null)
+        _bcsp="-t bcsp"
+        _bname=$(bccmd $_bcsp buildname 2>/dev/null) || {
+          _bcsp="-t bcsp -b 115200"
+          _bname=$(bccmd $_bcsp buildname 2>/dev/null)
+        }
+        case "$_bname" in
+          *A06*) _pskeys=csr8811-a06.psr ;;
+          *A08*) case "$_hw_ver" in
+            00.40) _pskeys=csr8811-a08-pb1.psr ;;
+            *)     _pskeys=csr8811-a08.psr ;;
+          esac ;;
+          *) _pskeys="" ;;
+        esac
+        if [ -n "$_pskeys" ] && [ -f "/lib/firmware/$_pskeys" ]; then
+          cat "/lib/firmware/$_pskeys" > /tmp/pskeys.psr.new
+          for _i in 1 2 3 4 5; do
+            [ -f /sys/class/net/ath0/address ] && break
+            sleep 1
+          done
+          cat /sys/class/net/ath0/address 2>/dev/null | sed 's/\([0-9a-f][0-9a-f]\):\([0-9a-f][0-9a-f]\):\([0-9a-f][0-9a-f]\):\([0-9a-f][0-9a-f]\):\([0-9a-f][0-9a-f]\):\([0-9a-f][0-9a-f]\).*/\&0x0001 = 0x\4 0x\5\6 0x\3 0x\1\2/' >> /tmp/pskeys.psr.new
+          mv /tmp/pskeys.psr.new /tmp/pskeys.psr
+        fi
+      fi
+      if [ -f /tmp/pskeys.psr ] && [ ! -f /tmp/hub_btstack.lock ]; then
+        bccmd $_bcsp psload -r /tmp/pskeys.psr 2>/dev/null || \
+          { [ "$_bcsp" != "-t bcsp" ] && bccmd -t bcsp psload -r /tmp/pskeys.psr 2>/dev/null; } || true
+        sleep 1
+      fi
+
+      # A radio helper may have taken the UART meanwhile, or the line got attached
+      [ -f /tmp/hub_btstack.lock ] && continue
+      hciconfig hci0 >/dev/null 2>&1 || hciattach ttyS0 bcsp 2>/dev/null || true
+      sleep 1
+      if ! hciconfig hci0 >/dev/null 2>&1; then
+        echo "$(date) Bluetooth radio did not attach, retry in ${_delay}s" >> "$LOG"
+        sleep "$_delay"
+        [ "$_delay" -lt 60 ] && _delay=$(expr "$_delay" + "$_delay")
+        continue
+      fi
+    fi
+
     # Ensure hci0 is UP
     if ! hciconfig hci0 2>/dev/null | grep -q 'UP'; then
       hciconfig hci0 up 2>/dev/null || true
+      hciconfig hci0 sspmode 1 2>/dev/null || true
       sleep 1
     fi
 

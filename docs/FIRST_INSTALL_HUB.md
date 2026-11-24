@@ -178,7 +178,7 @@ The installer automatically:
 6. Restarts the services (`init.sh restart`) and checks with `pidof`, for up to about 11 s, that a Hub daemon runs (`hub_daemon`, `hub_rf` or `hub_btstack`). With `--reboot` it reboots the Hub and checks nothing. It requests no API: open `http://<YOUR_HUB_IP>:8089` to check the Hub answers.
 
 The installer also changes the Hub outside `/data/harmony` and removes old files, on every run:
-- links every BusyBox applet the Hub lacks into `/usr/bin`, writes `/etc/profile.d/00-harmony.sh` (PATH) and rewrites `/root/.profile` and `/home/root/.profile`;
+- links every BusyBox applet into `/cache/bin` and removes the links to it that older versions made in `/usr/bin` (a login shell has `/cache/bin` on its PATH; a command sent over ssh without one has only the stock applets, so call `/cache/bin/busybox <applet>` there), writes `/etc/profile.d/00-harmony.sh` (PATH) and rewrites `/root/.profile` and `/home/root/.profile`;
 - renames `/data/harmony/mqtt_config.json`, `elite_remote_map.json` and `bt_devices.json` to their current names (`mqtt.json`, `remote_slot1_map.json`, `bt-devices.json`) when no file of the new name exists, and deletes them otherwise; deletes other files of older layouts without converting them, among them `/data/harmony/devices.json`, `/data/devices.json` and `/data/activities.json`; the current configuration lives in `/data/harmony/config/`. `--dry-run` lists this step as one line.
 
 ### Stock configuration import
@@ -229,6 +229,26 @@ The host tools (`deploy_hub.py`, `backup_hub.py`, `root_hub_usb.py`, `restore_st
 - An entry for the remote that an older `setup_remote.py` wrote to `~/.ssh/config` is not changed; only `ssh` by hand uses it.
 - The Hub's SSH server loads only an Ed25519 host key. A Hub that had only the stock RSA key gets an Ed25519 one when the server is installed; `deploy_hub.py` reads it over the connection it just checked and records it next to the RSA one. A Hub updated by OTA from v2.5.3 or older gets the key without that step: a client that recorded only its RSA key then reports a changed key, and `--reset-host-key` records the new one.
 - If `root_hub_usb.py` meets a changed key after rooting, the Hub is rooted and only the stock backup is missing: `python tools/backup_hub.py <YOUR_HUB_IP> --reset-host-key` records the new key.
+
+### Root's Ed25519 key
+
+The Hub's SSH server takes Ed25519 user keys only. `deploy_hub.py` and an OTA update install it only when root's `/home/root/.ssh/authorized_keys` on the Hub holds an Ed25519 key line the server accepts, and `deploy_hub.py` only when this PC also logs in with that key. Otherwise they keep the current server and install the rest: `deploy_hub.py` prints `[!] dropbearmulti NOT updated` and ends with exit code 1, and the update log shows `[!] dropbearmulti not updated`. A Hub rooted with an RSA key gets this until an Ed25519 key is added:
+
+```bash
+# On this PC (skip if ~/.ssh/harmony_owner_ed25519 exists)
+ssh-keygen -t ed25519 -f ~/.ssh/harmony_owner_ed25519
+# Append it, logging in with the key that works today (the echo ends a last line that has no newline)
+ssh -i <YOUR_CURRENT_KEY> root@<YOUR_HUB_IP> 'echo >> /home/root/.ssh/authorized_keys; cat >> /home/root/.ssh/authorized_keys' < ~/.ssh/harmony_owner_ed25519.pub
+# Check the new key alone, then deploy with it
+# (a new connection: with ControlMaster in ~/.ssh/config it would else reuse the login above)
+ssh -i ~/.ssh/harmony_owner_ed25519 -o IdentitiesOnly=yes -o PubkeyAcceptedKeyTypes=ssh-ed25519 \
+    -o ControlMaster=no -o ControlPath=none root@<YOUR_HUB_IP> true
+python build/deploy_hub.py <YOUR_HUB_IP> --key ~/.ssh/harmony_owner_ed25519
+```
+
+In Windows PowerShell, which has no `<`, the append is `Get-Content $env:USERPROFILE\.ssh\harmony_owner_ed25519.pub | ssh -i <YOUR_CURRENT_KEY> root@<YOUR_HUB_IP> "echo >> /home/root/.ssh/authorized_keys; cat >> /home/root/.ssh/authorized_keys"`.
+
+The line must start with `ssh-ed25519 ` and the whole key, or with one options field the server knows (for example `no-pty`; it refuses a line with an option it does not know, such as OpenSSH's `from=`), one blank and then the key. The checks answer no for a key with blanks in front but no options, a cut key, an Ed25519 key written as the comment of an RSA key, and two keys joined on one line: the server would not let that key in either.
 
 ---
 

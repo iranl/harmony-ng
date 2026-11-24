@@ -12,6 +12,8 @@ webui_node_test test_frontend_auth.mjs
 webui_node_test test_frontend_connection.mjs
 webui_node_test test_webui_keymap_load.mjs
 webui_node_test test_webui_command_port.mjs
+# RF remote page: auto-map wiring and aliases, no device scope for a remote without a screen
+webui_node_test test_webui_remote_slots.mjs
 webui_node_test test_frontend_b25.mjs
 webui_node_test test_webui_dead_routes.mjs
 # Every Hub path the two UIs call has a handler in payload/source

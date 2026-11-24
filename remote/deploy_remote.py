@@ -299,7 +299,11 @@ def main() -> None:
     if probe.returncode != 0:
         if not ssh_hostkeys.report_failure(probe.stderr, args.ip):
             print(f"[-] Cannot connect to {target} over SSH: {probe.stderr.strip()}")
-            print("    Verify USB cable is connected and PC interface is set to 192.168.2.2/24.")
+            print("    Verify USB cable is connected and PC interface has an address in 192.168.2.0/24.")
+            if sys.platform == "win32":
+                print("    Windows makes a new adapter for each remote: run (elevated)")
+                print("        powershell -ExecutionPolicy Bypass -File tools/setup_remote_driver.ps1")
+                print("    It gives this adapter an address no other adapter has.")
         sys.exit(1)
     print(f"[+] Remote system online: {probe.stdout.strip()}")
 

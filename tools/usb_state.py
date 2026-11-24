@@ -91,8 +91,8 @@ $pnp = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object {
     )
 } | Select-Object FriendlyName, InstanceId, Status, Class, Problem
 
-$adapters = Get-NetAdapter -ErrorAction SilentlyContinue | Select-Object Name, InterfaceDescription, Status, MacAddress, PnPDeviceID
-$ips = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Select-Object InterfaceAlias, IPAddress, PrefixLength
+$adapters = Get-NetAdapter -ErrorAction SilentlyContinue | Select-Object Name, InterfaceDescription, Status, MacAddress, PnPDeviceID, @{n='InterfaceGuid';e={[string]$_.InterfaceGuid}}
+$ips = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Select-Object InterfaceAlias, IPAddress, PrefixLength, @{n='AddressState';e={[string]$_.AddressState}}
 
 @{
     Pnp = @($pnp)
@@ -118,6 +118,36 @@ $ips = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Sele
     return None, None, [], []
 
 
+def _windows_static_ips(exclude_guid: Optional[str]) -> set[str]:
+    """Static IPv4 addresses set on every Windows adapter except exclude_guid, hidden ones too
+    (an unplugged remote's adapter keeps its address in the registry). Empty when the adapter's
+    GUID is unknown, since its own address could not be told apart then."""
+    if not exclude_guid:
+        return set()
+    try:
+        import winreg
+        path = r"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces"
+        used: set[str] = set()
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path) as root:
+            for i in range(winreg.QueryInfoKey(root)[0]):
+                guid = winreg.EnumKey(root, i)
+                if exclude_guid and guid.lower() == exclude_guid.lower():
+                    continue
+                with winreg.OpenKey(root, guid) as key:
+                    try:
+                        used.update(a for a in winreg.QueryValueEx(key, "IPAddress")[0] if a)
+                    except OSError:
+                        pass
+        return used
+    except (ImportError, OSError):
+        return set()
+
+
+def free_host_ip(used: set[str]) -> str:
+    """First host address of the remote's network that no other adapter has: 192.168.2.2, .3, ..."""
+    return next((f"192.168.2.{n}" for n in range(2, 255) if f"192.168.2.{n}" not in used), "192.168.2.2")
+
+
 def _vid_pid(text: str) -> Optional[tuple[int, int]]:
     """(VID, PID) from a Windows instance id such as USB\\VID_0525&PID_A4A2&MI_00\\..."""
     m = re.search(r"VID_([0-9A-Fa-f]{4})&PID_([0-9A-Fa-f]{4})", text or "")
@@ -129,8 +159,10 @@ def _match_windows_adapter(pnp_dev: Optional[dict], adapters: list[dict]) -> Opt
 
     Phones in USB tethering mode and LTE sticks are RNDIS adapters too ("Remote NDIS based
     Internet Sharing Device"): the adapter is taken by its PnPDeviceID (same VID/PID as the
-    remote's device). Only when Windows reports no PnPDeviceID at all is the description used."""
+    remote's device). Only when Windows reports no PnPDeviceID at all is the description used.
+    Every remote gets its own adapter, so an adapter that is Up comes before a Disconnected one."""
     want = _vid_pid((pnp_dev or {}).get("InstanceId", ""))
+    adapters = sorted(adapters, key=lambda ad: ad.get("Status") != "Up")
     with_ids = [ad for ad in adapters if ad.get("PnPDeviceID")]
     if with_ids:
         for ad in with_ids:
@@ -374,20 +406,35 @@ def detect_remote_usb_state(check_firmware: bool = True) -> UsbState:
                 state.adapter_name = matching_adapter.get("Name")
                 state.adapter_desc = matching_adapter.get("InterfaceDescription")
 
-                # Find IP assigned to this adapter
+            # Windows can make a new adapter for each remote (or USB port), and the adapter of a
+            # remote set up before keeps its address while hidden. Addresses held by other
+            # adapters (static ones in the registry, live ones of any kind) are not offered again.
+            used = _windows_static_ips((matching_adapter or {}).get("InterfaceGuid"))
+            used |= {e.get("IPAddress", "") for e in ips
+                     if e.get("InterfaceAlias") != (matching_adapter or {}).get("Name")}
+
+            if matching_adapter:
                 for ip_entry in ips:
                     if ip_entry.get("InterfaceAlias") == state.adapter_name:
                         assigned_ip = ip_entry.get("IPAddress", "")
                         state.ip_address = assigned_ip
-                        if assigned_ip.startswith("192.168.2."):
+                        # Bad when Windows marks it Duplicate or Invalid, or when another adapter
+                        # holds it and the remote does not answer. A working address is kept.
+                        if assigned_ip.startswith("192.168.2.") and assigned_ip != "192.168.2.1" and \
+                                ip_entry.get("AddressState") not in ("Duplicate", "Invalid") and \
+                                (assigned_ip not in used or state.http_reachable or state.ssh_reachable):
                             state.ip_valid = True
                         break
 
             if not state.ip_valid:
                 target_alias = state.adapter_name or "Remote NDIS Compatible Device"
-                state.remediation_cmd = (
+                remove = ""
+                if (state.ip_address or "").startswith("192.168.2."):
+                    remove = (f'Remove-NetIPAddress -InterfaceAlias "{target_alias}" '
+                              f'-IPAddress {state.ip_address} -Confirm:$false; ')
+                state.remediation_cmd = remove + (
                     f'New-NetIPAddress -InterfaceAlias "{target_alias}" '
-                    f'-IPAddress 192.168.2.2 -PrefixLength 24'
+                    f'-IPAddress {free_host_ip(used)} -PrefixLength 24'
                 )
             return state
 
@@ -476,10 +523,15 @@ def print_usb_state_banner(state: UsbState, label: str = "USB DEVICE & NETWORK S
             if state.adapter_desc:
                 print(f" Description:      {state.adapter_desc}")
         if state.ip_address:
-            ip_status = "[+] Correct (192.168.2.x)" if state.ip_valid else f"[-] INCORRECT (Found {state.ip_address})"
+            if state.ip_valid:
+                ip_status = "[+] Correct (192.168.2.x)"
+            elif state.ip_address.startswith("192.168.2."):
+                ip_status = "[-] INCORRECT (duplicate, or held by another adapter and the remote does not answer)"
+            else:
+                ip_status = f"[-] INCORRECT (Found {state.ip_address})"
             print(f" Host IPv4:        {state.ip_address} -> {ip_status}")
         else:
-            print(" Host IPv4:        [-] Not Assigned (Requires static IP 192.168.2.2)")
+            print(" Host IPv4:        [-] Not Assigned (Requires a static IP in 192.168.2.0/24)")
 
         http_str = "[+] Online" if state.http_reachable else "[-] Offline"
         ssh_str = "[+] Online (Port 22)" if state.ssh_reachable else "[-] Offline"

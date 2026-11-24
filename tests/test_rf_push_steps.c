@@ -129,6 +129,7 @@ int main(void) {
     for (int i = 0; i < 2; i++) {
         g_paired_remotes[i].slot = (uint8_t)(i + 1);
         g_paired_remotes[i].active = true;
+        g_paired_remotes[i].heard = true; /* both reported their capabilities */
         g_paired_remotes[i].model = REMOTE_MODEL_JUNIPER;
         g_paired_remotes[i].equad_id = RF_EQUAD_JUNIPER;
     }

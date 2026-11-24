@@ -53,6 +53,21 @@ import {
 } from './app_icons_ui.js';
 import { HarmonyAppActivitiesView } from './app_activities_view.js';
 
+// Step lists of the device power dialog (app_devices_studio.js): their steps belong to one device
+const POWER_STEP_LISTS = new Set(['powerOnStepsList', 'powerOffStepsList']);
+
+// Device a step row shows, and whether it is locked. A device's own power steps always go to
+// that device (the Hub ignores their deviceId, which the migration stores as "0"), so the power
+// dialog shows that device, locked; it used to show the first device in the list, whose commands
+// a new step then offered. Activity steps keep their own device, else the first one.
+export function stepDeviceChoice(containerId, initialData, devices, powerSeqOwnerId) {
+  if (POWER_STEP_LISTS.has(containerId) && powerSeqOwnerId) {
+    return { devId: String(powerSeqOwnerId), locked: true };
+  }
+  const devId = initialData?.deviceId ? String(initialData.deviceId) : String(devices[0]?.id ?? '');
+  return { devId, locked: false };
+}
+
 export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
   openActivityEditor(act) {
     if (this.userRole === 'user') return;
@@ -280,7 +295,7 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
     const isSwitched = (normType === 'Switched');
 
     const devices = this.inventory.devices || [];
-    const initDevId = initialData?.deviceId ? String(initialData.deviceId) : (devices[0]?.id || '');
+    const { devId: initDevId, locked: devLocked } = stepDeviceChoice(containerId, initialData, devices, this.powerSeqOwnerId);
     const initDelay = initialData?.delay !== undefined ? initialData.delay : (isDelay ? 1000 : 0);
 
     row.innerHTML = `
@@ -290,7 +305,7 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
           <option value="Delay" ${isDelay ? 'selected' : ''}>${t('step_type_delay')}</option>
           <option value="Switched" ${isSwitched ? 'selected' : ''}>${t('step_type_switched')}</option>
         </select>
-        <select class="form-control step-dev-select" style="max-width: 130px; font-size: 12px; padding: 4px 6px; display: ${(!isDelay && !isSwitched) ? 'block' : 'none'};">
+        <select class="form-control step-dev-select" ${devLocked ? 'disabled' : ''} style="max-width: 130px; font-size: 12px; padding: 4px 6px; display: ${(!isDelay && !isSwitched) ? 'block' : 'none'};">
           ${devices.map(d => `<option value="${escapeHtml(d.id)}" ${String(d.id) === initDevId ? 'selected' : ''}>${escapeHtml(d.name || d.model || d.id)}</option>`).join('')}
         </select>
         <span class="step-dev-icon" style="display: ${(!isDelay && !isSwitched) ? 'inline-flex' : 'none'}; align-items: center;"></span>

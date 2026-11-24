@@ -15,6 +15,7 @@
 #include "rf_state.h"
 #include "rf_spi.h"
 #include "rf_pairing.h"
+#include "rf_keymap.h"
 #include "cJSON.h"
 
 static int s_failures;
@@ -54,6 +55,53 @@ int main(void) {
               out[3] == 0xB2 && out[4] == 0x03 && out[5] == slot && out[6] == 0x00,
               "slot %u hardware unpair command was not sent (%zd bytes)", slot, n);
     }
+
+    /* A Smart Control (no screen) gets no unpair notice, only the radio command, and a push
+     * waiting for its slot goes with it: the status no longer knew the slot as screenless and
+     * showed the push as pending */
+    g_paired_remotes[1].active = true;
+    g_paired_remotes[1].model = REMOTE_MODEL_SMART_CONTROL;
+    FILE *pf = fopen("/data/harmony/rf_sync_pending.flag", "w");
+    if (pf) { fputs("1\n", pf); fclose(pf); }
+    pf = fopen("/data/harmony/rf_sync_pending_details.json", "w");
+    if (pf) { fputs("{\"slot\":2,\"diff\":\"Remote Slot 2 button mappings updated.\"}\n", pf); fclose(pf); }
+    unpair_device(2);
+    {
+        uint8_t o2[64];
+        ssize_t n = recv(sv[1], o2, sizeof(o2), MSG_DONTWAIT);
+        CHECK(n == 7 && o2[0] == 0x10 && o2[2] == 0x80 && o2[3] == 0xB2,
+              "Smart Control unpair: the first write was not the radio command (%zd bytes, type %02X)", n, n > 3 ? o2[3] : 0);
+        n = recv(sv[1], o2, sizeof(o2), MSG_DONTWAIT);
+        CHECK(n < 0, "Smart Control unpair wrote %zd more bytes", n);
+    }
+    CHECK(access("/data/harmony/rf_sync_pending.flag", F_OK) != 0, "the push pending for the unpaired slot 2 stayed");
+
+    /* hub_rf reads a screenless slot's key map again when hub_daemon saved a new one */
+    g_paired_remotes[2].model = REMOTE_MODEL_COMPANION;
+    FILE *mf = fopen("/data/harmony/remote_slot3_map.json", "w");
+    if (mf) { fputs("{\"activities\":{\"-1\":{\"Play\":{\"type\":\"command\",\"deviceId\":\"1\",\"command\":\"Play\"}}}}", mf); fclose(mf); }
+    cJSON *m = get_remote_map_unlocked(3);
+    CHECK(m && cJSON_GetObjectItem(cJSON_GetObjectItem(m, "activities"), "-1"), "slot 3 map not read");
+    rename("/data/harmony/remote_slot3_map.json", "/data/harmony/remote_slot3_map.old");
+    mf = fopen("/data/harmony/remote_slot3_map.json", "w");
+    if (mf) { fputs("{\"activities\":{\"7\":{}}}", mf); fclose(mf); }
+    m = get_remote_map_unlocked(3);
+    CHECK(m && cJSON_GetObjectItem(cJSON_GetObjectItem(m, "activities"), "7"), "slot 3 map saved again but hub_rf kept the old one");
+
+    /* A touchscreen slot keeps the pushed map: its on-screen buttons are indexes into it */
+    g_paired_remotes[3].model = REMOTE_MODEL_JUNIPER;
+    mf = fopen("/data/harmony/remote_slot4_map.json", "w");
+    if (mf) { fputs("{\"activities\":{\"5\":{}}}", mf); fclose(mf); }
+    m = get_remote_map_unlocked(4);
+    CHECK(m && cJSON_GetObjectItem(cJSON_GetObjectItem(m, "activities"), "5"), "slot 4 map not read");
+    rename("/data/harmony/remote_slot4_map.json", "/data/harmony/remote_slot4_map.old");
+    mf = fopen("/data/harmony/remote_slot4_map.json", "w");
+    if (mf) { fputs("{\"activities\":{\"6\":{}}}", mf); fclose(mf); }
+    m = get_remote_map_unlocked(4);
+    CHECK(m && cJSON_GetObjectItem(cJSON_GetObjectItem(m, "activities"), "5"), "touchscreen slot 4 took a saved map before the push");
+    rf_keymap_invalidate_map(4);
+    m = get_remote_map_unlocked(4);
+    CHECK(m && cJSON_GetObjectItem(cJSON_GetObjectItem(m, "activities"), "6"), "slot 4 kept the old map after the push");
 
     /* 1. The remote in slot 1 unpairs itself */
     for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {

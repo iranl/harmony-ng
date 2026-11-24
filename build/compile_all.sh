@@ -47,7 +47,7 @@ if [ -n "$PYTHON" ] && [ -f "$REPO_ROOT/scripts/bump_version.py" ]; then
 fi
 
 # Section GC: each function and object in its own section, the unreferenced ones dropped at link
-CFLAGS="-Wall -Os -static -s -DNDEBUG -ffunction-sections -fdata-sections -Wl,--gc-sections"
+CFLAGS="-Wall -Os -flto -static -s -DNDEBUG -ffunction-sections -fdata-sections -Wl,--gc-sections"
 # The commit the Hub reports (/api/status and the OTA status said "dev" for every release)
 GIT_COMMIT=$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo dev)
 CFLAGS="$CFLAGS -DHARMONY_COMMIT=\"$GIT_COMMIT\""

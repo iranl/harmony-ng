@@ -697,13 +697,16 @@ def update_ssh_config(key_path: pathlib.Path, write: bool = False) -> None:
     gets a new host key when it is rooted; setup_remote.py forgets the old key when it
     installs SSH, and the tools' --reset-host-key does it by hand."""
     config_path = pathlib.Path.home() / ".ssh" / "config"
+    kh_val = ssh_hostkeys.known_hosts_value()
+    if " " in kh_val:
+        kh_val = f'"{kh_val}"'
     config_entry = (
         f"\nHost {REMOTE_IP} harmony-remote\n"
         f"    HostName {REMOTE_IP}\n"
         f"    User root\n"
         f"    IdentityFile {key_path}\n"
         f"    StrictHostKeyChecking accept-new\n"
-        f"    UserKnownHostsFile {ssh_hostkeys.known_hosts_value()}\n"
+        f"    UserKnownHostsFile {kh_val}\n"
         f"    HostKeyAlias {ssh_hostkeys.entry_name(REMOTE_IP)}\n"
         f"    CheckHostIP no\n"
     )
@@ -1104,7 +1107,7 @@ def main():
 
     if pre_state.mode == UsbMode.USB_ETHERNET:
         if not pre_state.ip_valid and pre_state.remediation_cmd:
-            print(f"[!] Warning: Host network adapter lacks static IP 192.168.2.2.")
+            print("[!] Warning: Host network adapter lacks a static IP in 192.168.2.0/24 that no other adapter has.")
             print(f"    Action required: {pre_state.remediation_cmd}")
 
         if probe_tcp(REMOTE_IP, 22, timeout_s=0.5):

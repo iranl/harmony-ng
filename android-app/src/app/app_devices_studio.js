@@ -784,6 +784,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     const devNameEl = document.getElementById('powerSeqDevName');
     if (devNameEl) devNameEl.textContent = dev.name || dev.model || dev.id;
 
+    this.powerSeqOwnerId = String(dev.id); // the step rows show and save this device (addSequenceStep)
     const pOn = dev.powerOnSequence || dev.power_on_sequence || dev.PowerOnActions || [];
     const pOff = dev.powerOffSequence || dev.power_off_sequence || dev.PowerOffActions || [];
     this.renderSequenceList('powerOnStepsList', Array.isArray(pOn) ? pOn : []);

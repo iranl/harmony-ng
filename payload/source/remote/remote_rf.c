@@ -148,7 +148,12 @@ void rf_start_pairing(void) {
     printf("[*] Initiating RF Pairing to Hub...\n");
     pthread_t th;
     unsigned gen = ++s_pairing_gen;
-    if (pthread_create(&th, NULL, rf_pairing_worker, (void *)(uintptr_t)gen) == 0) {
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr, 128 * 1024);
+    int th_rc = pthread_create(&th, &attr, rf_pairing_worker, (void *)(uintptr_t)gen);
+    pthread_attr_destroy(&attr);
+    if (th_rc == 0) {
         pthread_detach(th);
     } else {
         /* No worker: "pairing" would hold back the sync queries and suspends for good */

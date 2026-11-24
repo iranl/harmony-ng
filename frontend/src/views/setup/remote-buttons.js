@@ -180,8 +180,11 @@ function actionOf(b) {
   return a === 'none' ? 'none' : `unsupported:${a}`;
 }
 
+export const RF_SLOT_COUNT = 6; /* the Hub's remote slots (REMOTE_SLOT_MAX) */
+
 export function createButtonEditor() {
   let slot = 1;
+  let screenless = false; // the slot's remote has no screen (Companion, Smart Control): no device bindings
   let map = { activities: {}, devices: {} };
   let devices = [];
   let ctx = 'a:-1';
@@ -374,7 +377,7 @@ export function createButtonEditor() {
     style: { width: 'auto' },
     onchange: () => refresh(),
   });
-  const otherSlot = () => Number(copyFrom.value) || (slot === 1 ? 2 : 1);
+  const otherSlot = () => Number(copyFrom.value);
   const copyBtn = h('button', {
     className: 'btn btn-secondary btn-sm',
     onclick: async () => {
@@ -508,7 +511,7 @@ export function createButtonEditor() {
         ...activities().map(a => opt(`a:${a.id}`, a.name)),
         opt('a:-1', t('ctx_no_activity_defaults', 'No activity (defaults for all activities)')),
       ]),
-      h('optgroup', { label: t('ctx_devices_on_remote', 'Devices (on the remote\'s Devices screen)') }, devices.map(d => opt(`d:${d.id}`, d.name))),
+      ...(screenless ? [] : [h('optgroup', { label: t('ctx_devices_on_remote', 'Devices (on the remote\'s Devices screen)') }, devices.map(d => opt(`d:${d.id}`, d.name)))]),
     ];
   }
 
@@ -677,7 +680,7 @@ export function createButtonEditor() {
   function refresh() {
     title.textContent = t('buttons_slot_title', 'Buttons (Slot {slot})', { slot });
     const keep = Number(copyFrom.value);
-    copyFrom.replaceChildren(...[1, 2, 3, 4, 5, 6].filter(n => n !== slot)
+    copyFrom.replaceChildren(...Array.from({ length: RF_SLOT_COUNT }, (_, i) => i + 1).filter(n => n !== slot)
       .map(n => h('option', { value: String(n), text: t('slot_n', 'Slot {n}', { n }) })));
     if (keep && keep !== slot) copyFrom.value = String(keep);
     const copyLabel = t('copy_from_slot', 'Copy from Slot {slot}', { slot: otherSlot() });
@@ -810,5 +813,20 @@ export function createButtonEditor() {
     });
   });
 
-  return { element, load };
+  // Called with the slot's RF status: a remote without a screen gets no device bindings, and a
+  // device context in use goes back to the activity defaults
+  function setScreenless(value) {
+    if (Boolean(value) === screenless) return;
+    screenless = Boolean(value);
+    ctxSelect.replaceChildren(...ctxOptions());
+    if (![...ctxSelect.querySelectorAll('option')].some(o => o.value === ctx)) {
+      ctx = 'a:-1';
+      screenView = null;
+    }
+    ctxSelect.value = ctx;
+    refresh();
+    showScreen();
+  }
+
+  return { element, load, setScreenless };
 }

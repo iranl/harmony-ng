@@ -765,6 +765,7 @@ static int enqueue(net_job *j)
         pthread_attr_t attr;
         pthread_attr_init(&attr);
         pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+        pthread_attr_setstacksize(&attr, 128 * 1024);
         if (pthread_create(&t, &attr, worker, NULL) == 0) s_started = 1;
         pthread_attr_destroy(&attr);
         if (!s_started) {
