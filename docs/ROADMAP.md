@@ -134,7 +134,7 @@ device switched off by hand is switched on again; a failed step is shown with a 
 | 3.4 | Device state module with the sources Bluetooth link and network probe | P1 | M | open |
 | 3.5 | Reported state: one report format for outside reporters, with its rules (never invented, stale after silence, RAM only, rate limited) | P1 | M | open |
 | 3.6 | Verified steps and skipping: wait for a state instead of a delay; leave out a power or input command that is already satisfied | P1 | M | open |
-| 3.7 | `device_command` and `device_state` events on WebSocket and MQTT. `device_command` covers every command the Hub sends, whatever started it (remote key, web UI, `/api/ir-send`, MQTT, activity step), and names that source; the `button` event stays for physical keys | P1 | S | open |
+| 3.7 | `device_command` and `device_state` events on WebSocket and MQTT: `device_command` covers every command the Hub sends, whatever started it (remote key, web UI, `/api/ir-send`, MQTT, activity step), and names that source; the `button` event stays for physical keys | P1 | S | open |
 | 3.8 | Repair: list of single fixes for the running activity with state hints, "resend what is needed" | P1 | M | open |
 | 3.9 | Step state on the remote's start screen and repair list on its Help screen | P2 | M | open |
 | 3.10 | Editors: completion rule and failure rule per step, state source per device, preview with criteria | P1 | M | open |
