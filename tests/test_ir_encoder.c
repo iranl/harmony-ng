@@ -16,7 +16,7 @@
 
 /* Durations: positive = mark (carrier on), negative = space */
 typedef struct {
-    int header[2];
+    int header[11];
     int bits;
     int zero[2]; /* atoms for a 0 bit */
     int one[2];  /* atoms for a 1 bit */
@@ -35,6 +35,8 @@ static const segment_t TOSHIBA = { { 8990, -4490 }, 32, { 568, -552 }, { 568, -1
 static const segment_t TOSHIBA_REPEAT = { { 8990, -2230 }, 0, { 0 }, { 0 }, { 568, -96077 }, 0 };
 static const segment_t CAMBRIDGE_REPEAT = { { 9025, -2283 }, 0, { 0 }, { 0 }, { 525, -95419 }, 0 };
 static const segment_t SAITEK = { { 1874, -520 }, 11, { -525, 0 }, { 460, 0 }, { -809, 0 }, 0 };
+static const segment_t SKY = { { 2650, -910, 430, -460, 430, -460, 430, -890, 430, -890, 875 }, 28,
+                               { 430, -460 }, { -460, 430 }, { 0 }, 150500 };
 
 typedef struct {
     int d[256];
@@ -59,7 +61,7 @@ static void wave_add(wave_t *w, int d) {
 
 static void wave_add_segment(wave_t *w, const segment_t *s, int bits, unsigned long value) {
     int start = wave_sum(w);
-    for (int i = 0; i < 2; i++) wave_add(w, s->header[i]);
+    for (int i = 0; i < (int)(sizeof(s->header) / sizeof(s->header[0])); i++) wave_add(w, s->header[i]);
     for (int b = bits - 1; b >= 0; b--) {
         const int *atoms = ((value >> b) & 1) ? s->one : s->zero;
         wave_add(w, atoms[0]);
@@ -137,6 +139,11 @@ int main(void) {
     check_frames("G:Philips RC5 13 Bit Toggle:()(0x140D)():3", 36000, &RC5, 13, 0x140D, 1);
     check_frames("G:Philips RC5 13 Bit Toggle:()(0x1410)():3", 36000, &RC5, 13, 0x1410, 1);
     check_frames("G:Philips RC5 13 Bit Toggle:()(0x0450)():3", 36000, &RC5, 13, 0x0450, 1);
+
+    /* Sky Q Mini: Home, PowerToggle and the digit 0 */
+    check_frames("G:Sky 28 Bit:()(0xFF7E533)():3", 36000, &SKY, 28, 0xFF7E533, 1);
+    check_frames("G:Sky 28 Bit:()(0xFF7E5F3)():3", 36000, &SKY, 28, 0xFF7E5F3, 1);
+    check_frames("G:Sky 28 Bit:()(0xFF7E5FF)():3", 36000, &SKY, 28, 0xFF7E5FF, 1);
 
     /* Marantz receiver PowerOn (address 16, command 12, data 1) and Back (field bit 0) */
     check_rc5ex("G:Philips RC5Ex:()(0x50_1x301)():3", 0x50, 0x301);

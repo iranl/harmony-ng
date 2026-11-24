@@ -201,7 +201,7 @@ version.
 | 6.1 | Deploy and update with a preflight (space, versions, reachability), staged files, verified switch-over and automatic roll back, on Hub and remote | P1 | L | in progress (signed updates, verify then install #197, atomic remote install #198, deploy dry run; automatic roll back open) |
 | 6.2 | One guided installer for the first install (root, back up, install, migrate stock configuration) with a dry run | P1 | L | open |
 | 6.3 | Setting up a factory-fresh Hub without a Logitech account: research, then document or automate | P2 | M | open |
-| 6.4 | Infrared encoder coverage: list of protocols seen in the stock database against the encoder, add the missing common ones | P1 | M | in progress (Samsung, Toshiba, Saitek encoders added; no coverage list yet) |
+| 6.4 | Infrared encoder coverage: list of protocols seen in the stock database against the encoder, add the missing common ones | P1 | M | in progress (Samsung, Toshiba, Saitek, Sky 28 Bit encoders added; no coverage list yet) |
 | 6.5 | Code import from more formats (Pronto, Flipper, LIRC, pasted lists) with a preview that explains what was skipped | P1 | M | open |
 | 6.6 | Backup and restore: one bundle, checked before restore, secrets left out unless asked | P1 | M | in progress (`backup_hub.py`; import checked before it is applied #195) |
 | 6.7 | Hub tests on the real MIPS binaries under emulation in CI | P2 | L | open |
