@@ -395,6 +395,7 @@ void rf_slot_move_state(uint8_t from, uint8_t to) {
 }
 
 void (*g_rf_push_starter)(void) = NULL;
+volatile bool g_rf_push_deferred = false;
 
 bool rf_any_slot_active(void) {
     for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {
@@ -533,8 +534,15 @@ void rf_note_slot_family(uint8_t slot, remote_model_t family) {
 
 void rf_slot_saw_protocol_frame(uint8_t slot) {
     if (slot < 1 || slot > MAX_PAIRED_REMOTES) return;
+    bool was_heard = g_paired_remotes[slot - 1].heard;
     g_paired_remotes[slot - 1].heard = true;
     if (g_paired_remotes[slot - 1].equad_id == 0) rf_note_slot_family(slot, REMOTE_MODEL_JUNIPER);
+    /* A push put off for this remote: it is awake now, so it can take it */
+    if (!was_heard && g_rf_push_deferred && !g_config_push_running &&
+        g_paired_remotes[slot - 1].active && !is_companion_slot(slot)) {
+        g_rf_push_deferred = false;
+        if (g_rf_push_starter) g_rf_push_starter();
+    }
 }
 
 /* Key event counter, per slot. Key frames are sent once and never acknowledged; a remote that

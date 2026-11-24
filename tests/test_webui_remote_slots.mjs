@@ -74,6 +74,24 @@ await t.check('legacy UI: auto-map takes the first alias, PlayPause for Play and
   preset.remove();
 });
 
+await t.check('legacy UI: auto-map in device scope takes the edited device, not the preset one', async () => {
+  const TV = { id: '9', name: 'TV', commands: ['Return', 'Up', 'Enter'].map(name => ({ name })) };
+  const app = legacyApp();
+  app.inventory = { devices: [SHIELD, TV] };
+  app.remoteContextMode = 'device';
+  app.remoteSelectedDeviceId = '9';
+  const preset = el('select', 'remotePresetDevice');
+  for (const v of ['7', '9']) { const o = document.createElement('option'); o.value = v; preset.appendChild(o); }
+  preset.value = '7';
+  app.autoMapRemotePreset();
+  const m = app.remoteMapData.devices['9'];
+  assert.equal(preset.value, '9', 'the preset select follows the edited device');
+  assert.equal(m.Back?.command, 'Return');
+  assert.equal(m.DirectionUp?.deviceId, '9');
+  assert.equal(app.remoteMapData.devices['7'], undefined);
+  preset.remove();
+});
+
 await t.check('legacy UI: a Smart Control slot hides the per-device scope and leaves device scope', async () => {
   const app = legacyApp();
   app.selectedRemoteSlot = 3;

@@ -16,6 +16,7 @@ volatile bool g_running = true;
 static volatile uint64_t s_now_ms = 0;
 uint64_t get_monotonic_ms(void) { return s_now_ms; }
 void mark_remote_slot_active(uint8_t slot) { (void)slot; }
+bool is_companion_slot(uint8_t slot) { (void)slot; return false; }
 void rf_note_slot_family(uint8_t slot, remote_model_t family) { (void)slot; (void)family; }
 
 static pthread_mutex_t s_log_lock = PTHREAD_MUTEX_INITIALIZER;

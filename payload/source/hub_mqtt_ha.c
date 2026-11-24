@@ -246,8 +246,7 @@ static void build_activity_value_template(const struct daemon_activity_list *act
 static const char *const k_discovery_objects[] = {
     "select/%s_activity/config", "sensor/%s_activity_id/config", "sensor/%s_ip/config",
     "sensor/%s_firmware/config", "sensor/%s_ir_devices/config", "sensor/%s_ir_commands/config",
-    "button/%s_power_off/config", "button/%s_sync/config", "button/%s_remote_1_sleep/config",
-    "button/%s_remote_2_sleep/config", NULL
+    "button/%s_power_off/config", "button/%s_sync/config", NULL
 };
 
 void clear_ha_discovery(const char *cid, const char *discovery_prefix) {
@@ -258,6 +257,11 @@ void clear_ha_discovery(const char *cid, const char *discovery_prefix) {
     for (int i = 0; k_discovery_objects[i]; i++) {
         snprintf(obj, sizeof(obj), k_discovery_objects[i], ident);
         snprintf(top, sizeof(top), "%s/%s", discovery_prefix, obj);
+        mqtt_publish_ex(top, "", 0, 1, 1);
+    }
+    /* The same slots publish_ha_discovery() announces a sleep button for */
+    for (int s = 1; s <= REMOTE_SLOT_MAX; s++) {
+        snprintf(top, sizeof(top), "%s/button/%s_remote_%d_sleep/config", discovery_prefix, ident, s);
         mqtt_publish_ex(top, "", 0, 1, 1);
     }
 }

@@ -592,7 +592,13 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
   }
 
   autoMapRemotePreset() {
-    const devId = document.getElementById('remotePresetDevice')?.value;
+    const presetSel = document.getElementById('remotePresetDevice');
+    // In device scope the keys go to the edited device's map, and hub_rf sends them to that
+    // device: take its commands, not those of another preset device
+    const scopeDevId = this.remoteContextMode === 'device'
+      ? (this.remoteSelectedDeviceId || document.getElementById('remoteDeviceSelect')?.value) : '';
+    if (scopeDevId && presetSel) presetSel.value = String(scopeDevId);
+    const devId = scopeDevId ? String(scopeDevId) : presetSel?.value;
     const actId = this.remoteSelectedActivityId || document.getElementById('remoteActivitySelect')?.value || '-1';
     if (!devId) return alert(t('select_target_dev_first', 'Select target device first.'));
     const dev = (this.inventory.devices || []).find(d => String(d.id) === String(devId));
@@ -627,7 +633,7 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
 
     // The map the editor shows: the device's own one in device scope, else the activity's
     const scope = this.remoteContextMode === 'device' ? 'devices' : 'activities';
-    const key = scope === 'devices' ? String(this.remoteSelectedDeviceId || document.getElementById('remoteDeviceSelect')?.value || devId) : actId;
+    const key = scope === 'devices' ? String(devId) : actId;
     if (!this.remoteMapData[scope]) this.remoteMapData[scope] = {};
     if (!this.remoteMapData[scope][key]) this.remoteMapData[scope][key] = {};
     const target = this.remoteMapData[scope][key];

@@ -211,6 +211,9 @@ void rf_request_config_push(void);
 /* What rf_slot_move_state() calls to start that push: set by main() (NULL: none, as in tests that
  * link the state code without the push code) */
 extern void (*g_rf_push_starter)(void);
+/* A push left out a paired touchscreen slot not heard since the start: the first frame of such a
+ * slot starts the push again (rf_slot_saw_protocol_frame) */
+extern volatile bool g_rf_push_deferred;
 bool is_ota_busy(void);
 /* A config push is running (config_push_worker): an OTA start waits for it to end */
 extern volatile bool g_config_push_running;

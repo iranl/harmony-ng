@@ -84,17 +84,20 @@ void *config_push_worker(void *arg) {
 
     /* Every slot alike: a paired touchscreen remote that spoke since hub_rf started (an old
      * pipe-table entry never speaks, and a push would wait for it). The linked ones; while all
-     * of them are asleep (link lost), all of them. A remote paired but not heard yet asks for
-     * the push itself once it wakes (SYNC_REQUEST type 2). */
+     * of them are asleep (link lost), all of them. A remote paired but not heard yet gets the
+     * push with its first frame (rf_slot_saw_protocol_frame, or the check at the end here when
+     * that frame came during this push). */
     bool waiting = false;
+    bool unheard[MAX_PAIRED_REMOTES] = {false};
     for (int pass = 0; pass < 2 && num_targets == 0; pass++) {
         for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {
             uint8_t s = g_paired_remotes[i].slot;
             if (is_companion_slot(s) || !g_paired_remotes[i].active) continue;
-            if (!g_paired_remotes[i].heard) waiting = true;
+            if (!g_paired_remotes[i].heard) waiting = unheard[i] = true;
             else if (pass == 1 || !g_paired_remotes[i].link_lost) target_slots[num_targets++] = s;
         }
     }
+    g_rf_push_deferred = waiting;
 
     if (num_targets == 0) {
         if (waiting) {
@@ -938,7 +941,11 @@ void *config_push_worker(void *arg) {
         }
     }
 
-    if (failed_count == 0) {
+    if (failed_count == 0 && waiting) {
+        /* the pending flag stays for the remote that has not spoken yet */
+        printf("[+] Config v%d pushed to the heard remotes; one not heard yet gets it with its first frame\n",
+               config_ver);
+    } else if (failed_count == 0) {
         printf("[+] Config push complete (acts=%d devs=%d btns=%d steps=%d ver=%d)\n",
                act_count, dev_count, btn_count, total_step_count, config_ver);
         unlink("/data/harmony/rf_sync_pending.flag");
@@ -960,5 +967,12 @@ void *config_push_worker(void *arg) {
 
     g_config_push_running = false;
     pthread_mutex_unlock(&push_lock);
+    /* A remote left out as not heard spoke while this push ran: it gets its own now */
+    for (int i = 0; i < MAX_PAIRED_REMOTES && g_rf_push_deferred; i++) {
+        if (unheard[i] && g_paired_remotes[i].heard) {
+            g_rf_push_deferred = false;
+            rf_request_config_push();
+        }
+    }
     return NULL;
 }

@@ -157,13 +157,16 @@ cJSON *get_remote_map_unlocked(uint8_t slot) {
     snprintf(slot_path, sizeof(slot_path), "/data/harmony/remote_slot%d_map.json", slot);
 
     /* hub_daemon saves the map (Save All, copy) without telling hub_rf, and a remote without a
-     * screen never asks for a push: a new file (saved by rename) or a new mtime reloads it */
+     * screen never asks for a push: a new file (saved by rename) or a new mtime reloads it.
+     * A touchscreen remote sends its on-screen buttons as indexes into the list of the last
+     * push, so its slot keeps the pushed map until the next push (which invalidates it). */
     static struct { ino_t ino; time_t mtime; off_t size; } s_map_stat[MAX_PAIRED_REMOTES];
     struct stat st;
     bool have = stat(slot_path, &st) == 0;
     if (g_remote_map_cache[idx]) {
-        if (have && st.st_ino == s_map_stat[idx].ino && st.st_mtime == s_map_stat[idx].mtime &&
-            st.st_size == s_map_stat[idx].size)
+        if (!is_companion_slot(slot) ||
+            (have && st.st_ino == s_map_stat[idx].ino && st.st_mtime == s_map_stat[idx].mtime &&
+             st.st_size == s_map_stat[idx].size))
             return g_remote_map_cache[idx];
         cJSON_Delete(g_remote_map_cache[idx]);
         g_remote_map_cache[idx] = NULL;

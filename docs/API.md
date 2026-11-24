@@ -1757,8 +1757,8 @@ Opens the Hub's pairing window for Harmony touchscreen remotes (Elite, Ultimate)
 - **Slots 3 to 6 after the update to six slots**: the Hub now reads the whole pipe table, so a
   remote paired by an earlier owner, or a replaced Companion, shows up there. Unpair what you do
   not know. A config push goes to a touchscreen remote (in any slot) only once it has sent a
-  frame since `hub_rf` started; one that has not stays pending and asks for the push when it
-  wakes.
+  frame since `hub_rf` started; one that has not stays pending and gets the push with its first
+  frame.
 - **Without `slot`** (or `0` / `all`): the remote takes the slot of the pipe the radio picks. The
   Hub's pairing button pairs into the lowest slot without a remote.
 - **Response `200 OK`**: `{"status": "pairing_started"}` (also when the window is already open)
