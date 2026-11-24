@@ -274,6 +274,10 @@ int main(int argc, char **argv) {
     install("hi_other.tar.gz");
     CHECK(icon_pack_file_kind(p, &ver) == ICON_ARCHIVE_PLAIN && ver == -1, "'HI' subfield, other layout: plain");
     CHECK(icon_pack_archive(ap, sizeof(ap), NULL, NULL) == ICON_ARCHIVE_PLAIN, "and for icon_pack_archive");
+    /* icon_pack looks at this file (other size) before the next swap: a.tar.gz has the size of
+     * vnext.tar.gz and may get its freed inode in the same second, which its stat cache would
+     * take for the file it already saw */
+    CHECK(icon_pack_available() == 0, "'HI' subfield, other layout: no pack index");
 
     install("a.tar.gz");
     CHECK(icon_pack_available() && read_all(0), "set a once more");
