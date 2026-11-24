@@ -18,13 +18,18 @@ extern "C" {
 #define IR_I2S_EMITTER_BLASTER  (1 << 2)
 #define IR_I2S_EMITTER_ALL      (IR_I2S_EMITTER_PORT1 | IR_I2S_EMITTER_PORT2 | IR_I2S_EMITTER_BLASTER)
 
+/* The port mask every caller passes (a device's controlPort, the API's "port") is Logitech's:
+ * 1 = front blaster, 2 = jack 1, 4 = jack 2. The START ioctl's emitter bits above run the other
+ * way. Returns the emitter bits for a Logitech port mask (0 stays 0, meaning all). */
+uint8_t ir_i2s_ports_to_emitters(uint8_t ports);
+
 /**
  * Blast an IR carrier bitstream directly to /dev/i2s.
  * Bypasses Logitech HAL completely.
  *
  * @param blob Binary IR blob containing 16-byte Logitech header + duration words
  * @param blob_len Length of blob in bytes
- * @param port_mask 0 or combination of IR_I2S_EMITTER_* (default all)
+ * @param port_mask 0 (all) or a Logitech port mask: 1 front blaster, 2 jack 1, 4 jack 2
  * @return 0 on success, negative error code on failure
  */
 int ir_i2s_blast_blob(const uint8_t *blob, size_t blob_len, uint8_t port_mask);

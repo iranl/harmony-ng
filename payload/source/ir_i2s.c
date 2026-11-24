@@ -224,6 +224,15 @@ int ir_i2s_blast_words(uint32_t carrier_hz, uint8_t duty,
     return rc;
 }
 
+/* Logitech's port bits in the opposite order. Measured on a Hub (skin 106, stock 4.15.600 rooted,
+ * 2026-11-24): an Arcam amplifier wired into the rear of the receiver from the jack its stock
+ * configuration calls port 4 (jack 2) answered emitter bit 0 only, and the stock port 4 code sent
+ * as bit 2 reached another amplifier across the room through the front blaster. Port 2 (jack 1)
+ * is bit 1 either way, which is why devices on jack 1 always worked. */
+uint8_t ir_i2s_ports_to_emitters(uint8_t ports) {
+    return (uint8_t)(((ports & 0x01) << 2) | (ports & 0x02) | ((ports & 0x04) >> 2));
+}
+
 /* The send itself, with the I2S lock held: 0 or -3..-6 */
 static int ir_i2s_blast_locked(const bit_stream_t *bsp, uint8_t port_mask, uint32_t stereo_clk, uint32_t pulse_bclk_ns) {
     const bit_stream_t bs = *bsp;
@@ -254,7 +263,7 @@ static int ir_i2s_blast_locked(const bit_stream_t *bsp, uint8_t port_mask, uint3
         return -5;
     }
 
-    uint32_t sel = (port_mask & 0x07);
+    uint32_t sel = ir_i2s_ports_to_emitters(port_mask);
     if (sel == 0) sel = IR_I2S_EMITTER_ALL;
 
     int start_arg = (int)(((sel & 0xffff) << 16) | ((uint32_t)bs.len & 0xffff));

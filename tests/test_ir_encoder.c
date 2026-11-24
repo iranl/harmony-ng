@@ -138,6 +138,15 @@ int main(void) {
     check_frames("G:Philips RC5 13 Bit Toggle:()(0x1410)():3", 36000, &RC5, 13, 0x1410, 1);
     check_frames("G:Philips RC5 13 Bit Toggle:()(0x0450)():3", 36000, &RC5, 13, 0x0450, 1);
 
+    /* Logitech port masks to emitter bits: front blaster, jack 1, jack 2, all, none */
+    assert(ir_i2s_ports_to_emitters(1) == IR_I2S_EMITTER_BLASTER);
+    assert(ir_i2s_ports_to_emitters(2) == IR_I2S_EMITTER_PORT2);
+    assert(ir_i2s_ports_to_emitters(4) == IR_I2S_EMITTER_PORT1);
+    assert(ir_i2s_ports_to_emitters(6) == (IR_I2S_EMITTER_PORT1 | IR_I2S_EMITTER_PORT2));
+    assert(ir_i2s_ports_to_emitters(7) == IR_I2S_EMITTER_ALL);
+    assert(ir_i2s_ports_to_emitters(0) == 0);
+    printf("ok port masks\n");
+
     /* Marantz receiver PowerOn (address 16, command 12, data 1) and Back (field bit 0) */
     check_rc5ex("G:Philips RC5Ex:()(0x50_1x301)():3", 0x50, 0x301);
     check_rc5ex("G:Philips RC5Ex:()(0x10_1x5C4)():3", 0x10, 0x5C4);
