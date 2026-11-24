@@ -667,7 +667,9 @@ def generate_stock_remote_maps(map_list_path: str, devices_obj: Dict[str, Any], 
     """Convert the stock MapList.json ButtonMaps into hub_rf remote maps, one per stock remote.
 
     Activity maps become activities -> id -> button, device maps (device browser) become
-    devices -> id -> button, an activity's screen buttons become its screen_buttons list.
+    devices -> id -> button, an activity's screen buttons become its screen_buttons list. A
+    remote's Root map (the keys with nothing running) becomes the "-1" entry, and a key that
+    starts an activity (a Companion's or Smart Control's activity keys) an activity_start entry.
     hub_rf has no long press, double press or gestures, so those are reported and dropped.
     Maps are returned with the remote that has screen buttons first.
     """
@@ -680,18 +682,24 @@ def generate_stock_remote_maps(map_list_path: str, devices_obj: Dict[str, Any], 
         if not isinstance(bm, dict):
             continue
         ident = str(bm.get("ButtonMapIdentifier") or "")
-        m = re.search(r"(Activity|Device)(-?\d+)$", ident)
+        # "<remote model>Activity<id>", "<remote model>Device<id>" or "<remote model>Root". The
+        # remotes of one Hub share the RemoteId, so the model (16417 a touchscreen remote, 16422 a
+        # Companion, 16414 a Smart Control) is what tells their maps apart.
+        m = re.search(r"(\d*)(?:(Activity|Device)(-?\d+)|Root)$", ident)
         if not m:
             continue
-        is_act = m.group(1) == "Activity"
-        ctx = (act_map if is_act else dev_map).get(m.group(2))
-        if not ctx:
-            warnings.append(f"button map {ident}: unknown {m.group(1).lower()} {m.group(2)}, skipped")
-            continue
-        rid = str(bm.get("RemoteId-") or bm.get("RemoteId") or "0")
+        kind = m.group(2) or "Root"
+        if kind == "Root":
+            ctx = "-1"
+        else:
+            ctx = (act_map if kind == "Activity" else dev_map).get(m.group(3))
+            if not ctx:
+                warnings.append(f"button map {ident}: unknown {kind.lower()} {m.group(3)}, skipped")
+                continue
+        rid = m.group(1) or str(bm.get("RemoteId-") or bm.get("RemoteId") or "0")
         rmap = remotes.setdefault(rid, {"activities": {}, "devices": {}, "_screen": {}})
-        target = (rmap["activities"] if is_act else rmap["devices"]).setdefault(ctx, {})
-        label = f"{m.group(1).lower()} {ctx}"
+        target = (rmap["devices"] if kind == "Device" else rmap["activities"]).setdefault(ctx, {})
+        label = "root map" if kind == "Root" else f"{kind.lower()} {ctx}"
         dropped: Dict[str, int] = {}
         soft = []
 
@@ -699,15 +707,24 @@ def generate_stock_remote_maps(map_list_path: str, devices_obj: Dict[str, Any], 
             if not isinstance(b, dict):
                 continue
             act = b.get("ButtonAction") or {}
-            if act.get("__type") != "ButtonCommandAction":
+            if act.get("__type") == "ButtonActivityAction" and b.get("__type") == "HardRemoteButton":
+                aid = act_map.get(str(act.get("ActivityId-")))
+                if not aid:
+                    warnings.append(f"{label}: key '{b.get('ButtonKey')}' starts unknown activity "
+                                    f"{act.get('ActivityId-')}, skipped")
+                    continue
+                cmd = None
+                entry = {"action": "activity_start", "activityId": aid}
+            elif act.get("__type") != "ButtonCommandAction":
                 dropped["non-command buttons"] = dropped.get("non-command buttons", 0) + 1
                 continue
-            did = dev_map.get(str(act.get("DeviceId-")), str(act.get("DeviceId-")))
-            cmd = _find_command(devs.get(did), [str(act.get("CommandName") or "")])
-            if not cmd:
-                warnings.append(f"{label}: command '{act.get('CommandName')}' not found on device {did}, skipped")
-                continue
-            entry = _button_entry(did, cmd)
+            else:
+                did = dev_map.get(str(act.get("DeviceId-")), str(act.get("DeviceId-")))
+                cmd = _find_command(devs.get(did), [str(act.get("CommandName") or "")])
+                if not cmd:
+                    warnings.append(f"{label}: command '{act.get('CommandName')}' not found on device {did}, skipped")
+                    continue
+                entry = _button_entry(did, cmd)
             btype = b.get("__type")
             if btype == "HardRemoteButton":
                 key = str(b.get("ButtonKey") or "")
@@ -719,7 +736,7 @@ def generate_stock_remote_maps(map_list_path: str, devices_obj: Dict[str, Any], 
                 if b.get("ButtonLongPressAction") or b.get("ButtonDoublePressAction"):
                     dropped["long/double presses"] = dropped.get("long/double presses", 0) + 1
             elif btype == "SoftRemoteButton":
-                if is_act:
+                if kind == "Activity":
                     menu = b.get("MenuItem") or {}
                     soft.append(((_int(b.get("FunctionGroupType"), 0), _int(menu.get("IndexInMenu"), 0)),
                                  dict(entry, label=str(b.get("TextOnRemote") or cmd)[:12])))
@@ -729,6 +746,11 @@ def generate_stock_remote_maps(map_list_path: str, devices_obj: Dict[str, Any], 
         if soft:
             soft.sort(key=lambda x: x[0])
             rmap["_screen"][ctx] = [e for _, e in soft]
+        if not target and not soft:
+            # An empty map counts as none: an activity then gets the default keys
+            # (_complete_remote_map()), and an empty "-1" would stop hub_rf's fallback to a
+            # map's only activity
+            del (rmap["devices"] if kind == "Device" else rmap["activities"])[ctx]
         if dropped:
             warnings.append(f"{label}: not supported by hub_rf, dropped: "
                             + ", ".join(f"{n} {k}" for k, n in sorted(dropped.items())))

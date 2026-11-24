@@ -190,7 +190,7 @@ On the first deploy (no `/data/harmony/config/devices.json` on the Hub yet), the
 | Devices and their commands (`DeviceList.json`) | `devices.json`, with short device ids (`1`, `2`, ...). IR commands get no `repeats` field: stock keeps one repeat count per device. The Hub fills its default (`repeats: 3`) when it loads the file, so the IR frames sent per press do not change |
 | Power settings (`PowerFeature`): power-on delay, discrete on/off actions | Each device's `powerOnDelay`, `powerOnSequence` and `powerOffSequence`. Toggle-only devices keep empty sequences and use their `PowerToggle` command |
 | Activities, their devices and the input each device is set to (`ActivityList.json` roles) | `activities.json`, with the input commands at the start of each activity's start sequence |
-| Remote button maps (`MapList.json`) | `remote_slot1_map.json`: the keys of each activity, the keys of each device (device browser) and each activity's screen buttons |
+| Remote button maps (`MapList.json`) | One map per stock remote, told apart by the remote model at the start of each map's `ButtonMapIdentifier` (`16417` a touchscreen remote, `16422` a Companion, `16414` a Smart Control), since every remote of a Hub carries the same `RemoteId`. The remote with screen buttons goes to `remote_slot1_map.json`, the next to `remote_slot2_map.json`: the keys of each activity, the keys of each device (device browser), each activity's screen buttons, and the keys of its `Root` map (a Companion's or Smart Control's activity keys) as the "no activity" entry (`-1`). An empty stock map gets the default keys, as a missing one does |
 
 Not imported; the migration prints a warning for each:
 - Long presses, double presses and touch gestures (HarmonyNG has no equivalent yet).
