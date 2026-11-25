@@ -227,6 +227,7 @@ When a user triggers an action (via WebUI, touchscreen remote, Companion remote,
   "plugin_id": "roku-ecp",
   "device_id": "1",
   "device_name": "Living Room Roku",
+  "hub_name": "Harmony Living",
   "command": "Home",
   "action": "tap",
   "value": 0,
@@ -245,6 +246,7 @@ When a user triggers an action (via WebUI, touchscreen remote, Companion remote,
 | `plugin_id` | `string` | Target plugin ID receiving the command. |
 | `device_id` | `string` | Hub internal device ID. |
 | `device_name` | `string` | User-defined display name of the device. |
+| `hub_name` | `string` | The Hub's name from its settings (`hub_name`, "Hub Name" in the web UI), or `Harmony-NG Hub` when none was set (also for the old stored default `Harmony Hub`, the stock Logitech name). A plugin that registers the Hub on its device under a name (a Samsung TV's list of allowed devices) uses this one, so the user sees the Hub as they named it. A rename reaches the next datagram, without a restart. Older firmware sends no `hub_name`: fall back to `Harmony-NG Hub`. |
 | `command` | `string` | Command name to execute (e.g. `Home`, `PowerOff`, `VolumeUp`). |
 | `action` | `string` | Action lifecycle verb: `"tap"`, `"press"`, `"repeat"`, or `"release"`. |
 | `value` | `number` | Numeric argument of the command, 0 when none was given. Set by `POST /api/ir-send` (`"value"`) and by an MQTT `command/<device>/<command>` payload that is a plain integer. A command with `"range": [min, max]` only receives values in that range: the Hub refuses others. |
@@ -271,7 +273,7 @@ A plugin device in `devices.json` (and in `POST /api/device-save`) has `"plugin"
 `POST /api/plugins/pair` (`{"id", "action": "start" | "pin", "host", "pin", "port"}`, `port` optional) starts the plugin if needed, removes `/tmp/plugins/<id>.status`, and sends one datagram:
 
 ```json
-{ "plugin_id": "android-tv", "command": "pair", "action": "start_pair", "host": "192.168.1.60" }
+{ "plugin_id": "android-tv", "hub_name": "Harmony Living", "command": "pair", "action": "start_pair", "host": "192.168.1.60" }
 ```
 
 `action` is `finish_pair` with `pin` for the second step. The plugin answers by writing `/tmp/plugins/<id>.status` (write a temporary file, then `rename()` it: the Hub polls the file every 100 ms for up to 15 s and must not read half of it):
