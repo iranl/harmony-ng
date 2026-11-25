@@ -1940,7 +1940,7 @@ export default {
     "eth_driver_not_loaded": "Der Ethernet-Treiber {driver} ist installiert, konnte aber nicht geladen werden.",
     "eth_driver_redownload_btn": "Erneut herunterladen",
     "eth_driver_unsupported": "USB-Adapter {id} wird von dieser Firmware nicht unterstützt.",
-    "eth_driver_slow": "USB-Adapter {id} läuft mit Full Speed (USB 1.1), was den Hub einfriert. Ethernet bleibt daher aus. Verwende einen USB-2.0-Adapter (High Speed), -Hub oder ein USB-2.0-OTG-Kabel.",
+    "eth_driver_slow": "USB-Adapter {id} läuft mit Full Speed (USB 1.1). Ein solcher Adapter hat den Hub in einem Test eingefroren, daher bleibt Ethernet aus. Verwende einen USB-2.0-Adapter (High Speed), -Hub oder ein USB-2.0-OTG-Kabel.",
     "usb_storage_title": "USB-Speicher",
     "usb_storage_desc": "Ein USB-Stick (über ein USB-Hub-Kabel am Anschluss des Hubs) kann das Symbolarchiv, die eigenen Symbole und die Plugins aufnehmen, um Flash-Speicher freizugeben. Der Hub arbeitet weiter, wenn der Stick abgezogen wird; nur Symbole und Plugins fehlen, bis er zurück ist.",
     "usb_storage_none": "Kein USB-Stick angeschlossen.",

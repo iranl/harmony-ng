@@ -1267,7 +1267,7 @@ export default {
     "eth_driver_not_loaded": "The Ethernet driver {driver} is installed but could not be loaded.",
     "eth_driver_redownload_btn": "Download again",
     "eth_driver_unsupported": "USB adapter {id} is not supported by this firmware.",
-    "eth_driver_slow": "USB adapter {id} runs at full speed (USB 1.1), which freezes the Hub, so Ethernet stays off. Use a USB 2.0 (high-speed) adapter, hub or OTG cable.",
+    "eth_driver_slow": "USB adapter {id} runs at full speed (USB 1.1). Such an adapter froze the Hub in a test, so Ethernet stays off. Use a USB 2.0 (high-speed) adapter, hub or OTG cable.",
     "update_source": "Update Source",
     "update_source_desc": "Where the Hub downloads updates, remote firmware and Ethernet drivers. Leave empty for the official source.",
     "update_source_saved": "Update source saved",

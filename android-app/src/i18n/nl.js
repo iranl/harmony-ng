@@ -1940,7 +1940,7 @@ export default {
     "eth_driver_not_loaded": "Het ethernet-stuurprogramma {driver} is geïnstalleerd, maar kon niet worden geladen.",
     "eth_driver_redownload_btn": "Opnieuw downloaden",
     "eth_driver_unsupported": "USB-adapter {id} wordt niet ondersteund door deze firmware.",
-    "eth_driver_slow": "USB-adapter {id} werkt op full speed (USB 1.1), waardoor de Hub vastloopt. Ethernet blijft daarom uit. Gebruik een USB 2.0-adapter (high speed), -hub of -OTG-kabel.",
+    "eth_driver_slow": "USB-adapter {id} werkt op full speed (USB 1.1). Zo'n adapter liet de Hub in een test vastlopen, daarom blijft Ethernet uit. Gebruik een USB 2.0-adapter (high speed), -hub of -OTG-kabel.",
     "usb_storage_title": "USB-opslag",
     "usb_storage_desc": "Een USB-stick (via een USB-hubkabel op de poort van de Hub) kan het pictogramarchief, de eigen pictogrammen en de plugins bewaren om flashgeheugen vrij te maken. De Hub blijft werken als de stick wordt verwijderd; alleen de pictogrammen en plugins ontbreken tot hij terug is.",
     "usb_storage_none": "Geen USB-stick aangesloten.",

@@ -150,7 +150,7 @@ export function createView() {
       return box;
     }
     if (drv.slow) {
-      box.appendChild(h('span', { text: t('eth_driver_slow', 'USB adapter {id} runs at full speed (USB 1.1), which freezes the Hub, so Ethernet stays off. Use a USB 2.0 (high-speed) adapter, hub or OTG cable.', { id }) }));
+      box.appendChild(h('span', { text: t('eth_driver_slow', 'USB adapter {id} runs at full speed (USB 1.1). Such an adapter froze the Hub in a test, so Ethernet stays off. Use a USB 2.0 (high-speed) adapter, hub or OTG cable.', { id }) }));
       return box;
     }
     if (drv.unsupported) {

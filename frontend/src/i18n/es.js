@@ -1267,7 +1267,7 @@ export default {
     "eth_driver_not_loaded": "El controlador Ethernet {driver} está instalado, pero no se pudo cargar.",
     "eth_driver_redownload_btn": "Descargar de nuevo",
     "eth_driver_unsupported": "Este firmware no admite el adaptador USB {id}.",
-    "eth_driver_slow": "El adaptador USB {id} funciona a velocidad completa (USB 1.1), lo que bloquea el Hub, así que Ethernet sigue desactivado. Usa un adaptador, hub o cable OTG USB 2.0 (alta velocidad).",
+    "eth_driver_slow": "El adaptador USB {id} funciona a velocidad completa (USB 1.1). Un adaptador así bloqueó el Hub en una prueba, así que Ethernet sigue desactivado. Usa un adaptador, hub o cable OTG USB 2.0 (alta velocidad).",
     "update_source": "Origen de actualizaciones",
     "update_source_desc": "De dónde descarga el Hub las actualizaciones, el firmware del mando y los controladores Ethernet. Déjelo vacío para el origen oficial.",
     "update_source_saved": "Origen de actualizaciones guardado",

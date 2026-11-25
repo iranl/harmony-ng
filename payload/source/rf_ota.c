@@ -170,8 +170,12 @@ static void ota_repo_from_settings(char *out_repo, size_t out_sz) {
     cJSON *root = cJSON_Parse(buf);
     if (!root) return;
     cJSON *item = cJSON_GetObjectItemCaseSensitive(root, "update_repo");
-    if (cJSON_IsString(item) && ota_source_url_ok(item->valuestring) && strlen(item->valuestring) < out_sz)
+    if (cJSON_IsString(item) && ota_source_url_ok(item->valuestring) && strlen(item->valuestring) < out_sz) {
         snprintf(out_repo, out_sz, "%s", item->valuestring);
+        /* as config_store does at load: a settings.json from a backup is not normalised */
+        ota_source_normalize(out_repo);
+        if (!ota_source_url_ok(out_repo)) out_repo[0] = '\0';
+    }
     cJSON_Delete(root);
 }
 

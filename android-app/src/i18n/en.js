@@ -1940,7 +1940,7 @@ export default {
     "eth_driver_not_loaded": "The Ethernet driver {driver} is installed but could not be loaded.",
     "eth_driver_redownload_btn": "Download again",
     "eth_driver_unsupported": "USB adapter {id} is not supported by this firmware.",
-    "eth_driver_slow": "USB adapter {id} runs at full speed (USB 1.1), which freezes the Hub, so Ethernet stays off. Use a USB 2.0 (high-speed) adapter, hub or OTG cable.",
+    "eth_driver_slow": "USB adapter {id} runs at full speed (USB 1.1). Such an adapter froze the Hub in a test, so Ethernet stays off. Use a USB 2.0 (high-speed) adapter, hub or OTG cable.",
     "usb_storage_title": "USB Storage",
     "usb_storage_desc": "A USB stick (through a USB hub cable on the Hub's port) can hold the icon archive, the custom icons and the plugins to free flash. The Hub keeps working when the stick is pulled out; only the icons and plugins are missing until it is back.",
     "usb_storage_none": "No USB stick connected.",

@@ -1267,7 +1267,7 @@ export default {
     "eth_driver_not_loaded": "Il driver Ethernet {driver} è installato, ma non è stato possibile caricarlo.",
     "eth_driver_redownload_btn": "Scarica di nuovo",
     "eth_driver_unsupported": "L'adattatore USB {id} non è supportato da questo firmware.",
-    "eth_driver_slow": "L'adattatore USB {id} funziona a piena velocità (USB 1.1), che blocca l'Hub, quindi Ethernet resta disattivato. Usa un adattatore, un hub o un cavo OTG USB 2.0 (alta velocità).",
+    "eth_driver_slow": "L'adattatore USB {id} funziona a piena velocità (USB 1.1). Un adattatore simile ha bloccato l'Hub in un test, quindi Ethernet resta disattivato. Usa un adattatore, un hub o un cavo OTG USB 2.0 (alta velocità).",
     "update_source": "Origine degli aggiornamenti",
     "update_source_desc": "Da dove l'Hub scarica gli aggiornamenti, il firmware del telecomando e i driver Ethernet. Lascia vuoto per l'origine ufficiale.",
     "update_source_saved": "Origine degli aggiornamenti salvata",

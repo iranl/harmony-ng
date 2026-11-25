@@ -1940,7 +1940,7 @@ export default {
     "eth_driver_not_loaded": "Il driver Ethernet {driver} è installato, ma non è stato possibile caricarlo.",
     "eth_driver_redownload_btn": "Scarica di nuovo",
     "eth_driver_unsupported": "L'adattatore USB {id} non è supportato da questo firmware.",
-    "eth_driver_slow": "L'adattatore USB {id} funziona a piena velocità (USB 1.1), che blocca l'Hub, quindi Ethernet resta disattivato. Usa un adattatore, un hub o un cavo OTG USB 2.0 (alta velocità).",
+    "eth_driver_slow": "L'adattatore USB {id} funziona a piena velocità (USB 1.1). Un adattatore simile ha bloccato l'Hub in un test, quindi Ethernet resta disattivato. Usa un adattatore, un hub o un cavo OTG USB 2.0 (alta velocità).",
     "usb_storage_title": "Archiviazione USB",
     "usb_storage_desc": "Una chiavetta USB (tramite un cavo hub USB sulla porta dell'Hub) può contenere l'archivio delle icone, le icone personalizzate e i plugin per liberare la flash. L'Hub continua a funzionare se la chiavetta viene rimossa; mancano solo le icone e i plugin finché non torna.",
     "usb_storage_none": "Nessuna chiavetta USB collegata.",

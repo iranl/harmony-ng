@@ -245,6 +245,63 @@ class UsbStorageScript(unittest.TestCase):
         self.assertEqual(st.get("present"), "0")
         self.assertFalse((self.root / "tmp" / "usb_storage.lock").exists())
 
+    def test_failed_offload_can_be_retried(self):
+        # the first offload stops at an icon (the stick refuses it) after the icon archive; the id
+        # is already on the stick and kept on flash, so the retry goes on with what it left
+        def setup(root):
+            (root / "proc" / "mounts").write_text(f"/dev/sda1 {root}/mnt/usb vfat rw,noatime 0 0\n")
+            usb = root / "mnt" / "usb" / "harmony"
+            (usb / "custom_icons").mkdir(parents=True)
+            (usb / "custom_icons").chmod(0o555)
+            (root / "data" / "harmony" / "custom_icons" / "tv.png").write_bytes(b"png")
+            (root / "cache" / "icons.tar.gz").write_bytes(b"archive")
+            plug = root / "data" / "harmony" / "plugins" / "roku-ecp"
+            plug.mkdir(parents=True)
+            (plug / "manifest.json").write_text("{}")
+        self.run_scan(stick=True, modules=True, action="offload", setup=setup)
+        usb = self.root / "mnt" / "usb" / "harmony"
+        cfg = self.root / "data" / "harmony" / "config"
+        self.assertNotEqual(self.out.returncode, 0, self.out.stdout)
+        kept = (cfg / "usb_offload.last").read_text().strip()
+        self.assertTrue(kept)
+        self.assertEqual((usb / ".offload_id").read_text().strip(), kept)
+        self.assertFalse((cfg / "usb_offload").exists())
+        self.assertEqual((self.root / "data" / "harmony" / "custom_icons" / "tv.png").read_bytes(), b"png")
+        self.assertTrue((usb / "icons.tar.gz").exists())
+        (usb / "custom_icons").chmod(0o755)
+        (usb / "custom_icons" / "half.png").write_bytes(b"x")  # what the run left in the folder
+        self.out = subprocess.run(["sh", str(self.root / "usb_storage.sh"), "offload"],
+                                  env=dict(os.environ, PATH=f"{self.root / 'stub'}:/usr/bin:/bin"),
+                                  capture_output=True, text=True, timeout=30)
+        self.assertEqual(self.out.returncode, 0, self.out.stdout + self.out.stderr)
+        self.assertEqual((cfg / "usb_offload").read_text().strip(), kept)
+        self.assertEqual((usb / "custom_icons" / "tv.png").read_bytes(), b"png")
+        self.assertFalse((cfg / "usb_offload.last").exists())
+
+    def test_kept_id_not_given_to_another_stick(self):
+        # after a restore without stick A, a blank stick B gets its own id: A is not bound later
+        def setup(root):
+            (root / "proc" / "mounts").write_text(f"/dev/sda1 {root}/mnt/usb vfat rw,noatime 0 0\n")
+            (root / "mnt" / "usb").mkdir(parents=True)
+            (root / "data" / "harmony" / "config" / "usb_offload.last").write_text("id-a\n")
+            plug = root / "data" / "harmony" / "plugins" / "newer"
+            plug.mkdir(parents=True)
+            (plug / "manifest.json").write_text("{}")
+        self.run_scan(stick=True, modules=True, action="offload", setup=setup)
+        self.assertEqual(self.out.returncode, 0, self.out.stdout + self.out.stderr)
+        stick_id = (self.root / "mnt" / "usb" / "harmony" / ".offload_id").read_text().strip()
+        self.assertNotEqual(stick_id, "id-a")
+        self.assertEqual((self.root / "data" / "harmony" / "config" / "usb_offload").read_text().strip(), stick_id)
+
+    def test_lock_with_an_empty_pid_file_is_taken_over(self):
+        def setup(root):
+            (root / "tmp" / "usb_storage.lock").mkdir()
+            (root / "tmp" / "usb_storage.lock" / "pid").write_text("")
+        st, _ = self.run_scan(stick=False, modules=True, setup=setup)
+        self.assertEqual(self.out.returncode, 0, self.out.stdout + self.out.stderr)
+        self.assertEqual(st.get("present"), "0")
+        self.assertFalse((self.root / "tmp" / "usb_storage.lock").exists())
+
     def test_room_check_counts_file_sizes(self):
         # 100 icons of 3 KB: 400 KB with 1 KB per file, far less than whole FAT clusters
         def setup(root):

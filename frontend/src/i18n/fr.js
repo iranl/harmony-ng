@@ -1267,7 +1267,7 @@ export default {
     "eth_driver_not_loaded": "Le pilote Ethernet {driver} est installé, mais n'a pas pu être chargé.",
     "eth_driver_redownload_btn": "Télécharger à nouveau",
     "eth_driver_unsupported": "L'adaptateur USB {id} n'est pas pris en charge par ce firmware.",
-    "eth_driver_slow": "L'adaptateur USB {id} fonctionne en Full Speed (USB 1.1), ce qui bloque le Hub : l'Ethernet reste désactivé. Utilisez un adaptateur, un hub ou un câble OTG USB 2.0 (High Speed).",
+    "eth_driver_slow": "L'adaptateur USB {id} fonctionne en Full Speed (USB 1.1). Un tel adaptateur a bloqué le Hub lors d'un test : l'Ethernet reste désactivé. Utilisez un adaptateur, un hub ou un câble OTG USB 2.0 (High Speed).",
     "update_source": "Source des mises à jour",
     "update_source_desc": "D'où le Hub télécharge les mises à jour, le firmware de la télécommande et les pilotes Ethernet. Laissez vide pour la source officielle.",
     "update_source_saved": "Source des mises à jour enregistrée",

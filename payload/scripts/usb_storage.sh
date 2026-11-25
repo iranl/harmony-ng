@@ -82,9 +82,19 @@ take_lock() {
     # when there is none, so one run wins here too.
     if [ -z "$_o" ]; then _e=$(expr "$_e" + 1); else _e=0; fi
     if [ "$_e" -ge 5 ]; then
-      echo $$ > "$LOCK/pid.$$"
-      ln "$LOCK/pid.$$" "$LOCK/pid" 2>/dev/null && { rm -f "$LOCK/pid.$$"; break; }
-      rm -f "$LOCK/pid.$$"
+      if [ -e "$LOCK/pid" ]; then
+        # an empty pid file: taken by a rename, as one with a dead pid
+        if mv "$LOCK/pid" "$LOCK/pid.$$" 2>/dev/null; then
+          if [ ! -s "$LOCK/pid.$$" ]; then
+            echo $$ > "$LOCK/pid.$$" && mv -f "$LOCK/pid.$$" "$LOCK/pid" && break
+          fi
+          mv "$LOCK/pid.$$" "$LOCK/pid" 2>/dev/null
+        fi
+      else
+        echo $$ > "$LOCK/pid.$$"
+        ln "$LOCK/pid.$$" "$LOCK/pid" 2>/dev/null && { rm -f "$LOCK/pid.$$"; break; }
+        rm -f "$LOCK/pid.$$"
+      fi
     fi
     [ "$_w" -ge 900 ] && { echo "[-] Another USB storage operation is still running"; return 1; }
     sleep 1
@@ -183,6 +193,21 @@ new_id() {
 write_flag() {
   { echo "$1" > "$FLAG.new" && mv -f "$FLAG.new" "$FLAG"; } 2>/dev/null && return 0
   rm -f "$FLAG.new" 2>/dev/null
+  return 1
+}
+
+# the id of the flag, or the one kept by a restore without the stick or by an offload that did
+# not finish
+kept_id() {
+  _k=$(cat "$FLAG" 2>/dev/null)
+  [ -n "$_k" ] || _k=$(cat "$LAST" 2>/dev/null)
+  echo "$_k"
+}
+
+# write_last ID: like write_flag, for the kept id
+write_last() {
+  { echo "$1" > "$LAST.new" && mv -f "$LAST.new" "$LAST"; } 2>/dev/null && return 0
+  rm -f "$LAST.new" 2>/dev/null
   return 1
 }
 
@@ -291,7 +316,10 @@ mounted_fs() {
 # what a killed restore or offload left (it would also count as used space)
 remove_leftovers() {
   rm -rf "$ICONS.restore" "$PLUGINS.restore" 2>/dev/null
-  is_mounted "$MNT" && rm -rf "$DIR/plugins.new" 2>/dev/null
+  # on the stick only when it is this Hub's (scan writes nothing to another stick)
+  _k=$(kept_id)
+  is_mounted "$MNT" && [ -n "$_k" ] && [ "$_k" = "$(cat "$ID_FILE" 2>/dev/null)" ] &&
+    rm -rf "$DIR/plugins.new" 2>/dev/null
   return 0
 }
 
@@ -431,15 +459,21 @@ do_offload() {
   fi
   # the id the folders on the stick must carry to be merged: the flag's, or that of the last
   # restore without the stick
-  _id=$(cat "$FLAG" 2>/dev/null)
-  [ -n "$_id" ] || _id=$(cat "$LAST" 2>/dev/null)
+  _id=$(kept_id)
   if stick_has_folders && { [ -z "$_id" ] || [ "$_id" != "$(cat "$ID_FILE" 2>/dev/null)" ]; }; then
     echo "[-] The USB stick already holds icons or plugins (harmony/custom_icons, harmony/plugins) that were not moved there from this Hub; remove them from the stick first"
     return 1
   fi
-  [ -n "$_id" ] || _id=$(new_id)
+  # a kept id belongs to the stick that carries it: another (blank) stick gets a new one
+  [ -n "$_id" ] && [ "$_id" = "$(cat "$ID_FILE" 2>/dev/null)" ] || _id=$(new_id)
   remove_leftovers
+  # the id goes to the stick and is kept on flash before anything is copied: a run that stops
+  # half way leaves folders this Hub recognises, and the next offload goes on with them
   mkdir -p "$DIR/custom_icons" "$DIR/plugins" || return 1
+  { echo "$_id" > "$ID_FILE"; } 2>/dev/null || { echo "[-] Could not write to the USB stick"; return 1; }
+  if [ ! -f "$FLAG" ]; then
+    write_last "$_id" || { echo "[-] No room on flash for the offload id"; return 1; }
+  fi
   if [ -f "$ARCHIVE_FLASH" ] && [ ! -L "$ARCHIVE_FLASH" ]; then
     copy_verified "$ARCHIVE_FLASH" "$DIR/icons.tar.gz" || { echo "[-] Could not copy the icon archive to the stick"; return 1; }
   fi
@@ -457,7 +491,8 @@ do_offload() {
   fi
   check_stick_copies || { echo "[-] Nothing was removed from flash"; return 1; }
   # everything is on the stick: only now the flash copies go
-  { echo "$_id" > "$ID_FILE" && flush; } 2>/dev/null && write_flag "$_id" || { echo "[-] Could not write the offload id"; return 1; }
+  flush
+  write_flag "$_id" || { echo "[-] Could not write the offload id"; return 1; }
   rm -f "$LAST" 2>/dev/null
   rm -f "$ARCHIVE_FLASH" "$ARCHIVE_LINK" 2>/dev/null
   if ! is_mounted "$ICONS"; then
@@ -530,16 +565,22 @@ do_restore() {
     rm -rf "$ICONS.restore" 2>/dev/null
     merge_folders "$PLUGINS.restore" "$PLUGINS" || { undo_restore; return 1; }
     # a move: what stays on the stick would come back with the next offload (an uninstalled
-    # plugin, a deleted icon)
-    rm -f "$FLAG"
-    rm -rf "$DIR/plugins" "$DIR/custom_icons" "$DIR/icons.tar.gz" "$ID_FILE" "$LAST" 2>/dev/null
-    _msg="[+] Icons and plugins kept on flash again"
+    # plugin, a deleted icon). The id is kept until the stick is empty: a stick that keeps its
+    # folders (read-only, a kill) is still recognised and merged by the next offload.
+    flush
+    mv -f "$FLAG" "$LAST" 2>/dev/null || rm -f "$FLAG"
+    rm -rf "$DIR/plugins" "$DIR/custom_icons" "$DIR/icons.tar.gz" 2>/dev/null
+    if stick_has_folders || [ -e "$DIR/icons.tar.gz" ]; then
+      _msg="[!] Icons and plugins kept on flash again, but they could not be removed from the USB stick (read-only?); moving them to the stick later keeps them"
+    else
+      rm -f "$ID_FILE" "$LAST" 2>/dev/null
+      _msg="[+] Icons and plugins kept on flash again"
+    fi
   else
     # no stick: the icons and plugins stay on it, and its id is kept, so the next offload to that
     # stick merges them; the flash gets the archive again with the next update
+    mv -f "$FLAG" "$LAST" 2>/dev/null || { echo "[-] Could not keep the offload id on flash (flash full?); nothing was changed"; return 1; }
     rm -f "$ARCHIVE_LINK" 2>/dev/null
-    { cat "$FLAG" > "$LAST"; } 2>/dev/null
-    rm -f "$FLAG"
     _msg="[+] Icons and plugins kept on flash again; those on the USB stick stay there (moving them to that stick later keeps them)"
   fi
   flush

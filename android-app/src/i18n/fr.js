@@ -1940,7 +1940,7 @@ export default {
     "eth_driver_not_loaded": "Le pilote Ethernet {driver} est installé, mais n'a pas pu être chargé.",
     "eth_driver_redownload_btn": "Télécharger à nouveau",
     "eth_driver_unsupported": "L'adaptateur USB {id} n'est pas pris en charge par ce firmware.",
-    "eth_driver_slow": "L'adaptateur USB {id} fonctionne en Full Speed (USB 1.1), ce qui bloque le Hub : l'Ethernet reste désactivé. Utilisez un adaptateur, un hub ou un câble OTG USB 2.0 (High Speed).",
+    "eth_driver_slow": "L'adaptateur USB {id} fonctionne en Full Speed (USB 1.1). Un tel adaptateur a bloqué le Hub lors d'un test : l'Ethernet reste désactivé. Utilisez un adaptateur, un hub ou un câble OTG USB 2.0 (High Speed).",
     "usb_storage_title": "Stockage USB",
     "usb_storage_desc": "Une clé USB (via un câble hub USB sur le port du Hub) peut contenir l'archive d'icônes, les icônes personnalisées et les plugins pour libérer la flash. Le Hub continue de fonctionner si la clé est retirée ; seuls les icônes et les plugins manquent jusqu'à son retour.",
     "usb_storage_none": "Aucune clé USB connectée.",
