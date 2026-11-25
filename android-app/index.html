@@ -1309,6 +1309,10 @@
               <!-- Pairing Actions Toolbar -->
               <div style="display: flex; flex-direction: column; gap: 6px;">
                 <div style="display: flex; gap: 6px; align-items: center;">
+                  <select id="curDevBtPairProfile" class="form-control" style="flex: 1; min-width: 0;" title="Pair as" data-i18n-title="bt_profile_label">
+                    <option value="keyboard" data-i18n="bt_profile_keyboard">Keyboard (Android TV, Fire TV, Apple TV, PC)</option>
+                    <option value="ps3" data-i18n="bt_profile_ps3">PlayStation 3 (BD Remote Control)</option>
+                  </select>
                   <button type="button" id="btnCurDevBtStartPair" class="btn btn-xs btn-primary" style="flex: 1;" data-i18n="pair_bt_device_btn">Pair
                     Bluetooth Device</button>
                 </div>

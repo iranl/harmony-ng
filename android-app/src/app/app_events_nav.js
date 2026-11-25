@@ -705,7 +705,9 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
       try {
         const initialBtSt = await this.client.getBtStatus().catch(() => null);
         const initialHosts = new Set(((initialBtSt?.hosts) || []).map(h => (h.addr || '').toLowerCase()));
-        await this.client.setBtPairing(true, 'Harmony Keyboard', devId);
+        const profile = document.getElementById('curDevBtPairProfile')?.value || 'keyboard';
+        await this.client.setBtPairing(true, 'Harmony Keyboard', devId, profile);
+        if (profile === 'ps3') showToast(t('bt_discoverable_ps3'), 'success');
 
         // Start polling for pairing completion
         if (this._btPairPollTimer) clearInterval(this._btPairPollTimer);
