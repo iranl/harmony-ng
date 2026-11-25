@@ -106,6 +106,14 @@ int hw_device_command_send(const char *device_id, const char *command);
 int hw_device_command_send_by_id(const char *device_id, const char *command);
 int hw_device_command_send_by_name(const char *device_name, const char *command);
 int hw_device_exists(const char *target, int match_mode);
+
+/* The Hub's name for plugins (settings hub_name), sent as "hub_name" in every plugin datagram: a
+ * plugin that registers the Hub on its device (a Samsung TV's list of allowed devices) shows it.
+ * HW_HUB_NAME_DEFAULT when none was set (or the old default "Harmony Hub", the stock Logitech
+ * name). Set by apply_hub_settings() at start and on every settings save. */
+#define HW_HUB_NAME_DEFAULT "Harmony-NG Hub"
+void hw_set_hub_name(const char *name);
+void hw_get_hub_name(char *out, size_t len);
 int hw_device_command_exists(const char *target, int match_mode, const char *command);
 
 /*

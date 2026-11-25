@@ -29,6 +29,26 @@
 #include <pthread.h>
 #include <poll.h>
 
+/* The Hub's name for plugins: read on every plugin command, so kept here instead of reading
+ * settings.json each time. A short copy under the lock. */
+static pthread_mutex_t s_hub_name_lock = PTHREAD_MUTEX_INITIALIZER;
+static char s_hub_name[64] = HW_HUB_NAME_DEFAULT;
+
+void hw_set_hub_name(const char *name) {
+    /* "Harmony Hub" is the stored default when the user never named the Hub: the stock name */
+    const char *n = (name && name[0] && strcmp(name, "Harmony Hub") != 0) ? name : HW_HUB_NAME_DEFAULT;
+    pthread_mutex_lock(&s_hub_name_lock);
+    snprintf(s_hub_name, sizeof(s_hub_name), "%s", n);
+    pthread_mutex_unlock(&s_hub_name_lock);
+}
+
+void hw_get_hub_name(char *out, size_t len) {
+    if (!out || !len) return;
+    pthread_mutex_lock(&s_hub_name_lock);
+    snprintf(out, len, "%s", s_hub_name);
+    pthread_mutex_unlock(&s_hub_name_lock);
+}
+
 /*
  * Held IR key. A press hands the encoded code to one player thread and returns. The thread
  * sends the code's start sequence, then its repeat sequence again and again with the code's
@@ -1379,9 +1399,11 @@ int hw_plugin_command_send(const char *plugin_id, const char *dev_id, const char
     else if (action == HW_BTN_ACTION_REPEAT) action_str = "repeat";
     else if (action == HW_BTN_ACTION_TAP) action_str = "tap";
 
+    char hub_name[64];
+    hw_get_hub_name(hub_name, sizeof(hub_name));
     if (g_dry_run) {
-        printf("[DRY-RUN] Plugin command simulated: plugin=%s dev=%s (%s) cmd=%s action=%s val=%d sock=%s\n",
-               plugin_id, dev_id ? dev_id : "", dev_name ? dev_name : "", command, action_str, value, sock_path);
+        printf("[DRY-RUN] Plugin command simulated: plugin=%s dev=%s (%s) cmd=%s action=%s val=%d hub=%s sock=%s\n",
+               plugin_id, dev_id ? dev_id : "", dev_name ? dev_name : "", command, action_str, value, hub_name, sock_path);
         return 0;
     }
 
@@ -1396,6 +1418,7 @@ int hw_plugin_command_send(const char *plugin_id, const char *dev_id, const char
     cJSON *msg = cJSON_CreateObject();
     if (msg) {
         cJSON_AddStringToObject(msg, "plugin_id", plugin_id);
+        cJSON_AddStringToObject(msg, "hub_name", hub_name);
         cJSON_AddStringToObject(msg, "device_id", dev_id ? dev_id : "");
         cJSON_AddStringToObject(msg, "device_name", dev_name ? dev_name : "");
         cJSON_AddStringToObject(msg, "command", command);
