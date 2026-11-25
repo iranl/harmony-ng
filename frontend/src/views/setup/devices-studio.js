@@ -10,6 +10,7 @@ import { createModal } from '../../components/modal.js';
 import { openIconPicker } from '../../components/icon-picker.js';
 import { showDeviceInUse } from '../../components/hub-decisions.js';
 import { pluginPairingRow } from './plugin-pairing.js';
+import { pluginFieldInput, pluginFieldRow, pluginInputValue, irAltBadge } from './plugin-fields.js';
 
 export function createView() {
   const container = h('div', { className: 'setup-subview-devices', style: { display: 'flex', flexDirection: 'column', gap: '16px' } });
@@ -146,7 +147,7 @@ export function createView() {
           try {
             const updatedConfig = {};
             for (const [key, inp] of Object.entries(pluginInputs)) {
-              updatedConfig[key] = inp.type === 'number' ? Number(inp.value) : inp.value.trim();
+              updatedConfig[key] = pluginInputValue(inp);
             }
             savePluginBtn.disabled = true;
             savePluginBtn.textContent = t('plg_saving', 'Saving...');
@@ -187,24 +188,16 @@ export function createView() {
           fields = Object.keys(cfgObj).map(k => ({
             key: k,
             label: k.replace(/_/g, ' ').toUpperCase(),
-            type: typeof cfgObj[k] === 'number' ? 'number' : 'string'
+            type: typeof cfgObj[k] === 'number' ? 'number' : (typeof cfgObj[k] === 'boolean' ? 'boolean' : 'string')
           }));
         }
         if (fields && fields.length > 0) {
           fieldsContainer.innerHTML = '';
           fields.forEach(f => {
             const curVal = cfgObj[f.key] !== undefined ? cfgObj[f.key] : (f.default !== undefined ? f.default : '');
-            const inp = h('input', {
-              type: f.type === 'number' ? 'number' : (f.type === 'password' ? 'password' : 'text'),
-              className: 'form-input',
-              value: String(curVal),
-              placeholder: f.placeholder || '',
-            });
+            const inp = pluginFieldInput(f, curVal);
             pluginInputs[f.key] = inp;
-            fieldsContainer.appendChild(h('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } }, [
-              h('label', { className: 'form-label', text: f.label || f.key }),
-              inp,
-            ]));
+            fieldsContainer.appendChild(pluginFieldRow(f, inp));
           });
           const pairRow = pluginPairingRow(plug, pluginInputs);
           if (pairRow) fieldsContainer.appendChild(pairRow);
@@ -221,7 +214,7 @@ export function createView() {
       h('div', { className: 'card-header' }, [
         h('h4', { className: 'card-title', text: t('ir_learn_title', 'IR Capture (Learning Mode)') }),
       ]),
-      h('p', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '10px' }, text: t('ir_learn_hint', 'Point your original remote at the Harmony Hub front sensor and press Capture.') }),
+      h('p', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '10px' }, text: t('ir_learn_hint', 'Point your original remote at the Harmony Hub front sensor, 5 to 8 cm away, press Capture, then tap the key once.') }),
       h('button', {
         className: 'btn btn-primary',
         text: `🎯 ${t('start_ir_capture', 'Start IR Capture')}`,
@@ -313,7 +306,7 @@ export function createView() {
         className: 'card',
         style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', margin: 0 },
       }, [
-        h('span', { style: { fontWeight: '600', fontSize: '13px' }, text: cName }),
+        h('span', { style: { fontWeight: '600', fontSize: '13px' } }, [cName, irAltBadge(c, dev.config)]),
         h('div', { style: { display: 'flex', gap: '6px' } }, [
           h('button', {
             className: 'btn btn-secondary btn-sm',
@@ -510,17 +503,9 @@ export function createView() {
           modelInput.value = 'Plugin';
           if (Array.isArray(plug.device_definition.config_fields)) {
             plug.device_definition.config_fields.filter(f => f && f.key).forEach(f => {
-              const inp = h('input', {
-                type: f.type === 'number' ? 'number' : (f.type === 'password' ? 'password' : 'text'),
-                className: 'form-input',
-                placeholder: f.placeholder || (f.default !== undefined ? String(f.default) : '')
-              });
-              if (f.default !== undefined) inp.value = f.default;
+              const inp = pluginFieldInput(f, f.default, f.placeholder || (f.default !== undefined ? String(f.default) : ''));
               dynamicFieldInputs[f.key] = inp;
-              dynamicConfigContainer.appendChild(h('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } }, [
-                h('label', { className: 'form-label', text: f.label || f.key }),
-                inp
-              ]));
+              dynamicConfigContainer.appendChild(pluginFieldRow(f, inp));
             });
           }
           const pairRow = pluginPairingRow(plug, dynamicFieldInputs);
@@ -578,7 +563,7 @@ export function createView() {
                   plug.device_definition.config_fields.filter(f => f && f.key).forEach(f => {
                     const inp = dynamicFieldInputs[f.key];
                     if (inp) {
-                      configVals[f.key] = f.type === 'number' ? Number(inp.value) : inp.value.trim();
+                      configVals[f.key] = pluginInputValue(inp);
                     }
                   });
                 }

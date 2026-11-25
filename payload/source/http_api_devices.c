@@ -11,6 +11,7 @@
 #include "ir_i2s.h"
 #include "config_sanitize.h"
 #include "cmd_range.h"
+#include "cmd_ir_alt.h"
 #include "plugin_mgr.h"
 #include "net_device.h"
 #include "net_action.h"
@@ -55,19 +56,23 @@ static uint8_t device_ir_ports(const char *dev_id) {
     return ports;
 }
 
-/* Counts the P/S durations of a learned raw string (F<carrier hex>P<hex>S<hex>...) and adds them up */
-static void learned_stats(const char *raw, int *pulses, unsigned long *total_us) {
+/* Counts the P/S durations of a learned raw string (F<carrier hex>P<hex>S<hex>...) and adds
+ * them up; *frames counts the frames (a space of 20 ms or more ends one, the last space too) */
+static void learned_stats(const char *raw, int *pulses, unsigned long *total_us, int *frames) {
     *pulses = 0;
     *total_us = 0;
+    *frames = 0;
     for (const char *p = raw; p && *p; p++) {
         if (*p == 'P' || *p == 'S') {
             char *end = NULL;
             unsigned long v = strtoul(p + 1, &end, 16);
             (*pulses)++;
             *total_us += v;
+            if (*p == 'S' && v >= 20000) (*frames)++;
             if (end) p = end - 1;
         }
     }
+    if (*pulses > 0 && *frames == 0) *frames = 1;
 }
 
 /* A timing field of the device save body as an int: a JSON number or a numeric string.
@@ -88,14 +93,20 @@ static int device_int_field(const cJSON *j, int *out) {
     return 0;
 }
 
-/* Every timing field present in the body has a usable type */
+/* A config_fields entry of "type": "boolean" (a checkbox in the web UIs, e.g. the field an
+ * irWhen names): its default is false, not "" */
+static int fld_is_boolean(const cJSON *fld) {
+    const cJSON *t = cJSON_GetObjectItemCaseSensitive(fld, "type");
+    return cJSON_IsString(t) && strcasecmp(t->valuestring, "boolean") == 0;
+}
+
 /* Keys of a device that are its own fields: a plugin's config_fields key with such a name is
  * never copied into config from the top level */
 static int device_key_reserved(const char *key) {
     static const char *const reserved_dev_keys[] = {
         "id", "deviceId", "name", "type", "manufacturer", "model", "icon", "plugin", "config",
         "commands", "controlPort", "interDeviceDelay", "interKeyDelay", "holdInterKeyDelay",
-        "defaultInterDeviceDelay", "powerOnDelay", "isPowerAlwaysOn", "mqttEnabled", "mqttTopic", "mqttPulseMs",
+        "defaultInterDeviceDelay", "powerOnDelay", "pressMinRepeats", "isPowerAlwaysOn", "mqttEnabled", "mqttTopic", "mqttPulseMs",
         "bdaddr", "btHost", "btAutoReconnect", "btReconnectDurationSec", "btReconnectDelaySec",
         "btTriggerDeviceId", "btTriggerCommandName", "powerOnSequence", "powerOffSequence",
         "netHost", "netPort", "netTls", "netTlsVerify", "netTimeoutMs", "httpHeaders",
@@ -271,6 +282,7 @@ static void device_convert_to_combined(cJSON *dev, int old_tr) {
     }
 }
 
+/* Every timing field present in the body has a usable type */
 static int device_int_fields_valid(const cJSON *p) {
     static const char *const keys[] = {
         "interDeviceDelay", "interKeyDelay", "holdInterKeyDelay", "powerOnDelay",
@@ -958,8 +970,8 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
     }
 
     /* Route: POST /api/ir-capture {"enabled": bool}: the IR capture mode (spec 3.14). While it is
-     * on, every learned signal is an ir_received event (WebSocket, MQTT <base>/ir/received); the
-     * one-shot POST /api/capture answers 409. Shared with the ir_capture command action. */
+     * on, every received signal is an ir_received event (WebSocket, MQTT <base>/ir/received),
+     * except a press learned by POST /api/capture. Shared with the ir_capture command action. */
     if (strcmp(clean_path, "/api/ir-capture") == 0 && strcmp(method, "POST") == 0) {
         cJSON *req_j = (body && body[0]) ? cJSON_Parse(body) : NULL;
         cJSON *resp = NULL;
@@ -973,9 +985,10 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
 
     /* Route: POST /api/capture: learn one IR signal from the Hub's IR receiver.
      * Blocks this worker until a signal arrives or the timeout ends (seconds, default 10, 1..30).
-     * The capture holds the I2S lock that IR sends take too, so a send waits for it. The result is
-     * a Harmony raw string (F<carrier hex>P<us hex>S<us hex>...) that /ir/command saves as the
-     * command's code and the IR sender plays back as it is. */
+     * The receiver thread records the press, also while the capture mode is on (no ir_received
+     * event for it); IR sends go out at once meanwhile and a press that overlaps one is not kept.
+     * The result is a Harmony raw string (F<carrier hex>P<us hex>S<us hex>...) that /ir/command
+     * saves as the command's code and the IR sender plays back as it is. */
     if (strcmp(clean_path, "/api/capture") == 0 &&
         strcmp(method, "POST") == 0) {
         int timeout_s = 10;
@@ -995,14 +1008,22 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
             close(client_fd);
             return 1;
         }
-        char raw[8192];
-        int rc = ir_i2s_capture(raw, sizeof(raw), (unsigned int)timeout_s);
+        /* a whole press: up to 1023 mark/space pairs, about 6 characters each */
+        const size_t raw_size = 16384;
+        char *raw = (char *)malloc(raw_size);
+        if (!raw) {
+            pthread_mutex_unlock(&s_capture_lock);
+            send_json_error(client_fd, 500, "Out of memory");
+            close(client_fd);
+            return 1;
+        }
+        int rc = ir_i2s_capture(raw, raw_size, (unsigned int)timeout_s);
         pthread_mutex_unlock(&s_capture_lock);
 
         if (rc == 0) {
-            int pulses = 0;
+            int pulses = 0, frames = 0;
             unsigned long total_us = 0;
-            learned_stats(raw, &pulses, &total_us);
+            learned_stats(raw, &pulses, &total_us, &frames);
             unsigned long carrier = strtoul(raw + 1, NULL, 16);
             cJSON *resp = cJSON_CreateObject();
             cJSON_AddBoolToObject(resp, "ok", 1);
@@ -1012,19 +1033,19 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
             cJSON_AddNumberToObject(resp, "carrier_hz", (double)carrier);
             cJSON_AddNumberToObject(resp, "pulses", pulses);
             cJSON_AddNumberToObject(resp, "duration_us", (double)total_us);
+            cJSON_AddNumberToObject(resp, "frames", frames);
             send_cjson_resp(client_fd, 200, resp);
             cJSON_Delete(resp);
         } else if (rc == -EBUSY) {
-            send_json_error(client_fd, 409, "IR hardware is busy (an IR send is running); try again");
-        } else if (rc == -11) {
-            send_json_error(client_fd, 409, raw[0] ? raw : "IR capture mode is on");
+            send_json_error(client_fd, 409, "An IR capture is already running");
         } else if (rc == -5 || rc == -6) {
             send_json_error(client_fd, 408, raw[0] ? raw : "No IR signal received");
-        } else if (rc == -2 || rc == -3 || rc == -7) {
+        } else if (rc == -2 || rc == -3 || rc == -7 || rc == -9) {
             send_json_error(client_fd, 503, raw[0] ? raw : "IR receiver not available");
         } else {
             send_json_error(client_fd, 500, raw[0] ? raw : "IR capture failed");
         }
+        free(raw);
         close(client_fd);
         return 1;
     }
@@ -1242,7 +1263,8 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
          strcmp(clean_path, "/ir/device-mqtt") == 0 || strcmp(clean_path, "/ir/device-power") == 0 ||
          strcmp(clean_path, "/ir/new-device") == 0 || strcmp(clean_path, "/api/new-device") == 0) && strcmp(method, "POST") == 0) {
         cJSON *p = parse_request_params(body);
-        if (p && (!device_int_fields_valid(p) || !device_delay_fields_in_range(p))) {
+        if (p && (!device_int_fields_valid(p) || !device_delay_fields_in_range(p) ||
+                  press_min_repeats_value(cJSON_GetObjectItemCaseSensitive(p, "pressMinRepeats"), NULL) < 0)) {
             /* A timing field of the wrong type, or a send delay out of range: refuse the whole save (400) */
             cJSON_Delete(p);
             p = NULL;
@@ -1430,6 +1452,14 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                     device_int_field(j_pod, &val);
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "powerOnDelay");
                     cJSON_AddNumberToObject(found_dev, "powerOnDelay", val);
+                }
+
+                /* present: set; null, "" or negative: removed (the Hub's default applies) */
+                cJSON *j_pmr = cJSON_GetObjectItemCaseSensitive(p, "pressMinRepeats");
+                if (j_pmr) {
+                    int val = 0;
+                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "pressMinRepeats");
+                    if (press_min_repeats_value(j_pmr, &val) == 1) cJSON_AddNumberToObject(found_dev, "pressMinRepeats", val);
                 }
 
                 cJSON *j_pao = cJSON_GetObjectItemCaseSensitive(p, "isPowerAlwaysOn");
@@ -1624,6 +1654,7 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                     }
                     if (arr) {
                         cmd_ranges_keep_stored(arr, stored_cmds);
+                        cmd_ir_alt_keep_stored(arr, stored_cmds);
                         cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "commands");
                         cJSON_AddItemToObject(found_dev, "commands", arr);
                     }
@@ -1656,6 +1687,10 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                                             cJSON *def_val = cJSON_GetObjectItemCaseSensitive(fld, "default");
                                             if (def_val && cJSON_IsNumber(def_val)) {
                                                 cJSON_AddNumberToObject(cur_cfg, k->valuestring, def_val->valuedouble);
+                                            } else if (def_val && cJSON_IsBool(def_val)) {
+                                                cJSON_AddBoolToObject(cur_cfg, k->valuestring, cJSON_IsTrue(def_val));
+                                            } else if (fld_is_boolean(fld)) {
+                                                cJSON_AddFalseToObject(cur_cfg, k->valuestring);
                                             } else if (def_val && cJSON_IsString(def_val)) {
                                                 cJSON_AddStringToObject(cur_cfg, k->valuestring, def_val->valuestring);
                                             } else {
@@ -1699,7 +1734,10 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                                         const cJSON *sn = cJSON_GetObjectItemCaseSensitive(sc, "name");
                                         if (cJSON_IsString(sn) && strcmp(sn->valuestring, cn->valuestring) == 0) { known = 1; break; }
                                     }
-                                    if (!known) cmd_range_fill_from_manifest(cmd_it, dev_def);
+                                    if (!known) {
+                                        cmd_range_fill_from_manifest(cmd_it, dev_def);
+                                        cmd_ir_alt_fill_from_manifest(cmd_it, dev_def);
+                                    }
                                 }
                             }
                             cJSON_Delete(dev_def);

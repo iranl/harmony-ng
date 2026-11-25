@@ -164,10 +164,10 @@ The `manifest.json` file defines the plugin identity and how it appears in the W
 | `entrypoint` | `string` | **Required.** Relative path of the binary or script the Hub runs (it must be in the archive). |
 | `files` | `array` | *(Dev installs)* Relative paths the dev install downloads next to `manifest.json`. |
 | `pairing` | `object` | *(Optional)* Pairing: `supported`, `type` (`pin_display`, the default, `confirm` or `listen`), `requires_host` (default true; false for `listen`), `timeout_s` (default 15, at most 60) and the dialog texts (`title`, `button_label`, `description`, `instructions`, `host_label`, `prompt`, `pin_length`). See [Pairing Protocol](#pairing-protocol). |
-| `device_definition` | `object` | *(Optional)* Schema for devices created using this plugin. `config_fields`, when present, is an array of objects, each with a string `key`. A `default_commands` entry may have `"range": [min, max]`: the integer values the command takes (see `value` below). |
+| `device_definition` | `object` | *(Optional)* Schema for devices created using this plugin. `config_fields`, when present, is an array of objects, each with a string `key`. A `default_commands` entry may have `"range": [min, max]`: the integer values the command takes (see `value` below), and an infrared alternative, `irKeyCode` and `irWhen` (see [Infrared alternative of a command](#infrared-alternative-of-a-command-irkeycode-irwhen)). |
 | `requires_libs` | `array` | *(Optional)* File names of the Hub's shared libraries the binary links, e.g. `["libbearssl.so.0"]` (see "Using TLS: the shared BearSSL" below). |
 
-The Hub refuses an install whose manifest has no safe `id`, no `version`, no valid `entrypoint` (or one not in the archive), a malformed `config_fields`, a `default_commands` range that is not two integers with min <= max, or a `requires_libs` entry that is not in `/data/harmony/lib` (a Hub on older firmware: update it first).
+The Hub refuses an install whose manifest has no safe `id`, no `version`, no valid `entrypoint` (or one not in the archive), a malformed `config_fields`, a `default_commands` range that is not two integers with min <= max, a `default_commands` `irKeyCode` that is not a non-empty string or `irWhen` that is not a config key (letters, digits, `_` or `-`, at most 63), or a `requires_libs` entry that is not in `/data/harmony/lib` (a Hub on older firmware: update it first).
 
 #### Config Field Types
 
@@ -176,7 +176,7 @@ The Hub refuses an install whose manifest has no safe `id`, no `version`, no val
 | `"string"` | Text value (e.g. IP address, host, MAC) | `<input type="text">` |
 | `"number"` | Numeric integer value (e.g. port, timeout) | `<input type="number">` |
 | `"password"` | Sensitive string (e.g. auth token, PIN) | `<input type="password">` |
-| `"boolean"` | True / false toggle | `<input type="checkbox">` |
+| `"boolean"` | True / false toggle, saved as a JSON `true` / `false` (a new device gets `false` unless the field has a `default`) | `<input type="checkbox">` |
 
 ---
 
@@ -227,6 +227,7 @@ When a user triggers an action (via WebUI, touchscreen remote, Companion remote,
   "plugin_id": "roku-ecp",
   "device_id": "1",
   "device_name": "Living Room Roku",
+  "hub_name": "Harmony Living",
   "command": "Home",
   "action": "tap",
   "value": 0,
@@ -245,6 +246,7 @@ When a user triggers an action (via WebUI, touchscreen remote, Companion remote,
 | `plugin_id` | `string` | Target plugin ID receiving the command. |
 | `device_id` | `string` | Hub internal device ID. |
 | `device_name` | `string` | User-defined display name of the device. |
+| `hub_name` | `string` | The Hub's name from its settings (`hub_name`, "Hub Name" in the web UI), or `Harmony-NG Hub` when none was set (also for the old stored default `Harmony Hub`, the stock Logitech name). A plugin that registers the Hub on its device under a name (a Samsung TV's list of allowed devices) uses this one, so the user sees the Hub as they named it. A rename reaches the next datagram, without a restart. Older firmware sends no `hub_name`: fall back to `Harmony-NG Hub`. |
 | `command` | `string` | Command name to execute (e.g. `Home`, `PowerOff`, `VolumeUp`). |
 | `action` | `string` | Action lifecycle verb: `"tap"`, `"press"`, `"repeat"`, or `"release"`. |
 | `value` | `number` | Numeric argument of the command, 0 when none was given. Set by `POST /api/ir-send` (`"value"`) and by an MQTT `command/<device>/<command>` payload that is a plain integer. A command with `"range": [min, max]` only receives values in that range: the Hub refuses others. |
@@ -264,6 +266,29 @@ When present, `hub_daemon` routes the command directly to `<plugin_id>` and sets
 #### Device fields
 A plugin device in `devices.json` (and in `POST /api/device-save`) has `"plugin": "<id>"` and a `"config"` object with the values of the plugin's `config_fields`. A top-level key is copied into `config` only when the plugin's `config_fields` declare it; the UIs send `config` as one JSON field. A `plugin` that is not a safe id is refused (HTTP 400).
 
+#### Infrared alternative of a command (`irKeyCode`, `irWhen`)
+Some devices ignore some commands over their network API: Samsung TVs from 2018 on ignore the HDMI 1-4 keys. A command of a plugin device (in `default_commands` and in the device's `commands`) may name an infrared code the Hub sends instead:
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `irKeyCode` | `string` | An infrared code, anything an IR device's command `keyCode` may hold: a Harmony keycode (`G:<protocol>:(...)(...)():N`), a learned raw code (`F...P...S...`) or Pronto hex (`0000 ...`). |
+| `irWhen` | `string` | The `key` of a `"type": "boolean"` field of the plugin's `config_fields` (letters, digits, `_` or `-`, at most 63). |
+
+While the device's `config[irWhen]` is on (JSON `true`, a number other than 0, or the text `"true"` or `"1"`), `hub_daemon` sends the command as infrared, exactly as a command of an IR device: the same encoder, press / hold / release handling (a held key repeats until the release), `repeats` (3 when the command has none) and blaster ports (the command's own `port` 1-7, else all blasters). The plugin gets nothing for that command. A command with a `range` needs no `value` while its infrared alternative is on: the infrared send takes none. When the field is off or missing, or the command has no `irKeyCode`, the command goes to the plugin as before. A command with an `irKeyCode` but no `irWhen` always goes to the plugin: the plugin decides which config field turns the infrared code on, and the user turns it on with the checkbox the device settings show for that field.
+
+```json
+"config_fields": [
+  { "key": "host", "label": "TV address", "type": "string" },
+  { "key": "hdmi_via_ir", "label": "Send the HDMI keys as infrared", "type": "boolean" }
+],
+"default_commands": [
+  { "name": "HDMI 2", "keyCode": "PLUGIN:samsung-tv:KEY_HDMI2",
+    "irKeyCode": "G:GoVideoO1 32 Bit:()(0xE0E07D82)():3", "irWhen": "hdmi_via_ir" }
+]
+```
+
+The Hub keeps both fields through device saves, command saves and reloads (a save that sends a command back without them keeps the stored ones; `null` or `""` removes them) and copies them from the manifest when a device or a preset command is created from `default_commands`. Firmware older than this feature ignores the two fields: the command then goes to the plugin, so a plugin should still handle it (or report it as unsupported).
+
 ---
 
 ### Pairing Protocol
@@ -271,7 +296,7 @@ A plugin device in `devices.json` (and in `POST /api/device-save`) has `"plugin"
 `POST /api/plugins/pair` (`{"id", "action": "start" | "pin", "host", "pin", "port"}`, `port` optional) starts the plugin if needed, removes `/tmp/plugins/<id>.status`, and sends one datagram:
 
 ```json
-{ "plugin_id": "android-tv", "command": "pair", "action": "start_pair", "host": "192.168.1.60" }
+{ "plugin_id": "android-tv", "hub_name": "Harmony Living", "command": "pair", "action": "start_pair", "host": "192.168.1.60" }
 ```
 
 `action` is `finish_pair` with `pin` for the second step. The plugin answers by writing `/tmp/plugins/<id>.status` (write a temporary file, then `rename()` it: the Hub polls the file every 100 ms for up to 15 s and must not read half of it):

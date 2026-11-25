@@ -396,8 +396,14 @@ int ir_i2s_blast_blob_part(const uint8_t *blob, size_t blob_len, int part, uint8
  * - Stock inverts each byte and swaps the two bytes of every 16-bit sample;
  *   after that a 1 bit is light. Without the swap the carrier periods scatter.
  * - The sensor misses the start of the first burst, so the first frame of a
- *   press is often cut. The decoder keeps the first complete frame after a
- *   frame gap and falls back to the first frame for a very short press.
+ *   press is often cut. The capture mode's decoder keeps the first complete
+ *   frame after a frame gap and falls back to the first frame for a very short
+ *   press. The learn keeps the whole press instead (see below).
+ * - The stock Hub's capture (hal, thread 0x423994) reads until 200 ms without
+ *   light or 1023 mark/space pairs and keeps every frame of the press; a learned
+ *   code is then sent once per tap, so every frame goes out again. The
+ *   learn does the same, except that a first frame shorter than the next one is
+ *   dropped (the sensor cut it).
  */
 #define IR_RX_SAMPLE_NS      1500u
 #define IR_RX_BLOCK          768u
@@ -410,6 +416,10 @@ int ir_i2s_blast_blob_part(const uint8_t *blob, size_t blob_len, int part, uint8
 #define IR_RX_RECORD_US      400000u  /* recorded after the first light */
 #define IR_RX_QUIET_US       150000u  /* recording stops after this long without light */
 #define IR_RX_MAX_TIMINGS    600u
+/* learn (POST /api/capture): the whole press, as the stock capture keeps it */
+#define IR_RX_LEARN_QUIET_US    200000u   /* stock: 200 ms without light ends the capture */
+#define IR_RX_LEARN_RECORD_US   2000000u  /* a guard; the pair limit ends most long presses first */
+#define IR_RX_LEARN_MAX_TIMINGS 2046u     /* stock: 1023 mark/space pairs */
 
 static size_t ir_rx_bytes_for_us(unsigned long us) {
     return (size_t)(((unsigned long long)us * 1000u) / (IR_RX_SAMPLE_NS * 8u));
@@ -647,15 +657,20 @@ static void ir_rx_session_close(ir_rx_session_t *s) {
     s->chunk = NULL;
 }
 
+static int ir_rx_decode(const uint8_t *raw_buf, size_t raw_len, char *out, size_t outlen,
+                        uint32_t *measured_hz, int whole);
+
 /* Waits for light until deadline_ms, then records until IR_RX_QUIET_US without light or
- * IR_RX_RECORD_US after the first light, and decodes. stop (may be NULL) is asked before each
- * read; a 1 ends the wait or the recording. Returns 0 (out holds the raw string, *measured_hz
- * the carrier or 0), -5 no light before the deadline, -6 light that is not a code, -7 stalled,
- * -1 read error, -4 memory, -9 stopped. */
+ * IR_RX_RECORD_US after the first light, and decodes one frame. whole (the learn)
+ * records until IR_RX_LEARN_QUIET_US without light (IR_RX_LEARN_RECORD_US at most) and keeps
+ * every frame. stop (may be NULL) is asked before each read; a 1 ends the wait or the
+ * recording. Returns 0 (out holds the raw string, *measured_hz the carrier or 0), -5 no light
+ * before the deadline, -6 light that is not a code, -7 stalled, -1 read error, -4 memory, -9
+ * stopped. *saw_light (may be NULL) is 1 when light was recorded, also when it was stopped. */
 static int ir_rx_record(ir_rx_session_t *s, char *out, size_t outlen, uint32_t *measured_hz,
-                        long long deadline_ms, int (*stop)(void)) {
-    const size_t record_len = ir_rx_bytes_for_us(IR_RX_RECORD_US);
-    const size_t quiet_len = ir_rx_bytes_for_us(IR_RX_QUIET_US);
+                        long long deadline_ms, int (*stop)(void), int whole, int *saw_light) {
+    const size_t record_len = ir_rx_bytes_for_us(whole ? IR_RX_LEARN_RECORD_US : IR_RX_RECORD_US);
+    const size_t quiet_len = ir_rx_bytes_for_us(whole ? IR_RX_LEARN_QUIET_US : IR_RX_QUIET_US);
     const size_t cap = IR_RX_CHUNK_LEN + record_len + IR_RX_CHUNK_LEN;
     uint8_t *prev = (uint8_t *)malloc(IR_RX_CHUNK_LEN);
     uint8_t *raw_buf = (uint8_t *)malloc(cap);
@@ -705,9 +720,10 @@ static int ir_rx_record(ir_rx_session_t *s, char *out, size_t outlen, uint32_t *
         if (after_light >= record_len || since_light >= quiet_len || raw_len >= cap) break;
     }
     free(prev);
+    if (saw_light) *saw_light = active;
     if (rc == 0 && !active) rc = -5;
     if (rc == 0) {
-        rc = ir_i2s_decode_capture_ex(raw_buf, raw_len, out, outlen, measured_hz);
+        rc = ir_rx_decode(raw_buf, raw_len, out, outlen, measured_hz, whole);
     } else if (rc == -5) {
         snprintf(out, outlen, "No IR signal received: timeout waiting for remote button press");
     } else if (rc == -7) {
@@ -735,27 +751,83 @@ static int ir_rx_wait_quiet(ir_rx_session_t *s, int (*stop)(void)) {
     return 0;
 }
 
-/* ---- Capture mode (spec 3.14) and the one-shot capture exclude each other ---- */
+/* ---- The receiver thread: capture mode (spec 3.14) and learning (POST /api/capture) ----
+ *
+ * One thread owns the receive session. It runs while the capture mode is on, and for the length
+ * of a learn when the mode is off (started for the learn, stopped after it). Its states:
+ *   CAPTURE       records one frame per press; an ir_received event when the mode is on
+ *   LEARN_DRAIN   a learn was armed while the receiver already listened: reads until the line is
+ *                 quiet, so a press begun before the request is not learned
+ *   LEARN_LISTEN  records the whole press (ir_rx_record whole) for the learn, no event
+ *   DOWN          the session failed: reopens every 5 s; a learn asked meanwhile fails at once
+ *                 with the stored error
+ * A learn is a request record under s_rx_lock (IDLE, PENDING, ARMED, DONE) with a generation.
+ * The waiter (ir_i2s_capture, an HTTP worker) posts PENDING and sleeps on s_learn_wake; the
+ * thread arms it (ARMED, the only acknowledgement, with the deadline), records, and writes the
+ * result into the waiter's buffer under the lock only while the request is still ARMED with its
+ * generation (DONE). A waiter that gives up sets IDLE under the lock: from then on the thread
+ * never touches its buffer. Both ends are threads of one process, so nothing is lost on the way;
+ * the lock settles a result crossing a timeout.
+ */
 
 static pthread_mutex_t s_rx_lock = PTHREAD_MUTEX_INITIALIZER;
-static ir_wake_t s_mode_wake = { -1, -1 };  /* the mode thread reports its open and its end */
-static int s_mode_exited = 0;             /* under s_rx_lock: the mode thread has ended */
-static int s_oneshot_running = 0;
-static int s_mode_on = 0;                 /* the mode thread exists */
+static ir_wake_t s_mode_wake = { -1, -1 };  /* the thread reports its open and its end */
+static int s_mode_exited = 0;             /* under s_rx_lock: the thread has ended */
+static int s_thread_on = 0;               /* the receiver thread exists */
+static int s_events_on = 0;               /* the capture mode is on: reported as ir_capture */
 static volatile int s_mode_stop = 0;
 static int s_mode_open_rc = 1;            /* 1 = the thread has not reported its open yet */
 static char s_mode_open_err[160];
-static char s_mode_error[160];            /* last problem of a running mode, "" when fine */
+static char s_mode_error[160];            /* the receiver's last problem, "" when fine */
+static int s_rx_down = 0;                 /* the session is closed: waiting to reopen */
+static int s_rx_down_rc = 0;              /* why (an ir_rx_session_open or record code) */
 static pthread_t s_mode_thread;
 static ir_rx_signal_cb s_mode_cb = NULL;
 static void *s_mode_user = NULL;
 
-/* Sends (ir_i2s_blast_words) while the mode listens: the receiver sees the Hub's own blaster,
+/* Learn requests */
+enum { IR_LEARN_IDLE, IR_LEARN_PENDING, IR_LEARN_ARMED, IR_LEARN_DONE };
+/* The waiter gives up when the thread has not armed the request after this long (a stalled read
+ * is seen after 2 s, and the thread fails a request at once while the receiver is down) */
+#ifndef IR_LEARN_ARM_MS
+#define IR_LEARN_ARM_MS 3000
+#endif
+/* ... or has no result this long after the learn's deadline (a press that began just before the
+ * deadline records up to 2 s more) */
+#ifndef IR_LEARN_GRACE_MS
+#define IR_LEARN_GRACE_MS 5000
+#endif
+/* The thread's learn result: a whole press, up to 1023 mark/space pairs of about 6 characters */
+#define IR_LEARN_BUF_LEN 16384
+static struct {
+    int state;
+    unsigned gen;
+    unsigned timeout_ms;
+    long long deadline_ms;    /* set by the thread when it arms the request */
+    int drain;                /* the receiver was already listening: drain before recording */
+    char *out;                /* the waiter's buffer, written only while ARMED with gen */
+    size_t outlen;
+    int rc;
+} s_learn;
+static int s_learn_busy = 0;          /* under s_mode_set_lock and s_rx_lock: a learn runs */
+static unsigned s_learn_gen = 0;
+static volatile unsigned s_learn_want = 0;   /* gen of a PENDING or ARMED request, 0 for none */
+static ir_wake_t s_learn_wake = { -1, -1 };  /* thread -> waiter; opened once, never closed */
+static int s_rx_shutdown = 0;         /* ir_i2s_capture_shutdown() ran: no more learns */
+/* Only the receiver thread touches these */
+static unsigned s_cur_gen = 0;        /* the request being served, 0 for none */
+static long long s_cur_deadline = 0;
+static char s_learn_buf[IR_LEARN_BUF_LEN];
+
+/* Sends (ir_i2s_blast_words) while the thread listens: the receiver sees the Hub's own blaster,
  * and a send reprograms the shared I2S clock for its carrier (the receiver then samples at
- * ~2.1 us instead of 1.5 us until its clock is set again; measured on a Hub). The mode thread
- * drops what it reads during a send and IR_RX_TX_GUARD_MS after it, then sets its clock again. */
+ * ~2.1 us instead of 1.5 us until its clock is set again; measured on a Hub). The thread drops
+ * what it reads during a send and IR_RX_TX_GUARD_MS after it, then sets its clock again. Sends
+ * never wait for the receiver, also not during a learn. s_tx_count changes with every send, so
+ * a recording a send overlapped is found even when the send began and ended within one read. */
 #define IR_RX_TX_GUARD_MS 100
 static volatile int s_tx_active = 0;
+static volatile unsigned s_tx_count = 0;
 static volatile long long s_rx_discard_until_ms = 0;
 static volatile int s_rx_refreq = 0;
 /* A held key marks the whole hold (ir_i2s_tx_hold) around the marks of its frames: the receiver
@@ -766,6 +838,7 @@ static int s_tx_depth = 0;
 static void ir_rx_tx_begin(void) {
     pthread_mutex_lock(&s_tx_mark_lock);
     s_tx_depth++;
+    s_tx_count++;
     s_tx_active = 1;
     pthread_mutex_unlock(&s_tx_mark_lock);
 }
@@ -785,8 +858,19 @@ void ir_i2s_tx_hold(int on) {
     else ir_rx_tx_end();
 }
 
+/* Capture: a send, a stop, or a learn waiting to be armed ends the wait or the recording */
 static int ir_mode_should_stop(void) {
-    return s_mode_stop || s_tx_active;
+    return s_mode_stop || s_tx_active || (s_learn_want != 0 && s_cur_gen == 0);
+}
+
+/* Learn: a send, a stop, or the waiter gave up */
+static int ir_learn_should_stop(void) {
+    return s_mode_stop || s_tx_active || s_learn_want != s_cur_gen;
+}
+
+/* Learn drain: as above, and the learn's deadline */
+static int ir_learn_drain_should_stop(void) {
+    return ir_learn_should_stop() || ir_rx_now_ms() >= s_cur_deadline;
 }
 
 static ir_capture_state_cb s_state_cb = NULL;
@@ -808,14 +892,96 @@ static void ir_mode_notify(void) {
     if (cb) cb(user);
 }
 
+/* Stores the receiver's problem ("" when fine); a change is reported only while the capture
+ * mode is on (a thread started for a learn reports nothing) */
 static void ir_mode_set_error(const char *msg) {
     if (!msg) msg = "";
     pthread_mutex_lock(&s_rx_lock);
     int changed = strncmp(s_mode_error, msg, sizeof(s_mode_error) - 1) != 0;
     snprintf(s_mode_error, sizeof(s_mode_error), "%s", msg);
-    int on = s_mode_on;
+    int on = s_events_on;
     pthread_mutex_unlock(&s_rx_lock);
     if (changed && on) ir_mode_notify();
+}
+
+/* Thread: arms a PENDING request (its deadline starts now) and wakes the waiter. Returns 1 when
+ * one was armed; *drain tells whether to drain first. */
+static int ir_learn_take(int *drain_out) {
+    int took = 0;
+    pthread_mutex_lock(&s_rx_lock);
+    if (s_learn.state == IR_LEARN_PENDING && s_learn.gen == s_learn_want) {
+        s_learn.state = IR_LEARN_ARMED;
+        s_learn.deadline_ms = ir_rx_now_ms() + s_learn.timeout_ms;
+        s_cur_gen = s_learn.gen;
+        s_cur_deadline = s_learn.deadline_ms;
+        took = 1;
+    }
+    int drain = s_learn.drain;
+    unsigned ms = s_learn.timeout_ms;
+    pthread_mutex_unlock(&s_rx_lock);
+    *drain_out = drain;
+    if (took) {
+        ir_wake_signal(&s_learn_wake);
+        fprintf(stderr, "[*] IR receiver: learn armed (%u ms%s)\n", ms, drain ? ", draining first" : "");
+    }
+    return took;
+}
+
+/* Thread: the result of the request being served (rc, and the raw string or the message in
+ * s_learn_buf) into the waiter's buffer, if the waiter still waits for this request */
+static void ir_learn_finish(int rc) {
+    pthread_mutex_lock(&s_rx_lock);
+    int delivered = 0;
+    if (s_learn.state == IR_LEARN_ARMED && s_learn.gen == s_cur_gen && s_cur_gen != 0) {
+        size_t n = strlen(s_learn_buf);
+        if (n < s_learn.outlen) {
+            memcpy(s_learn.out, s_learn_buf, n + 1);
+            s_learn.rc = rc;
+        } else {
+            snprintf(s_learn.out, s_learn.outlen, "Captured signal too long for the output buffer");
+            s_learn.rc = -1;
+        }
+        s_learn.state = IR_LEARN_DONE;
+        s_learn_want = 0;
+        delivered = 1;
+    }
+    pthread_mutex_unlock(&s_rx_lock);
+    if (delivered) {
+        ir_wake_signal(&s_learn_wake);
+        fprintf(stderr, "[*] IR receiver: learn done (rc %d)\n", rc);
+    }
+    s_cur_gen = 0;
+}
+
+/* Thread, receiver DOWN: a learn asked meanwhile fails at once with the stored error */
+static void ir_learn_fail_pending(void) {
+    pthread_mutex_lock(&s_rx_lock);
+    int failed = 0;
+    if (s_learn.state == IR_LEARN_PENDING && s_learn.gen == s_learn_want) {
+        snprintf(s_learn.out, s_learn.outlen, "%s", s_mode_error[0] ? s_mode_error : "IR receiver not available");
+        s_learn.rc = s_rx_down_rc ? s_rx_down_rc : -7;
+        s_learn.state = IR_LEARN_DONE;
+        s_learn_want = 0;
+        failed = 1;
+    }
+    pthread_mutex_unlock(&s_rx_lock);
+    if (failed) ir_wake_signal(&s_learn_wake);
+}
+
+static void ir_rx_set_down(int rc) {
+    pthread_mutex_lock(&s_rx_lock);
+    s_rx_down = rc != 0;
+    s_rx_down_rc = rc;
+    pthread_mutex_unlock(&s_rx_lock);
+}
+
+/* Thread: sleeps 5 s before the receiver is opened again, failing learns asked meanwhile */
+static void ir_rx_down_sleep(void) {
+    for (int i = 0; i < 50 && !s_mode_stop; i++) {
+        ir_learn_fail_pending();
+        usleep(100000);
+    }
+    ir_learn_fail_pending();
 }
 
 static void ir_mode_run(void) {
@@ -832,17 +998,40 @@ static void ir_mode_run(void) {
             pthread_mutex_unlock(&s_rx_lock);
             ir_wake_signal(&s_mode_wake);
             first = 0;
-            if (orc != 0) return;   /* the enable request reports it */
+            if (orc != 0) return;   /* the request that started the thread reports it */
         }
         if (orc != 0) {
             ir_mode_set_error(err);
-            for (int i = 0; i < 50 && !s_mode_stop; i++) usleep(100000);   /* retry in 5 s */
+            ir_rx_set_down(orc);
+            fprintf(stderr, "[!] IR receiver: down (%s), reopening in 5 s\n", err);
+            ir_rx_down_sleep();
             continue;
         }
         ir_mode_set_error("");
-        fprintf(stderr, "[*] IR: capture mode listening\n");
+        ir_rx_set_down(0);
+        fprintf(stderr, "[*] IR receiver: listening\n");
         int rc = 0;
+        int drained = 1;      /* learn: the line was quiet after the request */
+        int tx_lost = 0;      /* learn: a send overlapped a recording, which was not kept */
         while (!s_mode_stop) {
+            /* a learn waiting to be armed, a learn given up, a learn past its deadline */
+            int drain = 0;
+            if (s_cur_gen == 0 && s_learn_want != 0 && ir_learn_take(&drain)) {
+                drained = !drain;
+                tx_lost = 0;
+            }
+            if (s_cur_gen != 0 && s_learn_want != s_cur_gen) {
+                fprintf(stderr, "[*] IR receiver: learn given up by the waiter\n");
+                s_cur_gen = 0;
+            }
+            if (s_cur_gen != 0 && ir_rx_now_ms() >= s_cur_deadline) {
+                snprintf(s_learn_buf, sizeof(s_learn_buf), "%s", tx_lost
+                         ? "No IR signal received: a press made while the Hub was sending IR was not kept; press the button again"
+                         : "No IR signal received: timeout waiting for remote button press");
+                ir_learn_finish(-5);
+                continue;
+            }
+            unsigned tx_seen = s_tx_count;
             if (s_tx_active || ir_rx_now_ms() < s_rx_discard_until_ms) {
                 if (!s_tx_active && s_rx_refreq) {
                     ioctl(s.fd, I2S_FREQ, I2S_FREQ_CAP);   /* the send left its own clock */
@@ -851,6 +1040,7 @@ static void ir_mode_run(void) {
                 ssize_t n = ir_rx_session_read(&s);   /* dropped: our own blaster */
                 if (n == -7 || n < 0) { rc = (int)n; break; }
                 if (n == 0) usleep(2000);
+                drained = s_cur_gen == 0;   /* a press that overlapped the send is drained too */
                 continue;
             }
             if (s_rx_refreq) {
@@ -858,11 +1048,50 @@ static void ir_mode_run(void) {
                 s_rx_refreq = 0;
             }
             uint32_t hz = 0;
-            rc = ir_rx_record(&s, out, sizeof(out), &hz, ir_rx_now_ms() + 1000, ir_mode_should_stop);
+            if (s_cur_gen != 0) {
+                if (!drained) {   /* LEARN_DRAIN */
+                    rc = ir_rx_wait_quiet(&s, ir_learn_drain_should_stop);
+                    if (rc == -7 || rc == -1) break;
+                    if (rc == 0) {
+                        drained = 1;
+                        fprintf(stderr, "[*] IR receiver: learn listening\n");
+                    }
+                    rc = 0;
+                    continue;
+                }
+                int lit = 0;      /* LEARN_LISTEN */
+                rc = ir_rx_record(&s, s_learn_buf, sizeof(s_learn_buf), &hz, s_cur_deadline,
+                                  ir_learn_should_stop, 1, &lit);
+                if (rc == -9 || ((rc == 0 || rc == -6) && s_tx_count != tx_seen)) {
+                    /* a send overlapped the press: not kept, the learn goes on */
+                    if (lit && (s_tx_active || s_tx_count != tx_seen)) {
+                        tx_lost = 1;
+                        drained = 0;
+                        fprintf(stderr, "[*] IR receiver: a press during a send was not kept\n");
+                    }
+                    rc = 0;
+                    continue;
+                }
+                if (rc == -5 && tx_lost) {
+                    snprintf(s_learn_buf, sizeof(s_learn_buf), "%s",
+                             "No IR signal received: a press made while the Hub was sending IR was not kept; press the button again");
+                }
+                ir_learn_finish(rc);
+                if (rc == -7 || rc == -1 || rc == -4) break;
+                if (rc == 0 || rc == -6) {
+                    /* the rest of a held key is not an event */
+                    rc = ir_rx_wait_quiet(&s, ir_mode_should_stop);
+                    if (rc == -7 || rc == -1) break;
+                }
+                rc = 0;
+                continue;
+            }
+            /* CAPTURE */
+            rc = ir_rx_record(&s, out, sizeof(out), &hz, ir_rx_now_ms() + 1000, ir_mode_should_stop, 0, NULL);
             if (rc == 0) {
                 /* the listener pair is replaced under the lock: take both together */
                 pthread_mutex_lock(&s_rx_lock);
-                ir_rx_signal_cb cb = s_mode_cb;
+                ir_rx_signal_cb cb = s_events_on ? s_mode_cb : NULL;
                 void *user = s_mode_user;
                 pthread_mutex_unlock(&s_rx_lock);
                 if (cb) cb(out, hz, user);
@@ -871,19 +1100,30 @@ static void ir_mode_run(void) {
                 rc = ir_rx_wait_quiet(&s, ir_mode_should_stop);
             }
             if (rc == -7 || rc == -1 || rc == -4) break;
-            rc = 0;   /* -5 (nothing yet) and -9 (a send or stop) just go round */
+            rc = 0;   /* -5 (nothing yet) and -9 (a send, a learn or a stop) just go round */
         }
         ir_rx_session_close(&s);
-        if (rc == -7) {
-            ir_mode_set_error("IR receiver stopped delivering data (DMA stalled); reboot the Hub if it does not recover");
-        } else if (rc == -1 || rc == -4) {
-            ir_mode_set_error("IR receiver read failed");
-        }
         if (rc != 0 && !s_mode_stop) {
-            for (int i = 0; i < 50 && !s_mode_stop; i++) usleep(100000);   /* reopen in 5 s */
+            const char *msg = rc == -7
+                ? "IR receiver stopped delivering data (DMA stalled); reboot the Hub if it does not recover"
+                : "IR receiver read failed";
+            if (s_cur_gen != 0) {   /* the learn being served fails with it */
+                snprintf(s_learn_buf, sizeof(s_learn_buf), "%s", rc == -7
+                         ? "IR receiver stopped delivering data; try again, and reboot the Hub if it keeps failing"
+                         : msg);
+                ir_learn_finish(rc == -7 ? -7 : rc == -4 ? -4 : -1);
+            }
+            ir_mode_set_error(msg);
+            ir_rx_set_down(rc == -7 ? -7 : -1);
+            fprintf(stderr, "[!] IR receiver: down (%s), reopening in 5 s\n", msg);
+            ir_rx_down_sleep();
         }
     }
-    fprintf(stderr, "[*] IR: capture mode stopped\n");
+    if (s_cur_gen != 0) {
+        snprintf(s_learn_buf, sizeof(s_learn_buf), "IR capture stopped");
+        ir_learn_finish(-9);
+    }
+    fprintf(stderr, "[*] IR receiver: stopped\n");
 }
 
 static void *ir_mode_thread(void *arg) {
@@ -897,7 +1137,7 @@ static void *ir_mode_thread(void *arg) {
     return NULL;
 }
 
-/* s_rx_lock held; returns with it held. Waits for the mode thread to end (a read returns within
+/* s_rx_lock held; returns with it held. Waits for the thread to end (a read returns within
  * ~10 ms, a stalled one within 3 s), then lets it go and closes the wake pipe. */
 static void ir_mode_wait_exit_locked(pthread_t t) {
     while (!s_mode_exited) {
@@ -909,39 +1149,17 @@ static void ir_mode_wait_exit_locked(pthread_t t) {
     ir_wake_close(&s_mode_wake);
 }
 
-static int capture_mode_set(int enable, ir_rx_signal_cb cb, void *user, char *err, size_t errlen) {
-    if (err && errlen) err[0] = '\0';
-    pthread_mutex_lock(&s_rx_lock);
-    if (!enable) {
-        if (!s_mode_on) {
-            pthread_mutex_unlock(&s_rx_lock);
-            return 0;
-        }
-        s_mode_stop = 1;
-        ir_mode_wait_exit_locked(s_mode_thread);
-        s_mode_on = 0;
-        s_mode_error[0] = '\0';
-        pthread_mutex_unlock(&s_rx_lock);
-        ir_mode_notify();
-        return 0;
-    }
-    if (s_mode_on) {
-        s_mode_cb = cb;
-        s_mode_user = user;
-        pthread_mutex_unlock(&s_rx_lock);
-        return 0;
-    }
-    if (s_oneshot_running) {
-        pthread_mutex_unlock(&s_rx_lock);
-        if (err) snprintf(err, errlen, "An IR capture is running");
-        return -EBUSY;
-    }
-    s_mode_cb = cb;
-    s_mode_user = user;
+/* s_mode_set_lock and s_rx_lock held, the thread not running. Starts it and waits for its open:
+ * 0, or the open's code (-2 no receiver, -3 setup, -4 memory or no thread, -7 a stalled session
+ * has not closed) with a message in err. */
+static int ir_thread_start_locked(char *err, size_t errlen) {
     s_mode_stop = 0;
     s_mode_open_rc = 1;
     s_mode_error[0] = '\0';
+    s_rx_down = 0;
+    s_rx_down_rc = 0;
     s_mode_exited = 0;
+    s_cur_gen = 0;
     ir_wake_open(&s_mode_wake);
     pthread_attr_t mode_attr;
     pthread_attr_init(&mode_attr);
@@ -950,7 +1168,6 @@ static int capture_mode_set(int enable, ir_rx_signal_cb cb, void *user, char *er
     pthread_attr_destroy(&mode_attr);
     if (mode_th_rc != 0) {
         ir_wake_close(&s_mode_wake);
-        pthread_mutex_unlock(&s_rx_lock);
         if (err) snprintf(err, errlen, "Could not start the capture thread");
         return -4;
     }
@@ -963,22 +1180,71 @@ static int capture_mode_set(int enable, ir_rx_signal_cb cb, void *user, char *er
     if (rc != 0) {
         if (err) snprintf(err, errlen, "%s", s_mode_open_err);
         ir_mode_wait_exit_locked(s_mode_thread);   /* it ends right after reporting the error */
-        pthread_mutex_unlock(&s_rx_lock);
         return rc;
     }
-    s_mode_on = 1;
+    s_thread_on = 1;
+    return 0;
+}
+
+/* s_mode_set_lock and s_rx_lock held. Stops the thread and waits for it. */
+static void ir_thread_stop_locked(void) {
+    if (!s_thread_on) return;
+    s_mode_stop = 1;
+    ir_mode_wait_exit_locked(s_mode_thread);
+    s_thread_on = 0;
+    s_mode_error[0] = '\0';
+    s_rx_down = 0;
+    s_rx_down_rc = 0;
+}
+
+/* Requests that start or stop the thread run one after the other (HTTP workers, the main loop,
+ * shutdown, the end of a learn). A stop drops s_rx_lock while it waits for the thread: a start
+ * asked meanwhile saw the thread still there and returned, then the stop marked it gone, and two
+ * stops waited for the same thread. Taken with trylock and short sleeps: a contended mutex wait
+ * spins on the Hub (no futex), and a holder can keep it for up to 3 s (a stalled read). */
+static pthread_mutex_t s_mode_set_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static void ir_mode_set_lock(void) {
+    while (pthread_mutex_trylock(&s_mode_set_lock) != 0) usleep(2000);
+}
+
+static int capture_mode_set(int enable, ir_rx_signal_cb cb, void *user, char *err, size_t errlen) {
+    if (err && errlen) err[0] = '\0';
+    pthread_mutex_lock(&s_rx_lock);
+    if (!enable) {
+        if (!s_events_on) {
+            pthread_mutex_unlock(&s_rx_lock);
+            return 0;
+        }
+        s_events_on = 0;
+        /* during a learn the thread goes on and the learn stops it at its end: the caller (the
+         * main loop) does not wait for the learn */
+        if (!s_learn_busy) ir_thread_stop_locked();
+        pthread_mutex_unlock(&s_rx_lock);
+        ir_mode_notify();
+        return 0;
+    }
+    s_mode_cb = cb;
+    s_mode_user = user;
+    if (s_events_on) {
+        pthread_mutex_unlock(&s_rx_lock);
+        return 0;
+    }
+    if (!s_thread_on) {
+        int rc = ir_thread_start_locked(err, errlen);
+        if (rc != 0) {
+            pthread_mutex_unlock(&s_rx_lock);
+            return rc;
+        }
+    }
+    s_events_on = 1;   /* a thread already running for a learn goes on as the capture mode */
     pthread_mutex_unlock(&s_rx_lock);
     ir_mode_notify();
     return 0;
 }
 
-/* Requests to change the mode run one after the other (HTTP workers, the main loop, shutdown).
- * A stop drops s_rx_lock while it waits for the thread: a start asked meanwhile saw the mode
- * still on and returned, then the stop marked it off, and two stops joined the same thread. */
-static pthread_mutex_t s_mode_set_lock = PTHREAD_MUTEX_INITIALIZER;
-
 int ir_i2s_capture_mode_set(int enable, ir_rx_signal_cb cb, void *user, char *err, size_t errlen) {
-    pthread_mutex_lock(&s_mode_set_lock);
+    ir_mode_set_lock();
     int rc = capture_mode_set(enable, cb, user, err, errlen);
     pthread_mutex_unlock(&s_mode_set_lock);
     return rc;
@@ -986,53 +1252,136 @@ int ir_i2s_capture_mode_set(int enable, ir_rx_signal_cb cb, void *user, char *er
 
 int ir_i2s_capture_mode_enabled(void) {
     pthread_mutex_lock(&s_rx_lock);
-    int on = s_mode_on;
+    int on = s_events_on;
     pthread_mutex_unlock(&s_rx_lock);
     return on;
 }
 
 int ir_i2s_capture_mode_error(char *buf, size_t len) {
     pthread_mutex_lock(&s_rx_lock);
-    int has = s_mode_on && s_mode_error[0];
+    int has = s_events_on && s_mode_error[0];
     if (buf && len) snprintf(buf, len, "%s", has ? s_mode_error : "");
     pthread_mutex_unlock(&s_rx_lock);
     return has;
 }
 
-int ir_i2s_capture(char *out, size_t outlen, unsigned int timeout_sec) {
+void ir_i2s_capture_shutdown(void) {
+    ir_mode_set_lock();
+    pthread_mutex_lock(&s_rx_lock);
+    s_rx_shutdown = 1;
+    if (s_learn.state == IR_LEARN_PENDING || s_learn.state == IR_LEARN_ARMED) {
+        snprintf(s_learn.out, s_learn.outlen, "The Hub is shutting down");
+        s_learn.rc = -9;
+        s_learn.state = IR_LEARN_DONE;
+        s_learn_want = 0;
+        ir_wake_signal(&s_learn_wake);
+    }
+    int was_on = s_events_on;
+    s_events_on = 0;
+    ir_thread_stop_locked();
+    pthread_mutex_unlock(&s_rx_lock);
+    pthread_mutex_unlock(&s_mode_set_lock);
+    if (was_on) ir_mode_notify();
+}
+
+int ir_i2s_capture_ms(char *out, size_t outlen, unsigned int timeout_ms) {
     if (!out || outlen < 32) return -1;
     out[0] = '\0';
-    if (timeout_sec == 0) timeout_sec = 5;
+    if (timeout_ms == 0) timeout_ms = 5000;
 
+    /* post the request, and start the thread for it when the capture mode is off */
+    ir_mode_set_lock();
     pthread_mutex_lock(&s_rx_lock);
-    if (s_mode_on) {
+    if (s_rx_shutdown) {
         pthread_mutex_unlock(&s_rx_lock);
-        snprintf(out, outlen, "IR capture mode is on: learned signals arrive as ir_received events");
-        return -11;
+        pthread_mutex_unlock(&s_mode_set_lock);
+        snprintf(out, outlen, "The Hub is shutting down");
+        return -9;
     }
-    s_oneshot_running = 1;
-    pthread_mutex_unlock(&s_rx_lock);
-
-    int lock_fd = i2s_lock_acquire();
-    if (lock_fd < 0) {
-        snprintf(out, outlen, "I2S hardware is busy (locked)");
-        pthread_mutex_lock(&s_rx_lock);
-        s_oneshot_running = 0;
+    if (s_learn_busy) {
         pthread_mutex_unlock(&s_rx_lock);
+        pthread_mutex_unlock(&s_mode_set_lock);
+        snprintf(out, outlen, "An IR capture is already running");
         return -EBUSY;
     }
-    ir_rx_session_t s;
-    int rc = ir_rx_session_open(&s, out, outlen);
-    if (rc == 0) {
-        uint32_t hz = 0;
-        rc = ir_rx_record(&s, out, outlen, &hz, ir_rx_now_ms() + (long long)timeout_sec * 1000, NULL);
-        ir_rx_session_close(&s);
+    if (s_thread_on && s_rx_down) {   /* DOWN: fails at once with the stored error */
+        int rc = s_rx_down_rc ? s_rx_down_rc : -7;
+        snprintf(out, outlen, "%s", s_mode_error[0] ? s_mode_error : "IR receiver not available");
+        pthread_mutex_unlock(&s_rx_lock);
+        pthread_mutex_unlock(&s_mode_set_lock);
+        return rc;
     }
-    i2s_lock_release(lock_fd);
-    pthread_mutex_lock(&s_rx_lock);
-    s_oneshot_running = 0;
+    if (s_learn_wake.rd < 0) ir_wake_open(&s_learn_wake);
+    ir_wake_wait(&s_learn_wake, 0);   /* a stale wake of an earlier learn */
+    if (++s_learn_gen == 0) s_learn_gen = 1;
+    s_learn.state = IR_LEARN_PENDING;
+    s_learn.gen = s_learn_gen;
+    s_learn.timeout_ms = timeout_ms;
+    s_learn.deadline_ms = 0;
+    s_learn.drain = s_thread_on;   /* a fresh session has seen nothing from before the request */
+    s_learn.out = out;
+    s_learn.outlen = outlen;
+    s_learn.rc = 0;
+    s_learn_want = s_learn.gen;
+    s_learn_busy = 1;
+    if (!s_thread_on) {
+        /* posted first: the new thread arms it before its first read */
+        int rc = ir_thread_start_locked(out, outlen);
+        if (rc != 0) {
+            s_learn.state = IR_LEARN_IDLE;
+            s_learn_want = 0;
+            s_learn_busy = 0;
+            pthread_mutex_unlock(&s_rx_lock);
+            pthread_mutex_unlock(&s_mode_set_lock);
+            return rc;
+        }
+    }
     pthread_mutex_unlock(&s_rx_lock);
+    pthread_mutex_unlock(&s_mode_set_lock);
+
+    /* wait: armed within IR_LEARN_ARM_MS, a result within the deadline + IR_LEARN_GRACE_MS */
+    long long arm_by = ir_rx_now_ms() + IR_LEARN_ARM_MS;
+    int rc;
+    while (1) {
+        pthread_mutex_lock(&s_rx_lock);
+        if (s_learn.state == IR_LEARN_DONE) {
+            rc = s_learn.rc;
+            s_learn.state = IR_LEARN_IDLE;
+            pthread_mutex_unlock(&s_rx_lock);
+            break;
+        }
+        int armed = s_learn.state == IR_LEARN_ARMED;
+        long long limit = armed ? s_learn.deadline_ms + IR_LEARN_GRACE_MS : arm_by;
+        long long now = ir_rx_now_ms();
+        if (now >= limit) {
+            s_learn.state = IR_LEARN_IDLE;   /* from here on the thread leaves out alone */
+            s_learn_want = 0;
+            pthread_mutex_unlock(&s_rx_lock);
+            snprintf(out, outlen, armed ? "IR receiver did not finish the capture; reboot the Hub if it keeps failing"
+                                        : "IR receiver did not take the capture; reboot the Hub if it keeps failing");
+            fprintf(stderr, "[!] IR receiver: learn %s\n", armed ? "result overdue" : "not armed");
+            rc = -7;
+            break;
+        }
+        pthread_mutex_unlock(&s_rx_lock);
+        long long wait = limit - now;
+        /* no wake is lost: one sent after the check above stays in the pipe */
+        ir_wake_wait(&s_learn_wake, wait > 1000 ? 1000 : (int)wait);
+    }
+
+    /* the end of the learn: a thread the capture mode does not need stops */
+    ir_mode_set_lock();
+    pthread_mutex_lock(&s_rx_lock);
+    s_learn_busy = 0;
+    if (!s_events_on) ir_thread_stop_locked();
+    pthread_mutex_unlock(&s_rx_lock);
+    pthread_mutex_unlock(&s_mode_set_lock);
     return rc;
+}
+
+int ir_i2s_capture(char *out, size_t outlen, unsigned int timeout_sec) {
+    if (timeout_sec == 0) timeout_sec = 5;
+    return ir_i2s_capture_ms(out, outlen, timeout_sec * 1000u);
 }
 
 static inline int ir_rx_light(const uint8_t *raw_buf, size_t bit) {
@@ -1050,12 +1399,24 @@ int ir_i2s_decode_capture(const uint8_t *raw_buf, size_t raw_len, char *out, siz
 }
 
 int ir_i2s_decode_capture_ex(const uint8_t *raw_buf, size_t raw_len, char *out, size_t outlen, uint32_t *measured_hz) {
+    return ir_rx_decode(raw_buf, raw_len, out, outlen, measured_hz, 0);
+}
+
+int ir_i2s_decode_capture_press(const uint8_t *raw_buf, size_t raw_len, char *out, size_t outlen, uint32_t *measured_hz) {
+    return ir_rx_decode(raw_buf, raw_len, out, outlen, measured_hz, 1);
+}
+
+/* whole 0: one frame (the capture mode's events). whole 1: every frame of the press (the
+ * learn), up to IR_RX_LEARN_MAX_TIMINGS. */
+static int ir_rx_decode(const uint8_t *raw_buf, size_t raw_len, char *out, size_t outlen,
+                        uint32_t *measured_hz, int whole) {
     if (measured_hz) *measured_hz = 0;
     if (!raw_buf || raw_len < 2 || !out || outlen < 32) return -1;
     out[0] = '\0';
     raw_len &= ~(size_t)1;   /* whole 16-bit samples */
 
-    uint32_t *t = (uint32_t *)malloc(IR_RX_MAX_TIMINGS * sizeof(uint32_t));
+    const size_t max_t = whole ? IR_RX_LEARN_MAX_TIMINGS : IR_RX_MAX_TIMINGS;
+    uint32_t *t = (uint32_t *)malloc(max_t * sizeof(uint32_t));
     if (!t) {
         snprintf(out, outlen, "Out of memory allocating timing buffer");
         return -4;
@@ -1071,7 +1432,8 @@ int ir_i2s_decode_capture_ex(const uint8_t *raw_buf, size_t raw_len, char *out, 
     unsigned long long on_sum = 0;
     unsigned long on_n = 0;
     int prev = 0;
-    for (size_t i = 0; i < bits && n + 2 < IR_RX_MAX_TIMINGS; i++) {
+    size_t i = 0;
+    for (; i < bits && n + 2 < max_t; i++) {
         int v = ir_rx_light(raw_buf, i);
         if (v) {
             if (!in_signal) {
@@ -1103,33 +1465,57 @@ int ir_i2s_decode_capture_ex(const uint8_t *raw_buf, size_t raw_len, char *out, 
         return -5;
     }
     t[n++] = (uint32_t)(last_light + 1 - burst_start);
-    /* the quiet tail after the last burst */
-    size_t tail = bits - last_light - 1;
+    /* the quiet tail after the last burst; none when the timing buffer filled up first */
+    size_t tail = (i < bits) ? 0 : bits - last_light - 1;
 
-    /* Frames end at a space of 20 ms or more. Keep the first complete frame after
-     * a frame gap; with a single frame keep that one. */
+    /* Frames end at a space of 20 ms or more. */
     size_t frame_samples = (size_t)((unsigned long long)IR_RX_FRAME_GAP_US * 1000u / IR_RX_SAMPLE_NS);
     size_t f_start = 0, f_end = n;   /* [f_start, f_end) timings, f_end at a mark */
     size_t first_gap = n;
     for (size_t k = 1; k < n; k += 2) {
         if (t[k] >= frame_samples) { first_gap = k; break; }
     }
+    size_t second_gap = n;
     if (first_gap < n) {
-        size_t second_gap = n;
         for (size_t k = first_gap + 2; k < n; k += 2) {
             if (t[k] >= frame_samples) { second_gap = k; break; }
         }
-        if (second_gap < n || tail >= frame_samples) {
-            f_start = first_gap + 1;
-            f_end = second_gap;
-        } else {
-            f_end = first_gap;
-        }
     }
-    /* trailing space: the measured frame gap, else a default */
     uint32_t gap_us = IR_RX_DEFAULT_GAP_US;
-    if (f_end < n) gap_us = ir_rx_us(t[f_end]);
-    else if (first_gap < n) gap_us = ir_rx_us(t[first_gap]);
+    if (whole) {
+        /* Every frame of the press. A first frame shorter than the next one is a copy the
+         * sensor cut; an NEC frame followed by its short repeat codes is longer and stays. */
+        if (first_gap < n && first_gap < (second_gap < n ? second_gap : n) - (first_gap + 1))
+            f_start = first_gap + 1;
+        /* A recording that ended without quiet (a limit) cut its last frame: drop it when an
+         * earlier frame stays. */
+        size_t last_gap = n;
+        for (size_t k = f_start + 1; k < n; k += 2) {
+            if (t[k] >= frame_samples) last_gap = k;
+        }
+        if (tail < frame_samples && last_gap < n) f_end = last_gap;
+        /* trailing space: the gap after the last frame kept, else the last gap inside, else a default */
+        if (f_end < n) {
+            gap_us = ir_rx_us(t[f_end]);
+        } else {
+            for (size_t k = f_start + 1; k < f_end; k += 2) {
+                if (t[k] >= frame_samples) gap_us = ir_rx_us(t[k]);
+            }
+        }
+    } else {
+        /* Keep the first complete frame after a frame gap; with a single frame keep that one. */
+        if (first_gap < n) {
+            if (second_gap < n || tail >= frame_samples) {
+                f_start = first_gap + 1;
+                f_end = second_gap;
+            } else {
+                f_end = first_gap;
+            }
+        }
+        /* trailing space: the measured frame gap, else a default */
+        if (f_end < n) gap_us = ir_rx_us(t[f_end]);
+        else if (first_gap < n) gap_us = ir_rx_us(t[first_gap]);
+    }
     if (gap_us > IR_RX_MAX_GAP_US) gap_us = IR_RX_MAX_GAP_US;
     if (gap_us < IR_RX_FRAME_GAP_US) gap_us = IR_RX_FRAME_GAP_US;
 

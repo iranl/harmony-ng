@@ -71,14 +71,21 @@ int ir_i2s_blast_words(uint32_t carrier_hz, uint8_t duty,
                        uint8_t port_mask);
 
 /**
- * Capture an incoming IR signal from /dev/i2s (RX ring).
+ * Learn one IR press from the Hub's receiver (POST /api/capture): the whole press, every frame.
+ * The receiver thread records it, also while the capture mode is on (no ir_received event for
+ * the learned press); when the mode is off the thread runs for the learn only. Hub IR sends go
+ * out at once meanwhile, and a press that overlaps a send is not kept. One learn at a time.
  *
- * @param out Buffer to receive the captured raw timing string (F9470P...S...)
- * @param outlen Size of out buffer in bytes
+ * @param out Buffer to receive the captured raw timing string (F9470P...S...), or a message
+ * @param outlen Size of out buffer in bytes (a whole press needs up to 16 KB)
  * @param timeout_sec Maximum seconds to wait for IR remote activity
- * @return 0 on success, negative error code on timeout/failure
+ * @return 0 on success; -5 or -6 nothing learned before the timeout (no light, or light that is
+ *         not a code); -EBUSY another learn runs; -2, -3 or -7 no working receiver (also when
+ *         it stalls); -9 the Hub is shutting down; -4 or -1 other failures
  */
 int ir_i2s_capture(char *out, size_t outlen, unsigned int timeout_sec);
+/* As ir_i2s_capture, the timeout in milliseconds */
+int ir_i2s_capture_ms(char *out, size_t outlen, unsigned int timeout_ms);
 
 int ir_i2s_init(void);
 void ir_i2s_shutdown(void);
@@ -87,20 +94,32 @@ int ir_i2s_decode_capture(const uint8_t *raw_buf, size_t raw_len, char *out, siz
  * few carrier pulses to measure (the string then says 38 kHz). */
 int ir_i2s_decode_capture_ex(const uint8_t *raw_buf, size_t raw_len, char *out, size_t outlen,
                              uint32_t *measured_hz);
+/* As ir_i2s_decode_capture_ex, but keeps every frame of the press, as ir_i2s_capture() (the
+ * learn) does: a first frame shorter than the next one is dropped (the sensor cut it),
+ * and so is a last frame without quiet after it (the recording limit cut it). */
+int ir_i2s_decode_capture_press(const uint8_t *raw_buf, size_t raw_len, char *out, size_t outlen,
+                                uint32_t *measured_hz);
 
 /*
- * Capture mode (Home Assistant spec 3.14): a thread keeps the receiver open and calls cb once
- * per button press with the decoded raw string (F...P...S...) and the measured carrier (0 when
- * not measurable). Sends keep working: the thread drops what it reads during a send and resets
- * the receive clock after it. The one-shot ir_i2s_capture() answers -11 while the mode is on.
- * cb runs on the capture thread.
+ * Capture mode (Home Assistant spec 3.14): the receiver thread keeps the receiver open and calls
+ * cb once per button press with the decoded raw string (F...P...S...) and the measured carrier
+ * (0 when not measurable). Sends keep working: the thread drops what it reads during a send and
+ * resets the receive clock after it. A learn (ir_i2s_capture) works while the mode is on: the
+ * thread records the learned press for it and calls cb for nothing meanwhile. cb runs on the
+ * receiver thread.
  */
 typedef void (*ir_rx_signal_cb)(const char *raw, uint32_t measured_hz, void *user);
 
-/* enable 1: starts listening (or updates cb when already on); returns 0, -EBUSY (a one-shot
- * capture runs), -2 (no receiver), -3 (setup failed), -4 or -7 (a stalled session has not
- * closed), with a message in err. enable 0: stops and waits for the thread; returns 0. */
+/* enable 1: starts listening (or updates cb when already on; a thread running for a learn goes
+ * on as the mode); returns 0, -2 (no receiver), -3 (setup failed), -4 or -7 (a stalled session
+ * has not closed), with a message in err. enable 0: returns 0; stops and waits for the thread,
+ * except during a learn, which stops it at its end (the call returns at once). */
 int ir_i2s_capture_mode_set(int enable, ir_rx_signal_cb cb, void *user, char *err, size_t errlen);
+/* Hub shutdown: fails a learn in progress (its waiter returns -9), turns the mode off, stops the
+ * thread and waits for it, and refuses later learns */
+void ir_i2s_capture_shutdown(void);
+/* 1 while the capture mode is on (what the Hub reports as ir_capture; a thread running only for
+ * a learn does not count) */
 int ir_i2s_capture_mode_enabled(void);
 /* 1 and the message when the running mode has a problem (receiver stalled or failing) */
 int ir_i2s_capture_mode_error(char *buf, size_t len);

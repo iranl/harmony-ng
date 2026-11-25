@@ -323,8 +323,27 @@ def test_ir_capture(hub):
     snap, _ = ws.wait_for("snapshot", 5, lambda m: m.get("msgId") == 30)
     check(snap is not None and snap["hub"].get("ir_capture") is True and "ir_capture_error" not in snap["hub"],
           "snapshot hub: ir_capture true, no error", str((snap or {}).get("hub")))
-    st, r = hub.http_post("/api/capture", {"timeout": 1})
-    check(st == 409 and "capture mode" in str(r), "one-shot /api/capture while the mode is on: 409", "%s %s" % (st, r))
+    # a learn (POST /api/capture) while the mode is on: the receiver thread records the whole
+    # press for it; no ir_received event for that press and no ir_capture state change
+    ws.drain(0.3)
+    learned = {}
+
+    def learn():
+        learned["r"] = hub.http_post("/api/capture", {"timeout": 3}, timeout=10)
+
+    lt = threading.Thread(target=learn)
+    lt.start()
+    time.sleep(0.5)   # the receiver thread arms the learn
+    with open(rx, "ab") as f:
+        f.write(ir_rx_bitstream(nec_timings(0x20DF906F), idle_before_bytes=1024, idle_after_us=250000))
+    lt.join()
+    st, r = learned.get("r", (0, {}))
+    check(st == 200 and str(r.get("raw", "")).startswith("F") and r.get("frames") == 1,
+          "POST /api/capture while the mode is on: 200 with the learned press", "%s %s" % (st, str(r)[:200]))
+    during = [m for m in ws.drain(0.6) if m.get("type") in ("ir_received", "ir_capture")]
+    check(during == [], "no ir_received and no ir_capture event for the learned press", str(during)[:200])
+    st, s = hub.http_get("/api/status")
+    check(s.get("ir_capture") is True, "status: ir_capture still true after the learn", str(s.get("ir_capture")))
 
     # one press: an NEC frame, then the line goes quiet
     nec = nec_timings(0x20DF10EF)
@@ -398,7 +417,7 @@ def test_ir_capture(hub):
     with open(rx, "wb") as f:
         f.write(b"\xff" * 4096)   # the mock replays the file from the start on every open
     st, r = hub.http_post("/api/capture", {"timeout": 1})
-    check(st == 408, "one-shot capture works again with the mode off (408, nothing pressed)", "%s %s" % (st, r))
+    check(st == 408, "learning with the mode off: 408 when nothing is pressed", "%s %s" % (st, r))
     ws.close()
     os.remove(rx)
 

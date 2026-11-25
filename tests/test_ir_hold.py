@@ -17,7 +17,8 @@ Checks:
  1. held key (press, hold every 300 ms, release at 1.5 s): start sequence once, then only the
     repeat sequence, back to back for 1.5 s, the last frame within one frame of the release;
     the press does not block the key thread (the release is taken while the frame is on air)
- 2. quick tap (release 30 ms after the press): exactly the start sequence
+ 2. quick tap (release 30 ms after the press): exactly the start sequence (the TV here has
+    pressMinRepeats 0; tests/test_ir_press_frames.py checks the repeat parts of a press)
  3. lost release (press, two holds, nothing): stops by itself 600 ms after the last hold
  4. old remote timing (first hold after 450 ms, then every 150 ms): no stop in between
  5. second key pressed while the first is held: the first ends after its frame, the second
@@ -27,8 +28,8 @@ Checks:
     send nothing
  7. hold_secs of the send_command action (WebSocket, MQTT) holds the command for that long
  8. a code without a repeat sequence repeats its whole frame at the frame's own length; an NEC
-    type code ("Toshiba 32 Bit") repeats its 108 ms repeat code; a Sony code, three frames at
-    the press, repeats single frames
+    type code ("Toshiba 32 Bit") repeats its 108 ms repeat code; a Sony code sends single
+    frames, at least three for a press
  9. capture mode on: light read during the whole hold gives no ir_received event; the next
     real press after the release does
 """
@@ -84,8 +85,8 @@ def devices():
         ],
     })
     for dev in d["devices"]:
-        if dev["id"] == TV:   # the test times the keys itself
-            dev.update({"interDeviceDelay": 0, "interKeyDelay": 0, "holdInterKeyDelay": 0})
+        if dev["id"] == TV:   # the test times the keys itself; a press is its start sequence only
+            dev.update({"interDeviceDelay": 0, "interKeyDelay": 0, "holdInterKeyDelay": 0, "pressMinRepeats": 0})
     return d
 
 
@@ -410,13 +411,13 @@ def test_repeat_formats(hub, tx, keys):
     check(rep and NEC_REPEAT_MS - 1.5 <= median(rep) <= NEC_REPEAT_MS + 10,
           "the repeat code every %.1f ms (median %.1f ms)" % (NEC_REPEAT_MS, median(rep)))
 
-    # Sony: the press is a group of three 45 ms frames (13 marks each); held, one frame repeats
+    # Sony: single 45 ms frames (13 marks each), at least three for a press
     tx.mark()
     keys.play([(0, "press", "Sony", "9"), (300, "hold", "Sony", "9"), (500, "release", "Sony", "9")])
     fr = tx.wait_quiet()
     marks = [len(f.marks) for f in fr]
-    check(len(fr) >= 6 and marks[0] == 39 and set(marks[1:]) == {13},
-          "Sony: three frames at the press, then single frames (marks per stream %s)" % marks)
+    check(len(fr) >= 6 and set(marks) == {13},
+          "Sony: single frames while held (marks per stream %s)" % marks)
     rep = [(b.start - a.start) / 1000.0 for a, b in zip(fr[1:], fr[2:])]
     check(rep and 45 - 1.5 <= median(rep) <= 45 + 10, "one frame every 45 ms (median %.1f ms)" % median(rep))
 

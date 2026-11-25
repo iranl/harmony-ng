@@ -13,6 +13,7 @@
 #include <pthread.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <sys/sysinfo.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 
@@ -86,6 +87,8 @@ static int custom_icon_name_ok(const char *fn) {
     return 1;
 }
 
+/* An extraction runs: set by the one HTTP worker that wins the compare-and-swap, cleared by the
+ * extraction thread when it ends */
 static volatile int g_icons_extracting = 0;
 /* The copy in /tmp was removed since the pack became readable; cleared when an extraction starts,
  * so a copy made while the pack was not readable goes once it is again. Several HTTP workers
@@ -93,7 +96,9 @@ static volatile int g_icons_extracting = 0;
 static int s_tmp_copy_removed;
 
 static void *extract_icons_thread(void *arg) {
-    const char *tar_path = (const char *)arg;
+    char *tar_path = (char *)arg; /* the starting worker's copy, freed here */
+    printf("[+] Unpacking icon archive %s into " HARMONY_TMP_WWW "\n", tar_path);
+    fflush(stdout);
     mkdir(HARMONY_TMP_WWW, 0755);
     mkdir(HARMONY_TMP_WWW "/assets", 0755);
     char cmd[512];
@@ -107,8 +112,56 @@ static void *extract_icons_thread(void *arg) {
         "done",
         tar_path);
     system(cmd);
-    g_icons_extracting = 0;
+    free(tar_path);
+    __sync_lock_release(&g_icons_extracting);
     return NULL;
+}
+
+/* Free RAM left after unpacking a pack of another version into /tmp, for the daemons */
+#define ICON_UNPACK_RESERVE_KB 8192UL
+
+static unsigned long free_ram_kb(void) {
+#ifdef TEST_HARNESS
+    const char *t = getenv("HARMONY_TEST_FREE_RAM_KB");
+    if (t && *t) return strtoul(t, NULL, 10);
+#endif
+    struct sysinfo si;
+    if (sysinfo(&si) != 0) return 0;
+    unsigned long long b = ((unsigned long long)si.freeram + si.bufferram) * (si.mem_unit ? si.mem_unit : 1);
+    return (unsigned long)(b / 1024);
+}
+
+/* A pack of another version (after a downgrade to a firmware that reads an older pack version;
+ * an OTA package carries no icon archive, so the newer one stays) is a valid tar.gz: it is
+ * unpacked into /tmp as a plain archive when the RAM allows it, as before the pack existed.
+ * Needed: three times the file (the stock icons: 1.6 MB packed, 4.3 MB in RAM pages) plus a
+ * reserve. Free = MemFree + Buffers (2.6.31 has no MemAvailable, and Cached holds tmpfs pages),
+ * read at every call until it fits. One log line per file and outcome. */
+static int other_pack_fits_in_ram(const char *path, const struct stat *st, int ver) {
+    static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+    static struct stat logged;
+    static int logged_fit = -1;
+    unsigned long need = (unsigned long)(st->st_size / 1024) * 3 + ICON_UNPACK_RESERVE_KB;
+    unsigned long have = free_ram_kb();
+    int fit = have >= need;
+    pthread_mutex_lock(&lock);
+    int same = logged_fit == fit && logged.st_ino == st->st_ino && logged.st_dev == st->st_dev &&
+               logged.st_size == st->st_size && logged.st_mtime == st->st_mtime;
+    if (!same) {
+        logged = *st;
+        logged_fit = fit;
+        if (fit) {
+            printf("[!] Icon pack %s: pack version %d, this firmware reads version %d: unpacked into /tmp "
+                   "as a plain archive (%lu KB free RAM)\n", path, ver, ICON_PACK_VERSION, have);
+        } else {
+            printf("[!] Icon pack %s: pack version %d, this firmware reads version %d: not unpacked into "
+                   "/tmp (needs %lu KB free RAM, %lu KB free): no stock icons until a matching archive "
+                   "is deployed\n", path, ver, ICON_PACK_VERSION, need, have);
+        }
+        fflush(stdout);
+    }
+    pthread_mutex_unlock(&lock);
+    return fit;
 }
 
 void http_ensure_icons_extracted(void) {
@@ -127,28 +180,38 @@ void http_ensure_icons_extracted(void) {
     if (access(HARMONY_TMP_WWW "/assets/icons", F_OK) == 0) return;
     if (g_icons_extracting) return;
 
-    static char s_tar_path[128];
-    s_tar_path[0] = '\0';
-    if (access("/data/harmony/icons.tar.gz", F_OK) == 0) {
-        strncpy(s_tar_path, "/data/harmony/icons.tar.gz", sizeof(s_tar_path) - 1);
-    } else if (access("/cache/icons.tar.gz", F_OK) == 0) {
-        strncpy(s_tar_path, "/cache/icons.tar.gz", sizeof(s_tar_path) - 1);
-    } else if (access("/cache/www/assets/icons.tar.gz", F_OK) == 0) {
-        strncpy(s_tar_path, "/cache/www/assets/icons.tar.gz", sizeof(s_tar_path) - 1);
-    }
-
+    char path[256];
+    int ver = -1;
+    struct stat st;
+    /* the file icon_pack looks at, so a pack it cannot read is the one judged here */
+    int kind = icon_pack_archive(path, sizeof(path), &st, &ver);
+    if (kind == ICON_ARCHIVE_NONE) return;
     /* a packed archive whose index is not readable right now (being copied, cut): unpacking it
      * into /tmp cannot help, it is read from flash once it is whole again */
-    if (s_tar_path[0] && icon_pack_is_pack_file(s_tar_path)) return;
-    if (s_tar_path[0]) {
-        __sync_lock_release(&s_tmp_copy_removed);
-        g_icons_extracting = 1;
-        pthread_t th;
-        if (pthread_create(&th, NULL, extract_icons_thread, (void *)s_tar_path) == 0) {
-            pthread_detach(th);
-        } else {
-            g_icons_extracting = 0;
-        }
+    if (kind == ICON_ARCHIVE_PACK) return;
+    if (kind == ICON_ARCHIVE_PACK_OTHER && !other_pack_fits_in_ram(path, &st, ver)) return;
+#ifdef TEST_HARNESS
+    /* widens the window between the checks above and the claim, so the route test can see two
+     * workers in it */
+    const char *d = getenv("HARMONY_TEST_EXTRACT_DELAY_MS");
+    if (d && *d) usleep((useconds_t)strtoul(d, NULL, 10) * 1000);
+#endif
+    /* several HTTP workers get here at once: only the one that sets the flag starts the
+     * extraction, and it looks again whether one finished in the meantime */
+    if (!__sync_bool_compare_and_swap(&g_icons_extracting, 0, 1)) return;
+    char *arg = strdup(path);
+    if (!arg || access(HARMONY_TMP_WWW "/assets/icons", F_OK) == 0) {
+        free(arg);
+        __sync_lock_release(&g_icons_extracting);
+        return;
+    }
+    __sync_lock_release(&s_tmp_copy_removed);
+    pthread_t th;
+    if (pthread_create(&th, NULL, extract_icons_thread, arg) == 0) {
+        pthread_detach(th);
+    } else {
+        free(arg);
+        __sync_lock_release(&g_icons_extracting);
     }
 }
 

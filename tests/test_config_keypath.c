@@ -50,6 +50,11 @@ int ir_encode_harmony_keycode(const char *keycode, uint8_t repeats, uint8_t **ou
     *out_len = 16;
     return 0;
 }
+/* repeat parts of a press (ir_encoder.c): none here, a tap is one send */
+int ir_press_repeat_parts(const char *keycode, const uint8_t *blob, size_t blob_len, int press_min_repeats) {
+    (void)keycode; (void)blob; (void)blob_len; (void)press_min_repeats;
+    return 0;
+}
 static int s_blasts;
 int ir_i2s_blast_blob(const uint8_t *blob, size_t len, uint8_t port_mask) {
     (void)blob; (void)len; (void)port_mask;

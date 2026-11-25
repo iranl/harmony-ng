@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include "hw_action.h"
 #include "http_api_plugins.h"
 #include "plugin_mgr.h"
 #include "http_util.h"
@@ -353,7 +354,10 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
                 strncpy(sun.sun_path, sock_path, sizeof(sun.sun_path) - 1);
 
                 cJSON *cmd_obj = cJSON_CreateObject();
+                char hub_name[64];
+                hw_get_hub_name(hub_name, sizeof(hub_name));
                 cJSON_AddStringToObject(cmd_obj, "plugin_id", id);
+                cJSON_AddStringToObject(cmd_obj, "hub_name", hub_name);   /* the name a device shows */
                 cJSON_AddStringToObject(cmd_obj, "command", "pair");
                 cJSON_AddStringToObject(cmd_obj, "action", fwd_action);
                 if (host[0]) cJSON_AddStringToObject(cmd_obj, "host", host);

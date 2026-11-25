@@ -118,7 +118,9 @@ static void check_frames(const char *keycode, uint32_t carrier_hz, const segment
     check(keycode, carrier_hz, &w, NULL);
 }
 
-/* A press sends `frames` frames; while the key is held one frame repeats */
+/* A press sends `frames` frames; while the key is held one frame repeats (no code here uses it
+ * since Sony became one frame; kept for codes that build their start that way) */
+__attribute__((unused))
 static void check_frames_repeat_one(const char *keycode, uint32_t carrier_hz, const segment_t *s, int bits,
                                     unsigned long value, int frames) {
     wave_t w = { { 0 }, 0 }, one = { { 0 }, 0 };
@@ -132,6 +134,66 @@ static void check_rc5ex(const char *keycode, unsigned long address, unsigned lon
     wave_add_segment(&w, &RC5EX, 7, address);
     wave_add_segment(&w, &RC5EX_1, 12, command);
     check(keycode, 36000, &w, NULL);
+}
+
+/* Repeat parts a press of keycode sends after its start part, for the device count n */
+static int press_parts(const char *keycode, int n) {
+    uint8_t *buf = NULL;
+    size_t len = 0;
+    assert(ir_encode_harmony_keycode(keycode, 0, &buf, &len) == 0);
+    int parts = ir_press_repeat_parts(keycode, buf, len, n);
+    ir_free_encoded(buf);
+    return parts;
+}
+
+static void expect_parts(const char *keycode, int n, int want) {
+    int got = press_parts(keycode, n);
+    if (got != want) {
+        printf("FAIL press of %s with pressMinRepeats %d: %d repeat part(s), want %d\n", keycode, n, got, want);
+        exit(1);
+    }
+    printf("ok press of %s with pressMinRepeats %d: start + %d\n", keycode, n, got);
+}
+
+/* Frames per press, as a stock Hub sends them (irmanager.lua generateFromKeyCode, hal) */
+static void press_parts_checks(void) {
+    /* empty start group: the frame is the repeat part, a press sends it max(N, 1) times */
+    const char *tv = "G:GoVideoO1 32 Bit:()(0x0707FD02)():3";
+    expect_parts(tv, 1, 0);
+    expect_parts(tv, 0, 0);
+    expect_parts(tv, -1, 2);   /* not set: 3, like stock for an account without the value */
+    expect_parts(tv, 3, 2);
+    expect_parts(tv, 20, 19);
+    expect_parts(tv, 50, 19);  /* at most 20 */
+    expect_parts("G:Samsung 16 and 20 Bit:()(0x0CF0_1x00EF1)():3", 0, 0);
+    /* a start and a separate repeat sequence: the frame, then N repeat codes */
+    const char *xbox = "G:Toshiba 32 Bit:(0x011B946B)(Repeat)():3";
+    expect_parts(xbox, 1, 1);
+    expect_parts(xbox, 0, 0);
+    expect_parts(xbox, -1, 3);
+    expect_parts("G:Cambridge 32 Bit Dual:(0x881E057F_0x881E5F7F)(Repeat)():3", 2, 2);
+    /* Sony: at least 3 frames per press, the keycode's ":5" does not count */
+    expect_parts("G:Sony 12 Bit:()(0x481)():5", 1, 2);
+    expect_parts("G:Sony 12 Bit:()(0x481)():5", 0, 2);
+    expect_parts("G:Sony 12 Bit:()(0x481)():5", 5, 4);
+    /* a learned code goes out once whatever the count */
+    expect_parts("F9470P2328S1194P230S230P230S668", 3, 0);
+    expect_parts("F9470P2328S1194P230S230P230S668", 20, 0);
+    /* Pronto: a repeat sequence only counts as an empty start group; once + repeat as a start
+     * and a repeat sequence */
+    const char *pronto_rep = "0000 006D 0000 0002 0157 0056 0016 0E6C";
+    expect_parts(pronto_rep, 3, 2);
+    expect_parts(pronto_rep, 1, 0);
+    const char *pronto_both = "0000 006D 0002 0002 0157 00AB 0016 0E6C 0157 0056 0016 0E6C";
+    expect_parts(pronto_both, 1, 1);
+    expect_parts(pronto_both, 0, 0);
+    /* timings given as they are (no keycode): once */
+    uint8_t *buf = NULL;
+    size_t len = 0;
+    uint32_t raw[4] = { 9000, 4500, 560, 40000 };
+    assert(ir_encode_raw(38000, raw, 4, 1, &buf, &len) == 0);
+    assert(ir_press_repeat_parts(NULL, buf, len, 3) == 0);
+    ir_free_encoded(buf);
 }
 
 int main(void) {
@@ -149,10 +211,13 @@ int main(void) {
     check_rc5ex("G:Philips RC5Ex:()(0x50_1x301)():3", 0x50, 0x301);
     check_rc5ex("G:Philips RC5Ex:()(0x10_1x5C4)():3", 0x10, 0x5C4);
 
-    /* Sony projector: the 15-bit code has a leading 0 hex bit that must not be sent,
-     * and receivers need the frame repeated (the keycode asks for 3) */
-    check_frames_repeat_one("G:Sony 15 Bit:()(0x7C2A)():3", 40000, &SONY, 15, 0x7C2A, 3);
-    check_frames_repeat_one("G:Sony 20 Bit:()(0xDCB54)():3", 40000, &SONY, 20, 0xDCB54, 3);
+    /* Sony projector: the 15-bit code has a leading 0 hex bit that must not be sent. One
+     * frame is the start and the repeat sequence; a press repeats it (press_parts() below) */
+    check_frames("G:Sony 15 Bit:()(0x7C2A)():3", 40000, &SONY, 15, 0x7C2A, 1);
+    check_frames("G:Sony 20 Bit:()(0xDCB54)():3", 40000, &SONY, 20, 0xDCB54, 1);
+    check_frames("G:Sony 12 Bit:()(0x481)():5", 40000, &SONY, 12, 0x481, 1);
+
+    press_parts_checks();
 
     /* Apple TV: two frames once per press, then the repeat code */
     wave_t start = { { 0 }, 0 }, repeat = { { 0 }, 0 };

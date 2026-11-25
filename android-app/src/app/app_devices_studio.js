@@ -18,6 +18,7 @@ import {
   safeImportName
 } from '../irdb.js';
 import { t, setLanguage, getInitialLanguage, tf } from '../i18n.js';
+import { pluginFieldIsBoolean, configFlagOn, pluginDefaultCommand, irAltBadgeHtml } from './plugin_fields.js';
 import iconMetadata from '../icon-metadata.json';
 import {
   initIconCache,
@@ -420,6 +421,8 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     setInputVal('devInterKeyDelay', dev.inter_key_delay !== undefined ? dev.inter_key_delay : dev.interKeyDelay, 100);
     setInputVal('devHoldInterKeyDelay', dev.hold_inter_key_delay !== undefined ? dev.hold_inter_key_delay : dev.holdInterKeyDelay, 200);
     setInputVal('devPowerOnDelay', dev.power_on_delay !== undefined ? dev.power_on_delay : dev.powerOnDelay, 1500);
+    // empty when the device has none: the Hub then uses 3 (the placeholder)
+    setInputVal('devPressMinRepeats', dev.pressMinRepeats, '');
     const pwrAlwaysCheck = document.getElementById('devIsPowerAlwaysOn');
     if (pwrAlwaysCheck) pwrAlwaysCheck.checked = Boolean(dev.is_power_always_on || dev.isPowerAlwaysOn);
     const hideCheck = document.getElementById('devHideOnRemote');
@@ -538,6 +541,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
             <strong style="font-size: 13px; color: var(--text-main);">${escapeHtml(c.name)}</strong>
             ${dev.combined && c.transport ? `<span class="badge subtle mini" style="font-size: 10px;" translate="no">${escapeHtml(c.transport.toUpperCase())}</span>` : ''}
             ${isLocked ? `<span class="badge subtle mini" style="font-size: 10px;">${t('badge_locked')}</span>` : ''}
+            ${irAltBadgeHtml(c, dev.config)}
           </div>
           <div style="display: flex; gap: 6px; align-items: center;">
             <button type="button" class="btn btn-xs btn-secondary btn-studio-test" data-dev="${escapeHtml(dev.id)}" data-cmd="${escapeHtml(c.name)}" title="${escapeHtml(t('send_command_title'))}">▶ ${t('test')}</button>
@@ -716,6 +720,10 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
         if (pluginDef?.device_definition?.config_fields) {
           for (const f of pluginDef.device_definition.config_fields) {
             const inp = document.getElementById(`plug_cfg_${f.key}`);
+            if (pluginFieldIsBoolean(f)) {
+              cfg[f.key] = inp ? !!inp.checked : configFlagOn(f.default);
+              continue;
+            }
             const val = inp ? inp.value : '';
             cfg[f.key] = (f.type === 'number') ? Number(val || f.default || 0) : (val !== undefined && val !== null && val !== '' ? val : (f.default !== undefined ? f.default : ''));
           }
@@ -724,12 +732,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
 
         const defaultCmds = pluginDef?.device_definition?.default_commands;
         if (defaultCmds && defaultCmds.length > 0) {
-          devPayload.commands = defaultCmds.map(c => ({
-            name: c.name,
-            keyCode: c.keyCode || `PLUGIN:${pluginId}:${c.name}`,
-            raw: c.raw || c.keyCode || `PLUGIN:${pluginId}:${c.name}`,
-            ...(Array.isArray(c.range) ? { range: c.range } : {})
-          }));
+          devPayload.commands = defaultCmds.map(c => pluginDefaultCommand(c, pluginId));
         }
       }
       if (type === 'MQTT') {
@@ -970,6 +973,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
           <div>
             <strong style="font-size: 12px; color: var(--text-main);">${escapeHtml(c.name)}</strong>
             <span class="subtle mini" style="margin-left: 6px; font-family: monospace; font-size: 10px;">${escapeHtml(c.keyCode || '')}</span>
+            ${irAltBadgeHtml(c, dev.config)}
           </div>
           <div>
             ${isAdded ? `<span class="badge ok mini">${t('plg_added')}</span>` : `<button type="button" class="btn btn-xs btn-primary btn-plug-preset-add" data-name="${escapeHtml(c.name)}" data-code="${escapeHtml(c.keyCode || '')}">${t('plg_add_one')}</button>`}

@@ -19,6 +19,13 @@ extern "C" {
 #define POWER_ON_DELAY_MAX_MS 120000
 #define STEP_DELAY_MAX_MS 120000
 
+/* A device's "pressMinRepeats" (the frames an infrared press sends after the first, as the
+ * Logitech account's PressMinRepeats): 0..PRESS_MIN_REPEATS_MAX, a larger number is lowered.
+ * Returns 1 with the value in *out for a number or a numeric text, 0 for "not set" (null, "",
+ * a negative number: the Hub's default applies) and -1 for anything else. */
+#define PRESS_MIN_REPEATS_MAX 20
+int press_min_repeats_value(const cJSON *j, int *out);
+
 void sanitize_devices_json(cJSON *root);
 void sanitize_activity_steps(cJSON *steps);
 void sanitize_activities_json(cJSON *root);

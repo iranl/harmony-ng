@@ -4,7 +4,9 @@
  *    -fsanitize=float-cast-overflow -fno-sanitize-recover=all, so an out-of-range cast ends it)
  *  - a device that is Bluetooth only by "transport": 32 stays Bluetooth over two passes
  *  - powerOnDelay, Delay steps, command port and repeats are kept in range
+ *  - pressMinRepeats is kept (0..20, numeric text), dropped when not a count, never added
  *  - an unknown Area/City timezone is reported as unknown (it ran as Central European time)
+ *  - the infrared alternative of a plugin command (irKeyCode, irWhen) is kept when valid
  *
  * Build: gcc -Wall -O2 -fsanitize=float-cast-overflow -fno-sanitize-recover=all -Ipayload/source \
  *            tests/test_config_values.c payload/source/config_sanitize.c payload/source/timezone_db.c \
@@ -81,6 +83,25 @@ int main(void) {
           "valid port and repeats kept");
     cJSON_Delete(root);
 
+    printf("[-] pressMinRepeats (frames an IR press sends after the first)\n");
+    root = cJSON_Parse("{\"devices\":[{\"id\":\"1\",\"name\":\"A\",\"pressMinRepeats\":0},"
+                       "{\"id\":\"2\",\"name\":\"B\",\"pressMinRepeats\":\" 2 \"},"
+                       "{\"id\":\"3\",\"name\":\"C\",\"pressMinRepeats\":25},"
+                       "{\"id\":\"4\",\"name\":\"D\",\"pressMinRepeats\":\"x2\"},"
+                       "{\"id\":\"5\",\"name\":\"E\",\"pressMinRepeats\":-1},"
+                       "{\"id\":\"6\",\"name\":\"F\",\"pressMinRepeats\":true},"
+                       "{\"id\":\"7\",\"name\":\"G\"}]}");
+    sanitize_devices_json(root);
+    sanitize_devices_json(root);
+    CHECK(num_of(dev_of(root, 0), "pressMinRepeats") == 0, "0 kept");
+    CHECK(num_of(dev_of(root, 1), "pressMinRepeats") == 2, "numeric text \" 2 \" kept as 2");
+    CHECK(num_of(dev_of(root, 2), "pressMinRepeats") == 20, "25 lowered to 20");
+    CHECK(!cJSON_GetObjectItemCaseSensitive(dev_of(root, 3), "pressMinRepeats"), "text that is no number dropped");
+    CHECK(!cJSON_GetObjectItemCaseSensitive(dev_of(root, 4), "pressMinRepeats"), "negative dropped (not set)");
+    CHECK(!cJSON_GetObjectItemCaseSensitive(dev_of(root, 5), "pressMinRepeats"), "true dropped");
+    CHECK(!cJSON_GetObjectItemCaseSensitive(dev_of(root, 6), "pressMinRepeats"), "none added to a device without it");
+    cJSON_Delete(root);
+
     printf("[-] command ports copied from the device before commandPorts 1\n");
     root = cJSON_Parse("{\"devices\":[{\"id\":\"1\",\"name\":\"TV\",\"controlPort\":3,"
                        "\"commands\":[{\"name\":\"A\",\"keyCode\":\"x\",\"port\":3}]}]}");
@@ -105,6 +126,35 @@ int main(void) {
     CHECK(cJSON_GetArraySize(rg) == 2 && cJSON_GetArrayItem(rg, 0)->valueint == 0 &&
           cJSON_GetArrayItem(rg, 1)->valueint == 31, "valid range kept over two passes");
     CHECK(cJSON_GetObjectItemCaseSensitive(cJSON_GetArrayItem(cmds, 1), "range") == NULL, "min > max range left out");
+    cJSON_Delete(root);
+
+    printf("[-] infrared alternative of a plugin command (irKeyCode, irWhen)\n");
+    root = cJSON_Parse("{\"commandPorts\":1,\"devices\":[{\"id\":\"3\",\"name\":\"TV\",\"plugin\":\"samsung\",\"commands\":["
+                       "{\"name\":\"HDMI 2\",\"keyCode\":\"PLUGIN:samsung:KEY_HDMI2\","
+                       "\"irKeyCode\":\"G:GoVideoO1 32 Bit:()(0xE0E07D82)():3\",\"irWhen\":\"hdmi_via_ir\",\"port\":2},"
+                       "{\"name\":\"Bad\",\"keyCode\":\"PLUGIN:samsung:X\",\"irKeyCode\":7,\"irWhen\":\"a b\"},"
+                       "{\"name\":\"Long\",\"keyCode\":\"PLUGIN:samsung:Y\",\"irKeyCode\":\"F9470P0123S0456\","
+                       "\"irWhen\":\"k123456789012345678901234567890123456789012345678901234567890123\"},"
+                       "{\"name\":\"Plain\",\"keyCode\":\"PLUGIN:samsung:KEY_HOME\"}]},"
+                       "{\"id\":\"4\",\"name\":\"Amp\",\"commands\":["
+                       "{\"name\":\"Vol\",\"keyCode\":\"G:NEC:(0x1)():3\",\"irKeyCode\":\"x\",\"irWhen\":\"y\"}]}]}");
+    sanitize_devices_json(root);
+    sanitize_devices_json(root);
+    cmds = cJSON_GetObjectItemCaseSensitive(dev_of(root, 0), "commands");
+    const cJSON *ikc = cJSON_GetObjectItemCaseSensitive(cJSON_GetArrayItem(cmds, 0), "irKeyCode");
+    const cJSON *iw = cJSON_GetObjectItemCaseSensitive(cJSON_GetArrayItem(cmds, 0), "irWhen");
+    CHECK(cJSON_IsString(ikc) && strcmp(ikc->valuestring, "G:GoVideoO1 32 Bit:()(0xE0E07D82)():3") == 0 &&
+          cJSON_IsString(iw) && strcmp(iw->valuestring, "hdmi_via_ir") == 0, "irKeyCode and irWhen kept over two passes");
+    CHECK(num_of(cJSON_GetArrayItem(cmds, 0), "port") == 2 && num_of(cJSON_GetArrayItem(cmds, 0), "repeats") == 3,
+          "a command with an irKeyCode keeps its IR port and gets repeats");
+    CHECK(cJSON_GetObjectItemCaseSensitive(cJSON_GetArrayItem(cmds, 1), "irKeyCode") == NULL &&
+          cJSON_GetObjectItemCaseSensitive(cJSON_GetArrayItem(cmds, 1), "irWhen") == NULL, "invalid irKeyCode and irWhen dropped");
+    CHECK(cJSON_GetObjectItemCaseSensitive(cJSON_GetArrayItem(cmds, 2), "irKeyCode") != NULL &&
+          cJSON_GetObjectItemCaseSensitive(cJSON_GetArrayItem(cmds, 2), "irWhen") == NULL, "irWhen over 63 characters dropped");
+    CHECK(cJSON_GetObjectItemCaseSensitive(cJSON_GetArrayItem(cmds, 3), "port") == NULL &&
+          cJSON_GetObjectItemCaseSensitive(cJSON_GetArrayItem(cmds, 3), "repeats") == NULL, "a plain plugin command still has no IR fields");
+    cmds = cJSON_GetObjectItemCaseSensitive(dev_of(root, 1), "commands");
+    CHECK(cJSON_GetObjectItemCaseSensitive(cJSON_GetArrayItem(cmds, 0), "irKeyCode") == NULL, "no irKeyCode on an IR device's command");
     cJSON_Delete(root);
 
     printf("[-] hideOnRemote / hideInDevicesTab\n");
