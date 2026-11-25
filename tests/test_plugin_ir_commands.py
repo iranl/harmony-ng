@@ -70,6 +70,8 @@ def config_dir():
             {"name": "HDMI 2", "keyCode": "PLUGIN:%s:KEY_HDMI2" % PID, "irKeyCode": IR_HDMI2, "irWhen": "hdmi_via_ir"},
             {"name": "Home", "keyCode": "PLUGIN:%s:KEY_HOME" % PID},
             {"name": "Source", "keyCode": "PLUGIN:%s:KEY_SOURCE" % PID, "irKeyCode": IR_SOURCE},
+            {"name": "Level", "keyCode": "PLUGIN:%s:KEY_LEVEL" % PID, "range": [0, 100],
+             "irKeyCode": IR_SOURCE, "irWhen": "hdmi_via_ir"},
         ],
     })
     json.dump(devices, open(os.path.join(d, "devices.json"), "w"))
@@ -126,6 +128,16 @@ def command(dev, name):
     return next((c for c in dev.get("commands", []) if c.get("name") == name), {})
 
 
+def ws_ask(ws, req, timeout=5.0):
+    ws.send_json(req)
+    end = time.time() + timeout
+    while time.time() < end:
+        m = ws.recv_json(timeout=max(0.1, end - time.time()))
+        if m and m.get("type") == "ack" and m.get("msgId") == req.get("msgId"):
+            return m
+    return None
+
+
 def save_config(hub, value):
     cfg = {"host": "192.168.1.50"}
     if value is not None:
@@ -180,6 +192,24 @@ def main():
                       "hdmi_via_ir %r: %s" % (value, "infrared" if ir else "plugin"), log)
             save_config(hub, True)
 
+            # a command with a range and an active infrared alternative needs no value: the
+            # infrared send takes none (single send and the queued multi-command path)
+            st, log = send(hub, log_path, "Level")
+            check(st == 200 and went_ir(log, IR_SOURCE), "ranged command, switch on: sent as infrared without a value", log)
+            ws = hub.ws()
+            mark = log_len(log_path)
+            r = ws_ask(ws, {"action": "send_command", "msgId": 31, "deviceId": DEV, "command": ["Level", "Home"]})
+            time.sleep(1.0)
+            log = log_since(log_path, mark)
+            check(r is not None and r.get("ok") is True, "queued ranged command, switch on: accepted without a value", str(r))
+            check(("IR Keycode simulated: %s (" % IR_SOURCE) in log, "queued ranged command went out as infrared", log)
+            save_config(hub, False)
+            r = ws_ask(ws, {"action": "send_command", "msgId": 32, "deviceId": DEV, "command": ["Level", "Home"]})
+            check(r is not None and r.get("ok") is False and r.get("code") == 400,
+                  "queued ranged command, switch off: still refused without a value (plugin)", str(r))
+            ws.close()
+            save_config(hub, True)
+
             # 3. a command's own port is used
             hd2 = dict(command(device(hub), "HDMI 2"))
             hd2["port"] = 2
@@ -194,6 +224,24 @@ def main():
             hd = command(device(hub), "HDMI 2")
             check(st == 200 and hd.get("irKeyCode") == IR_HDMI2 and hd.get("irWhen") == "hdmi_via_ir",
                   "a save of the commands without the fields keeps them", str(hd))
+            # a save that changes only irKeyCode keeps the stored irWhen, and the other way round
+            part = [dict(c) for c in device(hub)["commands"]]
+            for c in part:
+                if c.get("name") == "HDMI 2":
+                    c.pop("irWhen", None)
+                    c["irKeyCode"] = IR_SOURCE
+            st, _ = hub.http_post("/api/device-save", {"deviceId": DEV, "commands": part})
+            hd = command(device(hub), "HDMI 2")
+            check(st == 200 and hd.get("irKeyCode") == IR_SOURCE and hd.get("irWhen") == "hdmi_via_ir",
+                  "a save with irKeyCode only keeps the stored irWhen", str(hd))
+            part = [dict(c) for c in device(hub)["commands"]]
+            for c in part:
+                if c.get("name") == "HDMI 2":
+                    c.pop("irKeyCode", None)
+            st, _ = hub.http_post("/api/device-save", {"deviceId": DEV, "commands": part})
+            hd = command(device(hub), "HDMI 2")
+            check(st == 200 and hd.get("irKeyCode") == IR_SOURCE and hd.get("irWhen") == "hdmi_via_ir",
+                  "a save with irWhen only keeps the stored irKeyCode", str(hd))
             # ... and null removes them
             st, _ = hub.http_post("/api/device-save", {"deviceId": DEV, "commands": [
                 {"name": "HDMI 2", "keyCode": "PLUGIN:%s:KEY_HDMI2" % PID, "irKeyCode": IR_HDMI2, "irWhen": "hdmi_via_ir"},
