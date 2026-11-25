@@ -190,13 +190,15 @@ On the first deploy (no `/data/harmony/config/devices.json` on the Hub yet), the
 | Devices and their commands (`DeviceList.json`) | `devices.json`, with short device ids (`1`, `2`, ...). IR commands get no `repeats` field: stock keeps the count of a press per device. That count, the device's `PressMinRepeats` in the Logitech account, becomes the device's `pressMinRepeats` (left out when the account has none: the Hub then uses 3, as stock does), so a press sends the same infrared frames as on the stock Hub (docs/API.md 5.1) |
 | Power settings (`PowerFeature`): power-on delay, discrete on/off actions | Each device's `powerOnDelay`, `powerOnSequence` and `powerOffSequence`. Toggle-only devices keep empty sequences and use their `PowerToggle` command |
 | Activities, their devices and the input each device is set to (`ActivityList.json` roles) | `activities.json`, with the input commands at the start of each activity's start sequence |
-| Remote button maps (`MapList.json`) | `remote_slot1_map.json`: the keys of each activity, the keys of each device (device browser) and each activity's screen buttons |
+| Remote button maps (`MapList.json`) | One map per stock remote, told apart by the remote model at the start of each map's `ButtonMapIdentifier` (`16417` a touchscreen remote, `16422` a Companion, `16414` a Smart Control), since every remote of a Hub carries the same `RemoteId`. The remote with screen buttons goes to `remote_slot1_map.json`, the others to the slots after it (`remote_slot2_map.json` to `remote_slot6_map.json`): the keys of each activity, the keys of each device (device browser), each activity's screen buttons, and the activity keys of its `Root` map (a Companion's or Smart Control's) as the "no activity" entry (`-1`). A stock map with nothing left to import, empty or with every button skipped, gets the default keys, as a missing one does |
 
 Not imported; the migration prints a warning for each:
 - Long presses, double presses and touch gestures (HarmonyNG has no equivalent yet).
 - Inputs that the stock config selects by stepping through a Source key (common on soundbars). Add the steps to the activity by hand.
 - Commands of a second transport on the same device, e.g. the Bluetooth keyboard commands of an IR TV.
 - Screen buttons beyond the config push limit of 240 per remote, which is shared out between the activities.
+- Device command keys of a remote's `Root` map: the Hub uses the "no activity" entry for every key the running activity leaves unmapped, so they would be sent in every activity. Only the keys that start an activity are kept.
+- The button maps of stock remotes beyond the 6 RF slots.
 
 **Bluetooth devices** (e.g. an NVIDIA Shield) have to be paired again: HarmonyNG uses its own Bluetooth stack, so the stock pairings are not carried over. A host paired by mistake, or one you no longer use, can be removed with **Forget** in the Bluetooth host list of the web UI.
 
