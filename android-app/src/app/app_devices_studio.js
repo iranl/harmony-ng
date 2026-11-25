@@ -18,6 +18,7 @@ import {
   safeImportName
 } from '../irdb.js';
 import { t, setLanguage, getInitialLanguage, tf } from '../i18n.js';
+import { pluginFieldIsBoolean, configFlagOn, pluginDefaultCommand } from './plugin_fields.js';
 import iconMetadata from '../icon-metadata.json';
 import {
   initIconCache,
@@ -696,6 +697,10 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
         if (pluginDef?.device_definition?.config_fields) {
           for (const f of pluginDef.device_definition.config_fields) {
             const inp = document.getElementById(`plug_cfg_${f.key}`);
+            if (pluginFieldIsBoolean(f)) {
+              cfg[f.key] = inp ? !!inp.checked : configFlagOn(f.default);
+              continue;
+            }
             const val = inp ? inp.value : '';
             cfg[f.key] = (f.type === 'number') ? Number(val || f.default || 0) : (val !== undefined && val !== null && val !== '' ? val : (f.default !== undefined ? f.default : ''));
           }
@@ -704,12 +709,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
 
         const defaultCmds = pluginDef?.device_definition?.default_commands;
         if (defaultCmds && defaultCmds.length > 0) {
-          devPayload.commands = defaultCmds.map(c => ({
-            name: c.name,
-            keyCode: c.keyCode || `PLUGIN:${pluginId}:${c.name}`,
-            raw: c.raw || c.keyCode || `PLUGIN:${pluginId}:${c.name}`,
-            ...(Array.isArray(c.range) ? { range: c.range } : {})
-          }));
+          devPayload.commands = defaultCmds.map(c => pluginDefaultCommand(c, pluginId));
         }
       }
       if (type === 'MQTT') {

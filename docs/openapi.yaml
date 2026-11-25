@@ -1267,7 +1267,7 @@ paths:
                 btTriggerCommandName: {type: string, description: "Command that starts the reconnect (also deviceId:Command)"}
                 plugin: {type: string, description: "Id of the plugin this device belongs to (a safe id: letters, digits, - and _; 400 otherwise). Only this field or a type plugin:<id> makes a device a plugin device; it then has no controlPort."}
                 config: {oneOf: [{type: object}, {type: string}], description: "Plugin device settings (the plugin's config_fields), an object or that object as a JSON string. A top-level key is copied into config only for a plugin device and only when its config_fields declare it."}
-                commands: {oneOf: [{type: array, items: {type: object}}, {type: string}], description: "Replaces the device's commands (a non-empty array, or that array as a JSON string). A command without a range key keeps the range of the device's command of that name; range null or [] removes it; a command new to a plugin device gets the range of the manifest's default_commands entry of that name."}
+                commands: {oneOf: [{type: array, items: {type: object}}, {type: string}], description: "Replaces the device's commands (a non-empty array, or that array as a JSON string). A command without a range key keeps the range of the device's command of that name; range null or [] removes it; a command new to a plugin device gets the range of the manifest's default_commands entry of that name. A plugin device's command may carry irKeyCode (an infrared code, as an IR device's keyCode) and irWhen (the key of a boolean config field): while config[irWhen] is on (true, a number other than 0, \"true\" or \"1\") the command is sent as infrared instead of going to the plugin. They are kept, removed and filled from the manifest like range; an invalid one is left out."}
             example:
               deviceId: "70321456"
               name: LG OLED TV
@@ -1377,6 +1377,8 @@ paths:
                 oldName: {type: string, description: "Current name of the command, to rename it to name"}
                 raw: {type: string, description: "The code (also accepted as code). Left out on an update, the stored code is kept"}
                 script: {type: string, description: "Bluetooth macro; stored as the code BT:SCRIPT:<script>"}
+                irKeyCode: {type: [string, "null"], description: "Plugin devices only: the infrared code (a Harmony keycode, a learned raw code or Pronto hex) sent instead of the plugin command while config[irWhen] is on. null or empty removes it; left out, the stored one is kept (a new command gets the manifest's). A command with one stores port and repeats"}
+                irWhen: {type: [string, "null"], maxLength: 63, description: "Plugin devices only: the key of the boolean config field that turns irKeyCode on (letters, digits, _ or -). null or empty removes it; left out, the stored one is kept"}
                 port: {type: integer, description: "The command's own IR port mask 1..7, used by a send instead of the device's controlPort; 0 removes it (the device's port applies); left out, the stored one is kept. Numeric text (form post) is accepted"}
                 repeats: {type: integer, default: 3, description: "1..20 (higher is 20); left out, the stored value is kept (3 for a new command). Numeric text (form post) is accepted. Stored only: how many frames a press sends comes from the device's pressMinRepeats"}
               required: [deviceId, name]
@@ -1448,6 +1450,8 @@ paths:
                       raw: {type: string}
                       port: {type: integer}
                       repeats: {type: integer}
+                      irKeyCode: {type: [string, "null"], description: "Plugin devices only, as in /api/command-save"}
+                      irWhen: {type: [string, "null"], maxLength: 63, description: "Plugin devices only, as in /api/command-save"}
                     required: [name, raw]
               required: [deviceId, commands]
             example:

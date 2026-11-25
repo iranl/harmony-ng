@@ -6,6 +6,7 @@
 #include "ble_adv_payload.h"
 #include "plugin_mgr.h"
 #include "cmd_range.h"
+#include "cmd_ir_alt.h"
 #include "cJSON.h"
 #include "json_number.h"
 
@@ -169,8 +170,12 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                         cJSON_AddBoolToObject(cmd_match, "isMacro", 1);
                                     }
                                     cmd_range_copy(cmd_match, p);
+                                    if (dev_is_plugin) cmd_ir_alt_copy(cmd_match, p);
                                     if (dev_net) copy_net_cmd_fields(p, cmd_match);
-                                    if (is_bt_cmd || is_mqtt_cmd || is_ble_cmd || is_plugin_cmd || dev_net) {
+                                    if (dev_is_plugin && cmd_has_ir_alt(cmd_match)) {
+                                        /* a plugin command with an infrared alternative keeps its IR fields */
+                                        cmd_set_ir_fields(cmd_match, j_rep, j_port, 0);
+                                    } else if (is_bt_cmd || is_mqtt_cmd || is_ble_cmd || is_plugin_cmd || dev_net) {
                                         cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "repeats");
                                         cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "port");
                                     } else {
@@ -185,17 +190,21 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                         cJSON_AddBoolToObject(new_cmd, "isMacro", 1);
                                     }
                                     cmd_range_copy(new_cmd, p);
-                                    /* a new plugin command without "range": the manifest's (the
-                                     * legacy UI's single preset Add sends none) */
-                                    if (dev_is_plugin && !cJSON_GetObjectItemCaseSensitive(p, "range")) {
+                                    if (dev_is_plugin) cmd_ir_alt_copy(new_cmd, p);
+                                    /* a new plugin command without "range" (or infrared alternative):
+                                     * the manifest's (the legacy UI's single preset Add sends none) */
+                                    if (dev_is_plugin && (!cJSON_GetObjectItemCaseSensitive(p, "range") ||
+                                                          !cmd_ir_alt_in_request(p))) {
                                         char pid[64];
                                         plugin_mgr_device_plugin_id(dev_item, pid, sizeof(pid));
                                         cJSON *dd = plugin_mgr_get_device_definition(pid);
-                                        cmd_range_fill_from_manifest(new_cmd, dd);
+                                        if (!cJSON_GetObjectItemCaseSensitive(p, "range")) cmd_range_fill_from_manifest(new_cmd, dd);
+                                        if (!cmd_ir_alt_in_request(p)) cmd_ir_alt_fill_from_manifest(new_cmd, dd);
                                         cJSON_Delete(dd);
                                     }
                                     if (dev_net) copy_net_cmd_fields(p, new_cmd);
-                                    if (!is_bt_cmd && !is_mqtt_cmd && !is_ble_cmd && !is_plugin_cmd && !dev_net) {
+                                    if ((dev_is_plugin && cmd_has_ir_alt(new_cmd)) ||
+                                        (!is_bt_cmd && !is_mqtt_cmd && !is_ble_cmd && !is_plugin_cmd && !dev_net)) {
                                         cmd_set_ir_fields(new_cmd, j_rep, j_port, 1);
                                     }
                                     cJSON_AddItemToArray(cmds, new_cmd);
@@ -300,7 +309,10 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                         cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "raw");
                                         cJSON_AddStringToObject(cmd_match, "raw", raw_data);
 
-                                        if (is_ble_cmd || is_plugin_cmd) {
+                                        if (dev_is_plugin) cmd_ir_alt_copy(cmd_match, cmd_in);
+                                        if (dev_is_plugin && cmd_has_ir_alt(cmd_match)) {
+                                            cmd_set_ir_fields(cmd_match, jrep, jport, 0);
+                                        } else if (is_ble_cmd || is_plugin_cmd) {
                                             cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "repeats");
                                             cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "port");
                                         } else {
@@ -312,16 +324,19 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                         cJSON_AddStringToObject(new_cmd, "name", name);
                                         cJSON_AddStringToObject(new_cmd, "keyCode", raw_data);
                                         cJSON_AddStringToObject(new_cmd, "raw", raw_data);
-                                        if (!is_ble_cmd && !is_plugin_cmd) {
-                                            cmd_set_ir_fields(new_cmd, jrep, jport, 1);
-                                        }
                                         cmd_range_copy(new_cmd, cmd_in);
-                                        if (dev_is_plugin && !cJSON_GetObjectItemCaseSensitive(cmd_in, "range")) {
+                                        if (dev_is_plugin) cmd_ir_alt_copy(new_cmd, cmd_in);
+                                        if (dev_is_plugin && (!cJSON_GetObjectItemCaseSensitive(cmd_in, "range") ||
+                                                              !cmd_ir_alt_in_request(cmd_in))) {
                                             char pid[64];
                                             plugin_mgr_device_plugin_id(dev_item, pid, sizeof(pid));
                                             cJSON *dd = plugin_mgr_get_device_definition(pid);
-                                            cmd_range_fill_from_manifest(new_cmd, dd);
+                                            if (!cJSON_GetObjectItemCaseSensitive(cmd_in, "range")) cmd_range_fill_from_manifest(new_cmd, dd);
+                                            if (!cmd_ir_alt_in_request(cmd_in)) cmd_ir_alt_fill_from_manifest(new_cmd, dd);
                                             cJSON_Delete(dd);
+                                        }
+                                        if ((dev_is_plugin && cmd_has_ir_alt(new_cmd)) || (!is_ble_cmd && !is_plugin_cmd)) {
+                                            cmd_set_ir_fields(new_cmd, jrep, jport, 1);
                                         }
                                         cJSON_AddItemToArray(cmds, new_cmd);
                                     }

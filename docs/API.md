@@ -704,7 +704,16 @@ digits, `-`, `_`), or the save is refused with `400`. A device's `type` text nev
 plugin device, even when it matches a plugin's name. A top-level key is copied into `config` only
 for a plugin device and only when the plugin's `config_fields` declare it. The plugin choice comes
 before the MQTT and Bluetooth guesses from `type` and `manufacturer`. A save without `plugin` keeps
-the stored one; `"plugin": ""` makes the device a non-plugin device again.
+the stored one; `"plugin": ""` makes the device a non-plugin device again. A command of a plugin
+device may carry `irKeyCode` (an infrared code, as an IR device's `keyCode`) and `irWhen` (the key of
+a boolean `config` field, letters, digits, `_` or `-`, at most 63): while `config[irWhen]` is on
+(`true`, a number other than 0, `"true"` or `"1"`) the command is sent as infrared, as a command of
+an IR device (its `port` 1 to 7, else all blasters; `repeats`, 3 when missing), instead of going to
+the plugin (docs/PLUGINS.md). An invalid `irKeyCode` or `irWhen` is left out. In a `commands` list,
+a command without the two keys keeps those the device's command of that name had, `null` or `""`
+removes them, and a command the device did not have gets those of the plugin manifest's
+`default_commands` entry of the same name. A command with an `irKeyCode` keeps `port` and
+`repeats`; other plugin commands store neither.
 
 `type` `HTTP` or `TCP` makes the device an HTTP or TCP device (3.9). Its fields: `netHost` (host
 name or IP address: letters, digits, `.`, `-`, `_`, `:`), `netPort` (1 to 65535; an HTTP device
@@ -852,6 +861,11 @@ Adds or updates a single command for a device.
     out, the stored one is kept. For a Bluetooth or MQTT device, and for a Bluetooth (`HID:`,
     `G:HID`) or MQTT (`G:MQTT`) code, `port` and `repeats` are not stored. 3.6 treats both fields
     the same way.
+  - `irKeyCode` and `irWhen` (plugin devices only, 3.4): the infrared alternative of the command.
+    A string sets one (an invalid one is left out), `null` or `""` removes it, left out the stored
+    one is kept; a new command without them gets those of the plugin manifest's `default_commands`
+    entry of the same name. A plugin command with an `irKeyCode` stores `port` and `repeats` like
+    an IR command; other plugin commands store neither. 3.6 treats both fields the same way.
 - **Response `200 OK`**: `{"ok": true}`; `{"ok": false}` (also `200`) when the device does not
   exist or `deviceId` or `name` is missing.
 - **Response `500`**: `{"ok": false, "error": "..."}` when `devices.json` could not be written (flash

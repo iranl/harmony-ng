@@ -18,6 +18,7 @@ import {
   safeImportName
 } from '../irdb.js';
 import { t, setLanguage, getInitialLanguage, tf, tfHtml } from '../i18n.js';
+import { pluginInputValue } from './plugin_fields.js';
 import iconMetadata from '../icon-metadata.json';
 import {
   initIconCache,
@@ -404,7 +405,9 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
             name: c.name,
             raw: c.keyCode,
             mode: 'plugin',
-            ...(Array.isArray(c.range) ? { range: c.range } : {})
+            ...(Array.isArray(c.range) ? { range: c.range } : {}),
+            ...(c.irKeyCode ? { irKeyCode: c.irKeyCode } : {}),
+            ...(c.irWhen ? { irWhen: c.irWhen } : {})
           });
         }
         await this.refreshData();
@@ -626,7 +629,7 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
         pluginCfg = {};
         document.querySelectorAll('[id^="edit_plug_cfg_"]').forEach(inp => {
           const key = inp.id.replace('edit_plug_cfg_', '');
-          pluginCfg[key] = (inp.type === 'number') ? Number(inp.value) : inp.value;
+          pluginCfg[key] = pluginInputValue(inp);
         });
         const plug = (this.installedPlugins || []).find(p => p.id === pluginId);
         if (plug?.device_definition?.config_fields) {

@@ -3,6 +3,7 @@
 #include "http_util.h"
 #include "config_store.h"
 #include "cmd_range.h"
+#include "cmd_ir_alt.h"
 #include "cJSON.h"
 #include "sha256.h"
 
@@ -1271,6 +1272,17 @@ static int validate_manifest(const cJSON *m, const char *src_dir, char *err_msg,
         const cJSON *r = cJSON_GetObjectItemCaseSensitive(c, "range");
         if (r && !cmd_range_valid(r)) {
             if (err_msg) snprintf(err_msg, err_msg_sz, "A default_commands range must be [min, max] (integers, min <= max)");
+            return -1;
+        }
+        /* the infrared alternative of a command (cmd_ir_alt.h) */
+        const cJSON *ikc = cJSON_GetObjectItemCaseSensitive(c, "irKeyCode");
+        if (ikc && !cmd_ir_keycode_ok(ikc)) {
+            if (err_msg) snprintf(err_msg, err_msg_sz, "A default_commands irKeyCode must be a non-empty string");
+            return -1;
+        }
+        const cJSON *iw = cJSON_GetObjectItemCaseSensitive(c, "irWhen");
+        if (iw && !cmd_ir_when_ok(iw)) {
+            if (err_msg) snprintf(err_msg, err_msg_sz, "A default_commands irWhen must be a config key (letters, digits, _ or -, at most 63)");
             return -1;
         }
     }
