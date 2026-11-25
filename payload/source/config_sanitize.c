@@ -7,6 +7,7 @@
 #include "plugin_mgr.h"
 #include "cmd_range.h"
 #include "net_device.h"
+#include "ir_encoder.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -215,6 +216,31 @@ int config_devices_have_secrets(const cJSON *root) {
  * 2. Normalize and validate fields to clean camelCase canonical schema
  * 3. Normalize commands and power sequences
  */
+_Static_assert(PRESS_MIN_REPEATS_MAX == IR_PRESS_MIN_REPEATS_MAX, "the sender's limit of pressMinRepeats");
+
+int press_min_repeats_value(const cJSON *j, int *out) {
+    double v;
+    if (!j || cJSON_IsNull(j)) return 0;
+    if (cJSON_IsNumber(j)) {
+        v = j->valuedouble;
+    } else if (cJSON_IsString(j) && j->valuestring) {
+        const char *t = j->valuestring;
+        while (isspace((unsigned char)*t)) t++;
+        if (!*t) return 0;
+        char *end = NULL;
+        long l = strtol(t, &end, 10);
+        while (end && isspace((unsigned char)*end)) end++;
+        if (!end || end == t || *end) return -1;
+        v = (double)l;
+    } else {
+        return -1;
+    }
+    if (v != v) return -1; /* NaN */
+    if (v < 0) return 0;
+    if (out) *out = v > PRESS_MIN_REPEATS_MAX ? PRESS_MIN_REPEATS_MAX : (int)v;
+    return 1;
+}
+
 void sanitize_devices_json(cJSON *root) {
     if (!root) return;
 
@@ -379,6 +405,12 @@ void sanitize_devices_json(cJSON *root) {
         cJSON *jhide = cJSON_GetObjectItemCaseSensitive(src_d, "hideOnRemote");
         if (cJSON_IsTrue(jhide) || (cJSON_IsNumber(jhide) && jhide->valuedouble > 0))
             cJSON_AddTrueToObject(cdev, "hideOnRemote");
+
+        /* Frames an infrared press sends after the first: kept only when set (no default
+         * written, the Hub's default applies without it) */
+        int pmr = 0;
+        if (press_min_repeats_value(cJSON_GetObjectItemCaseSensitive(src_d, "pressMinRepeats"), &pmr) == 1)
+            cJSON_AddNumberToObject(cdev, "pressMinRepeats", pmr);
 
         /* Left out of the web UIs' Devices tab only (not the remote) */
         cJSON *jhtab = cJSON_GetObjectItemCaseSensitive(src_d, "hideInDevicesTab");

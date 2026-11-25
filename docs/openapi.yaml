@@ -1251,6 +1251,7 @@ paths:
                 interDeviceDelay: {type: integer, minimum: 0, maximum: 10000, default: 500, description: "ms waited before a command to this device after one to another device"}
                 interKeyDelay: {type: integer, minimum: 0, maximum: 10000, default: 100, description: "ms between two different commands to this device"}
                 holdInterKeyDelay: {type: integer, minimum: 0, maximum: 10000, default: 200, description: "ms between repeats of the same command"}
+                pressMinRepeats: {oneOf: [{type: integer}, {type: string}, {type: "null"}], description: "Infrared devices: frames a press sends after the first, as the Logitech account's PressMinRepeats: 0 to 20 (a larger number is lowered to 20; numeric text accepted). null, an empty string or a negative number removes it (the Hub then uses 3); left out, the stored value is kept; other text answers 400"}
                 icon: {oneOf: [{type: string}, {type: integer}]}
                 powerOnDelay: {type: integer}
                 isPowerAlwaysOn: {type: boolean}
@@ -1377,7 +1378,7 @@ paths:
                 raw: {type: string, description: "The code (also accepted as code). Left out on an update, the stored code is kept"}
                 script: {type: string, description: "Bluetooth macro; stored as the code BT:SCRIPT:<script>"}
                 port: {type: integer, description: "The command's own IR port mask 1..7, used by a send instead of the device's controlPort; 0 removes it (the device's port applies); left out, the stored one is kept. Numeric text (form post) is accepted"}
-                repeats: {type: integer, default: 3, description: "1..20 (higher is 20); left out, the stored value is kept (3 for a new command). Numeric text (form post) is accepted"}
+                repeats: {type: integer, default: 3, description: "1..20 (higher is 20); left out, the stored value is kept (3 for a new command). Numeric text (form post) is accepted. Stored only: how many frames a press sends comes from the device's pressMinRepeats"}
               required: [deviceId, name]
             example:
               deviceId: "70321456"
@@ -2027,7 +2028,7 @@ paths:
       tags:
         - Hardware & IR
       summary: Learn an IR code from the Hub's receiver
-      description: Waits for one IR signal and returns it as a Harmony raw timing string. timeout may also be given in the query (?timeout=5).
+      description: Waits for one IR signal and returns the whole press as a Harmony raw timing string, every frame until 200 ms without light (at most 1023 mark/space pairs), as the stock Hub's capture keeps it; a tap of the stored code sends all of it. timeout may also be given in the query (?timeout=5).
       requestBody:
         required: false
         content:
@@ -2038,7 +2039,7 @@ paths:
                 timeout: {type: integer, minimum: 1, maximum: 30, default: 10}
       responses:
         '200':
-          description: "Signal captured (pulses: number of P and S intervals in raw, marks and spaces together; duration_us: their sum)"
+          description: "Signal captured (pulses: number of P and S intervals in raw, marks and spaces together; duration_us: their sum; frames: the frames of the press, a space of 20 ms or more ends one)"
           content:
             application/json:
               example:
@@ -2049,6 +2050,7 @@ paths:
                 carrier_hz: 38000
                 pulses: 26
                 duration_us: 24000
+                frames: 1
         '408':
           description: No signal before the timeout
         '409':

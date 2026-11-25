@@ -592,6 +592,11 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
       const ikd = parseInt(document.getElementById('devInterKeyDelay')?.value, 10);
       const hikd = parseInt(document.getElementById('devHoldInterKeyDelay')?.value, 10);
       const pod = parseInt(document.getElementById('devPowerOnDelay')?.value, 10);
+      /* frames an IR press sends after the first: only an IR device shows it; empty sends "",
+       * which removes it, so the Hub's default 3 applies (a form post drops null) */
+      const timingsShown = document.getElementById('devEditTimingsBox')?.style.display !== 'none';
+      const pmrText = (document.getElementById('devPressMinRepeats')?.value ?? '').trim();
+      const pmr = parseInt(pmrText, 10);
       const pao = document.getElementById('devIsPowerAlwaysOn')?.checked ? 1 : 0;
       /* only an IR device has the blaster choice: others keep their saved port */
       const blasterShown = document.getElementById('curDevBlasterBox')?.style.display !== 'none';
@@ -641,7 +646,8 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
 
       const stat = document.getElementById('devEditStatus');
       const delayProblem = deviceDelayError(t('delay_label_inter_device'), idd) || deviceDelayError(t('delay_label_inter_key'), ikd) ||
-        deviceDelayError(t('delay_label_hold_inter_key'), hikd) || (pod < 0 ? t('power_on_delay_negative') : null);
+        deviceDelayError(t('delay_label_hold_inter_key'), hikd) || (pod < 0 ? t('power_on_delay_negative') : null) ||
+        (timingsShown && pmrText !== '' && (isNaN(pmr) || pmr < 0 || pmr > 20) ? `${t('press_min_repeats')}: 0-20` : null);
       if (delayProblem) {
         if (stat) stat.innerHTML = `<span style="color:var(--danger)">${delayProblem}</span>`;
         return;
@@ -661,6 +667,7 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
           interKeyDelay: isNaN(ikd) ? 100 : ikd,
           holdInterKeyDelay: isNaN(hikd) ? 200 : hikd,
           powerOnDelay: isNaN(pod) ? 1500 : pod,
+          pressMinRepeats: timingsShown ? (pmrText === '' ? '' : pmr) : undefined,
           isPowerAlwaysOn: pao,
           controlPort: (blasterShown && !isNaN(portVal)) ? portVal : undefined,
           hideOnRemote,

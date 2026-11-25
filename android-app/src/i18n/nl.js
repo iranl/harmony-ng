@@ -246,7 +246,7 @@ export default {
     "clear_log": "Logboek wissen",
     "clear_mapping": "Toewijzing wissen",
     "clear_slot": "Vak wissen",
-    "click_start_capture_hint": "Klik op \"Opname starten\" en houd de knop op uw afstandsbediening ingedrukt.",
+    "click_start_capture_hint": "Klik op \"Opname starten\" en druk daarna één keer kort op de knop van uw afstandsbediening.",
     "click_to_map_hint": "Klik op een knop op de visuele afstandsbediening om een actie toe te wijzen.",
     "client_id": "Client-ID",
     "close": "Sluiten",
@@ -1347,6 +1347,7 @@ export default {
     "irdb_parsed_selected": "{count} opdrachten gevonden ({checked} van {count} geselecteerd).",
     "irdb_listening": "Wachten op IR-signaal (druk op een knop van de afstandsbediening)...",
     "irdb_captured_signal": "Signaal ontvangen! Modus: {mode}",
+    "irdb_captured_frames": "{frames} frame(s) ontvangen, {ms} ms. Eén druk verstuurt alles: is dat langer dan één druk, leer de toets dan opnieuw met een kortere druk.",
     "irdb_no_signal": "Geen signaal ontvangen of time-out.",
     "irdb_capture_failed": "Opnemen mislukt: {error}",
     "irdb_sending_test": "Testsignaal verzenden...",
@@ -2146,4 +2147,6 @@ export default {
     "net_no_pin": "Geen sleutel vastgelegd voor dit apparaat",
     "net_cmd_name_required": "Voer een opdrachtnaam in",
     "net_cmd_saved": "Opdracht opgeslagen",
+    "press_min_repeats": "Herhalingen per druk",
+    "press_min_repeats_title": "Frames die een druk na het eerste verstuurt, zoals PressMinRepeats van het Logitech-account. Leeg = 3.",
 };

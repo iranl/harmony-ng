@@ -246,7 +246,7 @@ export default {
     "clear_log": "Cancella registro",
     "clear_mapping": "Cancella assegnazione",
     "clear_slot": "Svuota slot",
-    "click_start_capture_hint": "Fai clic su \"Avvia acquisizione\", tieni premuto il pulsante sul telecomando.",
+    "click_start_capture_hint": "Fai clic su \"Avvia acquisizione\", poi premi una volta, brevemente, il pulsante del telecomando.",
     "click_to_map_hint": "Fai clic su qualsiasi pulsante del telecomando visivo per mappare la sua azione.",
     "client_id": "ID client",
     "close": "Chiudi",
@@ -1347,6 +1347,7 @@ export default {
     "irdb_parsed_selected": "{count} comandi riconosciuti ({checked} di {count} selezionati).",
     "irdb_listening": "In attesa del segnale IR (premi un tasto del telecomando)...",
     "irdb_captured_signal": "Segnale acquisito! Modalità: {mode}",
+    "irdb_captured_frames": "Acquisiti {frames} frame, {ms} ms. Una pressione li invia tutti: se è più lungo di una pressione, acquisiscilo di nuovo con una pressione più breve.",
     "irdb_no_signal": "Nessun segnale ricevuto o tempo scaduto.",
     "irdb_capture_failed": "Acquisizione non riuscita: {error}",
     "irdb_sending_test": "Invio del segnale di prova...",
@@ -2146,4 +2147,6 @@ export default {
     "net_no_pin": "Nessuna chiave memorizzata per questo dispositivo",
     "net_cmd_name_required": "Inserisci un nome per il comando",
     "net_cmd_saved": "Comando salvato",
+    "press_min_repeats": "Ripetizioni per pressione",
+    "press_min_repeats_title": "Frame che una pressione invia dopo il primo, come PressMinRepeats dell'account Logitech. Vuoto = 3.",
 };

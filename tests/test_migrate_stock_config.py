@@ -32,7 +32,7 @@ def press(*names):
 
 
 DEVICE_LIST = {"DevicesWithFeatures": [
-    {"Device": {"Id-": TV, "Name": "TV", "Transport": 33, "ControlPort": 7},
+    {"Device": {"Id-": TV, "Name": "TV", "Transport": 33, "ControlPort": 7, "PressMinRepeats": 1},
      "Commands": [ir(n) for n in ("PowerOn", "PowerOff", "Exit", "InputTv", "InputHdmi2", "Mute", "VolumeUp",
                                   "VolumeDown", "ChannelUp", "Return", "Select", "SmartHub")]
      + [ir("HIDDirectionUp", 32)],
@@ -42,7 +42,7 @@ DEVICE_LIST = {"DevicesWithFeatures": [
                      {"InputName": "HDMI 2", "Actions": press("InputHdmi2", "InputHdmi2")}]},
          {"__type": "PowerFeature", "PowerTypeId": 1, "PowerOnDelay": 5000, "IsPowerAlwaysOn": False,
           "PowerOnActions": press("PowerOn"), "PowerOffActions": press("PowerOff"), "PowerToggleActions": None}]},
-    {"Device": {"Id-": SOUNDBAR, "Name": "Soundbar", "Transport": 1, "ControlPort": 7},
+    {"Device": {"Id-": SOUNDBAR, "Name": "Soundbar", "Transport": 1, "ControlPort": 7, "PressMinRepeats": 0},
      "Commands": [ir(n) for n in ("PowerToggle", "Source", "Mute", "VolumeUp", "VolumeDown")],
      "DeviceFeatures": [
          {"__type": "InputFeature", "InputType": 4, "InputDelay": 1000,
@@ -147,6 +147,13 @@ class StockMigrationTest(unittest.TestCase):
         self.assertIn("PowerOn", names)
         self.assertTrue(self.warned("1 Bluetooth commands not migrated"))
         self.assertEqual(self.devices["Player"]["type"], "BT")
+
+    def test_press_min_repeats(self):
+        """The account's PressMinRepeats becomes the device's pressMinRepeats (0 kept); none
+        is written for a device without it (the Hub then uses 3, as stock does)"""
+        self.assertEqual(self.devices["TV"].get("pressMinRepeats"), 1)
+        self.assertEqual(self.devices["Soundbar"].get("pressMinRepeats"), 0)
+        self.assertNotIn("pressMinRepeats", self.devices["Player"])
 
     def test_power_feature(self):
         tv = self.devices["TV"]

@@ -647,7 +647,7 @@ Returns all registered devices and basic commands from `/data/harmony/config/dev
   The object is `devices.json` as the Hub stores it. Every device has the fields above, and `icon`
   when one was set. By kind of device:
   - infrared (every `type` that is not Bluetooth or MQTT): `controlPort` (the IR port mask, 0 to 7),
-    and `repeats` in each command. A command has `port` (1 to 7) only when it has its own Emitter
+    `pressMinRepeats` when set (3.2), and `repeats` in each command. A command has `port` (1 to 7) only when it has its own Emitter
     Port, which a send uses instead of `controlPort`. `"commandPorts": 1` at the top marks a file
     whose command ports were set that way: in a file without it, every command's `port` is a copy
     of its device's port that no send used, and the Hub drops those once at load;
@@ -743,9 +743,15 @@ it). The command fields are saved with `POST /api/command-save` (3.5) or a `comm
   changed; a larger value already in `devices.json` is lowered to 10000 when the file is loaded.
   The three waits are for commands a program sends (API, MQTT, activity sequences); a key pressed
   on a remote is sent without them.
+- `pressMinRepeats` (infrared devices): how many frames a press sends after the first, as the
+  Logitech account's `PressMinRepeats` (5.1, "Frames of a press"). 0 to 20 (a number or numeric
+  text; a larger value is lowered to 20). `null`, `""` or a negative number removes it, and the
+  Hub then uses 3, as a stock Hub does for an account without the value; left out, the stored
+  value is kept. A device without it in `devices.json` gets none when the file is loaded (no
+  default is written); a value that is not a count is dropped there.
 - **Response `200 OK`**: `{"ok": true, "deviceId": "70321456", "id": "70321456"}` (both carry the device's id, the new one for a device the Hub just created)
 - **Response `400`**: `{"ok": false}` when a timing field (the three delays, `powerOnDelay`, `btReconnectDurationSec`, `btReconnectDelaySec`) is not a number (or numeric string) or a
-  delay is out of range.
+  delay is out of range, or `pressMinRepeats` is text that is not a number.
 - **Response `500`**: `{"ok": false, "error": "..."}` when `devices.json` could not be written (flash
   full); the stored devices are kept.
 
@@ -838,7 +844,9 @@ Adds or updates a single command for a device.
   - `script`: a Bluetooth macro; it is stored as `BT:SCRIPT:<script>` with `"isMacro": true` and
     replaces `raw`.
   - `repeats` (1 to 20, higher is 20) and `port` are numbers or, from a form post, numeric text.
-    `repeats` left out keeps the stored value (3 for a new command).
+    `repeats` left out keeps the stored value (3 for a new command). It is stored and kept for
+    clients, but it does not set how many frames a press sends: the device's `pressMinRepeats`
+    does (3.2, 5.1), as on a stock Hub, where the trailing `:3` of a keycode is not read either.
   - `port`: the command's own IR port mask, 1 to 7, used by a send instead of the device's
     `controlPort`, also when that is `0` (No Blasters). `0` (Default (Device Setting)) removes it, so the device's port applies; left
     out, the stored one is kept. For a Bluetooth or MQTT device, and for a Bluetooth (`HID:`,
@@ -1244,11 +1252,29 @@ command of an HTTP or TCP device that finds their send queue full `503` `"send q
   is still down. With no `hold` and no `release` for 600 ms the Hub stops repeating by itself
   (a lost release cannot leave a key repeating), so a client that holds a key longer sends a
   `hold` at least every 300 ms, as the remote does. The repeating always ends after a whole
-  frame, and the start of the code always goes out, also when the release comes sooner. A `tap`,
-  each command of a list and each step of an activity is one send, as before. Another infrared
-  command ends a held key (it waits for the frame on air). A `hold` or `release` for a key that
+  frame, and the start of the code and the repeat parts of a press (below) always go out, also
+  when the release comes sooner or the holds stop. A `tap`, each command of a list and each step
+  of an activity is one press (below). Another infrared command ends a held key (it waits for the
+  frames that must still go out). A `hold` or `release` for a key that
   is not held does nothing. For a Bluetooth command `press` is key down, `release` key up and
   `hold` nothing. The `hold_secs` of `send_command` (10.3, MQTT) sends the holds itself.
+- **Frames of a press**: a press of a device's infrared command (a `tap`, a step, a command of a
+  list, and the start of a held key) sends the code's start part, then N repeat parts, as a
+  stock Hub does (its `irmanager.lua` and `hal`). N is the device's `pressMinRepeats` (3.2), 3
+  when the device has none. The command's `repeats` and the keycode's trailing `:3` do not count.
+
+  | Code | Frames of a press | N = 0 | N = 1 | N = 3 |
+  |---|---|---|---|---|
+  | empty start group, `G:<protocol>:()(code)():3` (most protocols; also Pronto with a repeat sequence only) | the frame max(N, 1) times | 1 | 1 | 3 |
+  | start group, `G:Toshiba 32 Bit:(code)(Repeat)():3` (also Pronto with a once and a repeat sequence) | the frame, then N repeat parts (for NEC types the short repeat code) | frame | frame + 1 | frame + 3 |
+  | Sony (`G:Sony <n> Bit:...`) | the frame max(N, 3) times: Sony receivers act only on a repeated frame | 3 | 3 | 3 |
+  | learned code (`F<carrier>P...S...`) | once, whatever N (it holds every frame of the learned press, 5.2a) | 1 | 1 | 1 |
+
+  A held key sends at least these frames and then repeats until the release. The routes that
+  send a code as given send it once: a code in `pronto`, `code` or `raw` of this route (below;
+  also a `G:` keycode), `POST /api/pronto-blast` (5.2), `POST /api/ir-test-learned` (5.2a),
+  `POST /api/ir-raw` (5.4), and an activity step that names a raw or Pronto code instead of a
+  command.
 - **Request by Raw Pronto**:
   ```json
   {
@@ -1299,13 +1325,13 @@ Dedicated blaster endpoint for raw Pronto hex code streams.
 
 ### 5.2a IR Learning (capture)
 #### `POST /api/capture`
-Listens on the Hub's IR receiver until a signal arrives or the timeout ends, then returns one frame as a Harmony raw timing string (`F<carrier hex>P<pulse us hex>S<space us hex>...`, the carrier measured, the last space the gap to the next frame). The string can be stored as a command's `raw` (`POST /ir/command`) and sent like any other keycode. The sensor is short-range: hold the original remote about 8 cm from the Hub and hold the button for 1 to 2 seconds (the first frame of a press is often cut, so the decoder keeps the first complete frame after it).
+Listens on the Hub's IR receiver until a signal arrives or the timeout ends, then returns the whole press as a Harmony raw timing string (`F<carrier hex>P<pulse us hex>S<space us hex>...`, the carrier measured, each space between frames as measured, the last space the gap to the next frame). As the stock Hub's capture does, it records until 200 ms without light, at most 1023 mark/space pairs (2 s at most), and keeps every frame of the press; the string can be stored as a command's `raw` (`POST /ir/command`), and a tap of that command sends it once, so every frame goes out again (3.5). Learn with one short tap: a key held for a second becomes a code a second long. The sensor is short-range and often misses the start of a press: hold the original remote 5 to 8 cm from the Hub. A first frame shorter than the next one is dropped (the sensor cut it), and so is a last frame without quiet after it (cut by the limit).
 - **Request Body** (optional): `{"timeout": 10}` in seconds, 1 to 30 (default 10). `?timeout=` works too, but is read only when the request has no body.
 - **Response `200 OK`**:
   ```json
-  {"ok": true, "raw": "F9470P...S...", "keycode": "F9470P...S...", "mode": "raw", "carrier_hz": 38000, "pulses": 26, "duration_us": 24000}
+  {"ok": true, "raw": "F9470P...S...", "keycode": "F9470P...S...", "mode": "raw", "carrier_hz": 38000, "pulses": 26, "duration_us": 24000, "frames": 1}
   ```
-  `pulses` is the number of timing intervals in `raw`, marks and spaces together (`P` and `S` entries); `duration_us` is their sum.
+  `pulses` is the number of timing intervals in `raw`, marks and spaces together (`P` and `S` entries); `duration_us` is their sum; `frames` the number of frames (a space of 20 ms or more ends one).
 - **Errors**: `408` no signal before the timeout, or only a flash that is not a code, `409` another capture is running, an IR send holds the hardware, or the capture mode (5.5) is on, `503` no IR receiver, or the receiver stopped delivering data (the capture gives up after 2 s without data instead of hanging; a reboot clears a stuck receiver), `500` other failures.
 
 #### `POST /api/ir-test-learned`
@@ -1382,7 +1408,9 @@ Home Assistant's `infrared` platform produces). Capability flag: `ir_raw`.
 #### `POST /api/ir-capture`
 Turns the capture mode on or off. While it is on, a thread keeps the Hub's IR receiver open and
 pushes one `ir_received` event (10.13b) per button press, to every WebSocket client and on MQTT
-`<base>/ir/received` (8.1). It is what Home Assistant's infrared receiver uses to learn codes.
+`<base>/ir/received` (8.1). It is what Home Assistant's infrared receiver uses to learn codes. An
+event carries one frame of the press (the first complete one), not the whole press that
+`POST /api/capture` (5.2a) keeps.
 Capability flag: `ir_capture`. Admin only, like `POST /api/capture`.
 - **Request Body**: `{"enabled": true}` or `{"enabled": false}`.
 - **Response `200 OK`**: `{"ok": true, "ir_capture": true}`.
@@ -1391,7 +1419,7 @@ Capability flag: `ir_capture`. Admin only, like `POST /api/capture`.
 - **Error `503`**: no IR receiver, or it could not be set up.
 
 Behaviour:
-- One event per press: the first complete frame is decoded (as in 5.2a), then nothing until the
+- One event per press: the first complete frame is decoded (5.2a keeps every frame), then nothing until the
   receiver has been dark for 150 ms, so a held button gives one event.
 - Sends keep working while the mode is on (activity steps, `ir-send`, `ir-raw`): the receiver sees
   the Hub's own blasters, so what it reads during a send and 100 ms after it is dropped, and a

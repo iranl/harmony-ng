@@ -977,7 +977,7 @@ export default {
     "no_devices_found": "No se encontraron dispositivos.",
     "device_cmd_count_line": "{manufacturer} {model} ({count} comandos)",
     "device_studio_title": "Estudio de {name}",
-    "ir_learn_hint": "Apunte su mando original al sensor frontal del Harmony Hub y pulse Capturar.",
+    "ir_learn_hint": "Apunte su mando original al sensor frontal del Harmony Hub, a 5-8 cm, pulse Capturar y luego pulse la tecla una vez, brevemente.",
     "start_ir_capture": "Iniciar captura IR",
     "ir_listening_press_button": "El Hub escucha la señal IR... pulse un botón del mando",
     "ir_capture_timed_out": "La captura expiró sin señal",

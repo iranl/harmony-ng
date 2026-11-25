@@ -87,6 +87,11 @@ int ir_i2s_decode_capture(const uint8_t *raw_buf, size_t raw_len, char *out, siz
  * few carrier pulses to measure (the string then says 38 kHz). */
 int ir_i2s_decode_capture_ex(const uint8_t *raw_buf, size_t raw_len, char *out, size_t outlen,
                              uint32_t *measured_hz);
+/* As ir_i2s_decode_capture_ex, but keeps every frame of the press, as ir_i2s_capture() (the
+ * one-shot learn) does: a first frame shorter than the next one is dropped (the sensor cut it),
+ * and so is a last frame without quiet after it (the recording limit cut it). */
+int ir_i2s_decode_capture_press(const uint8_t *raw_buf, size_t raw_len, char *out, size_t outlen,
+                                uint32_t *measured_hz);
 
 /*
  * Capture mode (Home Assistant spec 3.14): a thread keeps the receiver open and calls cb once

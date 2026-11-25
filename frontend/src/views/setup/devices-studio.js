@@ -221,7 +221,7 @@ export function createView() {
       h('div', { className: 'card-header' }, [
         h('h4', { className: 'card-title', text: t('ir_learn_title', 'IR Capture (Learning Mode)') }),
       ]),
-      h('p', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '10px' }, text: t('ir_learn_hint', 'Point your original remote at the Harmony Hub front sensor and press Capture.') }),
+      h('p', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '10px' }, text: t('ir_learn_hint', 'Point your original remote at the Harmony Hub front sensor, 5 to 8 cm away, press Capture, then tap the key once.') }),
       h('button', {
         className: 'btn btn-primary',
         text: `🎯 ${t('start_ir_capture', 'Start IR Capture')}`,

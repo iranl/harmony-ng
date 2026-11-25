@@ -246,7 +246,7 @@ export default {
     "clear_log": "Effacer journal",
     "clear_mapping": "Effacer l'assignation",
     "clear_slot": "Effacer l'emplacement",
-    "click_start_capture_hint": "Cliquez sur « Démarrer la capture », maintenez le bouton de votre télécommande enfoncé.",
+    "click_start_capture_hint": "Cliquez sur « Démarrer la capture », puis appuyez une fois brièvement sur le bouton de votre télécommande.",
     "click_to_map_hint": "Cliquez sur n'importe quel bouton de la télécommande visuelle pour lui associer une action.",
     "client_id": "ID client",
     "close": "Fermer",
@@ -1347,6 +1347,7 @@ export default {
     "irdb_parsed_selected": "{count} commandes analysées ({checked} sur {count} sélectionnées).",
     "irdb_listening": "En attente d'un signal IR (appuyez sur une touche de la télécommande)...",
     "irdb_captured_signal": "Signal capturé ! Mode : {mode}",
+    "irdb_captured_frames": "{frames} trame(s) capturée(s), {ms} ms. Un appui envoie le tout : si c'est plus long qu'un appui, apprenez-le de nouveau avec un appui plus court.",
     "irdb_no_signal": "Aucun signal reçu ou délai dépassé.",
     "irdb_capture_failed": "Échec de la capture : {error}",
     "irdb_sending_test": "Envoi du signal de test...",
@@ -2146,4 +2147,6 @@ export default {
     "net_no_pin": "Aucune clé mémorisée pour cet appareil",
     "net_cmd_name_required": "Saisissez un nom de commande",
     "net_cmd_saved": "Commande enregistrée",
+    "press_min_repeats": "Répétitions par appui",
+    "press_min_repeats_title": "Trames qu'un appui envoie après la première, comme PressMinRepeats du compte Logitech. Vide = 3.",
 };

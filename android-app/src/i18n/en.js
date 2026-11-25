@@ -246,7 +246,7 @@ export default {
     "clear_log": "Clear Log",
     "clear_mapping": "Clear Mapping",
     "clear_slot": "Clear Slot",
-    "click_start_capture_hint": "Click \"Start Capture\", press and hold the button on your remote.",
+    "click_start_capture_hint": "Click \"Start Capture\", then tap the button on your remote once.",
     "click_to_map_hint": "Click any button on the visual remote to map its action for this activity.",
     "client_id": "Client ID",
     "close": "Close",
@@ -1347,6 +1347,7 @@ export default {
     "irdb_parsed_selected": "Parsed {count} commands ({checked} of {count} selected).",
     "irdb_listening": "Listening for IR signal (press remote button)...",
     "irdb_captured_signal": "Captured signal! Mode: {mode}",
+    "irdb_captured_frames": "Captured {frames} frame(s), {ms} ms. A tap sends all of it: if that is longer than one press, learn it again with a shorter tap.",
     "irdb_no_signal": "No signal received or timed out.",
     "irdb_capture_failed": "Capture failed: {error}",
     "irdb_sending_test": "Sending test signal...",
@@ -2146,4 +2147,6 @@ export default {
     "net_no_pin": "No key pinned for this device",
     "net_cmd_name_required": "Enter a command name",
     "net_cmd_saved": "Command saved",
+    "press_min_repeats": "Press Repeats",
+    "press_min_repeats_title": "Frames a press sends after the first, as the Logitech account's PressMinRepeats. Empty = 3.",
 };

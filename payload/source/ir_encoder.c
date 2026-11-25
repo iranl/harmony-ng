@@ -590,9 +590,9 @@ int ir_encode_harmony_keycode(const char *keycode, uint8_t min_repeats,
         timings_add(timings, &timing_count, 0, 809);
     } else if (strstr(proto, "Sony") || strcasecmp(proto, "Sony") == 0) {
         /* Sony SIRC: the protocol name gives the bit count ("Sony 15 Bit"); the
-         * code's low bits are sent MSB first and each frame lasts 45 ms. Receivers
-         * act only on a repeated frame and the I2S player sends the sequence once,
-         * so the sequence holds every repeat, at least 3. */
+         * code's low bits are sent MSB first and each frame lasts 45 ms. One frame is
+         * both the start and the repeat sequence: receivers act only on a repeated
+         * frame, so a press sends at least 3 of them (ir_press_repeat_parts()). */
         carrier_hz = 40000;
         unsigned long val = strtoul(hex, NULL, 16);
         int bits = 0;
@@ -602,25 +602,12 @@ int ir_encode_harmony_keycode(const char *keycode, uint8_t min_repeats,
             bits = 4 * (int)strspn(h, "0123456789abcdefABCDEF");
             if (bits > 32) return -3;
         }
-        int frames = parsed_repeats < 3 ? 3 : parsed_repeats;
-        size_t frame_entries = 2 * (size_t)bits + 2;
-        size_t one_frame = 0;
-        for (int f = 0; f < frames && timing_count + frame_entries <= 1024; f++) {
-            uint32_t frame_start = timings_sum(timings, timing_count);
-            timings_add(timings, &timing_count, 1, 2400);
-            for (int b = bits - 1; b >= 0; b--) {
-                timings_add(timings, &timing_count, 0, 600);
-                timings_add(timings, &timing_count, 1, ((val >> b) & 1) ? 1200 : 600);
-            }
-            timings_pad_to(timings, &timing_count, frame_start, 45000);
-            if (f == 0) one_frame = timing_count;
+        timings_add(timings, &timing_count, 1, 2400);
+        for (int b = bits - 1; b >= 0; b--) {
+            timings_add(timings, &timing_count, 0, 600);
+            timings_add(timings, &timing_count, 1, ((val >> b) & 1) ? 1200 : 600);
         }
-        /* While the key is held one frame repeats (every 45 ms), not the whole group */
-        if (one_frame > 0 && one_frame % 2 == 0 && one_frame < timing_count && one_frame <= 2 * 32 + 2) {
-            uint32_t repeat[2 * 32 + 2];
-            memcpy(repeat, timings, one_frame * sizeof(uint32_t));
-            return ir_encode_sequences(carrier_hz, timings, timing_count, repeat, one_frame, parsed_repeats, out_buf, out_len);
-        }
+        timings_pad_to(timings, &timing_count, 0, 45000);
     } else if (strstr(proto, "Samsung 16 and 20 Bit")) {
         /* Samsung soundbars ("0x<16 bits>_1x<20 bits>"): a 16-bit segment with a header,
          * then a 20-bit segment, both MSB first with a long space for 1 */
@@ -754,6 +741,51 @@ int ir_encode_harmony_keycode(const char *keycode, uint8_t min_repeats,
     }
 
     return ir_encode_raw(carrier_hz, timings, timing_count, parsed_repeats, out_buf, out_len);
+}
+
+/* Frames a protocol needs per press at least: Sony receivers act only on a repeated frame */
+static int ir_press_floor(const char *keycode) {
+    if (strncmp(keycode, "G:", 2) != 0) return 1;
+    const char *end = strchr(keycode + 2, ':');
+    if (!end) return 1;
+    char proto[128];
+    size_t n = (size_t)(end - (keycode + 2));
+    if (n >= sizeof(proto)) return 1;
+    memcpy(proto, keycode + 2, n);
+    proto[n] = '\0';
+    return strstr(proto, "Sony") ? 3 : 1;
+}
+
+/* A sequence location of the blob that can be sent: in the blob and with words in it */
+static int ir_blob_loc_ok(const uint8_t *blob, size_t blob_len, uint16_t loc) {
+    return loc >= IR_HEADER_SIZE && (size_t)loc + 4 <= blob_len && (blob[loc] || blob[loc + 1]);
+}
+
+int ir_press_repeat_parts(const char *keycode, const uint8_t *blob, size_t blob_len, int press_min_repeats) {
+    if (!keycode || !blob || blob_len < IR_HEADER_SIZE) return 0;
+    /* A learned code (F<carrier>P<mark>S<space>...) goes out once whatever the count, as on a
+     * stock Hub, where its record carries min_repeat 0 */
+    int32_t t[4];
+    if ((keycode[0] == 'F' || keycode[0] == 'f') && ir_parse_harmony_raw(keycode, NULL, t, 4) >= 4) return 0;
+
+    int n = press_min_repeats < 0 ? IR_PRESS_MIN_REPEATS_DEFAULT : press_min_repeats;
+    if (n > IR_PRESS_MIN_REPEATS_MAX) n = IR_PRESS_MIN_REPEATS_MAX;
+
+    /* The locations as the sender resolves them (ir_i2s.c): no start sequence means the first
+     * one (a Pronto code with a repeat sequence only), no repeat sequence means the start */
+    uint16_t start_loc = (uint16_t)((blob[10] << 8) | blob[11]);
+    if (start_loc < IR_HEADER_SIZE || (size_t)start_loc + 2 > blob_len) start_loc = IR_HEADER_SIZE;
+    uint16_t repeat_loc = (uint16_t)((blob[12] << 8) | blob[13]);
+    if (!ir_blob_loc_ok(blob, blob_len, repeat_loc)) repeat_loc = start_loc;
+
+    if (start_loc == repeat_loc) {
+        /* The frame is the repeat part (stock: no start part): a press sends it max(N, 1) times */
+        int floor = ir_press_floor(keycode);
+        if (n < floor) n = floor;
+        return n - 1;
+    }
+    /* The frame, then N repeat parts (for NEC types the short repeat code) */
+    return n;
 }
 
 void ir_free_encoded(uint8_t *buf) {

@@ -977,7 +977,7 @@ export default {
     "no_devices_found": "Geen apparaten gevonden.",
     "device_cmd_count_line": "{manufacturer} {model} ({count} commando’s)",
     "device_studio_title": "{name}-studio",
-    "ir_learn_hint": "Richt uw originele afstandsbediening op de sensor aan de voorkant van de Harmony Hub en druk op Opnemen.",
+    "ir_learn_hint": "Richt uw originele afstandsbediening op 5 tot 8 cm op de sensor aan de voorkant van de Harmony Hub, druk op Opnemen en druk daarna één keer kort op de toets.",
     "start_ir_capture": "IR-opname starten",
     "ir_listening_press_button": "Hub luistert naar IR-signaal... druk op een knop van de afstandsbediening",
     "ir_capture_timed_out": "Opname verlopen zonder signaal",

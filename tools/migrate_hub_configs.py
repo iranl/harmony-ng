@@ -88,6 +88,29 @@ MAIN_ROLE_TYPES = (
 )
 
 
+PRESS_MIN_REPEATS_MAX = 20  # config_sanitize.h PRESS_MIN_REPEATS_MAX
+
+
+def _press_min_repeats(value: Any) -> Optional[int]:
+    """A device's pressMinRepeats (frames an infrared press sends after the first), as the Hub's
+    config_sanitize.c keeps it: an int or numeric text >= 0, at most 20. None (leave the field
+    out, the Hub's default 3 applies) for a missing, negative or non-numeric value."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, float):
+        if value != value:
+            return None
+        value = int(value)
+    if isinstance(value, str):
+        try:
+            value = int(value.strip())
+        except ValueError:
+            return None
+    if not isinstance(value, int) or value < 0:
+        return None
+    return min(value, PRESS_MIN_REPEATS_MAX)
+
+
 def _int(value: Any, default: int, keep_zero: bool = False) -> int:
     """int(value or default) that does not raise: a value that is not a number gives default.
 
@@ -280,8 +303,9 @@ def migrate_stock_devices(device_list_path: str, function_list_path: Optional[st
                 "keyCode": key_code,
                 "raw": raw_str
             }
-            # No "repeats": stock keeps a repeat count per device (PressMinRepeats), not per
-            # command, and a held key repeats on the Hub by itself. The Hub's default applies.
+            # No "repeats": stock keeps the count of a press per device (PressMinRepeats, written
+            # to the device's "pressMinRepeats" below), not per command, and a held key repeats
+            # on the Hub by itself.
             if not is_bt and not is_mqtt:
                 cmd_obj["port"] = control_port
 
@@ -332,6 +356,12 @@ def migrate_stock_devices(device_list_path: str, function_list_path: Optional[st
             "powerOffSequence": p_off,
             "commands": clean_cmds
         }
+
+        # Frames a press sends after the first, from the account: kept only when the account has
+        # a value (stock uses 3 without one, and so does the Hub without the field)
+        press_min = d.get("PressMinRepeats")
+        if isinstance(press_min, int) and not isinstance(press_min, bool) and press_min >= 0 and not is_bt:
+            dev_obj["pressMinRepeats"] = min(press_min, PRESS_MIN_REPEATS_MAX)
 
         if is_mqtt:
             dev_obj["mqttEnabled"] = True
@@ -931,6 +961,9 @@ def sanitize_devices_json(devices_obj: Dict[str, Any]) -> Dict[str, Any]:
         }
         if transport is not None:
             clean_dev["transport"] = transport
+        press_min = _press_min_repeats(d.get("pressMinRepeats"))
+        if press_min is not None:
+            clean_dev["pressMinRepeats"] = press_min
         for idx, c in enumerate(d.get("commands", [])):
             # A command is an object, or (older configs) just its name
             if isinstance(c, str):
