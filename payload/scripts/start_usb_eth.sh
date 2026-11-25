@@ -76,7 +76,9 @@ done
 # some OTG cables with a hub) goes through the controller's transaction translator: the Hub
 # freezes (only a power cycle helps) as soon as a driver waits for received data from it. A
 # loaded driver binds every matching device on the bus, so no network driver is loaded while
-# such a device is present. Hubs (class 09) and USB sticks (interface class 08) do not count.
+# such a device is present. Hubs (class 09), USB sticks (08) and keyboards or mice (HID, 03)
+# do not count, but only when every interface of the device is one of these: a composite
+# device with storage and CDC Ethernet does.
 slow_usb_device() {
   for _dev in /sys/bus/usb/devices/*; do
     case "${_dev##*/}" in [0-9]*-*) ;; *) continue ;; esac
@@ -86,18 +88,20 @@ slow_usb_device() {
     _other=1
     for _ic in "$_dev"/*:*/bInterfaceClass; do
       [ -f "$_ic" ] || continue
-      case "$(cat "$_ic" 2>/dev/null)" in 08|09) _other=0 ;; esac
+      case "$(cat "$_ic" 2>/dev/null)" in
+        03|08|09) [ "$_other" = 1 ] && _other=0 ;;
+        *) _other=2 ;;
+      esac
     done
-    if [ "$_other" = 1 ]; then
-      echo "${_dev##*/} $(cat "$_dev/idVendor" 2>/dev/null):$(cat "$_dev/idProduct" 2>/dev/null)"
-      return 0
-    fi
+    [ "$_other" = 0 ] && continue
+    echo "${_dev##*/} $(cat "$_dev/idVendor" 2>/dev/null):$(cat "$_dev/idProduct" 2>/dev/null)"
+    return 0
   done
   return 1
 }
 
 if slow=$(slow_usb_device); then
-  echo "[USB_ETH] USB device $slow runs at full speed (USB 1.1): no network driver is loaded, as it would freeze the Hub. Use a USB 2.0 (high-speed) adapter, hub or OTG cable."
+  echo "[USB_ETH] USB device $slow runs at full or low speed (USB 1.1): no network driver is loaded, as it would freeze the Hub. Use a USB 2.0 (high-speed) adapter, hub or OTG cable."
 elif [ -f /sys/bus/usb/devices/1-1/idVendor ]; then
   vid=$(cat /sys/bus/usb/devices/1-1/idVendor 2>/dev/null)
   pid=$(cat /sys/bus/usb/devices/1-1/idProduct 2>/dev/null)

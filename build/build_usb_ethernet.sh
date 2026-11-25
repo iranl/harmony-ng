@@ -2,11 +2,18 @@
 # Build the USB Ethernet kernel modules (payload/modules) for the stock Hub kernel
 # 2.6.31-g89d565c. Run in WSL/Linux.
 #
-#   KERNEL_DIR    full linux-2.6.31.14 tree with its .config (default ~/linux-2.6.31.14); it is
-#                 copied, never changed
-#   STOCK_VMLINUX raw stock kernel image (vmlinux.bin, load address 0x80002000)
-#   USBCORE_KO    stock usbcore.ko (squashfs-root/lib/modules/2.6.31-g89d565c/...)
-#   OUT_DIR       where the .ko files go (default payload/modules)
+#   KERNEL_TARBALL kernel.org linux-2.6.31.14.tar.xz (default ~/linux-2.6.31.14.tar.xz,
+#                  https://cdn.kernel.org/pub/linux/kernel/v2.6/linux-2.6.31.14.tar.xz)
+#   STOCK_VMLINUX  raw stock kernel image (vmlinux.bin, load address 0x80002000): the lzma
+#                  payload of the mtd1 uImage (firmware 4.15.600)
+#   USBCORE_KO     stock usbcore.ko (squashfs-root/lib/modules/2.6.31-g89d565c/...)
+# The three inputs are checked against the SHA-256 values below.
+#   OUT_DIR        where the .ko files go (default payload/modules)
+#
+# The tree is the tarball plus build/patches/usb_net/kernel-tree.patch (stock EXTRAVERSION and
+# vermagic, compiler-gcc5.h for the Buildroot gcc 5.4 toolchain, no ZONE_DMA select, a kmalloc
+# shim in asix.c), then the other patches in that folder (AX88772B support for asix). The
+# .config is build/patches/usb_net/kernel.config.
 #
 # The stock kernel was built with modversions: a module loads only when it records the kernel's
 # CRC for every symbol it uses. A plain build in a tree without Logitech's Module.symvers
@@ -15,17 +22,18 @@
 # (build/extract_symvers.py) and from the stock usbcore.ko, and every module is checked for a
 # CRC per undefined symbol before it is copied.
 #
-# The copy's .config is set like the stock kernel: no SMP, hotplug or suspend, and a 32-bit
-# sector_t (no LBDAF). The CRCs are those of the stock image whatever the copy's layout is, so
-# modversions cannot catch a layout difference: keep these settings.
-#
-# The patches in build/patches/usb_net/ are applied to the copy (AX88772B support for asix).
+# The .config is set like the stock kernel: no SMP, hotplug or suspend, a 32-bit sector_t (no
+# LBDAF), and no IPv6 or XFRM (both add members to struct sk_buff). The CRCs are those of the
+# stock image whatever the copy's layout is, so modversions cannot catch a layout difference:
+# build/patches/usb_net/stock_layout.c is built with the drivers and fails to compile unless
+# sk_buff, net_device, urb, usb_device and usb_interface have the stock offsets.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PATCHES="$REPO_ROOT/build/patches/usb_net"
 TOOLCHAIN="$REPO_ROOT/build/toolchains/mips32--uclibc--stable/bin/mips-buildroot-linux-uclibc-"
-KERNEL_DIR="${KERNEL_DIR:-$HOME/linux-2.6.31.14}"
+KERNEL_TARBALL="${KERNEL_TARBALL:-$HOME/linux-2.6.31.14.tar.xz}"
 STOCK_VMLINUX="${STOCK_VMLINUX:-$REPO_ROOT/scratch/vmlinux.bin}"
 USBCORE_KO="${USBCORE_KO:-$REPO_ROOT/background/hub_firmware_extracted/squashfs-root/lib/modules/2.6.31-g89d565c/kernel/drivers/usb/core/usbcore.ko}"
 OUT_DIR="${OUT_DIR:-$REPO_ROOT/payload/modules}"
@@ -34,36 +42,46 @@ WORK="${WORK:-$HOME/kbuild-usbnet}"
 # r8152.ko in payload/modules already records a CRC for every symbol
 MODULES="usbnet asix cdc_ether cdc_subset dm9601 mcs7830 net1080 pegasus rndis_host rtl8150 smsc95xx zaurus"
 
-for f in "$KERNEL_DIR/.config" "$STOCK_VMLINUX" "$USBCORE_KO" "${TOOLCHAIN}gcc"; do
+for f in "$KERNEL_TARBALL" "$STOCK_VMLINUX" "$USBCORE_KO" "${TOOLCHAIN}gcc"; do
     [ -e "$f" ] || { echo "Error: $f not found" >&2; exit 1; }
 done
+sha256sum -c --quiet - <<EOF || { echo "Error: an input is not the expected file" >&2; exit 1; }
+6546b025e80aeef3eb90d42fad2d94500d23fb435c57664c444ccd358575c588  $KERNEL_TARBALL
+0baeda5b82a7ac9d91b10af0fd6fa399e6da4f71c49cd011ee59880f13f51bd2  $STOCK_VMLINUX
+95e4fc75526f64a9e9364893f5665c0629bb8f295cb6f3ab9ed448e3a2063ff7  $USBCORE_KO
+EOF
 
 MAKE=(make ARCH=mips CROSS_COMPILE="$TOOLCHAIN" KCFLAGS=-Wno-error)
 
-echo "=== Copying $KERNEL_DIR to $WORK ==="
+echo "=== Unpacking $KERNEL_TARBALL to $WORK ==="
 rm -rf "$WORK"
-cp -a "$KERNEL_DIR" "$WORK"
+mkdir -p "$WORK"
+tar -xJf "$KERNEL_TARBALL" -C "$WORK" --strip-components=1
 cd "$WORK"
-# modules of an earlier build in the source tree must not be copied as new ones; the Makefile
-# names the shipped drivers whatever the .config enables
-find drivers/net/usb -name '*.ko' -delete
-echo "obj-m := $(echo $MODULES | sed 's/\([a-z0-9_]*\)/\1.o/g')" > drivers/net/usb/Makefile
+# the Makefile names the shipped drivers whatever the .config enables
+echo "obj-m := $(echo $MODULES | sed 's/\([a-z0-9_]*\)/\1.o/g') stock_layout.o" > drivers/net/usb/Makefile
+cp "$PATCHES/stock_layout.c" drivers/net/usb/
+cp "$PATCHES/kernel.config" .config
 
-for p in "$REPO_ROOT"/build/patches/usb_net/*.patch; do
-    [ -f "$p" ] || continue
+for p in "$PATCHES/kernel-tree.patch" $(ls "$PATCHES"/*.patch | grep -v '/kernel-tree\.patch$'); do
     echo "=== Applying ${p##*/} ==="
     patch -p1 --forward < "$p"
 done
 
-echo "=== Configuring like the stock kernel (UP, no hotplug, no suspend, 32-bit sector_t) ==="
-sed -i -e 's/^CONFIG_MIPS_MT_SMP=y/# CONFIG_MIPS_MT_SMP is not set\nCONFIG_MIPS_MT_DISABLED=y/' \
-       -e 's/^CONFIG_HOTPLUG=y/# CONFIG_HOTPLUG is not set/' \
-       -e 's/^CONFIG_LBDAF=y/# CONFIG_LBDAF is not set/' .config
-{ yes '' || :; } | "${MAKE[@]}" oldconfig >/dev/null 2>&1
-sed -i 's/^CONFIG_SUSPEND=y/# CONFIG_SUSPEND is not set/' .config
-{ yes '' || :; } | "${MAKE[@]}" oldconfig >/dev/null 2>&1
-for opt in SMP HOTPLUG SUSPEND FREEZER LBDAF; do
-    if grep -q "^CONFIG_$opt=y" .config; then
+echo "=== Configuring like the stock kernel (UP, no hotplug, no suspend, 32-bit sector_t, no IPv6/XFRM) ==="
+# an option set to "is not set" is answered, so oldconfig does not turn it back on; XFRM has no
+# prompt and goes once nothing selects it
+OFF='MIPS_MT_SMP|HOTPLUG|LBDAF|SUSPEND|IPV6|IPV6_[A-Z0-9_]*|INET6_[A-Z0-9_]*|XFRM_[A-Z0-9_]*|INET_XFRM_[A-Z0-9_]*|INET_AH|INET_ESP|INET_IPCOMP|NET_KEY|NET_KEY_MIGRATE'
+sed -i -r "s/^CONFIG_($OFF)=[ym]$/# CONFIG_\1 is not set/" .config
+grep -q '^CONFIG_MIPS_MT_DISABLED=y' .config || echo 'CONFIG_MIPS_MT_DISABLED=y' >> .config
+oldconfig() {
+    { yes '' || :; } | "${MAKE[@]}" oldconfig > oldconfig.log 2>&1 || { cat oldconfig.log >&2; exit 1; }
+}
+oldconfig
+sed -i -r "s/^CONFIG_($OFF)=[ym]$/# CONFIG_\1 is not set/" .config
+oldconfig
+for opt in SMP HOTPLUG SUSPEND FREEZER LBDAF IPV6 XFRM; do
+    if grep -q "^CONFIG_$opt=[ym]" .config; then
         echo "Error: CONFIG_$opt is still on; the modules would not match the stock kernel" >&2
         exit 1
     fi

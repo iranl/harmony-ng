@@ -10,7 +10,7 @@
  #define AX_CMD_WRITE_EEPROM		0x0c
  #define AX_CMD_WRITE_ENABLE		0x0d
  #define AX_CMD_WRITE_DISABLE		0x0e
-@@ -975,12 +978,24 @@
+@@ -975,12 +978,27 @@
  	dbg("RX_CTL is 0x%04x setting to 0x0000", rx_ctl);
  
  	/* Get the MAC address */
@@ -31,12 +31,15 @@
  		goto out;
  	}
  	memcpy(dev->net->dev_addr, buf, ETH_ALEN);
-+	if (!is_valid_ether_addr(dev->net->dev_addr))
++	if (!is_valid_ether_addr(dev->net->dev_addr)) {
 +		random_ether_addr(dev->net->dev_addr);
++		printk(KERN_WARNING "asix: no valid MAC address in the adapter, using random %pM\n",
++		       dev->net->dev_addr);
++	}
  
  	/* Initialize MII structure */
  	dev->mii.dev = dev->net;
-@@ -1375,6 +1390,18 @@
+@@ -1375,6 +1393,18 @@
  	.tx_fixup = asix_tx_fixup,
  };
  
@@ -55,7 +58,7 @@
  static const struct driver_info ax88178_info = {
  	.description = "ASIX AX88178 USB 2.0 Ethernet",
  	.bind = ax88178_bind,
-@@ -1448,6 +1475,10 @@
+@@ -1448,6 +1478,10 @@
  	USB_DEVICE (0x0b95, 0x7720),
  	.driver_info = (unsigned long) &ax88772_info,
  }, {

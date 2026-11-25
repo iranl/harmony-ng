@@ -56,7 +56,9 @@ Because the Hub requires power through its Micro-USB connector, you need an **OT
 HarmonyNG bundles kernel drivers for these USB Ethernet chipsets in `/cache/modules/`. The IDs listed are the ones the shipped modules bind; an adapter with another ID of the same family (for example the ASIX AX88179 `0B95:1790`, SMSC LAN9505 `0424:9505` or Davicom DM9620 `0A46:9620`) is not supported by these module builds.
 
 > [!WARNING]
-> **The adapter must run at high speed (USB 2.0, 480 Mbps).** A network adapter at full speed (a USB 1.1 adapter, or any adapter behind a USB 1.1 hub, as in some OTG cables with a built-in hub) freezes the Hub as soon as its driver waits for received data; only a power cycle brings it back. `start_usb_eth.sh` therefore loads no network driver while such a device is on the bus and logs `runs at full speed (USB 1.1)`. Check the speed with `cat /sys/bus/usb/devices/*/speed` (`480` is high speed, `12` full speed).
+> **The adapter must run at high speed (USB 2.0, 480 Mbps).** A network adapter at full or low speed (a USB 1.1 adapter, or any adapter behind a USB 1.1 hub, as in some OTG cables with a built-in hub) froze the Hub as soon as its driver waited for received data; only a power cycle brought it back. This was seen with an AX88772B behind the full-speed hub of an OTG cable (`0a05:7211`), with modules that were later found to be built for another `struct sk_buff` layout, so it may not be a limit of the bus; until it is tested again with the rebuilt modules, `start_usb_eth.sh` loads no network driver while such a device is on the bus and logs `runs at full or low speed (USB 1.1)`. Check the speed with `cat /sys/bus/usb/devices/*/speed` (`480` is high speed, `12` full speed).
+>
+> The modules in `payload/modules` reach a Hub only with `build/deploy_hub.py` (it copies each changed module to `/cache/modules`): an OTA update carries no kernel modules, so a Hub updated over the air keeps the modules it had.
 
 | Chipset Family | USB Vendor:Product IDs | Driver Modules | Notes |
 | :--- | :--- | :--- | :--- |
