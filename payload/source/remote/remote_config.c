@@ -991,6 +991,7 @@ void load_settings_conf(void) {
                 }
             }
             else if (strcmp(key, "btn_backlight") == 0) g_btn_backlight_mode = (val >= 0 && val <= 2) ? val : 2;
+            else if (strcmp(key, "clean_wake") == 0) g_clean_wake = (val != 0);
             else if (strcmp(key, "night_start") == 0) g_night_start_hour = (val >= 0 && val <= 23) ? val : 22;
             else if (strcmp(key, "night_end") == 0) g_night_end_hour = (val >= 0 && val <= 23) ? val : 7;
             else if (strcmp(key, "timeout") == 0) g_timeout_seconds = val;
@@ -1051,6 +1052,7 @@ void save_settings_conf(void) {
         "gyro=%d\n"
         "deep_standby=%d\n"
         "btn_backlight=%d\n"
+        "clean_wake=%d\n"
         "night_start=%d\n"
         "night_end=%d\n"
         "timeout=%d\n"
@@ -1075,6 +1077,7 @@ void save_settings_conf(void) {
         g_gyro_enabled ? 1 : 0,
         g_deep_standby_min,
         g_btn_backlight_mode,
+        g_clean_wake ? 1 : 0,
         g_night_start_hour,
         g_night_end_hour,
         g_timeout_seconds,

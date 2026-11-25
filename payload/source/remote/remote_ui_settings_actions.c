@@ -166,6 +166,10 @@ void execute_settings_action(int idx) {
                 home_select_running();
                 save_settings_conf();
                 break;
+            case 7:   /* takes effect at the next blank (the screen is on while it is changed) */
+                g_clean_wake = !g_clean_wake;
+                save_settings_conf();
+                break;
             default: break;
         }
         return;

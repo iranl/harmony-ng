@@ -301,6 +301,7 @@ extern int g_act_trigger_count;
 extern bool g_gyro_enabled;
 extern int g_deep_standby_min;
 extern int g_btn_backlight_mode;
+extern bool g_clean_wake;
 extern int g_night_start_hour;
 extern int g_night_end_hour;
 extern int g_timeout_seconds;

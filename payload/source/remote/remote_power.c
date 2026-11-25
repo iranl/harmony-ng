@@ -133,17 +133,37 @@ bool is_night_time(void) {
     }
 }
 
+/* By default the screen blank powers the panel down (FB_BLANK_POWERDOWN), which stops the display
+ * controller's DMA (docs/REMOTE_BATTERY_OPTIMIZATION.md). The price is a flash of static at the
+ * next wake: the kernel initialises the panel again at the unblank (dmesg: "ili9341 : lcd module
+ * id") and lights the backlight at its old level while the panel still shows noise, before the
+ * first frame. With the Clean Wake setting on, only the backlight goes off, the panel stays powered
+ * and the wake is clean. A powered-down panel is unblanked at the next wake; at the first wake of
+ * a run in any case, as an earlier run (or an older build) may have left it powered down. */
+static bool s_panel_powered_down = true;
+
 void fb_set_blank(bool blank) {
     if (blank) transition_reset(); /* the frame before sleep isn't one to slide away from */
-    int blank_res = -1;
-    if (g_fb_fd >= 0) {
-        blank_res = ioctl(g_fb_fd, FBIOBLANK, blank ? FB_BLANK_POWERDOWN : FB_BLANK_UNBLANK);
-    }
-    int fd = open(FB_BLANK_SYSFS, O_WRONLY);
-    if (fd >= 0) {
-        const char *val = blank ? "4\n" : "0\n";
-        write(fd, val, strlen(val));
-        close(fd);
+    if (blank && !g_clean_wake) {
+        if (g_fb_fd >= 0) {
+            ioctl(g_fb_fd, FBIOBLANK, FB_BLANK_POWERDOWN);
+        }
+        int fd = open(FB_BLANK_SYSFS, O_WRONLY);
+        if (fd >= 0) {
+            write(fd, "4\n", 2);
+            close(fd);
+        }
+        s_panel_powered_down = true;
+    } else if (!blank && s_panel_powered_down) {
+        if (g_fb_fd >= 0) {
+            ioctl(g_fb_fd, FBIOBLANK, FB_BLANK_UNBLANK);
+        }
+        int fd = open(FB_BLANK_SYSFS, O_WRONLY);
+        if (fd >= 0) {
+            write(fd, "0\n", 2);
+            close(fd);
+        }
+        s_panel_powered_down = false;
     }
     g_screen_on = !blank;
     uint64_t now_ms = get_boot_ms(); /* the blank time counts a suspend (get_boot_ms) */
@@ -172,8 +192,8 @@ void fb_set_blank(bool blank) {
         flightlog_mark("SCREEN_OFF");
         bool usb_plug = (strcmp(g_battery_info.powersource, "usb") == 0);
         log_power_debug("=== ENTERING STANDBY (Screen Blank) ===\n");
-        log_power_debug("  fb_blank=%d, bl=0 | USB cable=%d | Battery: %dmV, %d%% (%s, chg=%d)\n",
-                        blank_res, usb_plug,
+        log_power_debug("  panel %s, bl=0 | USB cable=%d | Battery: %dmV, %d%% (%s, chg=%d)\n",
+                        s_panel_powered_down ? "powered down" : "powered", usb_plug,
                         g_battery_info.voltage_mv, g_battery_info.percent,
                         g_battery_info.powersource, g_battery_info.charging);
     }

@@ -2,8 +2,10 @@
  * test_remote_key_wake.c - the remote's main loop (the real remote_main.c, its main() renamed)
  * on the mock hardware: hard keys arrive on the button pipe, touches on the touch pipe. What the
  * remote does is recorded in order: every write to the radio (the re-sync packet, each frame by
- * type), the unblank of the display and every drawn frame. The unblank and the drawing are slowed
- * down by 40 ms each, as a stand-in for the real display, so the order is beyond doubt.
+ * type), the unblank of the display (its backlight lit) and every drawn frame. The unblank and the
+ * drawing are slowed down by 40 ms each, as a stand-in for the real display, so the order is beyond
+ * doubt. The framebuffer blank ioctls are recorded too: by default the panel is powered down at
+ * every blank and up at every wake, with Clean Wake on it is never touched.
  *
  * A hard key pressed while the screen is off must reach the Hub first:
  *   radio re-sync, key frame, and only then unblank and first frame.
@@ -102,6 +104,9 @@ static void order(int from, char *out, size_t len) {
 int __wrap_system(const char *cmd) { (void)cmd; return 0; }
 int __wrap_settimeofday(const struct timeval *tv, const void *tz) { (void)tv; (void)tz; return 0; }
 
+/* The backlight's sysfs file while it is open (set_backlight_level() opens it for each write) */
+static int s_backlight_fd = -1;
+
 int __real_open(const char *path, int flags, ...);
 int __wrap_open(const char *path, int flags, ...) {
     mode_t mode = 0;
@@ -118,12 +123,23 @@ int __wrap_open(const char *path, int flags, ...) {
         errno = ENOENT;
         return -1;
     }
-    return __real_open(path, flags, mode);
+    int fd = __real_open(path, flags, mode);
+    if (path && strcmp(path, BACKLIGHT_SYSFS) == 0) s_backlight_fd = fd;
+    else if (fd >= 0 && fd == s_backlight_fd) s_backlight_fd = -1; /* the number was reused */
+    return fd;
 }
 
 /* Every write to the radio: the re-sync packet (0x12 ...) or a frame (0x20, mode|slot, 0x12, ...) */
 ssize_t __real_write(int fd, const void *buf, size_t n);
 ssize_t __wrap_write(int fd, const void *buf, size_t n) {
+    if (fd >= 0 && fd == s_backlight_fd && buf && n > 0) {
+        if (((const char *)buf)[0] != '0') { /* lit: the display is unblanked */
+            note("unblank");
+            usleep(UNBLANK_MS * 1000);
+        } else {
+            note("blank");
+        }
+    }
     if (fd >= 0 && fd == g_rf_fd && buf) {
         const uint8_t *b = (const uint8_t *)buf;
         if (n == 10 && b[0] == 0x12) note("resync");
@@ -146,14 +162,7 @@ int __wrap_ioctl(int fd, unsigned long request, ...) {
     va_start(ap, request);
     void *arg = va_arg(ap, void *);
     va_end(ap);
-    if (request == FBIOBLANK) {
-        if ((long)arg == FB_BLANK_UNBLANK) {
-            note("unblank");
-            usleep(UNBLANK_MS * 1000);
-        } else {
-            note("blank");
-        }
-    }
+    if (request == FBIOBLANK) note((long)arg == FB_BLANK_UNBLANK ? "panel-on" : "panel-off");
     return __real_ioctl(fd, request, arg);
 }
 
@@ -317,6 +326,7 @@ int main(void) {
 
     /* 2. A quick tap, press and release both waiting when the remote reads them */
     printf("[-] a quick tap with the screen off, press and release read together\n");
+    int later_wakes = mark(); /* the wakes after the first one, which powered the panel up */
     m = screen_off();
     {
         struct input_event ev[4];
@@ -389,6 +399,33 @@ int main(void) {
     CHECK(count("press", m) == 1 && count("release", m) == 1 && release > press && count("hold", m) == 0,
           "one press frame, then one release frame");
     CHECK(count("unblank", m) == 0 && count("resync", m) == 0, "no wake of the display or the radio");
+
+    /* 6. Clean Wake off (the default, the blanks and wakes above): every blank powers the panel
+     *    down and every wake powers it up again */
+    printf("[-] the panel's power with Clean Wake off\n");
+    CHECK(!g_clean_wake, "Clean Wake is off by default");
+    CHECK(count("panel-off", later_wakes) == 3 && count("panel-on", later_wakes) == 3,
+          "each of the three blanks powers the panel down and each wake powers it up (%d, %d)",
+          count("panel-off", later_wakes), count("panel-on", later_wakes));
+
+    /* 7. Clean Wake on: only the backlight goes off, so the kernel does not initialise the
+     *    panel again at the wake (that shows a flash of static before the first frame) */
+    printf("[-] a blank and a wake with Clean Wake on\n");
+    g_clean_wake = true;
+    m = screen_off();
+    key_event(1);
+    wait_for("render", m, 1500);
+    usleep(120000);
+    key_event(0);
+    usleep(150000);
+    order(m, seq, sizeof(seq));
+    printf("      order: %s\n", seq);
+    CHECK(g_screen_on && first("unblank", m) >= 0 && first("render", m) > first("unblank", m),
+          "the screen wakes and a frame is drawn");
+    CHECK(count("panel-off", m) == 0 && count("panel-on", m) == 0,
+          "the panel is neither powered down nor up (%d, %d)",
+          count("panel-off", m), count("panel-on", m));
+    g_clean_wake = false;
 
     g_running = false;
     {

@@ -149,7 +149,7 @@ and from then on 300 s before the next one.
   lost at a reboot (see the flight recorder below).
 - **Files in `/data`**: `remote_settings.conf` (the settings, one `key=value` per line: `touch`,
   `physical_nav`, `cap_buttons`, `touch_sens`, `gyro`, `deep_standby` (`-1` at once,
-  `0` never, or 15, 30, 60, 120, 240 minutes), `btn_backlight`, `night_start`, `night_end`,
+  `0` never, or 15, 30, 60, 120, 240 minutes), `btn_backlight`, `clean_wake`, `night_start`, `night_end`,
   `timeout`, `brightness`, `no_screen`, `log_level`, `debug_logging`, `confirm_act`, `slot`,
   `language`, `theme`, `layout` (`theme`, `list`, `grid`, `carousel`), `order` (`yours`, `used`),
   `tz`), `remote_rf_config.json` (the config the Hub pushed), `remote_activity_usage.conf` (for
@@ -380,6 +380,9 @@ Pages have no Back item: swipe left to right, or press `Back`, to return to the 
 - **`Night Starts`**, **`Night Ends`**: `[ HH:00 ]`, one hour per tap. The window of the `NIGHT` backlight.
 - **`Theme`**: cycles through Classic and the installed themes.
 - **`Home Layout`**: `[ THEME ]` (the theme's layout), `[ LIST ]`, `[ GRID ]` or `[ CAROUSEL ]` (one activity per page, dragged sideways). Shows `[ LIST ]` while Physical Button Nav is on.
+- **`Clean Wake`**: `[ OFF ]` (default) or `[ ON ]`. Whether the screen wakes without a flash of static; takes effect from the next blank.
+  - `OFF`: the blank switches off the backlight and powers the panel down (`FB_BLANK_POWERDOWN`), the lowest draw while the screen is off ([REMOTE_BATTERY_OPTIMIZATION.md](REMOTE_BATTERY_OPTIMIZATION.md)). At the wake the kernel initialises the panel again and lights the backlight while it still shows noise: a short flash of static before the first frame.
+  - `ON`: the blank switches off the backlight only. The wake is clean, but the display controller keeps running while the screen is off, until a deep standby suspends the remote. With Deep Standby `[ AT ONCE ]` on battery that is about 2 s; on the cradle or USB the remote does not run on its battery.
 
 ### 3. `TOUCH`
 - **`Touchscreen`**: `[ ON ]` or `[ OFF ]`.

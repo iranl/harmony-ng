@@ -112,6 +112,7 @@ typedef enum {
     STR_NIGHT_END,
     STR_DISPLAY_THEME,
     STR_HOME_LAYOUT,
+    STR_CLEAN_WAKE,
     STR_ACTIVITY_ORDER,
 
     /* Settings TOUCH subview */

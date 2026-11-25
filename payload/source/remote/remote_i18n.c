@@ -167,6 +167,8 @@ static const char * const g_remote_strings[STR_COUNT][REMOTE_LANG_COUNT] = {
     { "Theme", "Design", "Theme", "Thema", "Tema", "Tema" },
     /* STR_HOME_LAYOUT */
     { "Home Layout", "Startseite", "Accueil", "Startscherm", "Inicio", "Home" },
+    /* STR_CLEAN_WAKE */
+    { "Clean Wake", "Sauberes Aufwachen", "Reveil sans neige", "Schoon ontwaken", "Encendido limpio", "Risveglio pulito" },
     /* STR_ACTIVITY_ORDER */
     { "Activity Order", "Reihenfolge", "Ordre", "Volgorde", "Orden", "Ordine" },
 

@@ -16,7 +16,7 @@ minutes, or never. On the cradle, on USB or while charging the remote never susp
 
 | Subsystem | Active Power | Light Standby | Deep Standby (suspend) | Optimization Mechanism |
 | :--- | :--- | :--- | :--- | :--- |
-| **LCD & Backlight** (`ap3156_backlight`) | ~120 - 180 mA | 0 mA | 0 mA | `FB_BLANK_POWERDOWN` (`val=4`) + PWM backlight to 0. |
+| **LCD & Backlight** (`ap3156_backlight`) | ~120 - 180 mA | 0 mA | 0 mA | `FB_BLANK_POWERDOWN` (`val=4`) + PWM backlight to 0, unless the Clean Wake setting is on (section 1). |
 | **Touchscreen** (Synaptics Clearpad) | ~11 mA | in its own doze (not measured) | in its own doze (not measured) | Left to the kernel's `clearpad` driver, which never puts it into sleep mode (section 2). |
 | **Buttons LED** (`tps6507x:white`) | ~35 mA | 0 mA | 0 mA | Off when the screen blanks. With the screen on: OFF never, ON always, NIGHT (the default) only inside the night window. |
 | **Accelerometer / Gyro** (`i2c-1/1-0019`) | ~15 mA | ~4.0 mA (1-5 Hz) | 0 mA (0 Hz) | Interrupt only (INT1) while the screen is off; 0 I2C bus transactions. |
@@ -33,9 +33,15 @@ In standard Linux framebuffers, `ioctl(fb_fd, FBIOBLANK, 1)` (`FB_BLANK_NORMAL`)
 In `fb_set_blank()` (`payload/source/remote/remote_power.c`):
 ```c
 /* FB_BLANK_POWERDOWN (4) actually shuts down the DaVinci LCD DMA */
-ioctl(g_fb_fd, FBIOBLANK, blank ? FB_BLANK_POWERDOWN : FB_BLANK_UNBLANK);
+if (blank && !g_clean_wake) ioctl(g_fb_fd, FBIOBLANK, FB_BLANK_POWERDOWN);
+else if (!blank && s_panel_powered_down) ioctl(g_fb_fd, FBIOBLANK, FB_BLANK_UNBLANK);
 ```
 This properly cuts power to the display controller, saving ~68.5 mA and extending standby from 12.8h to 40h.
+
+The Display setting **Clean Wake** (off by default) turns this off: a blank then only switches
+the backlight off, and the wake shows no flash of static (a powered-down panel is initialised
+again at the unblank and shows noise under the backlight before the first frame), at the price of
+the display controller running until the remote suspends.
 
 ---
 
