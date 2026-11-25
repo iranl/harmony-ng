@@ -912,8 +912,8 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
     }
 
     /* Route: POST /api/ir-capture {"enabled": bool}: the IR capture mode (spec 3.14). While it is
-     * on, every learned signal is an ir_received event (WebSocket, MQTT <base>/ir/received); the
-     * one-shot POST /api/capture answers 409. Shared with the ir_capture command action. */
+     * on, every received signal is an ir_received event (WebSocket, MQTT <base>/ir/received),
+     * except a press learned by POST /api/capture. Shared with the ir_capture command action. */
     if (strcmp(clean_path, "/api/ir-capture") == 0 && strcmp(method, "POST") == 0) {
         cJSON *req_j = (body && body[0]) ? cJSON_Parse(body) : NULL;
         cJSON *resp = NULL;
@@ -927,9 +927,10 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
 
     /* Route: POST /api/capture: learn one IR signal from the Hub's IR receiver.
      * Blocks this worker until a signal arrives or the timeout ends (seconds, default 10, 1..30).
-     * The capture holds the I2S lock that IR sends take too, so a send waits for it. The result is
-     * a Harmony raw string (F<carrier hex>P<us hex>S<us hex>...) that /ir/command saves as the
-     * command's code and the IR sender plays back as it is. */
+     * The receiver thread records the press, also while the capture mode is on (no ir_received
+     * event for it); IR sends go out at once meanwhile and a press that overlaps one is not kept.
+     * The result is a Harmony raw string (F<carrier hex>P<us hex>S<us hex>...) that /ir/command
+     * saves as the command's code and the IR sender plays back as it is. */
     if (strcmp(clean_path, "/api/capture") == 0 &&
         strcmp(method, "POST") == 0) {
         int timeout_s = 10;
@@ -978,12 +979,10 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
             send_cjson_resp(client_fd, 200, resp);
             cJSON_Delete(resp);
         } else if (rc == -EBUSY) {
-            send_json_error(client_fd, 409, "IR hardware is busy (an IR send is running); try again");
-        } else if (rc == -11) {
-            send_json_error(client_fd, 409, raw[0] ? raw : "IR capture mode is on");
+            send_json_error(client_fd, 409, "An IR capture is already running");
         } else if (rc == -5 || rc == -6) {
             send_json_error(client_fd, 408, raw[0] ? raw : "No IR signal received");
-        } else if (rc == -2 || rc == -3 || rc == -7) {
+        } else if (rc == -2 || rc == -3 || rc == -7 || rc == -9) {
             send_json_error(client_fd, 503, raw[0] ? raw : "IR receiver not available");
         } else {
             send_json_error(client_fd, 500, raw[0] ? raw : "IR capture failed");

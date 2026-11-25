@@ -15,6 +15,9 @@ build_test -Wall -O2 -include sys/stat.h -include time.h -Dmain=hub_rf_main -I"$
 # IR capture mode turned off while the receiver's read is stalled
 build_test -Wall -Wextra -O2 -pthread -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_ir_rx_wait_cpu" "$SCRIPT_DIR/test_ir_rx_wait_cpu.c" "$REPO_ROOT/payload/source/ir_i2s.c" && \
     HARMONY_MOCK_DIR="/tmp/harmony_mock" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" $NO_FUTEX "$BUILD_DIR/test_ir_rx_wait_cpu"
+# A learn's caller sleeps while it waits for the receiver thread
+build_test -Wall -Wextra -O2 -pthread -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_ir_learn_capture" "$SCRIPT_DIR/test_ir_learn_capture.c" "$REPO_ROOT/payload/source/ir_i2s.c" -lm && \
+    HARMONY_MOCK_DIR="/tmp/harmony_mock" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" $NO_FUTEX "$BUILD_DIR/test_ir_learn_capture" cpu
 
 # 6. Run OpenAPI Specification Contract Validation (docs/openapi.yaml must parse as YAML)
 python3 "$SCRIPT_DIR/test_ethernet_apply.py"
