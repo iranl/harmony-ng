@@ -38,9 +38,14 @@ In `main` since v2.4.2 (about 50 pull requests), among others:
 - every web interface text behind translation keys, six languages (#235);
 - one copy of the SSH server on the Hub instead of two (#239).
 
-In progress on branches: plugin system and marketplace (`feat/plugin-system`), emptying the stock
-resources to reclaim flash (`feat/empty-stock-resources`), Elite timing and screenshots
-(`feat/elite-improvements`), BLE broadcast commands (#43).
+Merged after 0.2 of this document (up to v3.0.0): the plugin system, marketplace and reference
+plugins (#243, #253, plugins in `iranl/harmony-ng-plugins`); HTTP(S) and TCP devices with
+verified HTTPS downloads (#252); stock remote behaviour, hidden devices and six remote slots
+(#251, #263); the Hub-driven switch screen and Help key (#248); flash and RAM reclaimed: stock
+resources that can be emptied, a 304 KB SSH server, packed stock icons, smaller binaries (#246,
+#254, #255, #258, #264); Bluetooth radio re-attached by the supervisor (#265); infrared fixes:
+Sky 28 Bit, stock stream polarity, START played once (#279, #282, #283); and the follow-ups of
+their reviews (#271-#278, #284).
 
 ## Phases at a glance
 
@@ -69,8 +74,8 @@ is done and a release candidate ran for a week on at least two setups without a 
 | 0.6 | Build with current compilers | P0 | S | done (#111) |
 | 0.7 | Sanitizer and static-analysis jobs in CI (address and undefined-behaviour sanitizers on the host tests, one analyser) | P1 | M | open |
 | 0.8 | Hardware test checklist per release (Hub, Elite or Ultimate, a screenless remote, one IR and one Bluetooth device) with a results template | P0 | S | open |
-| 0.9 | Elite screen turns off and on again at the first display timeout, off for good only after two timeouts (seen on 2.2.1) | P0 | S | open (#17); to be checked again on current `main` |
-| 0.10 | README and remote documentation screenshots from the current Elite interface | P1 | S | in progress (`feat/elite-improvements`) |
+| 0.9 | Elite screen turns off and on again at the first display timeout, off for good only after two timeouts (seen on 2.2.1) | P0 | S | done (#251) |
+| 0.10 | README and remote documentation screenshots from the current Elite interface | P1 | S | done (#248) |
 | 0.11 | Remote power soak: a week of normal use with the flight recorder on, results in `REMOTE_BATTERY_OPTIMIZATION.md` | P1 | M | open |
 | 0.12 | Release notes and upgrade notes written per release from the merged PRs | P1 | S | open |
 | 0.13 | CI split into firmware tests (four parallel groups) and host tool tests, one Python version | P1 | S | done (#230, #231) |
@@ -83,16 +88,16 @@ the marketplace and run in an activity with power on, input and navigation.
 
 | Id | Task | Pri | Size | Status |
 |---|---|---|---|---|
-| 1.1 | Plugin manager, marketplace, plugin devices in the device editor, documentation | P0 | L | in progress (`feat/plugin-system`) |
-| 1.2 | Reference plugins: Roku (ECP), PlayStation wake, Android TV | P0 | M | in progress (`iranl/harmony-ng-plugins`) |
-| 1.3 | Plugin packages verified before install (checksum from the repository index; signature for the official repository) and installed with a flash-space check | P0 | M | open |
-| 1.4 | Optional reply datagram: a plugin can confirm or refuse a command (request id, ok, reason) | P1 | S | open |
-| 1.5 | Optional state datagram: a plugin reports power, input and availability of its device | P1 | S | open |
-| 1.6 | Android TV plugin on the Android TV Remote protocol: pairing code, discrete power, every key, app launch, power state | P1 | L | open |
-| 1.7 | Wake-on-LAN as a command any plugin device can use for power on | P1 | S | open |
-| 1.8 | Plugin for devices with a simple HTTP or TCP API described in the manifest (no code needed) | P2 | M | open |
-| 1.9 | BLE broadcast commands | P1 | M | in progress (#43) |
-| 1.10 | Plugin author kit: template, cross-build recipe, test harness that plays the Hub side | P2 | M | open |
+| 1.1 | Plugin manager, marketplace, plugin devices in the device editor, documentation | P0 | L | done (#243, #253) |
+| 1.2 | Reference plugins: Roku (ECP), PlayStation wake, Android TV | P0 | M | done (#243; plugins in `iranl/harmony-ng-plugins`) |
+| 1.3 | Plugin packages verified before install (checksum from the repository index; signature for the official repository) and installed with a flash-space check | P0 | M | in progress (#243, #253: SHA-256 required for every install except dev, free-space check, swap only when complete; signed `repository.json` open) |
+| 1.4 | Optional reply datagram: a plugin can confirm or refuse a command (request id, ok, reason) | P1 | S | in progress |
+| 1.5 | Optional state datagram: a plugin reports power, input and availability of its device | P1 | S | in progress |
+| 1.6 | Android TV plugin on the Android TV Remote protocol: pairing code, discrete power, every key, app launch, power state | P1 | L | done (`android-tv` in `iranl/harmony-ng-plugins`) |
+| 1.7 | Wake-on-LAN as a command any plugin device can use for power on | P1 | S | done (`wol` in `iranl/harmony-ng-plugins`) |
+| 1.8 | Plugin for devices with a simple HTTP or TCP API described in the manifest (no code needed) | P2 | M | done (set on the board; HTTP(S) and TCP devices are built into the Hub since #252) |
+| 1.9 | BLE broadcast commands | P1 | M | done (BLE `adv` commands for plugins, #243, #253; #43 closed) |
+| 1.10 | Plugin author kit: template, cross-build recipe, test harness that plays the Hub side | P2 | M | open (`template` in `iranl/harmony-ng-plugins`; cross-build recipe and test harness open) |
 
 ## Phase 2. Keys, holds and touch
 
@@ -115,7 +120,7 @@ toggle fires once from every input.
 | 2.9 | Stock migration keeps long-press, gesture and number-pad entries of the stock maps | P1 | M | open |
 | 2.10 | Double press as a third action per key | P2 | M | open |
 | 2.11 | Favourite channels on the touch remotes | P2 | M | open |
-| 2.12 | Screenless remotes (Companion, Smart Control): long press on the activity keys, same editor as the touch remotes | P2 | M | open |
+| 2.12 | Screenless remotes (Companion, Smart Control): long press on the activity keys, same editor as the touch remotes | P2 | M | open (unpair of screenless remotes, #263; long press open) |
 | 2.13 | Acknowledged key delivery over RF, if the loss counter of #209 shows losses in real use | P2 | M | open |
 
 ## Phase 3. Activity engine
@@ -198,20 +203,20 @@ version.
 
 | Id | Task | Pri | Size | Status |
 |---|---|---|---|---|
-| 6.1 | Deploy and update with a preflight (space, versions, reachability), staged files, verified switch-over and automatic roll back, on Hub and remote | P1 | L | in progress (signed updates, verify then install #197, atomic remote install #198, deploy dry run; automatic roll back open) |
+| 6.1 | Deploy and update with a preflight (space, versions, reachability), staged files, verified switch-over and automatic roll back, on Hub and remote | P1 | L | in progress (signed updates, verify then install #197, atomic remote install #198, deploy dry run, real update state and service restart #249, Ed25519 checks #254, #276; automatic roll back open) |
 | 6.2 | One guided installer for the first install (root, back up, install, migrate stock configuration) with a dry run | P1 | L | open |
-| 6.3 | Setting up a factory-fresh Hub without a Logitech account: research, then document or automate | P2 | M | open |
-| 6.4 | Infrared encoder coverage: list of protocols seen in the stock database against the encoder, add the missing common ones | P1 | M | in progress (Samsung, Toshiba, Saitek, Sky 28 Bit encoders added; no coverage list yet) |
+| 6.3 | Setting up a factory-fresh Hub without a Logitech account: research, then document or automate | P2 | M | done (set on the board) |
+| 6.4 | Infrared encoder coverage: list of protocols seen in the stock database against the encoder, add the missing common ones | P1 | M | in progress (Samsung, Toshiba, Saitek, Sky 28 Bit encoders #279; stock polarity #282; START played once #283; press frames as stock #288 in review; no coverage list yet) |
 | 6.5 | Code import from more formats (Pronto, Flipper, LIRC, pasted lists) with a preview that explains what was skipped | P1 | M | open |
-| 6.6 | Backup and restore: one bundle, checked before restore, secrets left out unless asked | P1 | M | in progress (`backup_hub.py`; import checked before it is applied #195) |
+| 6.6 | Backup and restore: one bundle, checked before restore, secrets left out unless asked | P1 | M | in progress (`backup_hub.py`; import checked before it is applied #195; slot table restore #277; USB storage restore in #250) |
 | 6.7 | Hub tests on the real MIPS binaries under emulation in CI | P2 | L | open |
 | 6.8 | Reproducible builds with pinned toolchains and published checksums | P2 | M | open |
 | 6.9 | Return to stock: one documented, tested command for Hub and remote | P2 | M | in progress (`restore_stock.py`, `factory_reset.py`; no end-to-end test) |
 | 6.10 | Container image that installs and updates a Hub for users without a development machine | P2 | M | open |
 | 6.11 | Recovery when the Hub is on no network: Wi-Fi set over USB from a computer, as the stock firmware did | P1 | M | done (#234, #236); emergency boot path and an Ethernet adapter on the port not yet tested on hardware |
-| 6.12 | Free flash on the Hub: one copy of the SSH server, stock resources that can be emptied | P1 | S | in progress (#239 done; `feat/empty-stock-resources`) |
+| 6.12 | Free flash on the Hub: one copy of the SSH server, stock resources that can be emptied | P1 | S | done (#239, #246, #254, #258, #264) |
 | 6.13 | RF protocol version exchanged between Hub and remote, so mixed versions are detected | P2 | M | open (deferred in #220) |
-| 6.14 | Allow OTA using dev/beta builds, OTA from PRs: an update channel besides the releases, so a Hub and its remotes can take a development or beta build, or the build of a pull request, for testing | P2 | M | open (a configurable update source is in draft #250) |
+| 6.14 | Allow OTA using dev/beta builds, OTA from PRs: an update channel besides the releases, so a Hub and its remotes can take a development or beta build, or the build of a pull request, for testing | P2 | M | open (a configurable update source is in #250, in review) |
 
 ## Items of issue #17
 
@@ -224,15 +229,15 @@ roadmap.
 | Hygiene: OpenAPI up to date and reviewed | done | 0.4 |
 | Hygiene: tests complete for all features and parts | done in #17; a coverage map is still open | 0.5 |
 | Hygiene: code review | done | 0.1, 0.2 |
-| Feature: plugin system | in progress (`feat/plugin-system`) | 1.1, 1.2 |
+| Feature: plugin system | done (#243, #253) | 1.1, 1.2 |
 | Feature: bi-directional communication between Elite/Hub and MQTT (smart home control on the Elite and the Hub) | open | 4.3, 4.6 |
 | Feature: better press, release and hold for every input (Bluetooth remote, RF remote, web, Android) and output (IR, Bluetooth, MQTT) | in progress (#110, #207-#210) | 2.1, 2.2, 2.3 |
 | Feature: the new frontend reaches parity with the legacy interface, or a new unified UI | open | 5.1 |
 | Feature: reduce flash wear and SPI contention (Hub and Linux RF remotes) | done (#106) | |
 | Feature: full Elite physical button navigation | done (506794a) | |
 | Feature: no Elite update image on the Hub's flash; downloaded to `/tmp` only for an update | done (#108) | |
-| Bug: Elite screen turns off and on again at the first display timeout, off only after two (2.2.1) | open | 0.9 |
-| Docs: README screenshots of the new Elite interface after #36 | in progress (`feat/elite-improvements`) | 0.10 |
+| Bug: Elite screen turns off and on again at the first display timeout, off only after two (2.2.1) | done (#251) | 0.9 |
+| Docs: README screenshots of the new Elite interface after #36 | done (#248) | 0.10 |
 
 ## Dependencies
 
