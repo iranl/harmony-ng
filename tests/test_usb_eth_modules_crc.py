@@ -9,7 +9,10 @@ symbol. build/build_usb_ethernet.sh makes the same check before it copies a modu
 A CRC per symbol does not prove the struct layout: modules built with CONFIG_XFRM and
 CONFIG_IPV6_NDISC_NODETYPE loaded but read struct sk_buff 4 and 8 bytes off. So the test also
 checks, in each module that calls eth_type_trans(), that the result goes to skb->protocol at the
-stock offset 104 (sh v0 right after the call).
+stock offset 104 (sh v0 right after the call), and, after each skb allocation, that the
+inlined skb_reserve() writes skb->data and skb->tail at the stock offsets 152 and 140 (the
+first two `sw` with an offset of 100 or more). The two anchors sit on both sides of the places
+where sk_buff can grow.
 """
 
 from __future__ import annotations
@@ -26,6 +29,8 @@ import extract_symvers  # noqa: E402
 
 
 STOCK_SKB_PROTOCOL = 104
+STOCK_SKB_RESERVE = [140, 152]  # tail, data
+SKB_ALLOCS = ("__alloc_skb", "dev_alloc_skb", "__netdev_alloc_skb")
 
 
 def sections(b: bytes) -> list[tuple]:
@@ -40,8 +45,10 @@ def symbol_name(b: bytes, secs: list[tuple], symtab: tuple, index: int) -> str:
     return b[start:b.index(b"\x00", start)].decode()
 
 
-def protocol_stores(ko: pathlib.Path) -> list[int]:
-    """Offsets of the first `sh v0,off(reg)` after each call of eth_type_trans()."""
+def stores_after(ko: pathlib.Path, callees: tuple[str, ...], opcode: int, rt: int | None,
+                 window: int, count: int, min_off: int = 0) -> list[list[int]]:
+    """For each call of one of `callees`: the offsets of the first `count` stores (`opcode`,
+    to register `rt` if given, offset >= min_off) in the next `window` instructions."""
     b = ko.read_bytes()
     secs = sections(b)
     out = []
@@ -52,14 +59,29 @@ def protocol_stores(ko: pathlib.Path) -> list[int]:
         for o in range(s[4], s[4] + s[5], 8):
             r_offset, r_info = struct.unpack(">II", b[o:o + 8])
             # modules are built with -mlong-calls: lui/addiu (R_MIPS_HI16/LO16), then jalr
-            if r_info & 0xFF != 6 or symbol_name(b, secs, secs[s[6]], r_info >> 8) != "eth_type_trans":
+            if r_info & 0xFF != 6 or symbol_name(b, secs, secs[s[6]], r_info >> 8) not in callees:
                 continue
-            for i in range(1, 10):
+            found = []
+            for i in range(1, window + 1):
                 insn, = struct.unpack(">I", b[text[4] + r_offset + 4 * i: text[4] + r_offset + 4 * i + 4])
-                if insn >> 26 == 0x29 and (insn >> 16) & 0x1F == 2:  # sh v0,imm(rs)
-                    out.append(struct.unpack(">h", struct.pack(">H", insn & 0xFFFF))[0])
-                    break
+                off = struct.unpack(">h", struct.pack(">H", insn & 0xFFFF))[0]
+                if insn >> 26 == opcode and (rt is None or (insn >> 16) & 0x1F == rt) and off >= min_off:
+                    found.append(off)
+                    if len(found) == count:
+                        break
+            if found:
+                out.append(found)
     return out
+
+
+def protocol_stores(ko: pathlib.Path) -> list[int]:
+    """Offsets of the first `sh v0,off(reg)` after each call of eth_type_trans()."""
+    return [f[0] for f in stores_after(ko, ("eth_type_trans",), 0x29, 2, 9, 1)]
+
+
+def reserve_stores(ko: pathlib.Path) -> list[list[int]]:
+    """Sorted offsets of the first two `sw ...,off(reg)` (off >= 100) after an skb allocation."""
+    return [sorted(f) for f in stores_after(ko, SKB_ALLOCS, 0x2B, None, 30, 2, 100) if len(f) == 2]
 
 
 def undefined_symbols(ko: pathlib.Path) -> set[str]:
@@ -96,6 +118,16 @@ class ModuleCrcTest(unittest.TestCase):
                                  "skb->protocol written at another offset than the stock kernel's")
             checked += bool(stores)
         self.assertGreaterEqual(checked, 4)  # usbnet, pegasus, rtl8150, r8152
+
+    def test_skb_reserve_has_the_stock_layout(self):
+        checked = 0
+        for ko in sorted(MODULES.glob("*.ko")):
+            pairs = reserve_stores(ko)
+            with self.subTest(module=ko.name):
+                self.assertEqual([p for p in pairs if p != STOCK_SKB_RESERVE], [],
+                                 "skb->tail/data written at other offsets than the stock kernel's")
+            checked += bool(pairs)
+        self.assertGreaterEqual(checked, 3)  # usbnet, pegasus, rtl8150
 
 
 if __name__ == "__main__":

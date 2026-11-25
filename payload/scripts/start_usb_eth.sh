@@ -73,9 +73,10 @@ for i in 1 2 3 4 5; do
 done
 
 # A network adapter at full or low speed (USB 1.1 adapter, or one behind a USB 1.1 hub, as in
-# some OTG cables with a hub) goes through the controller's transaction translator: the Hub
-# freezes (only a power cycle helps) as soon as a driver waits for received data from it. A
-# loaded driver binds every matching device on the bus, so no network driver is loaded while
+# some OTG cables with a hub) goes through the controller's transaction translator. The Hub
+# froze (only a power cycle helped) as soon as a driver waited for received data from such a
+# device, but that was seen with modules of a shifted struct sk_buff layout; until it is tested
+# again with the rebuilt modules, the guard stays. A loaded driver binds every matching device on the bus, so no network driver is loaded while
 # such a device is present. Hubs (class 09), USB sticks (08) and keyboards or mice (HID, 03)
 # do not count, but only when every interface of the device is one of these: a composite
 # device with storage and CDC Ethernet does.
@@ -101,7 +102,7 @@ slow_usb_device() {
 }
 
 if slow=$(slow_usb_device); then
-  echo "[USB_ETH] USB device $slow runs at full or low speed (USB 1.1): no network driver is loaded, as it would freeze the Hub. Use a USB 2.0 (high-speed) adapter, hub or OTG cable."
+  echo "[USB_ETH] USB device $slow runs at full or low speed (USB 1.1): no network driver is loaded (such an adapter froze the Hub in a test). Use a USB 2.0 (high-speed) adapter, hub or OTG cable."
 elif [ -f /sys/bus/usb/devices/1-1/idVendor ]; then
   vid=$(cat /sys/bus/usb/devices/1-1/idVendor 2>/dev/null)
   pid=$(cat /sys/bus/usb/devices/1-1/idProduct 2>/dev/null)

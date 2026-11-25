@@ -63,10 +63,10 @@ HarmonyNG bundles kernel drivers for these USB Ethernet chipsets in `/cache/modu
 | Chipset Family | USB Vendor:Product IDs | Driver Modules | Notes |
 | :--- | :--- | :--- | :--- |
 | **Realtek RTL8152 / RTL8153** | `0BDA:8152`, `0BDA:8153`, `2357:0601` | `r8152.ko` + `eth_fix` | **Tested & verified** (`0BDA:8152`, `0BDA:8153`). 10/100M Fast Ethernet. Automatic checksum fix applied on load. |
-| **ASIX AX88772 / AX88772B / AX88178** | `0B95:7720`, `0B95:772A`, `0B95:772B`, `0B95:1720`, `0B95:1780`, `077B:2226`, `0846:1040` | `usbnet.ko`, `asix.ko` | Common in generic USB-to-LAN adapters. Standard software checksumming. AX88772B (patched in by `build/patches/usb_net/asix-ax88772b.patch`): MAC address read from the EEPROM; binds and opens on a Hub, network traffic not yet tested at high speed. |
-| **SMSC / Microchip LAN9500** | `0424:9500`, `0424:EC00` | `usbnet.ko`, `smsc95xx.ko` | Standard embedded Ethernet chipset. |
-| **Davicom DM9601** | `0A46:9601`, `0A46:0268`, `0A46:6688`, `0A46:8515` | `usbnet.ko`, `dm9601.ko` | Common low-cost 10/100 adapters. |
-| **USB CDC-Ethernet (Standard)** | Any USB device with Class `02` Subclass `06` | `usbnet.ko`, `cdc_ether.ko` | Standard Linux USB Communication Device Class. |
+| **ASIX AX88772 / AX88772B / AX88178** | `0B95:7720`, `0B95:772A`, `0B95:772B`, `0B95:1720`, `0B95:1780`, `077B:2226`, `0846:1040` | `usbnet.ko`, `asix.ko` | Common in generic USB-to-LAN adapters. Standard software checksumming. AX88772B (patched in by `build/patches/usb_net/asix-ax88772b.patch`): MAC address read from the EEPROM; binds and opens on a Hub, network traffic not yet tested at high speed. The other ASIX IDs are not tested on a Hub. |
+| **SMSC / Microchip LAN9500** | `0424:9500`, `0424:EC00` | `usbnet.ko`, `smsc95xx.ko` | Standard embedded Ethernet chipset. Not tested on a Hub. |
+| **Davicom DM9601** | `0A46:9601`, `0A46:0268`, `0A46:6688`, `0A46:8515` | `usbnet.ko`, `dm9601.ko` | Common low-cost 10/100 adapters. Not tested on a Hub. |
+| **USB CDC-Ethernet (Standard)** | Any USB device with Class `02` Subclass `06` | `usbnet.ko`, `cdc_ether.ko` | Standard Linux USB Communication Device Class. Not tested on a Hub. |
 | **Realtek RTL8150** | `0BDA:8150` | `rtl8150.ko` | Legacy 10/100M adapter. The RTL8150 is a USB 1.1 (full speed) device, so `start_usb_eth.sh` loads no driver for it (see the warning above). |
 
 ---

@@ -12,8 +12,11 @@
 #
 # The tree is the tarball plus build/patches/usb_net/kernel-tree.patch (stock EXTRAVERSION and
 # vermagic, compiler-gcc5.h for the Buildroot gcc 5.4 toolchain, no ZONE_DMA select, a kmalloc
-# shim in asix.c), then the other patches in that folder (AX88772B support for asix). The
-# .config is build/patches/usb_net/kernel.config.
+# shim in asix.c: its kmalloc calls go out of line to __kmalloc and do not index the kernel's
+# malloc_sizes[]; kept from the tree the shipped asix.ko was first built in), then the other
+# patches in that folder (AX88772B support for asix). The .config is build/patches/usb_net/kernel.config. kernel.org has no AR933x platform, so that
+# file is a Malta board config, not the stock one: what must match are the values that reach
+# module code (struct layouts, HZ, the kmalloc table), and stock_layout.c checks those.
 #
 # The stock kernel was built with modversions: a module loads only when it records the kernel's
 # CRC for every symbol it uses. A plain build in a tree without Logitech's Module.symvers
