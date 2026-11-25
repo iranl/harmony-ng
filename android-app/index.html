@@ -931,6 +931,9 @@
             Cancel</button>
         </div>
         <form id="profileDeviceForm" onsubmit="return false;">
+          <div style="display: flex; justify-content: flex-end; margin-bottom: 8px;">
+            <button type="button" id="btnNewDeviceFromTemplate" class="btn btn-xs btn-outline" data-i18n="tpl_from_template_btn">From template (Denon, Kodi, Sonos, ...)</button>
+          </div>
           <div class="row">
             <div>
               <label for="newDeviceName" data-i18n="device_name">Device Name</label>
@@ -1989,6 +1992,36 @@
         </div>
 
         <!-- Command Edit Modal / Bottom Sheet -->
+        <!-- Device templates (harmony-ng-plugins/devices): pick one, then finish its setup -->
+        <div id="tplModal" class="modal-sheet-backdrop" style="display: none;">
+          <div class="modal-sheet-dialog">
+            <div class="sheet-drag-handle"></div>
+            <div class="modal-sheet-header">
+              <h3 style="font-size: 16px; margin: 0;" data-i18n="tpl_title">Add a device from a template</h3>
+              <button type="button" id="btnTplClose" class="btn btn-xs btn-ghost">✕</button>
+            </div>
+            <div class="modal-sheet-body">
+              <div id="tplPickPane">
+                <input type="search" id="tplSearch" class="form-control" data-i18n-placeholder="tpl_search_ph" placeholder="Search brand or device">
+                <div id="tplStatus" class="mini muted" style="margin-top: 6px;"></div>
+                <div id="tplList" style="display: flex; flex-direction: column; gap: 6px; margin-top: 8px; max-height: 50vh; overflow-y: auto;"></div>
+              </div>
+              <div id="tplSetupPane" style="display: none;">
+                <strong id="tplSetupName" style="font-size: 14px;"></strong>
+                <div id="tplSetupMessage" class="card mini" style="margin-top: 8px; padding: 10px;"></div>
+                <div class="mini muted" style="margin-top: 10px;" data-i18n="tpl_transports_lbl">Control the device over</div>
+                <div id="tplTransports" style="display: flex; flex-direction: column; gap: 4px; margin-top: 4px;"></div>
+                <div id="tplFields" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; margin-top: 10px;"></div>
+                <div id="tplSetupStatus" class="mini" style="margin-top: 8px;"></div>
+                <div class="actions" style="margin-top: 12px; display: flex; gap: 8px;">
+                  <button type="button" id="btnTplBack" class="btn btn-sm btn-ghost" data-i18n="tpl_back">Back</button>
+                  <button type="button" id="btnTplCreate" class="btn btn-sm btn-primary" data-i18n="tpl_create">Create device</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div id="cmdEditModal" class="modal-sheet-backdrop" style="display: none;">
           <div class="modal-sheet-dialog">
             <div class="sheet-drag-handle"></div>

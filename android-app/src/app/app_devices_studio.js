@@ -53,6 +53,14 @@ import {
   getRawDeviceIconSvg
 } from './app_icons_ui.js';
 import { HarmonyAppActivitiesSim } from './app_activities_sim.js';
+import {
+  fetchTemplateIndex,
+  fetchTemplate,
+  templateTransports,
+  setupValues,
+  missingSetupFields,
+  buildDeviceFromTemplate
+} from '../device_templates.js';
 
 // category and desc are the English texts; categoryKey and descKey translate them when shown
 export const BT_STANDARD_KEY_PRESETS = [
@@ -1410,6 +1418,11 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     document.getElementById('editDevPluginPick')?.addEventListener('change', () => this.saveDeviceTransports(curDev()));
     document.querySelectorAll('.new-tr-chk').forEach(chk => chk.addEventListener('change', () => this.updateNewDeviceTransports()));
     document.getElementById('newDevicePluginPick')?.addEventListener('change', () => this.updateNewDeviceTransports());
+    document.getElementById('btnNewDeviceFromTemplate')?.addEventListener('click', () => this.openTemplatePicker());
+    document.getElementById('btnTplClose')?.addEventListener('click', () => this.closeTemplatePicker());
+    document.getElementById('btnTplBack')?.addEventListener('click', () => this.showTemplatePane('pick'));
+    document.getElementById('btnTplCreate')?.addEventListener('click', () => this.createDeviceFromTemplate());
+    document.getElementById('tplSearch')?.addEventListener('input', () => this.renderTemplateList());
     document.getElementById('btnDevConvertCombined')?.addEventListener('click', async () => {
       const dev = curDev();
       if (!dev || !await showConfirm(t('combined_convert_confirm'), { title: t('combined_convert_btn') })) return;
@@ -1552,6 +1565,137 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
       if (box) setTimeout(() => { box.style.display = 'none'; if (status) status.textContent = ''; }, 1500);
     } catch (err) {
       if (status) status.innerHTML = `<span style="color:var(--danger)">${escapeHtml(tf('error_msg', { error: err.message }))}</span>`;
+    }
+  }
+
+  /* ---- Device templates (src/device_templates.js): template text is data, always escaped ---- */
+
+  showTemplatePane(which) {
+    const pick = document.getElementById('tplPickPane');
+    const setup = document.getElementById('tplSetupPane');
+    if (pick) pick.style.display = which === 'pick' ? 'block' : 'none';
+    if (setup) setup.style.display = which === 'setup' ? 'block' : 'none';
+  }
+
+  closeTemplatePicker() {
+    const m = document.getElementById('tplModal');
+    if (m) m.style.display = 'none';
+  }
+
+  async openTemplatePicker() {
+    const m = document.getElementById('tplModal');
+    if (m) m.style.display = 'flex';
+    this.showTemplatePane('pick');
+    const stat = document.getElementById('tplStatus');
+    if (this.templateIndex) {
+      this.renderTemplateList();
+      return;
+    }
+    if (stat) stat.textContent = t('tpl_loading');
+    try {
+      this.templateIndex = await fetchTemplateIndex();
+      if (stat) stat.textContent = '';
+      this.renderTemplateList();
+    } catch (err) {
+      if (stat) stat.textContent = tf('tpl_load_failed', { error: err.message });
+    }
+  }
+
+  renderTemplateList() {
+    const list = document.getElementById('tplList');
+    if (!list) return;
+    const q = (document.getElementById('tplSearch')?.value || '').toLowerCase().trim();
+    const hits = (this.templateIndex || []).filter(e => !q ||
+      [e.name, e.manufacturer, e.model, e.description].some(s => typeof s === 'string' && s.toLowerCase().includes(q)));
+    if (hits.length === 0) {
+      list.innerHTML = `<div class="muted mini" style="padding: 12px; text-align: center;">${escapeHtml(t('tpl_none'))}</div>`;
+      return;
+    }
+    list.innerHTML = hits.map(e => `
+      <button type="button" class="card btn-tpl-pick" data-id="${escapeHtml(e.id)}" style="text-align: left; padding: 8px 10px; cursor: pointer;">
+        <strong style="font-size: 13px;">${escapeHtml(e.name)}</strong>
+        <span class="mini muted" style="margin-left: 6px;" translate="no">${escapeHtml((Array.isArray(e.transports) ? e.transports : []).join(' · ').toUpperCase())}</span>
+        <div class="mini muted">${escapeHtml(e.description || '')}</div>
+        ${e.plugin ? `<div class="mini" style="color: var(--accent);">${escapeHtml(tf('tpl_needs_plugin', { id: e.plugin }))}</div>` : ''}
+      </button>`).join('');
+    list.querySelectorAll('.btn-tpl-pick').forEach(b => b.addEventListener('click', () => {
+      const entry = (this.templateIndex || []).find(e => e.id === b.getAttribute('data-id'));
+      if (entry) this.openTemplateSetup(entry);
+    }));
+  }
+
+  /* The "finish setup" pane: the template's message, its transports to tick, its fields */
+  async openTemplateSetup(entry) {
+    const stat = document.getElementById('tplStatus');
+    let tpl;
+    try {
+      if (stat) stat.textContent = t('tpl_loading');
+      tpl = await fetchTemplate(entry);
+      if (stat) stat.textContent = '';
+    } catch (err) {
+      if (stat) stat.textContent = tf('tpl_load_failed', { error: err.message });
+      return;
+    }
+    this.activeTemplate = tpl;
+    const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+    set('tplSetupName', `${tpl.name || ''} — ${tpl.model || ''}`);
+    set('tplSetupMessage', typeof tpl.setup?.message === 'string' ? tpl.setup.message : '');
+    const trs = document.getElementById('tplTransports');
+    if (trs) {
+      trs.innerHTML = templateTransports(tpl).map(x => `
+        <label class="mini" style="display: flex; gap: 6px; align-items: center; margin: 0;">
+          <input type="checkbox" class="tpl-tr-chk" value="${escapeHtml(x.key)}"${x.default ? ' checked' : ''}>
+          <span>${escapeHtml(x.label || this.transportLabel(x.key, { plugin: x.plugin }))}</span>
+        </label>`).join('');
+    }
+    const fields = document.getElementById('tplFields');
+    if (fields) {
+      fields.innerHTML = (tpl.setup?.fields || []).filter(f => f && typeof f.key === 'string').map(f => `
+        <div>
+          <label for="tpl_f_${escapeHtml(f.key)}" class="mini">${escapeHtml(f.label || f.key)}${f.required ? ' *' : ''}</label>
+          <input id="tpl_f_${escapeHtml(f.key)}" class="form-control form-control-sm" type="${f.type === 'number' ? 'number' : (f.type === 'password' ? 'password' : 'text')}"
+                 value="${f.default !== undefined ? escapeHtml(String(f.default)) : ''}" placeholder="${escapeHtml(f.placeholder || '')}">
+        </div>`).join('');
+    }
+    set('tplSetupStatus', '');
+    this.showTemplatePane('setup');
+  }
+
+  async createDeviceFromTemplate() {
+    const tpl = this.activeTemplate;
+    if (!tpl) return;
+    const stat = document.getElementById('tplSetupStatus');
+    const fail = msg => { if (stat) stat.innerHTML = `<span style="color:var(--danger)">${escapeHtml(msg)}</span>`; };
+    const picked = [...document.querySelectorAll('.tpl-tr-chk')].filter(c => c.checked).map(c => c.value);
+    if (picked.length === 0) return fail(t('combined_pick_transport'));
+    const typed = {};
+    for (const f of tpl.setup?.fields || []) {
+      if (f && typeof f.key === 'string') typed[f.key] = document.getElementById(`tpl_f_${f.key}`)?.value ?? '';
+    }
+    const values = setupValues(tpl, typed);
+    const missing = missingSetupFields(tpl, values);
+    if (missing.length) return fail(tf('tpl_field_required', { field: missing[0].label || missing[0].key }));
+    let pluginDef = null;
+    if (picked.includes('plugin')) {
+      pluginDef = await this.ensurePluginInstalled(tpl.transports.plugin?.id);
+      if (!pluginDef) return fail(tf('combined_plugin_not_found', { id: tpl.transports.plugin?.id || '' }));
+    }
+    try {
+      if (stat) stat.textContent = t('saving_new_device');
+      const dev = buildDeviceFromTemplate(tpl, picked, values, pluginDef);
+      // JSON: the http / tcp connections and the command list are objects
+      const res = await this.client.postJson('/api/new-device', dev);
+      if (res && res.ok === false) throw new Error(res.error || t('failed_save_device_hub'));
+      const newId = res?.deviceId || res?.id;
+      showToast(t('tpl_created'), 'success');
+      this.closeTemplatePicker();
+      const box = document.getElementById('studioNewDeviceBox');
+      if (box) box.style.display = 'none';
+      await this.refreshData();
+      if (newId) this.selectedIrDeviceId = String(newId);
+      this.renderIrView(newId);
+    } catch (err) {
+      fail(tf('error_msg', { error: err.message }));
     }
   }
 
