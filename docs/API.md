@@ -1332,7 +1332,10 @@ Listens on the Hub's IR receiver until a signal arrives or the timeout ends, the
   {"ok": true, "raw": "F9470P...S...", "keycode": "F9470P...S...", "mode": "raw", "carrier_hz": 38000, "pulses": 26, "duration_us": 24000, "frames": 1}
   ```
   `pulses` is the number of timing intervals in `raw`, marks and spaces together (`P` and `S` entries); `duration_us` is their sum; `frames` the number of frames (a space of 20 ms or more ends one).
-- **Errors**: `408` no signal before the timeout, or only a flash that is not a code, `409` another capture is running, an IR send holds the hardware, or the capture mode (5.5) is on, `503` no IR receiver, or the receiver stopped delivering data (the capture gives up after 2 s without data instead of hanging; a reboot clears a stuck receiver), `500` other failures.
+- **Learning while the capture mode (5.5) is on**: works. The receiver thread that serves the mode records the learned press for this request, and no `ir_received` event is sent for that press; the mode stays reported on (`ir_capture` true, no `ir_capture` event). A press that was already going on when the request came is not learned: the thread first waits until the line is quiet. With the mode off, the thread is started for the learn and stopped after it.
+- **Hub IR sends during a learn** (activity steps, remote keys, `ir-send`, `ir-raw`) go out at once; they do not wait for the learn. The receiver sees the Hub's own blasters, so what it reads during a send and 100 ms after it is dropped, and a press that overlaps a send is not kept: the learn goes on waiting for the next press until its timeout. If that happened and nothing else was pressed, the `408` message says so.
+- **One learn at a time**: a second request while one waits is refused with `409`.
+- **Errors**: `408` no signal before the timeout, or only a flash that is not a code, `409` another capture is running, `503` no IR receiver, or the receiver stopped delivering data (the capture gives up after 2 s without data instead of hanging; a reboot clears a stuck receiver), or the Hub is shutting down, `500` other failures.
 
 #### `POST /api/ir-test-learned`
 Sends a captured code once through the IR ports of a device (its `controlPort`, default all).
@@ -1415,7 +1418,6 @@ Capability flag: `ir_capture`. Admin only, like `POST /api/capture`.
 - **Request Body**: `{"enabled": true}` or `{"enabled": false}`.
 - **Response `200 OK`**: `{"ok": true, "ir_capture": true}`.
 - **Error `400`**: `enabled` missing or not a boolean.
-- **Error `409`**: a one-shot capture (`POST /api/capture`, 5.2a) is running.
 - **Error `503`**: no IR receiver, or it could not be set up.
 
 Behaviour:
@@ -1425,7 +1427,11 @@ Behaviour:
   the Hub's own blasters, so what it reads during a send and 100 ms after it is dropped, and a
   press in that window is lost. A send also reprograms the shared I2S clock; the receiver sets
   its own clock again before it reads on.
-- While the mode is on, `POST /api/capture` answers `409`.
+- The mode does not refuse a learn (`POST /api/capture`, 5.2a): during a learn the receiver
+  records the learned press for that request and sends no `ir_received` event for it; the mode
+  stays reported on and pushes no `ir_capture` event. Presses before and after the learn are
+  events as usual. Turning the mode on or off during a learn answers at once: off stops the
+  receiver when the learn ends, on keeps the receiver the learn started.
 - The sensor is short-range: the remote about 5 to 8 cm above the Hub's upper side.
 - If the receiver stops delivering data (seen once on a Hub), the mode reports it in
   `GET /api/status` (`ir_capture_error`) and reopens the receiver every 5 s; a reboot clears it.
@@ -2609,7 +2615,7 @@ then arrive as `ir_received` (10.13b).
 ```json
 {"type": "ack", "action": "ir_capture", "ok": true, "msgId": 61, "enabled": true}
 ```
-A refused request (`409` or `503`, as in 5.5) carries `enabled` too, the state after the request,
+A refused request (`503`, as in 5.5) carries `enabled` too, the state after the request,
 next to `code` and `error`.
 
 #### 10.7 Bluetooth HID Key Simulation

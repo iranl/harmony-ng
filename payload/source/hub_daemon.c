@@ -411,7 +411,7 @@ int main(int argc, char **argv) {
     hub_mdns_shutdown();
     hub_ssdp_shutdown();
     hbus_shutdown();
-    ir_i2s_capture_mode_set(0, NULL, NULL, NULL, 0);
+    ir_i2s_capture_shutdown();   /* also ends a learn in progress, so its HTTP worker returns */
     ir_i2s_shutdown();
     ws_close_all();
     http_server_close(srv_fd);

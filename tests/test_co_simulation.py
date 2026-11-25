@@ -289,19 +289,17 @@ class CoSimulationRunner:
                 fcntl.flock(lk, fcntl.LOCK_EX)  # an IR send holds the I2S hardware
                 st, cap = self.http_post_status("/api/capture", {"timeout": 1})
                 fcntl.flock(lk, fcntl.LOCK_UN)
-            self.record("IR learn: I2S busy (IR send) is 409", st == 409, f"HTTP {st} {cap}")
+            self.record("IR learn: does not wait for the I2S lock an IR send holds (200)",
+                        st == 200 and str(cap.get("raw", "")).startswith("F"), f"HTTP {st} {cap}")
 
             # one capture at a time: a second request while the first waits for a signal
             with open(rx_path, "wb") as f:
-                f.write(ir_rx_bitstream(sirc))
+                f.write(b"\xff" * 4096)  # nobody presses a button: the first capture keeps waiting
             results = {}
-            with open("/tmp/harmony_i2s.lock", "a+") as lk:
-                fcntl.flock(lk, fcntl.LOCK_EX)  # keeps the first capture waiting for the hardware
-                t = threading.Thread(target=lambda: results.update(first=self.http_post_status("/api/capture", {"timeout": 2})))
-                t.start()
-                time.sleep(0.5)
-                st, cap = self.http_post_status("/api/capture", {"timeout": 1})
-                fcntl.flock(lk, fcntl.LOCK_UN)
+            t = threading.Thread(target=lambda: results.update(first=self.http_post_status("/api/capture", {"timeout": 2})))
+            t.start()
+            time.sleep(0.5)
+            st, cap = self.http_post_status("/api/capture", {"timeout": 1})
             t.join()
             self.record("IR learn: a second capture while one runs is 409",
                         st == 409 and "already running" in str(cap), f"HTTP {st} {cap}")

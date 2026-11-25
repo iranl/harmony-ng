@@ -2028,7 +2028,7 @@ paths:
       tags:
         - Hardware & IR
       summary: Learn an IR code from the Hub's receiver
-      description: Waits for one IR signal and returns the whole press as a Harmony raw timing string, every frame until 200 ms without light (at most 1023 mark/space pairs), as the stock Hub's capture keeps it; a tap of the stored code sends all of it. timeout may also be given in the query (?timeout=5).
+      description: Waits for one IR signal and returns the whole press as a Harmony raw timing string, every frame until 200 ms without light (at most 1023 mark/space pairs), as the stock Hub's capture keeps it; a tap of the stored code sends all of it. timeout may also be given in the query (?timeout=5). Works while the IR capture mode is on (no ir_received event for the learned press). Hub IR sends go out at once during a learn; a press that overlaps a send is not kept. One learn at a time.
       requestBody:
         required: false
         content:
@@ -2052,13 +2052,13 @@ paths:
                 duration_us: 24000
                 frames: 1
         '408':
-          description: No signal before the timeout
+          description: No signal before the timeout (also when a press overlapped a Hub IR send and was not kept)
         '409':
-          description: Another capture is running, the IR capture mode is on, or an IR send holds the hardware
+          description: Another capture is running
         '500':
           description: The capture failed for another reason (IR capture failed)
         '503':
-          description: No IR receiver
+          description: No IR receiver, the receiver stopped delivering data, or the Hub is shutting down
 
   /api/ir-capture:
     post:
@@ -2068,7 +2068,8 @@ paths:
       description: |
         While on, a thread keeps the IR receiver open and every button press becomes an ir_received
         event (WebSocket, MQTT <base>/ir/received). Sends keep working; what the receiver reads
-        during a send is dropped. POST /api/capture answers 409 meanwhile. Off at every start.
+        during a send is dropped. POST /api/capture works meanwhile: the press it learns is not an
+        event, and the mode stays reported on. Off at every start.
         Also the WebSocket and MQTT action ir_capture. Capability flag ir_capture.
       requestBody:
         required: true
@@ -2089,8 +2090,6 @@ paths:
                 ir_capture: true
         '400':
           description: enabled missing or not a boolean
-        '409':
-          description: A one-shot capture is running
         '500':
           description: The mode could not be changed for another reason
         '503':
