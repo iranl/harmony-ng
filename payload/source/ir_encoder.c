@@ -387,8 +387,24 @@ int ir_parse_harmony_raw(const char *code, uint32_t *carrier_hz, int32_t *timing
     return (int)count;
 }
 
+int ir_keycode_is_rc5_toggle(const char *keycode) {
+    if (!keycode || strncmp(keycode, "G:", 2) != 0) return 0;
+    const char *proto = keycode + 2;
+    size_t n = strcspn(proto, ":");
+    char name[64];
+    if (n == 0 || n >= sizeof(name)) return 0;
+    memcpy(name, proto, n);
+    name[n] = '\0';
+    return strstr(name, "RC5") != NULL && strstr(name, "Toggle") != NULL;
+}
+
 int ir_encode_harmony_keycode(const char *keycode, uint8_t min_repeats,
                              uint8_t **out_buf, size_t *out_len) {
+    return ir_encode_harmony_keycode_toggle(keycode, min_repeats, 0, out_buf, out_len);
+}
+
+int ir_encode_harmony_keycode_toggle(const char *keycode, uint8_t min_repeats, int rc5_toggle,
+                                    uint8_t **out_buf, size_t *out_len) {
     if (!keycode || !keycode[0] || !out_buf || !out_len) return -1;
 
     /* Handle standard Pronto Hex starting with "0000 " */
@@ -702,6 +718,10 @@ int ir_encode_harmony_keycode(const char *keycode, uint8_t min_repeats,
     } else if (strstr(proto, "RC5") || strcasecmp(proto, "RC5") == 0) {
         carrier_hz = 36000;
         unsigned long val = strtoul(hex, NULL, 16);
+        /* A "Toggle" code's toggle bit (bit 11 of the 13 sent) as this press has it: a
+         * receiver tells a new press of a key from the key held by it. The caller keeps the
+         * bit (hw_action.c, per device and protocol); 0 sends the code as stored. */
+        if (rc5_toggle && ir_keycode_is_rc5_toggle(keycode)) val ^= 0x0800;
         /* Harmony "RC5 13 Bit" codes omit the first start bit, which is always 1;
          * its first half is idle line, so the frame begins with a mark */
         timings_add_biphase(timings, &timing_count, val | 0x2000, 14, 889);

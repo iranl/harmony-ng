@@ -118,6 +118,23 @@ static void check_frames(const char *keycode, uint32_t carrier_hz, const segment
     check(keycode, carrier_hz, &w, NULL);
 }
 
+/* One frame of `value`, encoded with the RC5 toggle bit the caller gives */
+static void check_toggle(const char *keycode, uint32_t carrier_hz, const segment_t *s, int bits,
+                         int rc5_toggle, unsigned long value) {
+    wave_t want = { { 0 }, 0 };
+    wave_add_segment(&want, s, bits, value);
+    uint8_t *buf = NULL;
+    size_t len = 0;
+    assert(ir_encode_harmony_keycode_toggle(keycode, 0, rc5_toggle, &buf, &len) == 0);
+    assert((((uint32_t)buf[1] << 24) | ((uint32_t)buf[2] << 16) | ((uint32_t)buf[3] << 8) | buf[4]) == 1000000000u / carrier_hz);
+    wave_t got_start = decode_sequence(buf, 10);
+    wave_t got_repeat = decode_sequence(buf, 12);
+    expect_wave(keycode, &got_start, &want);
+    expect_wave(keycode, &got_repeat, &want);
+    printf("ok %s toggle %d\n", keycode, rc5_toggle);
+    ir_free_encoded(buf);
+}
+
 /* A press sends `frames` frames; while the key is held one frame repeats (no code here uses it
  * since Sony became one frame; kept for codes that build their start that way) */
 __attribute__((unused))
@@ -201,6 +218,16 @@ int main(void) {
     check_frames("G:Philips RC5 13 Bit Toggle:()(0x140D)():3", 36000, &RC5, 13, 0x140D, 1);
     check_frames("G:Philips RC5 13 Bit Toggle:()(0x1410)():3", 36000, &RC5, 13, 0x1410, 1);
     check_frames("G:Philips RC5 13 Bit Toggle:()(0x0450)():3", 36000, &RC5, 13, 0x0450, 1);
+    /* The toggle bit (bit 11 of the 13) of a "Toggle" code is flipped when the caller says so
+     * (hw_action.c keeps it per device and protocol); a code without one is sent as stored */
+    check_toggle("G:Philips RC5 13 Bit Toggle:()(0x043B)():3", 36000, &RC5, 13, 0, 0x043B);
+    check_toggle("G:Philips RC5 13 Bit Toggle:()(0x043B)():3", 36000, &RC5, 13, 1, 0x043B ^ 0x0800);
+    check_toggle("G:Philips RC5 13 Bit Toggle:()(0x0C3B)():3", 36000, &RC5, 13, 1, 0x043B);
+    check_toggle("G:Philips RC5 13 Bit:()(0x043B)():3", 36000, &RC5, 13, 1, 0x043B);
+    assert(ir_keycode_is_rc5_toggle("G:Philips RC5 13 Bit Toggle:()(0x043B)():3") == 1);
+    assert(ir_keycode_is_rc5_toggle("G:Philips RC5 13 Bit:()(0x043B)():3") == 0);
+    assert(ir_keycode_is_rc5_toggle("G:NEC1:()(0x20DF10EF)():3") == 0);
+    assert(ir_keycode_is_rc5_toggle("0000 006d 0022 0002") == 0 && ir_keycode_is_rc5_toggle(NULL) == 0);
 
     /* Sky Q Mini: Home, PowerToggle and the digit 0 */
     check_frames("G:Sky 28 Bit:()(0xFF7E533)():3", 36000, &SKY, 28, 0xFF7E533, 1);
