@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "hw_action.h"
 #include "cmd_range.h"
+#include "cmd_ir_alt.h"
 #include "resource_cache.h"
 #include "ir_encoder.h"
 #include "ir_i2s.h"
@@ -660,6 +661,45 @@ static void check_and_trigger_bt_reconnect_for_command(const cJSON *devs, const 
     }
 }
 
+/* One command as infrared: the code of an IR device's command, or the infrared alternative of a
+ * plugin device's command (cmd_ir_alt.h). A press starts the code and returns; the player
+ * repeats it until the release. A hold is only the heartbeat of the key that plays and sends
+ * nothing itself: each one used to be another blocking send, so a held key reached the device as
+ * separate bursts. default_repeats: when the command has no "repeats" (1..20). */
+static int send_ir_command(const cJSON *target_dev, const cJSON *target_cmd, const char *keycode, uint8_t ir_ports,
+                           const char *dev_id, const char *command, int action, uint8_t default_repeats) {
+    char held_key[200];
+    snprintf(held_key, sizeof(held_key), "%s/%s", dev_id, command);
+    if (action == HW_BTN_ACTION_RELEASE) {
+        ir_hold_release(held_key);
+        return 0;
+    }
+    if (action == HW_BTN_ACTION_REPEAT) {
+        ir_hold_heartbeat(held_key);
+        return 0;
+    }
+    uint8_t repeats = default_repeats;
+    cJSON *j_rep = cJSON_GetObjectItemCaseSensitive(target_cmd, "repeats");
+    if (j_rep && cJSON_IsNumber(j_rep) && j_rep->valuedouble > 0 && j_rep->valuedouble <= 20) {
+        repeats = (uint8_t)j_rep->valuedouble;
+    }
+    /* The command's "repeats" is kept in the code's header only: how many frames a press
+     * sends comes from the device's pressMinRepeats, as on a stock Hub */
+    int press_min_repeats = -1; /* not set: IR_PRESS_MIN_REPEATS_DEFAULT */
+    cJSON *j_pmr = cJSON_GetObjectItemCaseSensitive(target_dev, "pressMinRepeats");
+    if (cJSON_IsNumber(j_pmr) && j_pmr->valuedouble >= 0 && j_pmr->valuedouble <= IR_PRESS_MIN_REPEATS_MAX) {
+        press_min_repeats = (int)j_pmr->valuedouble;
+    }
+    /* a command's own port (Emitter Port of the saved command) before the device's */
+    uint8_t cmd_ports = ir_ports;
+    cJSON *j_cport = cJSON_GetObjectItemCaseSensitive(target_cmd, "port");
+    if (cJSON_IsNumber(j_cport) && j_cport->valuedouble >= 1 && j_cport->valuedouble <= 7) {
+        cmd_ports = (uint8_t)j_cport->valuedouble;
+    }
+    return ir_send_keycode(keycode, cmd_ports, repeats, 1, press_min_repeats,
+                           action == HW_BTN_ACTION_PRESS ? held_key : NULL);
+}
+
 static int send_match_in(const cJSON *root, const char *target, int match_mode, const char *command, int action, int value) {
     int ret = -1;
 
@@ -729,6 +769,7 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
      * path, and an IR device whose type happens to match a plugin name stays IR */
     char plugin_id[64] = {0};
     int is_plugin = plugin_mgr_device_plugin_id(target_dev, plugin_id, sizeof(plugin_id));
+    const int dev_is_plugin = is_plugin; /* the device itself, not a PLUGIN: keyCode below */
     /* HTTP and TCP devices by their type only (net_device.h): a name with "mqtt" in it does
      * not make one an MQTT device */
     int net_kind = is_plugin ? NET_KIND_NONE : net_device_kind(target_dev);
@@ -806,6 +847,13 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
     }
 
     if (strncmp(keycode_str, "G:MQTT", 6) == 0) is_mqtt = 1;
+
+    /* The infrared alternative of a plugin device's command: while the device's config field
+     * named by the command's irWhen is on, the command goes out as infrared with irKeyCode, the
+     * way an IR device's command does (a TV that ignores some keys over its network API). Only
+     * the device as held in memory is read: no file in the key path. */
+    const char *ir_alt_code = (dev_is_plugin && target_cmd) ? cmd_ir_alt_active(target_dev, target_cmd) : NULL;
+    if (ir_alt_code) is_plugin = 0;
 
     /* A plugin command with "range": [min, max] takes only a value in that range, and needs one */
     if (is_plugin && target_cmd && cmd_range_valid(cJSON_GetObjectItemCaseSensitive(target_cmd, "range"))) {
@@ -910,7 +958,10 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
 
     int is_ble_adv = (strncmp(keycode_str, BLE_ADV_KEYCODE_PREFIX, BLE_ADV_KEYCODE_PREFIX_LEN) == 0);
 
-    if (is_plugin && plugin_id[0]) {
+    if (ir_alt_code) {
+        /* repeats as a command of an IR device gets when it has none (config_sanitize.c) */
+        ret = send_ir_command(target_dev, target_cmd, ir_alt_code, ir_ports, actual_dev_id, command, action, 3);
+    } else if (is_plugin && plugin_id[0]) {
         cJSON *j_cfg = cJSON_GetObjectItemCaseSensitive(target_dev, "config");
         ret = hw_plugin_command_send(plugin_id, actual_dev_id, dev_name, plug_cmd, action, value, j_cfg ? j_cfg : target_dev);
     } else if (net_kind) {
@@ -1108,39 +1159,7 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
         }
         ret = 0;
     } else if (keycode_str[0]) {
-        /* A press starts the code and returns; the player repeats it until the release. A hold
-         * is only the heartbeat of the key that plays and sends nothing itself: each one used to
-         * be another blocking send, so a held key reached the device as separate bursts. */
-        char held_key[200];
-        snprintf(held_key, sizeof(held_key), "%s/%s", actual_dev_id, command);
-        if (action == HW_BTN_ACTION_RELEASE) {
-            ir_hold_release(held_key);
-            ret = 0;
-        } else if (action == HW_BTN_ACTION_REPEAT) {
-            ir_hold_heartbeat(held_key);
-            ret = 0;
-        } else {
-            /* The command's "repeats" is kept in the code's header only: how many frames a press
-             * sends comes from the device's pressMinRepeats, as on a stock Hub */
-            uint8_t repeats = 1;
-            cJSON *j_rep = cJSON_GetObjectItemCaseSensitive(target_cmd, "repeats");
-            if (j_rep && cJSON_IsNumber(j_rep) && j_rep->valuedouble > 0 && j_rep->valuedouble <= 20) {
-                repeats = (uint8_t)j_rep->valuedouble;
-            }
-            int press_min_repeats = -1; /* not set: IR_PRESS_MIN_REPEATS_DEFAULT */
-            cJSON *j_pmr = cJSON_GetObjectItemCaseSensitive(target_dev, "pressMinRepeats");
-            if (cJSON_IsNumber(j_pmr) && j_pmr->valuedouble >= 0 && j_pmr->valuedouble <= IR_PRESS_MIN_REPEATS_MAX) {
-                press_min_repeats = (int)j_pmr->valuedouble;
-            }
-            /* a command's own port (Emitter Port of the saved command) before the device's */
-            uint8_t cmd_ports = ir_ports;
-            cJSON *j_cport = cJSON_GetObjectItemCaseSensitive(target_cmd, "port");
-            if (cJSON_IsNumber(j_cport) && j_cport->valuedouble >= 1 && j_cport->valuedouble <= 7) {
-                cmd_ports = (uint8_t)j_cport->valuedouble;
-            }
-            ret = ir_send_keycode(keycode_str, cmd_ports, repeats, 1, press_min_repeats,
-                                  action == HW_BTN_ACTION_PRESS ? held_key : NULL);
-        }
+        ret = send_ir_command(target_dev, target_cmd, keycode_str, ir_ports, actual_dev_id, command, action, 1);
     }
 
     clock_gettime(CLOCK_MONOTONIC, &ts);

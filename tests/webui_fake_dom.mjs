@@ -34,6 +34,9 @@ export class FakeNode {
     return this._value;
   }
   set value(v) { this._value = String(v ?? ''); }
+  // an input's type reads its attribute, as in a browser
+  get type() { return this.attrs.type ?? ''; }
+  set type(v) { this.attrs.type = String(v); }
   get options() { return [...this.walk()].filter(n => n.tagName === 'option'); }
   get selectedIndex() { return this.options.findIndex(o => o.value === this.value); }
   _classes() { return new Set(String(this.className || '').split(/\s+/).filter(Boolean)); }

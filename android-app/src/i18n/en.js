@@ -1958,6 +1958,7 @@ export default {
     "plg_add_repo_hint": "Enter a URL pointing to a community repository.json manifest catalog.",
     "plg_add_repo_short": "+ Add Repo",
     "plg_added": "Added",
+    "plg_ir_alt_title": "Sent as infrared while \"{field}\" is on: {code}",
     "plg_adding": "Adding...",
     "plg_addons_badge": "Add-ons",
     "plg_all_cmds_added": "All plugin commands are already added to this device.",

@@ -1958,6 +1958,7 @@ export default {
     "plg_add_repo_hint": "Saisissez l'URL d'un catalogue repository.json de la communauté.",
     "plg_add_repo_short": "+ Ajouter le dépôt",
     "plg_added": "Ajouté",
+    "plg_ir_alt_title": "Envoyé en infrarouge tant que « {field} » est activé : {code}",
     "plg_adding": "Ajout...",
     "plg_addons_badge": "Modules",
     "plg_all_cmds_added": "Toutes les commandes du plugin sont déjà ajoutées à cet appareil.",

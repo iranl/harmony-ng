@@ -11,6 +11,7 @@
 #include "ir_i2s.h"
 #include "config_sanitize.h"
 #include "cmd_range.h"
+#include "cmd_ir_alt.h"
 #include "plugin_mgr.h"
 #include "net_device.h"
 #include "net_action.h"
@@ -93,6 +94,13 @@ static int device_int_field(const cJSON *j, int *out) {
 }
 
 /* Every timing field present in the body has a usable type */
+/* A config_fields entry of "type": "boolean" (a checkbox in the web UIs, e.g. the field an
+ * irWhen names): its default is false, not "" */
+static int fld_is_boolean(const cJSON *fld) {
+    const cJSON *t = cJSON_GetObjectItemCaseSensitive(fld, "type");
+    return cJSON_IsString(t) && strcasecmp(t->valuestring, "boolean") == 0;
+}
+
 /* Keys of a device that are its own fields: a plugin's config_fields key with such a name is
  * never copied into config from the top level */
 static int device_key_reserved(const char *key) {
@@ -1566,6 +1574,7 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                     }
                     if (arr) {
                         cmd_ranges_keep_stored(arr, stored_cmds);
+                        cmd_ir_alt_keep_stored(arr, stored_cmds);
                         cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "commands");
                         cJSON_AddItemToObject(found_dev, "commands", arr);
                     }
@@ -1598,6 +1607,10 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                                             cJSON *def_val = cJSON_GetObjectItemCaseSensitive(fld, "default");
                                             if (def_val && cJSON_IsNumber(def_val)) {
                                                 cJSON_AddNumberToObject(cur_cfg, k->valuestring, def_val->valuedouble);
+                                            } else if (def_val && cJSON_IsBool(def_val)) {
+                                                cJSON_AddBoolToObject(cur_cfg, k->valuestring, cJSON_IsTrue(def_val));
+                                            } else if (fld_is_boolean(fld)) {
+                                                cJSON_AddFalseToObject(cur_cfg, k->valuestring);
                                             } else if (def_val && cJSON_IsString(def_val)) {
                                                 cJSON_AddStringToObject(cur_cfg, k->valuestring, def_val->valuestring);
                                             } else {
@@ -1639,7 +1652,10 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                                         const cJSON *sn = cJSON_GetObjectItemCaseSensitive(sc, "name");
                                         if (cJSON_IsString(sn) && strcmp(sn->valuestring, cn->valuestring) == 0) { known = 1; break; }
                                     }
-                                    if (!known) cmd_range_fill_from_manifest(cmd_it, dev_def);
+                                    if (!known) {
+                                        cmd_range_fill_from_manifest(cmd_it, dev_def);
+                                        cmd_ir_alt_fill_from_manifest(cmd_it, dev_def);
+                                    }
                                 }
                             }
                             cJSON_Delete(dev_def);

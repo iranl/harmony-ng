@@ -1958,6 +1958,7 @@ export default {
     "plg_add_repo_hint": "Voer een URL in naar een repository.json-catalogus van de community.",
     "plg_add_repo_short": "+ Repo toevoegen",
     "plg_added": "Toegevoegd",
+    "plg_ir_alt_title": "Wordt via infrarood verzonden zolang \"{field}\" aan staat: {code}",
     "plg_adding": "Toevoegen...",
     "plg_addons_badge": "Add-ons",
     "plg_all_cmds_added": "Alle pluginopdrachten zijn al aan dit apparaat toegevoegd.",

@@ -6,6 +6,7 @@
 #include "json_number.h"
 #include "plugin_mgr.h"
 #include "cmd_range.h"
+#include "cmd_ir_alt.h"
 #include "net_device.h"
 #include "ir_encoder.h"
 
@@ -538,7 +539,21 @@ void sanitize_devices_json(cJSON *root) {
                 cJSON_AddStringToObject(ccmd, "keyCode", kc_val);
                 cJSON_AddStringToObject(ccmd, "raw", raw_val);
 
-                if (!is_bt && !is_mqtt && !is_plugin && !net_kind) {
+                /* The infrared alternative of a plugin device's command (cmd_ir_alt.h): irKeyCode and
+                 * irWhen, each kept only when valid; with an irKeyCode the command keeps its IR
+                 * fields (port, repeats) like a command of an IR device */
+                int ir_alt = 0;
+                if (is_plugin) {
+                    cJSON *cikc = cJSON_GetObjectItemCaseSensitive(c, "irKeyCode");
+                    cJSON *ciw = cJSON_GetObjectItemCaseSensitive(c, "irWhen");
+                    if (cmd_ir_keycode_ok(cikc)) {
+                        cJSON_AddStringToObject(ccmd, "irKeyCode", cikc->valuestring);
+                        ir_alt = 1;
+                    }
+                    if (cmd_ir_when_ok(ciw)) cJSON_AddStringToObject(ccmd, "irWhen", ciw->valuestring);
+                }
+
+                if (ir_alt || (!is_bt && !is_mqtt && !is_plugin && !net_kind)) {
                     /* a command's own port mask 1..7 (Emitter Port); none: the device's controlPort */
                     cJSON *cp_item = cJSON_GetObjectItemCaseSensitive(c, "port");
                     int port_val = (own_ports && cp_item && cJSON_IsNumber(cp_item)) ? json_number_int(cp_item, -1, 8, 0) : 0;
