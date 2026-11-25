@@ -47,12 +47,14 @@ void *rf_ota_sender_worker(void *arg) { (void)arg; return NULL; }
 void rf_keymap_invalidate_devices_cache(void) {}
 void rf_keymap_invalidate_activities_cache(void) {}
 void rf_keymap_invalidate_map(uint8_t slot) { (void)slot; }
-/* the key layer API (GET/POST /api/rf/layer): no layer is on */
+/* the key layer API (GET/POST /api/rf/layer): no layer is on, unless a test gives slot 2 the
+ * activity its layer is on in */
+char g_stub_layer_act2[32];
 int rf_keymap_layer_active(uint8_t slot, char *act_out, size_t act_len, char *name_out, size_t name_len) {
-    (void)slot;
-    if (act_out && act_len) act_out[0] = '\0';
+    const char *act = slot == 2 ? g_stub_layer_act2 : "";
+    if (act_out && act_len) snprintf(act_out, act_len, "%s", act);
     if (name_out && name_len) name_out[0] = '\0';
-    return 0;
+    return act[0] != '\0';
 }
 /* what the last call asked for; a name "refused" is refused, as the keymap would a bad one */
 int g_stub_layer_slot = -1, g_stub_layer_on = -1, g_stub_layer_calls = 0;

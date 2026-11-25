@@ -30,8 +30,9 @@ static char s_layer_name[MAX_PAIRED_REMOTES + 1][24];
 
 /* The device command a key's press resolved to, per slot and key, under g_map_lock: the key's
  * holds and its release send that same command, whatever the layer or the activity is by
- * then (a release to another device would leave the first one's key held). A layer_toggle
- * press is kept too, with "" when its command is missing. */
+ * then (a release to another device would leave the first one's key held). A press that sent
+ * no command is kept too, with "": its holds and its release send nothing, and are not looked
+ * up in a layer or an activity the press did not see. */
 #define HELD_KEYS_PER_SLOT 4
 typedef struct {
     char button[32];
@@ -70,6 +71,13 @@ static int held_has(uint8_t slot, const char *button) {
     int has = held_find_unlocked(slot, button) != NULL;
     pthread_mutex_unlock(&g_map_lock);
     return has;
+}
+
+static void held_drop(uint8_t slot, const char *button) {
+    pthread_mutex_lock(&g_map_lock);
+    held_key_t *h = held_find_unlocked(slot, button);
+    if (h) h->button[0] = '\0';
+    pthread_mutex_unlock(&g_map_lock);
 }
 
 void rf_keymap_layers_off(void) {
@@ -319,13 +327,6 @@ cJSON *get_remote_direct_map(int slot) {
     return root;
 }
 
-/* The activity object for a key the current activity does not map (or with no activity running):
- * the map's "-1" object (nothing running), then "default", then the map's only activity when it
- * has exactly one (empty entries do not count). With several activities and neither "-1" nor
- * "default" the key is not sent:
- * the first activity in the file is an arbitrary pick, and its command would go to a device the
- * current activity may not use (as agreed in #220). In a map without an "activities" object the
- * activities are the top-level objects next to "devices". */
 int rf_keymap_layer_active(uint8_t slot, char *act_out, size_t act_len, char *name_out, size_t name_len) {
     char act_id[32] = "-1";
     get_current_activity(act_id, sizeof(act_id));
@@ -360,6 +361,9 @@ int rf_keymap_layer_set(uint8_t slot, int on, const char *name) {
     if (!layer_slot_ok(slot) || !layer_name_ok(name)) return -1;
     char act_id[32] = "-1";
     get_current_activity(act_id, sizeof(act_id));
+    /* No layer comes on while an activity is being started or stopped: the switch turned the
+     * layers off when it began, and one turned on since would stay on in the activity it ends in */
+    int running = act_id[0] && strcmp(act_id, "-1") != 0 && !is_activity_transitioning();
     pthread_mutex_lock(&g_map_lock);
     if (on && name && name[0]) {
         /* a named layer the slot's map does not have would change no key */
@@ -371,7 +375,7 @@ int rf_keymap_layer_set(uint8_t slot, int on, const char *name) {
             return -1;
         }
     }
-    if (on && act_id[0] && strcmp(act_id, "-1") != 0) {
+    if (on && running) {
         snprintf(s_layer_act[slot], sizeof(s_layer_act[slot]), "%s", act_id);
         snprintf(s_layer_name[slot], sizeof(s_layer_name[slot]), "%s", name ? name : "");
     } else {
@@ -383,6 +387,32 @@ int rf_keymap_layer_set(uint8_t slot, int on, const char *name) {
     return 0;
 }
 
+/* Whether the slot's layer is on in the running activity and binds this button, so the Off key
+ * can be a device's power while that device's layer is on */
+static int layer_binds_button(uint8_t slot, const char *button_name) {
+    if (!layer_slot_ok(slot)) return 0;
+    char act_id[32] = "-1";
+    get_current_activity(act_id, sizeof(act_id));
+    int binds = 0;
+    pthread_mutex_lock(&g_map_lock);
+    if (s_layer_act[slot][0] && strcmp(act_id, "-1") != 0 && strcmp(s_layer_act[slot], act_id) == 0) {
+        cJSON *map = get_remote_map_unlocked(slot);
+        cJSON *layers = map ? cJSON_GetObjectItemCaseSensitive(map, "layers") : NULL;
+        const char *layer_key = s_layer_name[slot][0] ? s_layer_name[slot] : act_id;
+        cJSON *layer = (layers && cJSON_IsObject(layers)) ? cJSON_GetObjectItemCaseSensitive(layers, layer_key) : NULL;
+        if (layer && cJSON_IsObject(layer) && cJSON_GetObjectItemCaseSensitive(layer, button_name)) binds = 1;
+    }
+    pthread_mutex_unlock(&g_map_lock);
+    return binds;
+}
+
+/* The activity object for a key the current activity does not map (or with no activity running):
+ * the map's "-1" object (nothing running), then "default", then the map's only activity when it
+ * has exactly one (empty entries do not count). With several activities and neither "-1" nor
+ * "default" the key is not sent:
+ * the first activity in the file is an arbitrary pick, and its command would go to a device the
+ * current activity may not use (as agreed in #220). In a map without an "activities" object the
+ * activities are the top-level objects next to "devices" and "layers". */
 static cJSON *fallback_activity_obj(cJSON *acts, cJSON *map) {
     cJSON *o = cJSON_GetObjectItemCaseSensitive(acts, "-1");
     if (!o) o = cJSON_GetObjectItemCaseSensitive(acts, "default");
@@ -392,7 +422,8 @@ static cJSON *fallback_activity_obj(cJSON *acts, cJSON *map) {
     cJSON *c = NULL;
     cJSON_ArrayForEach(c, acts) {
         if (!cJSON_IsObject(c) || !c->child) continue; /* an empty entry binds nothing */
-        if (acts == map && c->string && strcmp(c->string, "devices") == 0) continue;
+        if (acts == map && c->string &&
+            (strcmp(c->string, "devices") == 0 || strcmp(c->string, "layers") == 0)) continue;
         only = c;
         n++;
     }
@@ -446,34 +477,22 @@ static const char *json_esc(char *out, size_t n, const char *in) {
     return out;
 }
 
-/* Whether the slot's layer is on in the running activity and binds this button, so the Off key
- * can be a device's power while that device's layer is on */
-static int layer_binds_button(uint8_t slot, const char *button_name) {
-    if (!layer_slot_ok(slot)) return 0;
-    char act_id[32] = "-1";
-    get_current_activity(act_id, sizeof(act_id));
-    int binds = 0;
-    pthread_mutex_lock(&g_map_lock);
-    if (s_layer_act[slot][0] && strcmp(act_id, "-1") != 0 && strcmp(s_layer_act[slot], act_id) == 0) {
-        cJSON *map = get_remote_map_unlocked(slot);
-        cJSON *layers = map ? cJSON_GetObjectItemCaseSensitive(map, "layers") : NULL;
-        const char *layer_key = s_layer_name[slot][0] ? s_layer_name[slot] : act_id;
-        cJSON *layer = (layers && cJSON_IsObject(layers)) ? cJSON_GetObjectItemCaseSensitive(layers, layer_key) : NULL;
-        if (layer && cJSON_IsObject(layer) && cJSON_GetObjectItemCaseSensitive(layer, button_name)) binds = 1;
-    }
-    pthread_mutex_unlock(&g_map_lock);
-    return binds;
-}
-
 static void run_remote_button(uint8_t slot, const char *button_name, const char *action_state, const char *dev_id,
                              char *out_dev, size_t out_dev_len, char *out_cmd, size_t out_cmd_len) {
     int is_press = (strcmp(action_state, "release") != 0);
 
     int first_press = (strcmp(action_state, "press") == 0);
 
-    /* Off stops the activity, unless the layer that is on binds it (a device's own power). While
-     * the remote browses a device, Off always stops the activity: the device path below knows no
-     * layer. A hold of an Off press the layer took stays that press's, also once the layer is off. */
+    /* a new press: what an earlier one of this key left (its release never came) is over */
+    if (first_press) held_drop(slot, button_name);
+
+    /* Off stops the activity, unless the layer that is on binds it (a device's own power, or
+     * nothing). An Off key that comes with a device (the remote browses it) always stops the
+     * activity: the device path below knows no layer. A hold of an Off press the layer took stays
+     * that press's, also once the layer is off or when the press sent nothing. The remotes that
+     * send Off as a key (Companion, Smart Control) get here; a touchscreen remote stops the
+     * activity itself (its built-in PwrOff key, remote_config.c init_act_triggers()) and sends
+     * the stop, not the key, so no layer binding of Off runs for it. */
     if (is_press && strcmp(button_name, "PowerOffActivity") == 0 &&
         ((dev_id && dev_id[0]) ||
          (first_press ? !layer_binds_button(slot, button_name) : !held_has(slot, button_name)))) {
@@ -556,7 +575,7 @@ static void run_remote_button(uint8_t slot, const char *button_name, const char 
         return;
     }
 
-    /* A hold or the release of a key whose press sent a device command: that same command */
+    /* A hold or the release of a key: the command its press sent, nothing when it sent none */
     if (!first_press) {
         pthread_mutex_lock(&g_map_lock);
         held_key_t *h = held_find_unlocked(slot, button_name);
@@ -576,13 +595,6 @@ static void run_remote_button(uint8_t slot, const char *button_name, const char 
     /* Standard Activity-Based mapping */
     char act_id[32] = "-1";
     get_current_activity(act_id, sizeof(act_id));
-    if (first_press) {
-        /* a new press: what an earlier one of this key left (its release never came) is over */
-        pthread_mutex_lock(&g_map_lock);
-        held_key_t *old = held_find_unlocked(slot, button_name);
-        if (old) old->button[0] = '\0';
-        pthread_mutex_unlock(&g_map_lock);
-    }
 
     char act_type_buf[32] = {0};
     char dev_id_buf[64] = {0};
@@ -634,10 +646,11 @@ static void run_remote_button(uint8_t slot, const char *button_name, const char 
 
     if (btn_cfg && cJSON_IsObject(btn_cfg) && strcmp(act_type_buf, "layer_toggle") == 0) {
         /* The first press turns the layer over and sends its "on" or "off" command; its holds
-         * and its release send that same command (kept above), and turn nothing over. With no
-         * activity running there is no layer to turn on: the key sends nothing. */
+         * and its release send that same command (kept below), and turn nothing over. With no
+         * activity running there is no layer to turn on, and none comes on while an activity is
+         * being started or stopped (as in rf_keymap_layer_set()): the key sends nothing. */
         int running = act_id[0] && strcmp(act_id, "-1") != 0;
-        if (first_press && layer_slot_ok(slot) && running) {
+        if (first_press && layer_slot_ok(slot) && running && (layer_on || !is_activity_transitioning())) {
             cJSON *send = cJSON_GetObjectItemCaseSensitive(btn_cfg, layer_on ? "off" : "on");
             cJSON *j_sdev = (send && cJSON_IsObject(send)) ? cJSON_GetObjectItemCaseSensitive(send, "deviceId") : NULL;
             cJSON *j_scmd = (send && cJSON_IsObject(send)) ? cJSON_GetObjectItemCaseSensitive(send, "command") : NULL;
@@ -649,7 +662,6 @@ static void run_remote_button(uint8_t slot, const char *button_name, const char 
             if (layer_on) s_layer_act[slot][0] = '\0';
             else snprintf(s_layer_act[slot], sizeof(s_layer_act[slot]), "%s", act_id);
             printf("[*] RF key layer of slot %u %s in activity %s\n", slot, s_layer_act[slot][0] ? "on" : "off", act_id);
-            held_keep_unlocked(slot, button_name, dev_id_buf, cmd_buf);
         }
         snprintf(act_type_buf, sizeof(act_type_buf), "device_cmd");
     } else if (btn_cfg && cJSON_IsObject(btn_cfg)) {
@@ -670,11 +682,12 @@ static void run_remote_button(uint8_t slot, const char *button_name, const char 
     }
     int is_cmd = (strcmp(act_type_buf, "device_cmd") == 0 || strcmp(act_type_buf, "command") == 0 ||
                   (act_type_buf[0] == '\0' && dev_id_buf[0] && cmd_buf[0]));
-    /* the press's command, for its holds and its release */
-    if (first_press && is_cmd && dev_id_buf[0] && cmd_buf[0]) held_keep_unlocked(slot, button_name, dev_id_buf, cmd_buf);
+    int sends = is_cmd && dev_id_buf[0] && cmd_buf[0];
+    /* the press's command, for its holds and its release ("" when it sends none) */
+    if (first_press) held_keep_unlocked(slot, button_name, sends ? dev_id_buf : "", sends ? cmd_buf : "");
     pthread_mutex_unlock(&g_map_lock);
 
-    if (is_cmd && dev_id_buf[0] && cmd_buf[0]) {
+    if (sends) {
         printf("[*] RF Dispatch: IR/BT send -> dev=%s cmd=%s action=%s\n", dev_id_buf, cmd_buf, action_state ? action_state : "press");
         snprintf(out_dev, out_dev_len, "%s", dev_id_buf);
         snprintf(out_cmd, out_cmd_len, "%s", cmd_buf);

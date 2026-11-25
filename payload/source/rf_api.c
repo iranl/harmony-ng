@@ -72,18 +72,6 @@ static int query_param(const char *buf, const char *key, char *out, size_t out_s
 /* The slot of a request: from the query (slot=1 to MAX_PAIRED_REMOTES, or 0 / all for every
  * remote), else from a JSON body ("slot": 0 to MAX_PAIRED_REMOTES). The whole request used to be searched for "slot=2" and
  * "slot=1", so a slot in another form or a typing error meant "all remotes" for unpair. */
-static int req_slot(const char *buf);
-
-int rf_api_layer_post(const char *buf) {
-    char ov[8] = "", nv[32] = "";
-    int slot = req_slot(buf);
-    int has_on = query_param(buf, "on", ov, sizeof(ov));
-    int has_name = query_param(buf, "name", nv, sizeof(nv));
-    if (slot < 1 || !has_on || (strcmp(ov, "0") != 0 && strcmp(ov, "1") != 0)) return 400;
-    if (has_name && strlen(nv) >= sizeof(nv) - 1) return 400; /* cut: longer than any layer name */
-    return rf_keymap_layer_set((uint8_t)slot, ov[0] == '1', nv) == 0 ? 0 : 400;
-}
-
 static int req_slot(const char *buf) {
     char v[16];
     if (query_param(buf, "slot", v, sizeof(v))) {
@@ -101,6 +89,39 @@ static int req_slot(const char *buf) {
                     js->valuedouble == (double)js->valueint) ? js->valueint : REQ_SLOT_BAD;
     cJSON_Delete(root);
     return slot;
+}
+
+int rf_api_layer_post(const char *buf) {
+    char ov[8] = "", nv[32] = "";
+    int slot = req_slot(buf);
+    int has_on = query_param(buf, "on", ov, sizeof(ov));
+    int has_name = query_param(buf, "name", nv, sizeof(nv));
+    if (slot < 1 || !has_on || (strcmp(ov, "0") != 0 && strcmp(ov, "1") != 0)) return 400;
+    if (has_name && strlen(nv) >= sizeof(nv) - 1) return 400; /* cut: longer than any layer name */
+    return rf_keymap_layer_set((uint8_t)slot, ov[0] == '1', nv) == 0 ? 0 : 400;
+}
+
+char *rf_api_layer_json(int ok) {
+    cJSON *root = cJSON_CreateObject();
+    if (root) cJSON_AddBoolToObject(root, "ok", ok ? 1 : 0);
+    cJSON *slots = root ? cJSON_AddArrayToObject(root, "slots") : NULL;
+    char *body = NULL;
+    if (slots) {
+        for (int ls = 1; ls <= MAX_PAIRED_REMOTES; ls++) {
+            char la[32], ln[24];
+            int lon = rf_keymap_layer_active((uint8_t)ls, la, sizeof(la), ln, sizeof(ln));
+            cJSON *o = cJSON_CreateObject();
+            if (!o) break;
+            cJSON_AddItemToArray(slots, o);
+            cJSON_AddNumberToObject(o, "slot", ls);
+            cJSON_AddBoolToObject(o, "on", lon ? 1 : 0);
+            cJSON_AddStringToObject(o, "activity", la);
+            cJSON_AddStringToObject(o, "name", ln);
+        }
+        body = cJSON_PrintUnformatted(root);
+    }
+    cJSON_Delete(root);
+    return body;
 }
 
 /* Routes for which slot 0 (or none) means every remote */
@@ -469,19 +490,14 @@ void *api_server_worker(void *arg) {
                  * (1 to MAX_PAIRED_REMOTES), with an "on" other than 0 or 1, or a name that is
                  * not allowed or not in the slot's map. */
                 int bad = route_is(buf, "POST /api/rf/layer") && rf_api_layer_post(buf) != 0;
-                /* Activity ids and layer names hold no character JSON would need escaped */
-                char res[256 + MAX_PAIRED_REMOTES * 128];
+                char *body = rf_api_layer_json(!bad);
+                /* six slots, an activity id of 31 characters with each one escaped, a name of 23 */
+                char res[256 + MAX_PAIRED_REMOTES * 320];
                 int rlen = snprintf(res, sizeof(res),
-                    "HTTP/1.1 %s\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"ok\":%s,\"slots\":[",
-                    bad ? "400 Bad Request" : "200 OK", bad ? "false" : "true");
-                for (int ls = 1; ls <= MAX_PAIRED_REMOTES; ls++) {
-                    char la[32], ln[24];
-                    int lon = rf_keymap_layer_active((uint8_t)ls, la, sizeof(la), ln, sizeof(ln));
-                    rlen += snprintf(res + rlen, sizeof(res) - (size_t)rlen,
-                        "%s{\"slot\":%d,\"on\":%s,\"activity\":\"%s\",\"name\":\"%s\"}",
-                        ls > 1 ? "," : "", ls, lon ? "true" : "false", la, ln);
-                }
-                rlen += snprintf(res + rlen, sizeof(res) - (size_t)rlen, "]}");
+                    "HTTP/1.1 %s\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n%s",
+                    bad ? "400 Bad Request" : "200 OK", body ? body : "{\"ok\":false,\"slots\":[]}");
+                free(body);
+                if (rlen >= (int)sizeof(res)) rlen = (int)sizeof(res) - 1;
                 write(cli, res, rlen);
             } else if (strstr(buf, "GET /api/rf/send?hex=") == buf) {
                 if (is_ota_busy()) {

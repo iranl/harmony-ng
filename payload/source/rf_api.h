@@ -16,6 +16,10 @@ int rf_api_body_status(const char *buf, size_t n, size_t cap);
  * 0 when set; 400 for no slot or one outside 1 to MAX_PAIRED_REMOTES, no "on" or one other
  * than 0 or 1, or a name rf_keymap_layer_set() refuses. buf is the whole request. */
 int rf_api_layer_post(const char *buf);
+/* The body of GET and POST /api/rf/layer: {"ok", "slots": [{"slot", "on", "activity", "name"}]},
+ * one entry per slot. The activity id is read from a file hub_daemon writes: it goes out as a
+ * JSON string, whatever it holds. The caller frees it; NULL without memory. */
+char *rf_api_layer_json(int ok);
 
 #define RF_STATUS_QUERY_RADIO  0x1
 #define RF_STATUS_STABLE_ONLY  0x2

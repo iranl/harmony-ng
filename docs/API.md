@@ -1988,6 +1988,8 @@ A slot's mapping may hold a top-level `"layers"` object beside `"activities"`. A
 it is on, come before the running activity's own: a key the layer binds uses the layer's binding, a key it leaves out
 keeps the activity's, and a key it binds to `{}` sends nothing. So a few keys can mean something else for a while,
 such as the arrows, OK and Back driving a TV's own menu during an activity that sends them to a set-top box.
+In an older mapping without an `"activities"` object, where the activities are the top-level entries, `"layers"` is
+not one of them, as `"devices"` is not.
 - **The activity's own layer** is `layers` → `<activity id>`. A key bound as
   `{"action": "layer_toggle", "on": {"deviceId": "3", "command": "Green"}, "off": {"deviceId": "3", "command": "Blue"}}`
   turns it on and sends `on`; pressed again, it turns the layer off and sends `off`. Held, it turns the layer over once:
@@ -1995,13 +1997,17 @@ such as the arrows, OK and Back driving a TV's own menu during an activity that 
   running the key sends nothing.
 - **A named layer** is `layers` → `<name>` (letters, digits, `_` and `-`, at most 23 characters, not digits only: those
   are the activities' own), for any activity. It is turned on through `POST /api/rf/layer`. A `layer_toggle` key pressed while any layer is on turns it off and sends `off`.
-- **Off** (`PowerOffActivity`) stops the activity, unless the layer that is on binds it: then it is that binding. While
-  a touchscreen remote browses a device, Off always stops the activity.
+- **Off** (`PowerOffActivity`) stops the activity, unless the layer that is on binds it: then it is that binding, for
+  the press and for its holds (bound to `{}`, Off does nothing). This is for the remotes that send Off as a key, the
+  Companion and the Smart Control. A touchscreen remote (Elite, Ultimate) stops the activity itself when Off is
+  pressed and does not send the key, so a layer's Off binding never runs there.
 - **A key's holds and its release** send the command its press sent, also when the layer or the activity has changed
-  in between, so no device is left with a key held.
+  in between, so no device is left with a key held. A key whose press sent no command sends none while it is held
+  or when it is released, and a key that starts an activity starts it once, however long it is held.
 - A layer belongs to the activity it was turned on in: every slot's layer goes off when the activity changes, stops or
-  is switched, also when the same activity is started again. It is kept in memory only, so it is off after `hub_rf`
-  restarts.
+  is switched, also when the same activity is started again. While an activity is being started or stopped no layer
+  comes on: a `layer_toggle` key then sends nothing, unless a layer is still on, which it turns off. It is kept in
+  memory only, so it is off after `hub_rf` restarts.
 ```json
 {
   "activities": {
@@ -2025,7 +2031,8 @@ such as the arrows, OK and Back driving a TV's own menu during an activity that 
 Reads every slot's key layer, or sets one without sending any key. Open to the `user` role (11.5), as a key press is;
 `HEAD` is not routed.
 - **Query Parameters** (POST): `slot` (1 to 6), `on` (`1` on, `0` off), `name` (optional: a named layer; left out or
-  empty, the running activity's own). `on=1` with no activity running leaves the layer off.
+  empty, the running activity's own). `on=1` with no activity running, or while one is being started or stopped,
+  leaves the layer off.
 - **Response `200 OK`** (both methods): each slot's state; `activity` is the activity the layer was turned on in and
   `name` its name, both `""` when it is off or the activity's own.
   ```json

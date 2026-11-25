@@ -50,8 +50,11 @@ void rf_keymap_invalidate_map(uint8_t slot);
  * activity's own on and sends "on". active: 1 on (act_out = its activity, name_out = its name,
  * "" for the activity's own). set: name NULL or "" for the activity's own, letters, digits,
  * '_' and '-' otherwise, not digits only, and a layer the slot's map has; on only while an
- * activity runs; -1 for a bad slot or name. A key's holds and its release send the command its
- * press sent, whatever the layer is by then. */
+ * activity runs and none is being started or stopped (a layer_toggle key turns none on then
+ * either); -1 for a bad slot or name. A key's holds and its release send the command its
+ * press sent, whatever the layer is by then, and nothing when the press sent none. Off
+ * (PowerOffActivity) stops the activity unless the layer that is on binds it; a touchscreen
+ * remote stops the activity itself and never sends Off as a key. */
 int rf_keymap_layer_active(uint8_t slot, char *act_out, size_t act_len, char *name_out, size_t name_len);
 int rf_keymap_layer_set(uint8_t slot, int on, const char *name);
 /* Every slot's layer off: the activity changed, stopped or is being switched */

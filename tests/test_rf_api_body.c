@@ -9,6 +9,7 @@
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include "rf_state.h"
 #include "rf_api.h"
@@ -62,6 +63,28 @@ int main(void) {
     CHECK(LAYER("?slot=1&on=1&name=a-name-longer-than-any-layer-name-can-be") == 400, "layer: a name too long: 400");
     CHECK(g_stub_layer_calls == calls, "layer: none of those reached the keymap");
     CHECK(LAYER("?slot=1&on=1&name=refused") == 400, "layer: a name the keymap refuses: 400");
+
+    /* The answer of GET and POST /api/rf/layer is JSON whatever the activity id read from the
+     * file holds: a quote, a backslash and a line feed come back as they were */
+    const char *odd_id = "1\"\\x\n2";
+    snprintf(g_stub_layer_act2, sizeof(g_stub_layer_act2), "%s", odd_id);
+    char *layer_body = rf_api_layer_json(1);
+    cJSON *lj = layer_body ? cJSON_Parse(layer_body) : NULL;
+    cJSON *lslots = lj ? cJSON_GetObjectItem(lj, "slots") : NULL;
+    cJSON *lslot2 = lslots ? cJSON_GetArrayItem(lslots, 1) : NULL;
+    cJSON *lact = lslot2 ? cJSON_GetObjectItem(lslot2, "activity") : NULL;
+    CHECK(lj != NULL, "layer: the answer parses as JSON with a quote and a backslash in the activity id");
+    CHECK(lact && cJSON_IsString(lact) && strcmp(lact->valuestring, odd_id) == 0 &&
+          cJSON_IsTrue(cJSON_GetObjectItem(lslot2, "on")), "layer: slot 2's activity id comes back whole, on");
+    CHECK(lslots && cJSON_GetArraySize(lslots) == MAX_PAIRED_REMOTES && cJSON_IsTrue(cJSON_GetObjectItem(lj, "ok")) &&
+          cJSON_IsFalse(cJSON_GetObjectItem(cJSON_GetArrayItem(lslots, 0), "on")),
+          "layer: ok, and an entry for every slot, slot 1 off");
+    cJSON_Delete(lj);
+    free(layer_body);
+    layer_body = rf_api_layer_json(0);
+    CHECK(layer_body && strstr(layer_body, "\"ok\":false") != NULL, "layer: a refused POST answers ok false");
+    free(layer_body);
+    g_stub_layer_act2[0] = '\0';
 
     if (g_failures) return 1;
     printf("[+] hub_rf API request bodies: all checks passed\n");
