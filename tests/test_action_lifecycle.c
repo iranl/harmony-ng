@@ -348,6 +348,7 @@ int main(void) {
         assert(hw_device_command_send_action(rc5[i].dev, 0, rc5[i].cmd, HW_BTN_ACTION_TAP) == 0);
         if (s_last_toggle != rc5[i].want) {
             printf("[-] RC5 toggle of %s %s, send %zu: %d, wanted %d\n", rc5[i].dev, rc5[i].cmd, i, s_last_toggle, rc5[i].want);
+            fflush(stdout); /* a pipe in the suite: the line above would be lost at the abort */
             assert(0);
         }
     }
