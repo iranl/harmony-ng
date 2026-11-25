@@ -4,6 +4,7 @@
 #include <time.h>
 #include "bt_hid_queue.h"
 #include "bt_pairing.h"
+#include "bt_ps3.h"
 
 btstack_timer_source_t g_host_key_release_timer;
 
@@ -118,7 +119,7 @@ void bt_hid_link_closed(uint16_t cid) {
     hidq_drop(cid);
     hidq_arm_timer();
 }
-uint8_t g_host_pending_release_type = 0; // 1 = keyboard, 2 = consumer, 3 = custom
+uint8_t g_host_pending_release_type = 0; // 1 = keyboard, 2 = consumer, 3 = custom, 4 = mouse, 5 = PS3 remote
 uint8_t g_host_custom_release_buf[16];
 int     g_host_custom_release_len = 0;
 int     g_host_send_hold_mode = 0;
@@ -216,6 +217,11 @@ void send_host_release_all(void) {
         uint8_t mrelease[6] = {0xa1, 0x03, 0, 0, 0, 0};
         bt_hid_send_report(cid, mrelease, sizeof(mrelease));
         g_host_mouse_buttons = 0;
+    } else if (prev_type == 5 || (prev_type == 0 && target_host_profile() == BT_PROFILE_PS3)) {
+        /* a PS3 host knows only the remote's report: a keyboard release means nothing to it */
+        uint8_t release[PS3_REPORT_LEN];
+        ps3_report(NULL, release);
+        bt_hid_send_report(cid, release, sizeof(release));
     } else {
         /* keyboard (type 1), or unknown: keyboard release now, consumer release 20 ms later */
         uint8_t release[10] = {0xa1, 0x01, 0, 0, 0, 0, 0, 0, 0, 0};
@@ -305,7 +311,52 @@ void send_host_mouse_click(uint8_t button) {
     arm_host_key_release_timer(40);
 }
 
+/* A BD Remote key to the target (a PS3 host): press now, release after the hold time */
+static void send_host_ps3_key(const ps3_key_t *key) {
+    uint16_t cid = get_target_host_hid_cid();
+    if (cid == 0) {
+        char wake[24];
+        snprintf(wake, sizeof(wake), "PS3 %02x", key->code);
+        host_link_down(wake);
+        return;
+    }
+    if (g_host_pending_release_type != 0) {
+        btstack_run_loop_remove_timer(&g_host_key_release_timer);
+        host_key_release_timer_handler(NULL);
+    }
+    uint8_t press[PS3_REPORT_LEN];
+    ps3_report(key, press);
+    bt_hid_send_report(cid, press, sizeof(press));
+    g_host_pending_cid = cid;
+    g_host_pending_release_type = 5;
+    arm_host_key_release_timer(g_host_send_hold_mode ? 10000 : 40);
+    g_keys_sent++;
+    update_bthid_status();
+}
+
+bool send_host_ps3_code(unsigned int code) {
+    const ps3_key_t *key = ps3_key_by_code(code);
+    if (!key) return false;
+    send_host_ps3_key(key);
+    return true;
+}
+
+/* A keyboard or consumer key for a PS3 host: the remote's key of the same meaning, if any */
+static void ps3_translated(const ps3_key_t *key, const char *what, unsigned int usage) {
+    if (key) {
+        send_host_ps3_key(key);
+        return;
+    }
+    char msg[96];
+    snprintf(msg, sizeof(msg), "PS3 host: %s 0x%02x has no BD Remote key, dropped", what, usage);
+    hub_bt_log_debug(msg);
+}
+
 void send_host_keyboard_report(uint8_t modifier, uint8_t keycode) {
+    if (target_host_profile() == BT_PROFILE_PS3) {
+        ps3_translated(ps3_key_from_keyboard(keycode), "keyboard usage", keycode);
+        return;
+    }
     uint16_t cid = get_target_host_hid_cid();
     if (cid == 0) {
         char wake[24];
@@ -327,6 +378,10 @@ void send_host_keyboard_report(uint8_t modifier, uint8_t keycode) {
 }
 
 void send_host_consumer_report(uint16_t usage_id) {
+    if (target_host_profile() == BT_PROFILE_PS3) {
+        ps3_translated(ps3_key_from_consumer(usage_id), "consumer usage", usage_id);
+        return;
+    }
     uint16_t cid = get_target_host_hid_cid();
     if (cid == 0) {
         char wake[24];
@@ -374,6 +429,21 @@ bool send_host_named_key(const char *name) {
     if (strcasecmp(name, "release_all") == 0 || strcasecmp(name, "release") == 0) {
         send_host_release_all();
         return true;
+    }
+    /* A PS3 host: the remote's own keys by name (PS, Triangle, TopMenu, ...); other names go
+     * through the keyboard names below and are translated there */
+    if (target_host_profile() == BT_PROFILE_PS3) {
+        /* "PS3:<hex>", the code a BT device's command carries (the web UI's test button) */
+        if (strncasecmp(name, "PS3:", 4) == 0) {
+            char *end = NULL;
+            unsigned long code = strtoul(name + 4, &end, 16);
+            return end && end != name + 4 && *end == '\0' && send_host_ps3_code((unsigned int)code);
+        }
+        const ps3_key_t *key = ps3_key_by_name(name);
+        if (key) {
+            send_host_ps3_key(key);
+            return true;
+        }
     }
 
     uint8_t mod = 0;

@@ -21,19 +21,46 @@ export function createView() {
     h('div', { id: 'bt-status-content', className: 'text-dim', text: t('loading_bt_status', 'Loading BT status...') }),
   ]);
 
+  // The device the new host is linked to (the Hub requires one) and what the Hub pairs as
+  const devices = store.get('devices') || [];
+  const isBtDev = (d) => d.type === 'BT' || d.type === 'Bluetooth' || d.isBt;
+  const devSelect = h('select', { className: 'form-control', style: { flex: '1', minWidth: '140px' } }, [
+    h('option', { value: '', text: t('bt_pair_select_device', 'Device to link the host to') }),
+    ...[...devices].sort((a, b) => Number(isBtDev(b)) - Number(isBtDev(a))).map(d =>
+      h('option', { value: String(d.id), text: `${d.name || d.id}${isBtDev(d) ? ' (BT)' : ''}` })),
+  ]);
+  const firstBt = devices.find(isBtDev);
+  if (firstBt) devSelect.value = String(firstBt.id);
+  const profileSelect = h('select', { className: 'form-control', style: { flex: '1', minWidth: '140px' } }, [
+    h('option', { value: 'keyboard', text: t('bt_profile_keyboard', 'Keyboard (Android TV, Fire TV, Apple TV, PC)') }),
+    h('option', { value: 'ps3', text: t('bt_profile_ps3', 'PlayStation 3 (BD Remote Control)') }),
+  ]);
+
   const pairCard = h('div', { className: 'card' }, [
     h('div', { className: 'card-header' }, [
       h('h4', { className: 'card-title', text: t('pairing_mode', 'Pairing Mode') }),
     ]),
     h('p', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '12px' }, text: t('bt_pairing_mode_desc', 'Make Harmony Hub discoverable as a Bluetooth HID Keyboard to pair with Nvidia Shield, Apple TV, Fire TV, or PC.') }),
-    h('div', { style: { display: 'flex', gap: '8px' } }, [
+    h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '8px' } }, [
+      devSelect,
+      h('label', { className: 'form-label', style: { alignSelf: 'center', margin: 0 }, text: t('bt_profile_label', 'Pair as') }),
+      profileSelect,
+    ]),
+    h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } }, [
       h('button', {
         className: 'btn btn-primary',
         text: `📶 ${t('enable_bt_pairing_60', 'Enable BT Pairing (60s)')}`,
         onclick: async () => {
+          if (!devSelect.value) {
+            toast.error(t('select_target_bt_pairing', 'Please select a target device to assign this Bluetooth pairing to.'));
+            return;
+          }
           try {
-            await api.setBtPairing(true, 'Harmony Keyboard');
-            toast.success(t('hub_discoverable_bt_keyboard', 'Hub is now discoverable as Bluetooth Keyboard!'));
+            const profile = profileSelect.value;
+            await api.setBtPairing(true, 'Harmony Keyboard', devSelect.value, profile);
+            toast.success(profile === 'ps3'
+              ? t('bt_discoverable_ps3', 'Hub is now discoverable as BD Remote Control: register it on the PS3 under Accessory Settings > Manage Bluetooth Devices.')
+              : t('hub_discoverable_bt_keyboard', 'Hub is now discoverable as Bluetooth Keyboard!'));
             loadStatus();
           } catch (e) {
             toast.error(e.message);
@@ -55,6 +82,62 @@ export function createView() {
       }),
     ]),
   ]);
+
+  // Legacy PIN pairing: shown while a host refused 0000 (pair again) or waits for its code
+  const pinInput = h('input', {
+    className: 'form-control', type: 'text', inputMode: 'numeric', maxLength: 16, autocomplete: 'off',
+    placeholder: t('bt_pin_placeholder', 'Code'), style: { flex: '1', minWidth: '120px', letterSpacing: '2px' },
+  });
+  const pinMsg = h('div', { style: { fontWeight: 'bold', marginBottom: '8px' } });
+  const pinRow = h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } }, [
+    pinInput,
+    h('button', {
+      className: 'btn btn-primary',
+      text: t('bt_pin_send', 'Send code'),
+      onclick: async () => {
+        const pin = pinInput.value.trim();
+        if (!/^\d{1,16}$/.test(pin)) {
+          toast.error(t('bt_pin_invalid', 'Enter the 1 to 16 digits the device shows'));
+          return;
+        }
+        try {
+          await api.sendBtPairingPin(pin);
+          pinInput.value = '';
+          toast.success(t('bt_pin_sent', 'Code sent'));
+        } catch (e) {
+          toast.error(e.message);
+        }
+      },
+    }),
+    h('button', {
+      className: 'btn btn-secondary',
+      text: t('cancel', 'Cancel'),
+      onclick: async () => {
+        try {
+          await api.cancelBtPairingPin();
+          loadStatus();
+        } catch (e) {
+          toast.error(e.message);
+        }
+      },
+    }),
+  ]);
+  const pinCard = h('div', { className: 'card', style: { display: 'none', borderColor: 'var(--accent)' } }, [pinMsg, pinRow]);
+  pinInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') pinRow.querySelector('.btn-primary').click(); });
+
+  function renderPin(pin) {
+    const state = pin?.state || 'none';
+    pinCard.style.display = state === 'none' ? 'none' : '';
+    const name = pin?.name || pin?.addr || t('bluetooth_host', 'Bluetooth Host');
+    if (state === 'waiting') {
+      pinMsg.textContent = t('bt_pin_waiting', 'Enter the code shown on {name}, then Send code.', { name });
+      pinRow.style.display = 'flex';
+      if (document.activeElement !== pinInput) pinInput.focus();
+    } else if (state === 'required') {
+      pinMsg.textContent = t('bt_pin_required', '{name} did not accept PIN 0000. Start the pairing again on the device: the Hub then asks here for the code it shows.', { name });
+      pinRow.style.display = 'none';
+    }
+  }
 
   const hostsCard = h('div', { className: 'card' }, [
     h('div', { className: 'card-header' }, [
@@ -93,6 +176,7 @@ export function createView() {
       ]);
 
       statusMount.appendChild(grid);
+      renderPin(data?.pin);
 
       hostsMount.innerHTML = '';
       const hosts = data?.hosts || data?.pairedHosts || [];
@@ -103,7 +187,8 @@ export function createView() {
         hosts.forEach(hItem => {
           // hub_btstack lists hosts as { addr, name, connected, paired }
           const bdaddr = hItem.addr || hItem.bdaddr || hItem.address || String(hItem);
-          const state = hItem.connected ? t('connected', 'Connected') : (hItem.paired === false ? t('not_paired_no_key', 'Not paired (no link key)') : t('paired', 'Paired'));
+          const linkState = hItem.connected ? t('connected', 'Connected') : (hItem.paired === false ? t('not_paired_no_key', 'Not paired (no link key)') : t('paired', 'Paired'));
+          const state = hItem.profile === 'ps3' ? `${linkState} • ${t('bt_profile_ps3_short', 'PS3 BD Remote')}` : linkState;
           const row = h('div', {
             className: 'card',
             style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', margin: 0 },
@@ -163,6 +248,7 @@ export function createView() {
 
   container.appendChild(statusCard);
   container.appendChild(pairCard);
+  container.appendChild(pinCard);
   container.appendChild(hostsCard);
   loadStatus();
 

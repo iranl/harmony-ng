@@ -35,14 +35,20 @@ void bt_status_write(FILE *f, const bt_status_view_t *v) {
     fprintf(f, "    \"name\": "); put_str(f, v->host_name); fprintf(f, ",\n");
     fprintf(f, "    \"pairing\": %s\n", v->host_pairing ? "true" : "false");
     fprintf(f, "  },\n");
+    fprintf(f, "  \"pin\": {\"state\": "); put_str(f, v->pin_state ? v->pin_state : "none");
+    fprintf(f, ", \"addr\": "); put_str(f, v->pin_addr);
+    fprintf(f, ", \"name\": "); put_str(f, v->pin_name);
+    fprintf(f, "},\n");
     fprintf(f, "  \"hosts\": [\n");
     for (int i = 0; i < v->nhosts && i < BT_STATUS_MAX_HOSTS; i++) {
         const bt_status_host_t *h = &v->hosts[i];
         if (i) fprintf(f, ",\n");
         fprintf(f, "    {\"addr\": "); put_str(f, h->addr);
         fprintf(f, ", \"name\": "); put_str(f, h->name);
-        fprintf(f, ", \"connected\": %s, \"paired\": %s, \"cid\": %u}",
+        fprintf(f, ", \"connected\": %s, \"paired\": %s, \"cid\": %u, \"profile\": ",
                 h->connected ? "true" : "false", h->paired ? "true" : "false", (unsigned)h->cid);
+        put_str(f, h->profile ? h->profile : "keyboard");
+        fputc('}', f);
     }
     fprintf(f, "\n  ]\n");
     fprintf(f, "}\n");

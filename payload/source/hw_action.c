@@ -1044,7 +1044,23 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
                                 (page == 0x0C && usage > 0 && usage <= 0x3FF))) {
                 hid_parsed = 0;
             }
-            if (hid_parsed) {
+            /* "PS3:<hex>": a Sony BD Remote key code, for a host paired with the PS3 profile */
+            unsigned int ps3_code = 0;
+            char ps3_end = 0;
+            int ps3_parsed = !hid_parsed && strncasecmp(keycode_str, "PS3:", 4) == 0 &&
+                             sscanf(keycode_str + 4, "%x%c", &ps3_code, &ps3_end) == 1 && ps3_code <= 0xFF;
+            if (ps3_parsed) {
+                if (action == HW_BTN_ACTION_PRESS) {
+                    snprintf(pipe_cmd, sizeof(pipe_cmd), "PS3_DOWN %02X\n", ps3_code);
+                } else if (action == HW_BTN_ACTION_RELEASE) {
+                    snprintf(pipe_cmd, sizeof(pipe_cmd), "RELEASE\n");
+                } else if (action == HW_BTN_ACTION_REPEAT) {
+                    pipe_cmd[0] = '\0';
+                    ret = 0;
+                } else {
+                    snprintf(pipe_cmd, sizeof(pipe_cmd), "PS3 %02X\n", ps3_code);
+                }
+            } else if (hid_parsed) {
                 if (page == 0x07) {
                     /* KBD_DOWN keeps the key pressed until RELEASE; a raw report
                      * is released by hub_btstack after 30 ms, so a held key never

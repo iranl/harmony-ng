@@ -4,6 +4,8 @@
 #include "bt_listen.h"
 #include "bt_adv.h"
 #include "bt_status_json.h"
+#include "bt_pin.h"
+#include "bt_ps3.h"
 #include "../atomic_file.h"
 
 /* Hosts connected right now, kept in /tmp: after a hub_btstack restart (deploy, crash) the same
@@ -47,6 +49,59 @@ uint16_t get_target_host_hid_cid(void) {
         }
     }
     return 0;
+}
+
+uint8_t target_host_profile(void) {
+    /* the chosen host's, connected or not: a key kept for its reconnect is built for it */
+    if (g_active_host_idx >= 0 && g_active_host_idx < MAX_HOST_CONNS) return g_hosts[g_active_host_idx].profile;
+    uint16_t cid = get_target_host_hid_cid();
+    for (int i = 0; cid && i < MAX_HOST_CONNS; i++) {
+        if (g_hosts[i].connected && g_hosts[i].hid_cid == cid) return g_hosts[i].profile;
+    }
+    return BT_PROFILE_KEYBOARD;
+}
+
+uint8_t host_profile_load(const bd_addr_t addr) {
+    uint8_t profile = BT_PROFILE_KEYBOARD;
+    FILE *f = fopen(BT_PROFILES_FILE, "r");
+    if (!f) return profile;
+    char line[64];
+    while (fgets(line, sizeof(line), f)) {
+        char a[18], name[16];
+        bd_addr_t la;
+        if (sscanf(line, "%17s %15s", a, name) == 2 && parse_bd_addr(a, la) && memcmp(la, addr, 6) == 0) {
+            int p = bt_profile_from_name(name);
+            if (p >= 0) profile = (uint8_t)p;
+        }
+    }
+    fclose(f);
+    return profile;
+}
+
+void host_profile_save(const bd_addr_t addr, uint8_t profile) {
+    /* the other hosts' lines stay; this host's line is replaced, or dropped for the keyboard */
+    char out[16 * 32 + 1] = "";
+    size_t used = 0;
+    FILE *f = fopen(BT_PROFILES_FILE, "r");
+    if (f) {
+        char line[64];
+        while (fgets(line, sizeof(line), f) && used < sizeof(out) - 32) {
+            char a[18], name[16];
+            bd_addr_t la;
+            if (sscanf(line, "%17s %15s", a, name) != 2 || !parse_bd_addr(a, la) || bt_profile_from_name(name) < 0) continue;
+            if (memcmp(la, addr, 6) == 0) continue;
+            used += (size_t)snprintf(out + used, sizeof(out) - used, "%s %s\n", a, name);
+        }
+        fclose(f);
+    }
+    if (profile != BT_PROFILE_KEYBOARD && used < sizeof(out) - 32) {
+        used += (size_t)snprintf(out + used, sizeof(out) - used, "%s %s\n", bd_addr_to_str(addr), bt_profile_name(profile));
+    }
+    if (!used) {
+        unlink(BT_PROFILES_FILE);
+        return;
+    }
+    if (atomic_file_write_str(BT_PROFILES_FILE, out) != 0) log_msg("Could not save " BT_PROFILES_FILE);
 }
 
 bool is_any_host_connected(void) {
@@ -129,6 +184,7 @@ host_conn_t * register_host_target(const bd_addr_t addr, const char *name) {
             /* no link yet: 0 is a valid connection handle, and a failed connection to this host
              * used to call gap_disconnect(0), which can close another device's link */
             g_hosts[i].acl_handle = HCI_CON_HANDLE_INVALID;
+            g_hosts[i].profile = host_profile_load(addr);
             if (name && name[0]) {
                 strncpy(g_hosts[i].name, name, sizeof(g_hosts[i].name) - 1);
                 g_hosts[i].name[sizeof(g_hosts[i].name) - 1] = '\0';
@@ -218,6 +274,15 @@ void update_status(const char *state_str) {
              ah ? bd_addr_to_str(ah->addr) : (g_host_connected ? bd_addr_to_str(g_host_addr) : ""));
     v.host_name = (ah && ah->name[0]) ? ah->name : g_host_name;
     v.host_pairing = g_host_pairing;
+    v.pin_state = pin_state_name(pin_state());
+    v.pin_name = "";
+    if (pin_state() != PIN_STATE_NONE) {
+        const uint8_t *pa = pin_state_addr();
+        snprintf(v.pin_addr, sizeof(v.pin_addr), "%s", bd_addr_to_str(pa));
+        for (int i = 0; i < MAX_HOST_CONNS; i++) {
+            if (memcmp(g_hosts[i].addr, pa, 6) == 0 && !is_placeholder_host_name(g_hosts[i].name)) v.pin_name = g_hosts[i].name;
+        }
+    }
     for (int i = 0; i < MAX_HOST_CONNS && v.nhosts < BT_STATUS_MAX_HOSTS; i++) {
         if (is_null_bd_addr(g_hosts[i].addr)) continue;
         bt_status_host_t *h = &v.hosts[v.nhosts++];
@@ -232,6 +297,7 @@ void update_status(const char *state_str) {
         h->connected = g_hosts[i].connected;
         h->paired = gap_get_link_key_for_bd_addr(ha, lk, &lkt);
         h->cid = g_hosts[i].hid_cid;
+        h->profile = bt_profile_name(g_hosts[i].profile);
     }
     /* Written whole, then renamed over the old one: a reader (GET /api/bt-status) that came
      * between the truncation and the write saw an empty file and answered "no hosts" */
@@ -735,6 +801,7 @@ void forget_classic_host(const bd_addr_t addr_in) {
         if (g_active_host_idx == i) g_active_host_idx = BT_HOST_IDX_NONE;
     }
     gap_drop_link_key_for_bd_addr(addr);
+    host_profile_save(addr, BT_PROFILE_KEYBOARD);
     for (int k = 0; k < n; k++) {
         /* close the HID channels, then the link itself: an open link stays authenticated without
          * the key and the host could open the channels again on it */

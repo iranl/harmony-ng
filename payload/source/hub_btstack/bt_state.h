@@ -63,6 +63,8 @@ extern "C" {
 #define SCAN_RESULT_FILE    "/tmp/hub_btstack_scan.json"
 #define BTHID_FIFO          "/tmp/bthid_input"
 #define BTHID_STATUS_FILE   "/tmp/bthid_status"
+/* "AA:BB:CC:DD:EE:FF ps3" per host paired with a profile other than the keyboard */
+#define BT_PROFILES_FILE    "/data/harmony/bt_host_profiles"
 #define LOG_MAX_BYTES       65536
 
 #define TLV_TAG_HOGD ((((uint32_t)'H') << 24) | (((uint32_t)'O') << 16) | (((uint32_t)'G') << 8) | 'D')
@@ -93,6 +95,8 @@ typedef struct {
      * for it, connect_host, an activity start, or the host connecting by itself */
     bool manual_disconnect;
     char name[64];
+    /* BT_PROFILE_* (bt_ps3.h): what the host paired the Hub as, so what its reports look like */
+    uint8_t profile;
 } host_conn_t;
 
 #define MAX_HOST_RECONNECT_ATTEMPTS 25
@@ -119,6 +123,8 @@ extern uint16_t g_host_hid_cid;
 extern bd_addr_t g_host_addr;
 extern bool g_host_connected;
 extern bool g_host_pairing;
+/* BT_PROFILE_* the current pairing session offers (pair_host_on profile=...) */
+extern uint8_t g_pairing_profile;
 extern bool g_pairing_new_key_valid;
 extern bd_addr_t g_pairing_new_key_addr;
 extern char g_host_name[64];

@@ -75,6 +75,7 @@ uint16_t g_host_hid_cid = 0;
 bd_addr_t g_host_addr;
 bool g_host_connected = false;
 bool g_host_pairing = false;
+uint8_t g_pairing_profile = 0;
 bool g_pairing_new_key_valid = false;
 char g_host_name[64];
 int g_bthid_fifo_fd = -1;
@@ -216,6 +217,12 @@ void bt_hid_trace_command(const char *cmd) {
     s_trace_ncmds++;
 }
 
+/* the PS3 profile and the PIN replies (bt_main.c) */
+bool send_host_ps3_code(unsigned int code) { record("ps3 %02x%s", code, g_host_send_hold_mode ? " down" : ""); return true; }
+void bt_set_pairing_profile(uint8_t profile) { record("profile %u", profile); }
+void bt_pin_command(const char *cmd) { record("%s", cmd); }
+void bt_pin_pairing_end(void) {}
+#include "../payload/source/hub_btstack/bt_ps3.c"
 #include "../payload/source/hub_btstack/bt_cmd.c"
 
 static int s_fail;

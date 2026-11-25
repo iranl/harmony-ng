@@ -6,12 +6,23 @@ export function createBluetoothApi(client) {
       return client.request('/api/bt-status');
     },
 
-    async setBtPairing(enable, name = '', targetDev = '') {
+    // profile: 'keyboard' (default) or 'ps3' (the Hub pairs as the PS3's BD Remote Control)
+    async setBtPairing(enable, name = '', targetDev = '', profile = 'keyboard') {
       return client.postJson('/api/bt-pairing', {
         enable: enable ? 1 : 0,
         name: name || 'Harmony Keyboard',
-        targetDev: targetDev || ''
+        targetDev: targetDev || '',
+        profile: profile || 'keyboard'
       });
+    },
+
+    // The code a host shows while it pairs (bt-status pin.state "waiting"), or cancel it
+    async sendBtPairingPin(pin) {
+      return client.postJson('/api/bt-pairing-pin', { pin: String(pin || '') });
+    },
+
+    async cancelBtPairingPin() {
+      return client.postJson('/api/bt-pairing-pin', { cancel: true });
     },
 
     async connectBt(bdaddr) {

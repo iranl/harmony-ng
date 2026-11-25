@@ -5,6 +5,7 @@
 #include "bt_adv.h"
 #include "bt_listen.h"
 #include "bt_wake_key.h"
+#include "bt_ps3.h"
 
 #ifndef TLV_DB_PATH
 #define TLV_DB_PATH "/data/harmony/btstack_keys.tlv"
@@ -95,6 +96,8 @@ void pairing_mode_off(const char *reason) {
     pairing_timeout_cancel();
     g_host_pairing = false;
     gap_discoverable_control(0);
+    bt_pin_pairing_end();
+    bt_set_pairing_profile(BT_PROFILE_KEYBOARD);
     /* A pairing that never happened must not link its device to the next host that connects */
     unlink("/tmp/bt_pending_pair_device");
     char msg[128];
@@ -114,6 +117,14 @@ void pairing_mode_off(const char *reason) {
 static void pairing_timeout_handler(btstack_timer_source_t *ts) {
     UNUSED(ts);
     if (g_host_pairing) pairing_mode_off("timeout");
+}
+
+void pairing_timeout_restart(void) {
+    if (!g_host_pairing) return;
+    btstack_run_loop_remove_timer(&g_pairing_timer);
+    btstack_run_loop_set_timer_handler(&g_pairing_timer, pairing_timeout_handler);
+    btstack_run_loop_set_timer(&g_pairing_timer, PAIRING_TIMEOUT_MS);
+    btstack_run_loop_add_timer(&g_pairing_timer);
 }
 
 /* ---- Generic Classic BT page (fire-and-forget connection request) --------
@@ -302,6 +313,8 @@ void poll_bthid_fifo(void) {
         if (*line) {
             if (strncasecmp(line, "pair_host_on", 12) == 0 ||
                 strncasecmp(line, "pair_host_off", 13) == 0 ||
+                strncasecmp(line, "pin_reply", 9) == 0 ||
+                strncasecmp(line, "pin_cancel", 10) == 0 ||
                 strncasecmp(line, "connect_host", 12) == 0 ||
                 strncasecmp(line, "disconnect_host", 15) == 0 ||
                 strncasecmp(line, "stop_scan", 9) == 0 ||
@@ -382,6 +395,15 @@ void poll_bthid_fifo(void) {
                 send_host_release_all();
             } else if (strncmp(line, "KEY ", 4) == 0) {
                 send_host_named_key_ex(line + 4, 0);
+            } else if (strncmp(line, "PS3_DOWN ", 9) == 0 || strncmp(line, "PS3 ", 4) == 0) {
+                /* A BD Remote key code (hex) for a PS3 host; PS3_DOWN holds it until RELEASE */
+                bool hold = line[3] == '_';
+                unsigned int code = 0;
+                if (sscanf(line + (hold ? 9 : 4), "%x", &code) == 1) {
+                    g_host_send_hold_mode = hold;
+                    if (!send_host_ps3_code(code)) log_msg("PS3 key code unknown, dropped");
+                    g_host_send_hold_mode = 0;
+                }
             } else if (strcasecmp(line, "RELEASE") == 0 || strcasecmp(line, "RELEASE_ALL") == 0) {
                 send_host_release_all();
             } else if (strncmp(line, "CONSUMER_DOWN ", 14) == 0) {
@@ -600,13 +622,25 @@ void execute_btstack_cmd(const char *cmd_in) {
         }
         char *name = cmd + 12;
         while (*name == ' ') name++;
+        /* "pair_host_on profile=ps3 <name>": what the Hub pairs as (default the keyboard) */
+        uint8_t profile = BT_PROFILE_KEYBOARD;
+        if (strncasecmp(name, "profile=", 8) == 0) {
+            char pname[16] = "";
+            size_t n = strcspn(name + 8, " ");
+            if (n < sizeof(pname)) memcpy(pname, name + 8, n);
+            int p = bt_profile_from_name(pname);
+            if (p >= 0) profile = (uint8_t)p;
+            name += 8 + n;
+            while (*name == ' ') name++;
+        }
         if (name[0]) {
             strncpy(g_host_name, name, sizeof(g_host_name) - 1);
             gap_set_local_name(g_host_name);
         }
         g_host_pairing = true;
         g_pairing_new_key_valid = false;
-        gap_set_class_of_device(0x0025C0); // Combo: Keyboard + Pointing Device
+        /* name, class of device (keyboard + pointing device, or the BD Remote) and SDP records */
+        bt_set_pairing_profile(profile);
         gap_connectable_control(1);
         gap_discoverable_control(1);
         /* Pairing mode used to stay on until switched off, discoverable and accepting any
@@ -616,12 +650,15 @@ void execute_btstack_cmd(const char *cmd_in) {
         btstack_run_loop_set_timer(&g_pairing_timer, PAIRING_TIMEOUT_MS);
         btstack_run_loop_add_timer(&g_pairing_timer);
         char msg[128];
-        snprintf(msg, sizeof(msg), "Classic HID Host pairing enabled as '%s' (%d s)", g_host_name, PAIRING_TIMEOUT_MS / 1000);
+        snprintf(msg, sizeof(msg), "Classic HID Host pairing enabled as '%s' (%s, %d s)",
+                 profile == BT_PROFILE_PS3 ? PS3_REMOTE_NAME : g_host_name, bt_profile_name(profile), PAIRING_TIMEOUT_MS / 1000);
         log_msg(msg);
         update_status(app_state == APP_READY ? "ready" : "standby");
         update_bthid_status();
     } else if (strncasecmp(cmd, "pair_host_off", 13) == 0) {
         pairing_mode_off("requested");
+    } else if (strncasecmp(cmd, "pin_reply", 9) == 0 || strncasecmp(cmd, "pin_cancel", 10) == 0) {
+        bt_pin_command(cmd);
     } else if (strncasecmp(cmd, "connect_host", 12) == 0) {
         char *addr_str = cmd + 12;
         while (*addr_str == ' ') addr_str++;

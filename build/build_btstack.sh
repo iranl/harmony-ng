@@ -133,6 +133,8 @@ payload/source/hub_btstack/bt_main.c
 payload/source/hub_btstack/bt_reconnect_queue.c
 payload/source/hub_btstack/bt_le_pair_window.c
 payload/source/hub_btstack/bt_hid_queue.c
+payload/source/hub_btstack/bt_pin.c
+payload/source/hub_btstack/bt_ps3.c
 "
 
 # Compile and link

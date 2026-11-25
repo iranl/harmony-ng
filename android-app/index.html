@@ -2147,6 +2147,10 @@
           <input id="btPairName" class="form-control" style="flex: 1; min-width: 130px;" value="Harmony Keyboard"
             maxlength="48" placeholder="Hub Name" data-i18n-placeholder="hub_name">
           <select id="btPairTargetDev" class="form-control" style="flex: 1; min-width: 130px;"></select>
+          <select id="btPairProfile" class="form-control" style="flex: 1; min-width: 130px;" title="Pair as" data-i18n-title="bt_profile_label">
+            <option value="keyboard" data-i18n="bt_profile_keyboard">Keyboard (Android TV, Fire TV, Apple TV, PC)</option>
+            <option value="ps3" data-i18n="bt_profile_ps3">PlayStation 3 (BD Remote Control)</option>
+          </select>
           <button id="btPairToggleBtn" type="button" class="btn btn-sm btn-primary" style="flex-shrink: 0;"
             data-i18n="start_pairing_mode">Start Pairing Mode</button>
           <button id="btDisconnBtn" type="button" class="btn btn-sm btn-danger" style="display: none; flex-shrink: 0;"
@@ -2154,6 +2158,15 @@
         </div>
         <div id="btPairHelp" class="help" style="margin-top: 6px;" data-i18n="bt_pair_target_hint">Select target device, click Start Pairing Mode, then
           open Bluetooth settings on your host device and choose Harmony.</div>
+        <div id="btPinBox" style="display: none; margin-top: 10px; padding: 10px; border: 1px solid var(--accent); border-radius: var(--radius-sm);">
+          <div id="btPinMsg" style="font-weight: 700; margin-bottom: 8px;"></div>
+          <div id="btPinRow" style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <input id="btPinInput" class="form-control" style="flex: 1; min-width: 120px; letter-spacing: 2px;" type="text"
+              inputmode="numeric" maxlength="16" autocomplete="off" placeholder="Code" data-i18n-placeholder="bt_pin_placeholder">
+            <button id="btPinSendBtn" type="button" class="btn btn-sm btn-primary" data-i18n="bt_pin_send">Send code</button>
+            <button id="btPinCancelBtn" type="button" class="btn btn-sm btn-secondary" data-i18n="cancel">Cancel</button>
+          </div>
+        </div>
 
         <div style="border-top: 1px solid var(--border); margin-top: 12px; padding-top: 10px;">
           <h4 style="font-size: 13px; margin-bottom: 6px;" data-i18n="paired_hosts">Paired Hosts & Connections</h4>

@@ -1462,7 +1462,10 @@ Returns `hub_btstack`'s status (`/tmp/hub_btstack_status.json`) with four fields
 `ok`, `running` (the `hub_btstack` process is alive), `connected` (any host connected) and
 `pairing` (pairing mode on). `hosts` lists every known host (paired, or only named in
 `devices.json`) with its address (`addr`), name, `connected`, `paired` (whether a link key is
-stored for it) and `cid`; `host` is the host keys go to. `target` and `remote` are the
+stored for it), `cid` and `profile` (what it paired the Hub as: `keyboard`, or `ps3` for the
+BD Remote Control, section 6.2); `host` is the host keys go to. `pin` is legacy PIN pairing
+(section 6.2a): `state` `none`, `required` (the host `addr`/`name` refused PIN 0000: pair it again
+from the host) or `waiting` (its PIN request is held for the code it shows). `target` and `remote` are the
 Bluetooth LE remote, not a host; `state` is that link's state. `hub_btstack` writes the file in
 `update_status()` through `bt_status_json.c`; the tests and fixtures use the same writer
 (`tests/bt_status_sample.c`).
@@ -1477,9 +1480,10 @@ Bluetooth LE remote, not a host; `state` is that link's state. `hub_btstack` wri
     "last_seen": 0,
     "remote": {"connected": true, "addr": "11:22:33:44:55:66"},
     "host": {"connected": true, "addr": "AA:BB:CC:DD:EE:FF", "name": "Media Player", "pairing": false},
+    "pin": {"state": "none", "addr": "", "name": ""},
     "hosts": [
-      {"addr": "AA:BB:CC:DD:EE:01", "name": "Television", "connected": false, "paired": true, "cid": 2},
-      {"addr": "AA:BB:CC:DD:EE:FF", "name": "Media Player", "connected": true, "paired": true, "cid": 6}
+      {"addr": "AA:BB:CC:DD:EE:01", "name": "Television", "connected": false, "paired": true, "cid": 2, "profile": "keyboard"},
+      {"addr": "AA:BB:CC:DD:EE:FF", "name": "Media Player", "connected": true, "paired": true, "cid": 6, "profile": "keyboard"}
     ],
     "ok": true,
     "running": true,
@@ -1497,17 +1501,45 @@ Puts hub HID keyboard emulator into pairing/discoverable mode for target device.
   {
     "enable": true,
     "name": "Harmony Keyboard",
-    "deviceId": "70321456"
+    "deviceId": "70321456",
+    "profile": "keyboard"
   }
   ```
   - `deviceId` (read from `targetDev` first, when the body has it): the device the new host is
     linked to. Required to turn pairing mode on.
   - `name` (default `Harmony Keyboard`): the name the Hub shows to the host.
+  - `profile` (default `keyboard`): what the Hub pairs as. `keyboard` is the keyboard, consumer
+    keys and mouse (Android TV, Fire TV, Apple TV, PC). `ps3` is Sony's BD Remote Control for a
+    PlayStation 3 (Settings > Accessory Settings > Manage Bluetooth Devices > Register New Device),
+    as the stock firmware did: name `BD Remote Control`, class of device 0x00050C, the remote's
+    SDP record and report descriptor, Device ID 054C:0306. `name` is not shown then. The host
+    keeps the profile it paired with (`/data/harmony/bt_host_profiles`, `hosts[].profile`); keys
+    for a `ps3` host become BD Remote reports (see BLUETOOTH_HID_CODES.md).
   - Turning pairing mode on disconnects the connected hosts (their link keys are kept). It ends by
     itself after 180 s, or with `"enable": false`.
-- **Response `200 OK`**: `{"ok": true, "pairing": true}`
+- **Response `200 OK`**: `{"ok": true, "pairing": true, "profile": "keyboard"}`
 - **Error `400`**: `"enable": true` without a target device
-  (`"Target device is required for Bluetooth pairing"`).
+  (`"Target device is required for Bluetooth pairing"`), or a `profile` other than `keyboard`
+  and `ps3`.
+
+### 6.2a Pairing PIN
+#### `POST /api/bt-pairing-pin`
+The code a host shows while it pairs the Hub with legacy PIN pairing (a PlayStation 3 registering
+a keyboard, older PCs and set-top boxes). Hosts with Secure Simple Pairing (Android TV, current
+PCs) never ask for a PIN. Admin only.
+
+`hub_btstack` answers a host's first PIN request with `0000` at once, so hosts that take it pair
+as before. A host that drops the link after `0000` without a link key refused it:
+`GET /api/bt-status` shows `pin.state` `required` for it, and pairing mode starts its 180 s again.
+Start the pairing again on the host: its next PIN request is held (`pin.state` `waiting`) until
+this route sends the code, cancels, or 25 s pass (then the request is rejected and the state is
+`required` again). Hosts that refused `0000` are remembered until `hub_btstack` restarts, so
+pairing them again asks for the code at the first try.
+- **Request Body**: `{"pin": "842631"}` (a string of 1 to 16 digits; the Enter a host asks for is
+  only the keyboard's way to end the entry), or `{"cancel": true}`
+- **Response `200 OK`**: `{"ok": true, "cancelled": false}`
+- **Errors**: `400` for a PIN that is not 1 to 16 digits (a JSON number is refused: it loses
+  leading zeros); `503` while `hub_btstack` is not running.
 
 ### 6.3 Connect Host
 #### `POST /api/bt-connect`

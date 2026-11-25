@@ -63,11 +63,13 @@ void log_msg(const char *msg) { UNUSED(msg); }
 int is_null_bd_addr(const bd_addr_t addr) { UNUSED(addr); return 1; }
 int get_pinned_host_target(bd_addr_t addr) { UNUSED(addr); return 0; }
 uint16_t get_target_host_hid_cid(void) { return 0x41; }
+uint8_t target_host_profile(void) { return 0; } /* every host a keyboard */
 void start_host_reconnect(const bd_addr_t target, int max_attempts) { UNUSED(target); UNUSED(max_attempts); }
 void try_connect_host(void) {}
 void update_bthid_status(void) {}
 void hub_bt_log_debug(const char *msg) { UNUSED(msg); }
 
+#include "../payload/source/hub_btstack/bt_ps3.c"
 #include "../payload/source/hub_btstack/bt_hid.c"
 #include "../payload/source/hub_btstack/bt_hid_queue.c"
 

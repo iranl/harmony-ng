@@ -21,6 +21,7 @@ uint16_t g_host_hid_cid = 0;
 bd_addr_t g_host_addr;
 bool g_host_connected = false;
 bool g_host_pairing = false;
+uint8_t g_pairing_profile = 0; /* BT_PROFILE_KEYBOARD */
 bool g_pairing_new_key_valid = false;
 bd_addr_t g_pairing_new_key_addr;
 char g_host_name[64] = "Harmony Keyboard";
