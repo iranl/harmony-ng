@@ -10,7 +10,7 @@ import { createModal } from '../../components/modal.js';
 import { openIconPicker } from '../../components/icon-picker.js';
 import { showDeviceInUse } from '../../components/hub-decisions.js';
 import { pluginPairingRow } from './plugin-pairing.js';
-import { pluginFieldInput, pluginFieldRow, pluginInputValue } from './plugin-fields.js';
+import { pluginFieldInput, pluginFieldRow, pluginInputValue, irAltBadge } from './plugin-fields.js';
 
 export function createView() {
   const container = h('div', { className: 'setup-subview-devices', style: { display: 'flex', flexDirection: 'column', gap: '16px' } });
@@ -306,7 +306,7 @@ export function createView() {
         className: 'card',
         style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', margin: 0 },
       }, [
-        h('span', { style: { fontWeight: '600', fontSize: '13px' }, text: cName }),
+        h('span', { style: { fontWeight: '600', fontSize: '13px' } }, [cName, irAltBadge(c, dev.config)]),
         h('div', { style: { display: 'flex', gap: '6px' } }, [
           h('button', {
             className: 'btn btn-secondary btn-sm',

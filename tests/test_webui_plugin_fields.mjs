@@ -82,4 +82,16 @@ await t.check('new UI: text and number fields are unchanged', () => {
   assert.equal(fresh.pluginInputValue(port), 8060);
 });
 
+await t.check('new UI: a command with an infrared alternative shows an IR badge, lit while its switch is on', () => {
+  const cmd = { name: 'HDMI 2', keyCode: 'PLUGIN:samsung-tv:HDMI 2', irKeyCode: IR, irWhen: 'hdmi_via_ir' };
+  const on = fresh.irAltBadge(cmd, { hdmi_via_ir: true });
+  assert.equal(on.textContent, 'IR');
+  assert.equal(on.className, 'badge badge-success');
+  assert.equal(fresh.irAltBadge(cmd, { hdmi_via_ir: false }).className, 'badge');
+  assert.equal(fresh.irAltBadge(cmd, null).className, 'badge');
+  assert.ok(String(on.getAttribute('title')).includes('0xE0E07D82'), 'the code is in the title');
+  assert.equal(fresh.irAltBadge({ name: 'Home', keyCode: 'PLUGIN:samsung-tv:Home' }, { hdmi_via_ir: true }), null);
+  assert.equal(fresh.irAltBadge({ name: 'X', irKeyCode: IR }, { hdmi_via_ir: true }), null, 'no irWhen: no badge');
+});
+
 t.finish();

@@ -100,12 +100,14 @@ int hw_device_command_send_value(const char *target, int match_mode, const char 
 /* 1 when value fits the command's "range" (or the command has none) */
 int hw_command_value_in_range(const cJSON *cmd, int value);
 /* 1 when the device's command (exact name, any case) is a plugin command with a range, so a
- * send without a value would be refused */
+ * send without a value would be refused. 0 while the command's infrared alternative is on: the
+ * infrared send takes no value */
 int hw_device_command_needs_value(const char *target, int match_mode, const char *command);
 int hw_device_command_send(const char *device_id, const char *command);
 int hw_device_command_send_by_id(const char *device_id, const char *command);
 int hw_device_command_send_by_name(const char *device_name, const char *command);
 int hw_device_exists(const char *target, int match_mode);
+int hw_device_command_exists(const char *target, int match_mode, const char *command);
 
 /* The Hub's name for plugins (settings hub_name), sent as "hub_name" in every plugin datagram: a
  * plugin that registers the Hub on its device (a Samsung TV's list of allowed devices) shows it.
@@ -114,7 +116,6 @@ int hw_device_exists(const char *target, int match_mode);
 #define HW_HUB_NAME_DEFAULT "Harmony-NG Hub"
 void hw_set_hub_name(const char *name);
 void hw_get_hub_name(char *out, size_t len);
-int hw_device_command_exists(const char *target, int match_mode, const char *command);
 
 /*
  * In-process handler for commands of MQTT-type devices: hub_mqtt publishes the device's pulse

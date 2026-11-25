@@ -710,8 +710,8 @@ a boolean `config` field, letters, digits, `_` or `-`, at most 63): while `confi
 (`true`, a number other than 0, `"true"` or `"1"`) the command is sent as infrared, as a command of
 an IR device (its `port` 1 to 7, else all blasters; `repeats`, 3 when missing), instead of going to
 the plugin (docs/PLUGINS.md). An invalid `irKeyCode` or `irWhen` is left out. In a `commands` list,
-a command without the two keys keeps those the device's command of that name had, `null` or `""`
-removes them, and a command the device did not have gets those of the plugin manifest's
+each of the two keys a command leaves out keeps the value the device's command of that name had
+(so a save that changes only `irKeyCode` keeps `irWhen`), `null` or `""` removes it, and a command the device did not have gets those of the plugin manifest's
 `default_commands` entry of the same name. A command with an `irKeyCode` keeps `port` and
 `repeats`; other plugin commands store neither.
 

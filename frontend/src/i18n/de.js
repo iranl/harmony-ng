@@ -116,6 +116,7 @@ export default {
     "plg_repo_remove_failed": "Repository konnte nicht entfernt werden: {error}",
     "plg_restart_failed": "Neustart fehlgeschlagen: {error}",
     "plg_upload_too_large": "Das Plugin-Archiv ist größer als 1 MB, das Maximum, das der Hub annimmt",
+    "plg_ir_alt_title": "Wird per Infrarot gesendet, solange \"{field}\" aktiv ist: {code}",
     "remote_mqtt_mirroring": "MQTT-Tastenspiegelung",
     "remote_mqtt_help": "Physische Harmony-Fernbedienungstastendrücke an MQTT für Home Assistant-Automatisierungen weiterleiten.",
     "enable_remote_mqtt": "Harmony-Fernbedienungstasten an MQTT spiegeln",

@@ -116,6 +116,7 @@ export default {
     "plg_repo_remove_failed": "Impossible de supprimer le dépôt : {error}",
     "plg_restart_failed": "Échec du redémarrage : {error}",
     "plg_upload_too_large": "L'archive du plugin dépasse 1 Mo, le maximum accepté par le Hub",
+    "plg_ir_alt_title": "Envoyé en infrarouge tant que « {field} » est activé : {code}",
     "remote_mqtt_mirroring": "Miroir MQTT des touches",
     "remote_mqtt_help": "Transmettre les appuis de la télécommande Harmony vers MQTT pour les automatisations Home Assistant.",
     "enable_remote_mqtt": "Transmettre les touches de la télécommande Harmony vers MQTT",

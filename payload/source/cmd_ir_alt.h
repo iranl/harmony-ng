@@ -80,23 +80,27 @@ static inline void cmd_ir_alt_fill_from_manifest(cJSON *cmd, const cJSON *dev_de
     }
 }
 
-/* A device save replaces the device's commands with the request's. A command of the request
- * without irKeyCode / irWhen keys keeps those of the stored command of the same name (a client
- * that sends back only name and keyCode must not drop them); null or "" removes them.
- * stored: the commands before the save */
+/* A device save replaces the device's commands with the request's. Each of irKeyCode and irWhen
+ * that a command of the request leaves out keeps the stored command's value (same name), so a
+ * client that sends back only name and keyCode, or changes only the code, keeps the other one;
+ * null or "" removes it. stored: the commands before the save */
 static inline void cmd_ir_alt_keep_stored(cJSON *cmds, const cJSON *stored) {
+    static const char *const keys[2] = { "irKeyCode", "irWhen" };
     cJSON *c = NULL;
     cJSON_ArrayForEach(c, (cJSON_IsArray(cmds) && cJSON_IsArray(stored) ? cmds : NULL)) {
         const cJSON *cn = cJSON_GetObjectItemCaseSensitive(c, "name");
-        if (!cJSON_IsObject(c) || !cJSON_IsString(cn) || cJSON_GetObjectItemCaseSensitive(c, "irKeyCode") ||
-            cJSON_GetObjectItemCaseSensitive(c, "irWhen")) continue;
+        if (!cJSON_IsObject(c) || !cJSON_IsString(cn)) continue;
         const cJSON *s = NULL;
         cJSON_ArrayForEach(s, stored) {
             const cJSON *sn = cJSON_GetObjectItemCaseSensitive(s, "name");
-            if (cJSON_IsString(sn) && strcmp(sn->valuestring, cn->valuestring) == 0) {
-                cmd_ir_alt_copy(c, s);
-                break;
+            if (!cJSON_IsString(sn) || strcmp(sn->valuestring, cn->valuestring) != 0) continue;
+            for (int i = 0; i < 2; i++) {
+                const cJSON *v = cJSON_GetObjectItemCaseSensitive(s, keys[i]);
+                if (cJSON_GetObjectItemCaseSensitive(c, keys[i]) || !cJSON_IsString(v)) continue;
+                if (i == 0 ? !cmd_ir_keycode_ok(v) : !cmd_ir_when_ok(v)) continue;
+                cJSON_AddStringToObject(c, keys[i], v->valuestring);
             }
+            break;
         }
     }
 }

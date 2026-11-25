@@ -1,6 +1,7 @@
 // Plugin device settings (docs/PLUGINS.md): a config field of "type": "boolean" is a checkbox,
 // saved as true / false (a field a command's irWhen names turns its infrared alternative on)
 import { h } from '../../utils/dom.js';
+import { t } from '../../i18n/index.js';
 
 export function pluginFieldIsBoolean(f) {
   return !!f && String(f.type || '').toLowerCase() === 'boolean';
@@ -51,4 +52,18 @@ export function pluginInputValue(inp) {
   if (inp.type === 'checkbox') return !!inp.checked;
   if (inp.type === 'number') return Number(inp.value);
   return inp.value.trim();
+}
+
+// An "IR" badge for a command with an infrared alternative (irKeyCode, irWhen): lit while the
+// device's config field irWhen is on (the command then goes out as infrared), dimmed while off.
+// null for a command without one. cfg: the device's config
+export function irAltBadge(c, cfg) {
+  if (!c || typeof c.irKeyCode !== 'string' || !c.irKeyCode || typeof c.irWhen !== 'string' || !c.irWhen) return null;
+  const on = !!cfg && typeof cfg === 'object' && configFlagOn(cfg[c.irWhen]);
+  return h('span', {
+    className: on ? 'badge badge-success' : 'badge',
+    style: { marginLeft: '8px', fontSize: '10px', opacity: on ? '1' : '0.6' },
+    title: t('plg_ir_alt_title', 'Sent as infrared while "{field}" is on: {code}', { field: c.irWhen, code: c.irKeyCode }),
+    text: 'IR',
+  });
 }
