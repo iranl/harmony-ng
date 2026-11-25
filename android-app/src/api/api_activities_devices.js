@@ -42,6 +42,8 @@ export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
       const isMqtt = cleanType === 'MQTT';
       // HTTP(S) and TCP devices (payload/source/net_device.h): no IR port or repeats
       const isNet = !isPluginDev && (cleanType === 'HTTP' || cleanType === 'TCP');
+      // Combined devices: a transport per command, HTTP/TCP connections in "http" / "tcp"
+      const isCombined = rawType === 'Combined';
       const hostAddr = dev.bdaddr || dev.btHost || '';
 
       return {
@@ -86,6 +88,12 @@ export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
         httpUser: dev.httpUser || '',
         hasHttpPassword: Boolean(dev.hasHttpPassword),
         hasHttpToken: Boolean(dev.hasHttpToken),
+        ...(isCombined ? {
+          transports: Array.isArray(dev.transports) && dev.transports.length ? dev.transports : ['ir'],
+          http: dev.http || null,
+          tcp: dev.tcp || null,
+          mqttEnabled: false
+        } : {}),
         commands: rawCmds.map((c, idx) => {
           if (typeof c === 'string') return { name: c, keyCode: '', raw: '' };
           const kCode = c.keyCode || '';
@@ -98,11 +106,13 @@ export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
             keyCode: kCode,
             raw: rawStr
           };
-          if (isNet) {
-            for (const k of ['httpMethod', 'httpPath', 'httpBody', 'httpContentType', 'tcpPayload', 'tcpFormat']) {
+          if (isCombined) cmdObj.transport = c.transport || (dev.transports || ['ir'])[0];
+          const cmdNet = isCombined ? (cmdObj.transport === 'http' || cmdObj.transport === 'tcp') : isNet;
+          if (cmdNet) {
+            for (const k of ['httpMethod', 'httpPath', 'httpBody', 'httpContentType', 'httpHeaders', 'tcpPayload', 'tcpFormat']) {
               if (c[k] !== undefined) cmdObj[k] = c[k];
             }
-          } else if (!isBtCmd && !isMqttCmd) {
+          } else if (isCombined ? cmdObj.transport === 'ir' : (!isBtCmd && !isMqttCmd)) {
             cmdObj.repeats = c.repeats !== undefined ? c.repeats : 3;
             // The command's own port only (none: it follows the device's controlPort)
             if (c.port !== undefined) cmdObj.port = c.port;

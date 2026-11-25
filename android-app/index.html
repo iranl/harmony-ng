@@ -945,7 +945,23 @@
                 <option value="MQTT" data-i18n="trans_mqtt">MQTT (Smart Home / Virtual)</option>
                 <option value="HTTP" data-i18n="trans_http">HTTP / HTTPS (Network)</option>
                 <option value="TCP" data-i18n="trans_tcp">TCP (Network)</option>
+                <option value="Combined" data-i18n="trans_combined">Combined (several transports)</option>
               </select>
+            </div>
+          </div>
+          <div id="newDeviceTransportsWrap" class="card" style="display: none; margin-top: 10px; padding: 10px;">
+            <div class="mini muted" style="margin-bottom: 6px;" data-i18n="combined_transports_lbl">Transports used by this device</div>
+            <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+                <label class="mini" style="display: flex; gap: 4px; align-items: center; margin: 0;"><input type="checkbox" class="new-tr-chk" value="ir"> <span data-i18n="trans_ir">Infrared (IR)</span></label>
+                <label class="mini" style="display: flex; gap: 4px; align-items: center; margin: 0;"><input type="checkbox" class="new-tr-chk" value="bt"> <span data-i18n="trans_bt">Bluetooth (BT)</span></label>
+                <label class="mini" style="display: flex; gap: 4px; align-items: center; margin: 0;"><input type="checkbox" class="new-tr-chk" value="http"> <span data-i18n="trans_http">HTTP / HTTPS (Network)</span></label>
+                <label class="mini" style="display: flex; gap: 4px; align-items: center; margin: 0;"><input type="checkbox" class="new-tr-chk" value="tcp"> <span data-i18n="trans_tcp">TCP (Network)</span></label>
+                <label class="mini" style="display: flex; gap: 4px; align-items: center; margin: 0;"><input type="checkbox" class="new-tr-chk" value="mqtt"> <span data-i18n="trans_mqtt">MQTT (Smart Home / Virtual)</span></label>
+                <label class="mini" style="display: flex; gap: 4px; align-items: center; margin: 0;"><input type="checkbox" class="new-tr-chk" value="plugin"> <span data-i18n="combined_plugin_lbl">Plugin</span></label>
+            </div>
+            <div id="newDevicePluginPickWrap" style="display: none; margin-top: 8px;">
+              <label for="newDevicePluginPick" class="mini" data-i18n="combined_plugin_lbl">Plugin</label>
+              <select id="newDevicePluginPick" class="form-control form-control-sm"></select>
             </div>
           </div>
           <div class="row" style="margin-top: 10px;">
@@ -1080,6 +1096,7 @@
                     <option value="MQTT" data-i18n="trans_mqtt">MQTT (Smart Home / Virtual)</option>
                     <option value="HTTP" data-i18n="trans_http">HTTP / HTTPS (Network)</option>
                     <option value="TCP" data-i18n="trans_tcp">TCP (Network)</option>
+                    <option value="Combined" data-i18n="trans_combined">Combined (several transports)</option>
                   </select>
                 </div>
                 <div>
@@ -1091,6 +1108,25 @@
                   <label class="mini muted" for="editDevModel" data-i18n="model">Model</label>
                   <input type="text" id="editDevModel" class="form-control form-control-sm" placeholder="OLED65C2" data-i18n-placeholder="ph_dev_model">
                 </div>
+              </div>
+              <div id="devTransportsBox" style="margin-top: 6px; display: none;">
+                <div class="mini muted" style="margin-bottom: 4px;" data-i18n="combined_transports_lbl">Transports used by this device</div>
+                <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+                <label class="mini" style="display: flex; gap: 4px; align-items: center; margin: 0;"><input type="checkbox" class="edit-tr-chk" value="ir"> <span data-i18n="trans_ir">Infrared (IR)</span></label>
+                <label class="mini" style="display: flex; gap: 4px; align-items: center; margin: 0;"><input type="checkbox" class="edit-tr-chk" value="bt"> <span data-i18n="trans_bt">Bluetooth (BT)</span></label>
+                <label class="mini" style="display: flex; gap: 4px; align-items: center; margin: 0;"><input type="checkbox" class="edit-tr-chk" value="http"> <span data-i18n="trans_http">HTTP / HTTPS (Network)</span></label>
+                <label class="mini" style="display: flex; gap: 4px; align-items: center; margin: 0;"><input type="checkbox" class="edit-tr-chk" value="tcp"> <span data-i18n="trans_tcp">TCP (Network)</span></label>
+                <label class="mini" style="display: flex; gap: 4px; align-items: center; margin: 0;"><input type="checkbox" class="edit-tr-chk" value="mqtt"> <span data-i18n="trans_mqtt">MQTT (Smart Home / Virtual)</span></label>
+                <label class="mini" style="display: flex; gap: 4px; align-items: center; margin: 0;"><input type="checkbox" class="edit-tr-chk" value="plugin"> <span data-i18n="combined_plugin_lbl">Plugin</span></label>
+                </div>
+                <div id="editDevPluginPickWrap" style="display: none; margin-top: 6px;">
+                  <label for="editDevPluginPick" class="mini muted" data-i18n="combined_plugin_lbl">Plugin</label>
+                  <select id="editDevPluginPick" class="form-control form-control-sm"></select>
+                </div>
+                <div id="devTransportsStatus" class="mini" style="margin-top: 4px;"></div>
+              </div>
+              <div id="devConvertCombinedBox" style="margin-top: 6px; display: none;">
+                <button type="button" id="btnDevConvertCombined" class="btn btn-xs btn-outline" data-i18n="combined_convert_btn">Convert to combined device</button>
               </div>
               <div style="margin-top: 6px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
@@ -1358,6 +1394,11 @@
 
         <!-- Right Panel: Add Commands Studio -->
         <div id="irStudioColRight" class="card" style="display: flex; flex-direction: column; gap: 14px;">
+          <!-- Combined device: the transport the panels below add and edit commands for -->
+          <div id="combinedTransportRow" style="display: none; flex-wrap: wrap; gap: 6px; align-items: center;">
+            <span class="mini muted" data-i18n="combined_send_over">Commands sent over:</span>
+            <span id="combinedTransportBtns" style="display: flex; flex-wrap: wrap; gap: 6px;"></span>
+          </div>
           <!-- Tabs for IR Mode -->
           <div id="irAddTabsRow"
             style="display: flex; gap: 6px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">
@@ -1858,6 +1899,10 @@
                 <div style="margin-top: 8px;">
                   <label for="netCmdContentType" data-i18n="net_content_type_lbl">Content type (optional)</label>
                   <input id="netCmdContentType" class="form-control" spellcheck="false" data-i18n-placeholder="ph_net_content_type">
+                </div>
+                <div style="margin-top: 8px;">
+                  <label for="netCmdHeaders" data-i18n="net_cmd_headers_lbl">Headers of this command (optional, one Name: value per line)</label>
+                  <textarea id="netCmdHeaders" class="form-control" rows="2" spellcheck="false" translate="no"></textarea>
                 </div>
               </div>
               <div id="netCmdTcp">

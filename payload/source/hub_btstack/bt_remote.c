@@ -2,6 +2,7 @@
 #include "bt_pairing.h"
 #include "bt_hid.h"
 #include "bt_listen.h"
+#include "../net_device.h"
 
 static cJSON *g_cached_map_json = NULL;
 static btstack_timer_source_t g_remote_watchdog_timer;
@@ -237,6 +238,8 @@ int is_bt_device_id(const char *target) {
                                 cJSON *j_type = cJSON_GetObjectItemCaseSensitive(item, "type");
                                 cJSON *j_cp = cJSON_GetObjectItemCaseSensitive(item, "controlPort");
                                 if (j_type && cJSON_IsString(j_type) && strcasecmp(j_type->valuestring, "BT") == 0) {
+                                    is_bt = 1;
+                                } else if (device_is_combined(item) && (device_transports(item, NULL) & DEV_TR_BT)) {
                                     is_bt = 1;
                                 } else if (j_cp && cJSON_IsNumber(j_cp) && (int)j_cp->valuedouble == 32) {
                                     is_bt = 1;

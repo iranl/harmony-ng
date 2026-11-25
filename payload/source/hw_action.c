@@ -679,7 +679,9 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
         }
     }
 
-    if (!target_cmd && !is_mqtt && !is_plugin) {
+    /* a combined device sends only its saved commands, each over its own transport */
+    int combined = device_is_combined(target_dev);
+    if (!target_cmd && (combined || (!is_mqtt && !is_plugin))) {
         return -6;
     }
 
@@ -749,6 +751,15 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
         strcasecmp(command, "Connect") == 0 || strcasecmp(command, "Disconnect") == 0 ||
         strcasecmp(command, "BT_CONNECT") == 0 || strcasecmp(command, "BT_DISCONNECT") == 0) {
         is_bt = 1;
+    }
+
+    /* Combined device: the command's transport decides, not the guesses above */
+    if (combined) {
+        int tr = device_command_transport(target_dev, target_cmd);
+        is_plugin = tr == DEV_TR_PLUGIN;
+        is_mqtt = tr == DEV_TR_MQTT;
+        is_bt = tr == DEV_TR_BT;
+        net_kind = tr == DEV_TR_HTTP ? NET_KIND_HTTP : tr == DEV_TR_TCP ? NET_KIND_TCP : NET_KIND_NONE;
     }
 
     int inter_device_delay = 500;
@@ -1156,7 +1167,7 @@ static int device_command_exists_in(const cJSON *root, const char *target, int m
     if (j_dmfg && cJSON_IsString(j_dmfg) && strcasestr(j_dmfg->valuestring, "mqtt")) is_mqtt = 1;
     cJSON *j_mtop = cJSON_GetObjectItemCaseSensitive(target_dev, "mqttTopic");
     if (j_mtop && cJSON_IsString(j_mtop) && j_mtop->valuestring && j_mtop->valuestring[0]) is_mqtt = 1;
-    if (is_mqtt && !net_device_kind(target_dev)) return 1;
+    if (is_mqtt && !net_device_kind(target_dev) && !device_is_combined(target_dev)) return 1;
 
     /* Connect and Disconnect are found in the list like any command, as the sender looks them
      * up (the sanitizer adds both to every Bluetooth device). Accepted for any device, a job
@@ -1238,8 +1249,9 @@ static int device_bt_host_in(const cJSON *root, const char *device_id, char *out
         }
         /* Same fallback as the send path: a BT device without an address uses the default host */
         cJSON *j_type = cJSON_GetObjectItemCaseSensitive(dev, "type");
-        int is_bt = j_type && cJSON_IsString(j_type) && j_type->valuestring &&
-                    (strcasecmp(j_type->valuestring, "BT") == 0 || strcasestr(j_type->valuestring, "bluetooth"));
+        int is_bt = (j_type && cJSON_IsString(j_type) && j_type->valuestring &&
+                     (strcasecmp(j_type->valuestring, "BT") == 0 || strcasestr(j_type->valuestring, "bluetooth"))) ||
+                    (device_is_combined(dev) && (device_transports(dev, NULL) & DEV_TR_BT));
         if (!is_bt) return 0;
         FILE *tf = fopen("/data/harmony/bthid_host_target", "r");
         if (!tf) return 0;

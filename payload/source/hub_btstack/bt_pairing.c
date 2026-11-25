@@ -5,6 +5,7 @@
 #include "bt_adv.h"
 #include "bt_status_json.h"
 #include "../atomic_file.h"
+#include "../net_device.h"
 
 /* Hosts connected right now, kept in /tmp: after a hub_btstack restart (deploy, crash) the same
  * hosts are reconnected, not only the activity's. Gone after a reboot. */
@@ -831,7 +832,9 @@ bool get_activity_host_target(const char *act_id, bd_addr_t out) {
                         /* ids are unique: this is the device, BT or not */
                         cJSON *jtype = cJSON_GetObjectItemCaseSensitive(dev, "type");
                         cJSON *jaddr = cJSON_GetObjectItemCaseSensitive(dev, "bdaddr");
-                        if (jtype && cJSON_IsString(jtype) && strcasecmp(jtype->valuestring, "BT") == 0 &&
+                        int dev_bt = (jtype && cJSON_IsString(jtype) && strcasecmp(jtype->valuestring, "BT") == 0) ||
+                                     (device_is_combined(dev) && (device_transports(dev, NULL) & DEV_TR_BT));
+                        if (dev_bt &&
                             jaddr && cJSON_IsString(jaddr) && parse_bd_addr(jaddr->valuestring, out) && !is_null_bd_addr(out)) {
                             found = true;
                         }

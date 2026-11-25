@@ -239,6 +239,13 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     this.currentIrDeviceId = String(dev.id);
     if (sel.value !== String(dev.id)) sel.value = String(dev.id);
 
+    // A combined device shows the panels of one of its transports at a time (studioView); the
+    // commands saved from them go over that transport
+    const fullDev = dev;
+    dev = this.studioView(fullDev);
+    if (this.client) this.client.commandTransport = dev.combined ? { deviceId: String(dev.id), transport: dev.transport } : null;
+    this.renderCombinedControls(fullDev, dev);
+
     // Sync other hidden dropdowns & target selector
     ['wizardDevice', 'verifyDevice', 'irdbDevice', 'harmonyTargetDevSelect'].forEach(id => {
       const el = document.getElementById(id);
@@ -429,7 +436,9 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     if (editType) {
       editType.disabled = true;
       editType.title = t('plg_type_locked');
-      if (isPlugin) {
+      if (dev.combined) {
+        editType.value = 'Combined';
+      } else if (isPlugin) {
         const plugVal = (dev.type && dev.type.startsWith('plugin:')) ? dev.type : (pluginId ? `plugin:${pluginId}` : dev.type);
         let opt = editType.querySelector(`option[value="${plugVal}"]`) || editType.querySelector(`option[value="${dev.type}"]`);
         if (!opt) {
@@ -457,7 +466,9 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     const devEditTimingsBox = document.getElementById('devEditTimingsBox');
     if (devEditTimingsBox) devEditTimingsBox.style.display = isIr ? 'block' : 'none';
     if (typeof this.handleEditDeviceTypeChanged === 'function') {
-      this.handleEditDeviceTypeChanged(editType ? editType.value : (dev.type || 'IR'), dev.config || dev);
+      const editTypeVal = dev.combined ? (dev.combined.plugin ? `plugin:${dev.combined.plugin}` : 'Combined')
+        : (editType ? editType.value : (dev.type || 'IR'));
+      this.handleEditDeviceTypeChanged(editTypeVal, dev.config || dev);
     }
     if (editMfg) editMfg.value = dev.manufacturer || '';
     if (editMdl) editMdl.value = dev.model || '';
@@ -525,6 +536,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
         <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: var(--bg-card); border-radius: var(--radius-sm); margin-bottom: 4px; border: 1px solid var(--border);">
           <div style="display: flex; align-items: center; gap: 6px;">
             <strong style="font-size: 13px; color: var(--text-main);">${escapeHtml(c.name)}</strong>
+            ${dev.combined && c.transport ? `<span class="badge subtle mini" style="font-size: 10px;" translate="no">${escapeHtml(c.transport.toUpperCase())}</span>` : ''}
             ${isLocked ? `<span class="badge subtle mini" style="font-size: 10px;">${t('badge_locked')}</span>` : ''}
           </div>
           <div style="display: flex; gap: 6px; align-items: center;">
@@ -558,7 +570,15 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
         e.stopPropagation();
         const cmdName = btn.getAttribute('data-cmd');
         const c = (dev.commands || []).find(x => x.name === cmdName);
-        if (c) this.openCommandEditModal(dev, c);
+        if (!c) return;
+        if (dev.combined && c.transport && c.transport !== dev.transport) {
+          // the panels of the command's own transport, then its editor
+          this.studioTransports[String(dev.id)] = c.transport;
+          this.updateStudioDeviceView();
+          this.openCommandEditModal(this.studioView(dev.combined), c);
+        } else {
+          this.openCommandEditModal(dev, c);
+        }
       });
     });
 
@@ -647,6 +667,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     if (stat) stat.textContent = '';
 
     modal.dataset.deviceType = isPlugin ? 'PLUGIN' : (isBt ? 'BT' : (isMqtt ? 'MQTT' : 'IR'));
+    modal.dataset.transport = dev.combined ? dev.transport : '';
     modal.style.display = 'flex';
   }
 
@@ -668,6 +689,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     }
 
     if (!name || (!isPlugin && (!effectiveMfg || !effectiveModel))) return alert(t("name_mfr_model_required"));
+    if (type === 'Combined') return this.submitNewCombinedDevice({ name, manufacturer, model, status });
     try {
       if (status) status.textContent = t('saving_new_device');
       const icon = document.getElementById('newDeviceIcon')?.value || 'tv';
@@ -1101,7 +1123,8 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
 
   netSelectedDevice() {
     const devs = this.inventory?.devices || [];
-    return devs.find(d => String(d.id) === String(this.selectedDeviceId)) || null;
+    const dev = devs.find(d => String(d.id) === String(this.selectedDeviceId)) || null;
+    return dev ? this.studioView(dev) : null;
   }
 
   netStatus(id, ok, text) {
@@ -1115,9 +1138,10 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
   renderNetPanel(dev) {
     const isHttp = dev.type === 'HTTP';
     const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
-    if (this._netPanelDevId !== String(dev.id)) {
-      // filled once per device: a refresh does not overwrite what is being typed
-      this._netPanelDevId = String(dev.id);
+    const panelKey = `${dev.id}:${dev.transport || ''}`;
+    if (this._netPanelDevId !== panelKey) {
+      // filled once per device (and transport): a refresh does not overwrite what is being typed
+      this._netPanelDevId = panelKey;
       set('netHost', dev.netHost || '');
       set('netPort', dev.netPort > 0 ? String(dev.netPort) : '');
       set('netTimeoutMs', String(dev.netTimeoutMs || 3000));
@@ -1134,6 +1158,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
       set('netCmdPath', '');
       set('netCmdBody', '');
       set('netCmdContentType', '');
+      set('netCmdHeaders', '');
       set('netCmdPayload', '');
       set('netCmdFormat', 'text');
       this.netStatus('netConnStatus', true, '');
@@ -1222,13 +1247,15 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
         if (val('netAuthToken')) payload.httpToken = document.getElementById('netAuthToken').value;
       }
       this.netStatus('netConnStatus', true, t('net_saving'));
-      const res = await this.client.saveDeviceNet(payload);
+      // a combined device keeps the connection in its "http" / "tcp" object
+      const { id: _id, type: _type, ...conn } = payload;
+      const res = await this.client.saveDeviceNet(dev.combined ? { id: String(dev.id), [dev.transport]: conn } : payload);
       if (res && res.ok === false) throw new Error(res.error || t('failed_save_device_hub'));
       this._netPanelDevId = null; // refill from the saved device
       await this.refreshData();
       if (andTest) {
         this.netStatus('netConnStatus', true, t('net_testing'));
-        const r = await this.client.testDeviceNet(dev.id);
+        const r = await this.client.testDeviceNet(dev.id, '', dev.combined ? dev.transport : '');
         this.netStatus('netConnStatus', !!r?.ok, this.netTestText(r));
       } else {
         this.netStatus('netConnStatus', true, '✓ ' + t('net_conn_saved'));
@@ -1242,7 +1269,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     const dev = this.netSelectedDevice();
     if (!dev) return;
     try {
-      const r = await this.client.forgetDeviceNetPin(dev.id);
+      const r = await this.client.forgetDeviceNetPin(dev.id, dev.combined ? dev.transport : '');
       this.netStatus('netConnStatus', true, r?.removed ? t('net_pin_forgotten') : t('net_no_pin'));
     } catch (err) {
       this.netStatus('netConnStatus', false, tf('error_msg', { error: err.message }));
@@ -1256,6 +1283,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     set('netCmdPath', c.httpPath || '');
     set('netCmdBody', c.httpBody || '');
     set('netCmdContentType', c.httpContentType || '');
+    set('netCmdHeaders', (c.httpHeaders || []).map(h => `${h.name}: ${h.value || ''}`).join('\n'));
     set('netCmdPayload', c.tcpPayload || '');
     set('netCmdFormat', c.tcpFormat || 'text');
     this.netStatus('netCmdStatus', true, '');
@@ -1282,7 +1310,14 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
       data.tcpFormat = val('netCmdFormat') || 'text';
     }
     try {
-      const res = await this.client.saveLearnedCommand(data);
+      let res;
+      if (dev.type === 'HTTP') {
+        // JSON: a form cannot carry the header list (an empty list removes the command's headers)
+        data.httpHeaders = this.parseNetHeaders(val('netCmdHeaders'));
+        res = await this.client.postJson('/api/command-save', this.client.withCommandTransport(data));
+      } else {
+        res = await this.client.saveLearnedCommand(data);
+      }
       if (res && res.ok === false) throw new Error(res.error || t('failed_save_device_hub'));
       await this.refreshData();
       if (andTest) {
@@ -1294,6 +1329,225 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
       }
     } catch (err) {
       this.netStatus('netCmdStatus', false, tf('error_msg', { error: err.message }));
+    }
+  }
+
+  /* ---- Combined devices (payload/source/net_device.h): a transport per command ---- */
+
+  isCombinedDevice(dev) {
+    return !!dev && dev.type === 'Combined';
+  }
+
+  /* The combined device seen as a device of one of its transports (the one picked in the
+     studio, else its first): the panels written for one transport (blaster, Bluetooth host, net
+     connection, add-command panels) work on it unchanged. Its command list stays complete;
+     combined and transport name the device and the transport. */
+  studioView(dev, transport) {
+    if (!this.isCombinedDevice(dev)) return dev;
+    this.studioTransports = this.studioTransports || {};
+    const list = dev.transports && dev.transports.length ? dev.transports : ['ir'];
+    const picked = this.studioTransports[String(dev.id)];
+    const tr = list.includes(transport) ? transport : (list.includes(picked) ? picked : list[0]);
+    const types = { ir: 'IR', bt: 'BT', http: 'HTTP', tcp: 'TCP', mqtt: 'MQTT', plugin: dev.plugin ? `plugin:${dev.plugin}` : 'IR' };
+    const conn = (tr === 'http' || tr === 'tcp') && dev[tr] ? dev[tr] : {};
+    return {
+      ...dev, ...conn,
+      type: types[tr],
+      plugin: tr === 'plugin' ? dev.plugin : '',
+      isBt: tr === 'bt',
+      mqttEnabled: tr === 'mqtt',
+      combined: dev,
+      transport: tr
+    };
+  }
+
+  transportLabel(tr, dev) {
+    if (tr === 'plugin') {
+      const p = (this.installedPlugins || []).find(x => x.id === dev?.plugin);
+      return p?.device_definition?.display_name || p?.name || dev?.plugin || t('combined_plugin_lbl');
+    }
+    return t({ ir: 'trans_ir', bt: 'trans_bt', http: 'trans_http', tcp: 'trans_tcp', mqtt: 'trans_mqtt' }[tr] || 'trans_ir');
+  }
+
+  /* The transport buttons above the add panels, and the transport list / convert button in the
+     device's edit box */
+  renderCombinedControls(fullDev, view) {
+    const combined = this.isCombinedDevice(fullDev);
+    const row = document.getElementById('combinedTransportRow');
+    if (row) row.style.display = combined ? 'flex' : 'none';
+    const btns = document.getElementById('combinedTransportBtns');
+    if (btns && combined) {
+      btns.innerHTML = (fullDev.transports || []).map(tr =>
+        `<button type="button" class="btn btn-xs ${tr === view.transport ? 'btn-primary' : 'btn-ghost'} btn-combined-tr" data-tr="${escapeHtml(tr)}">${escapeHtml(this.transportLabel(tr, fullDev))}</button>`
+      ).join('');
+      btns.querySelectorAll('.btn-combined-tr').forEach(b => b.addEventListener('click', () => {
+        this.studioTransports[String(fullDev.id)] = b.getAttribute('data-tr');
+        this.updateStudioDeviceView();
+      }));
+    }
+    const box = document.getElementById('devTransportsBox');
+    if (box) box.style.display = combined ? 'block' : 'none';
+    const conv = document.getElementById('devConvertCombinedBox');
+    if (conv) conv.style.display = combined ? 'none' : 'block';
+    if (combined) {
+      document.querySelectorAll('.edit-tr-chk').forEach(chk => { chk.checked = (fullDev.transports || []).includes(chk.value); });
+      this.fillPluginPick('editDevPluginPick', fullDev.plugin, false);
+      const pw = document.getElementById('editDevPluginPickWrap');
+      if (pw) pw.style.display = (fullDev.transports || []).includes('plugin') ? 'block' : 'none';
+    }
+    this.bindCombinedControls();
+  }
+
+  bindCombinedControls() {
+    if (this._combinedBound) return;
+    this._combinedBound = true;
+    const curDev = () => (this.inventory?.devices || []).find(d => String(d.id) === String(this.selectedIrDeviceId));
+    document.querySelectorAll('.edit-tr-chk').forEach(chk => chk.addEventListener('change', () => this.saveDeviceTransports(curDev())));
+    document.getElementById('editDevPluginPick')?.addEventListener('change', () => this.saveDeviceTransports(curDev()));
+    document.querySelectorAll('.new-tr-chk').forEach(chk => chk.addEventListener('change', () => this.updateNewDeviceTransports()));
+    document.getElementById('newDevicePluginPick')?.addEventListener('change', () => this.updateNewDeviceTransports());
+    document.getElementById('btnDevConvertCombined')?.addEventListener('click', async () => {
+      const dev = curDev();
+      if (!dev || !await showConfirm(t('combined_convert_confirm'), { title: t('combined_convert_btn') })) return;
+      try {
+        const res = await this.client.saveDeviceNet({ id: String(dev.id), type: 'Combined' });
+        if (res && res.ok === false) throw new Error(res.error || t('failed_save_device_hub'));
+        await this.refreshData();
+        this.renderIrView(String(dev.id));
+      } catch (err) {
+        showToast(tf('error_msg', { error: err.message }), 'error');
+      }
+    });
+  }
+
+  /* The transports ticked in the device's edit box, in the device's order (its first stays
+     the default of a command that names none) */
+  async saveDeviceTransports(dev) {
+    if (!this.isCombinedDevice(dev)) return;
+    const ticked = [...document.querySelectorAll('.edit-tr-chk')].filter(c => c.checked).map(c => c.value);
+    const stat = document.getElementById('devTransportsStatus');
+    if (ticked.length === 0) {
+      if (stat) stat.innerHTML = `<span style="color:var(--danger)">${escapeHtml(t('combined_pick_transport'))}</span>`;
+      return;
+    }
+    const order = [...(dev.transports || []).filter(x => ticked.includes(x)), ...ticked.filter(x => !(dev.transports || []).includes(x))];
+    const payload = { id: String(dev.id), transports: order };
+    if (order.includes('plugin')) {
+      const pid = document.getElementById('editDevPluginPick')?.value || '';
+      if (!pid) {
+        const pw = document.getElementById('editDevPluginPickWrap');
+        if (pw) pw.style.display = 'block';
+        if (stat) stat.innerHTML = `<span style="color:var(--danger)">${escapeHtml(t('combined_choose_plugin'))}</span>`;
+        return;
+      }
+      if (!await this.ensurePluginInstalled(pid)) return;
+      payload.plugin = pid;
+    }
+    try {
+      const res = await this.client.saveDeviceNet(payload);
+      if (res && res.ok === false) throw new Error(res.error || t('failed_save_device_hub'));
+      if (stat) stat.innerHTML = `<span style="color:var(--success)">✓ ${escapeHtml(t('combined_transports_saved'))}</span>`;
+      await this.refreshData();
+      this.renderIrView(String(dev.id));
+    } catch (err) {
+      if (stat) stat.innerHTML = `<span style="color:var(--danger)">${escapeHtml(tf('error_msg', { error: err.message }))}</span>`;
+    }
+  }
+
+  /* Plugins to pick for the plugin transport: the installed ones with a device definition and,
+     with withCatalog, those of the plugin repositories (installed when the device is saved) */
+  async fillPluginPick(selectId, current, withCatalog) {
+    const sel = document.getElementById(selectId);
+    if (!sel) return;
+    const installed = (this.installedPlugins || []).filter(p => p.device_definition);
+    let catalog = [];
+    if (withCatalog && this.client?.getPluginMarketplace) {
+      try {
+        const res = await this.client.getPluginMarketplace();
+        const list = Array.isArray(res) ? res : (res?.marketplace || res?.plugins || []);
+        catalog = list.filter(p => p && p.id && p.device_definition && !installed.some(i => i.id === p.id));
+      } catch (_) { /* offline: the installed ones only */ }
+    }
+    const keep = current || sel.value;
+    sel.innerHTML = `<option value="">${escapeHtml(t('combined_choose_plugin'))}</option>` +
+      installed.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.device_definition.display_name || p.name || p.id)}</option>`).join('') +
+      catalog.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(tf('combined_plugin_install_opt', { name: p.device_definition.display_name || p.name || p.id }))}</option>`).join('');
+    if (keep && [...sel.options].some(o => o.value === keep)) sel.value = keep;
+  }
+
+  /* The add-device drawer with type Combined: the transport boxes, and the plugin's settings
+     when the plugin transport is ticked */
+  updateNewDeviceTransports() {
+    const combined = document.getElementById('newDeviceType')?.value === 'Combined';
+    const wrap = document.getElementById('newDeviceTransportsWrap');
+    if (wrap) wrap.style.display = combined ? 'block' : 'none';
+    if (!combined) return;
+    const plugTicked = !!document.querySelector('.new-tr-chk[value="plugin"]:checked');
+    const pw = document.getElementById('newDevicePluginPickWrap');
+    if (pw) pw.style.display = plugTicked ? 'block' : 'none';
+    if (plugTicked && !this._newPluginPickFilled) {
+      this._newPluginPickFilled = true;
+      this.fillPluginPick('newDevicePluginPick', '', true);
+    }
+    const pid = plugTicked ? (document.getElementById('newDevicePluginPick')?.value || '') : '';
+    const plugInstalled = pid && (this.installedPlugins || []).some(p => p.id === pid);
+    this._newDeviceConfigFor = plugInstalled ? pid : '';
+    // the plugin's config fields (plug_cfg_*), as for a plugin device
+    this.handleDeviceTypeChanged(plugInstalled ? `plugin:${pid}` : 'Combined', true);
+  }
+
+  async submitNewCombinedDevice({ name, manufacturer, model, status }) {
+    const transports = [...document.querySelectorAll('.new-tr-chk')].filter(c => c.checked).map(c => c.value);
+    if (transports.length === 0) return alert(t('combined_pick_transport'));
+    const pluginId = transports.includes('plugin') ? (document.getElementById('newDevicePluginPick')?.value || '') : '';
+    if (transports.includes('plugin') && !pluginId) return alert(t('combined_choose_plugin'));
+    if (!manufacturer || !model) return alert(t('name_mfr_model_required'));
+    try {
+      if (status) status.textContent = t('saving_new_device');
+      let plug = null;
+      if (pluginId) {
+        plug = await this.ensurePluginInstalled(pluginId);
+        if (!plug) {
+          if (status) status.textContent = '';
+          return;
+        }
+      }
+      const payload = {
+        name, manufacturer, model, type: 'Combined', transports,
+        icon: document.getElementById('newDeviceIcon')?.value || 'tv'
+      };
+      const commands = [];
+      if (plug) {
+        payload.plugin = pluginId;
+        const cfg = {};
+        for (const f of plug.device_definition?.config_fields || []) {
+          // the inputs show only once the plugin is installed: else the manifest's defaults
+          const inp = this._newDeviceConfigFor === pluginId ? document.getElementById(`plug_cfg_${f.key}`) : null;
+          const v = inp ? inp.value : '';
+          cfg[f.key] = f.type === 'number' ? Number(v || f.default || 0) : (v !== '' ? v : (f.default !== undefined ? f.default : ''));
+        }
+        payload.config = cfg;
+        for (const c of plug.device_definition?.default_commands || []) {
+          const kc = c.keyCode || `PLUGIN:${pluginId}:${c.name}`;
+          commands.push({ name: c.name, keyCode: kc, raw: kc, transport: 'plugin', ...(Array.isArray(c.range) ? { range: c.range } : {}) });
+        }
+      }
+      if (transports.includes('mqtt')) {
+        payload.mqttTopic = `{base_topic}/button/${name.toLowerCase().replace(/\s+/g, '_')}/{command}`;
+        payload.mqttPulseMs = 1000;
+      }
+      if (commands.length) payload.commands = commands;
+      const res = await this.client.saveNewDevice(payload);
+      if (res && res.ok === false) throw new Error(res.error || res.message || t('failed_save_device_hub'));
+      const newDevId = res?.deviceId || res?.id;
+      if (status) status.innerHTML = `<span style="color:var(--success)">✓ ${t('device_created_ok')}</span>`;
+      await this.refreshData();
+      if (newDevId) this.selectedIrDeviceId = String(newDevId);
+      this.renderIrView(newDevId);
+      const box = document.getElementById('studioNewDeviceBox');
+      if (box) setTimeout(() => { box.style.display = 'none'; if (status) status.textContent = ''; }, 1500);
+    } catch (err) {
+      if (status) status.innerHTML = `<span style="color:var(--danger)">${escapeHtml(tf('error_msg', { error: err.message }))}</span>`;
     }
   }
 

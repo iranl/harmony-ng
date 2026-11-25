@@ -221,6 +221,56 @@ static void apply_net_fields(const cJSON *p, cJSON *dev) {
     if (net_device_kind(dev)) cJSON_DeleteItemFromObjectCaseSensitive(dev, "controlPort");
 }
 
+/* "transports" of the body: an array of known names (net_device.h), at least one */
+static int device_transports_field_valid(const cJSON *p) {
+    const cJSON *j = cJSON_GetObjectItemCaseSensitive(p, "transports");
+    if (!j) return 1;
+    if (!cJSON_IsArray(j) || cJSON_GetArraySize(j) == 0) return 0;
+    const cJSON *t = NULL;
+    cJSON_ArrayForEach(t, j) {
+        if (!cJSON_IsString(t) || !device_transport_bit(t->valuestring)) return 0;
+    }
+    return 1;
+}
+
+/* The one transport of a device that is not combined, as the sender picks it (hw_action.c) */
+static int device_single_transport(const cJSON *dev) {
+    if (plugin_mgr_device_plugin_id(dev, NULL, 0)) return DEV_TR_PLUGIN;
+    int kind = net_device_kind(dev);
+    if (kind) return kind == NET_KIND_HTTP ? DEV_TR_HTTP : DEV_TR_TCP;
+    const cJSON *jt = cJSON_GetObjectItemCaseSensitive(dev, "type");
+    const char *t = cJSON_IsString(jt) ? jt->valuestring : "";
+    const cJSON *jm = cJSON_GetObjectItemCaseSensitive(dev, "mqttEnabled");
+    if (strcasecmp(t, "MQTT") == 0 || cJSON_IsTrue(jm) || (cJSON_IsNumber(jm) && jm->valueint > 0)) return DEV_TR_MQTT;
+    if (strcasecmp(t, "BT") == 0 || strcasestr(t, "bluetooth") || strcasecmp(t, "BTHID") == 0) return DEV_TR_BT;
+    return DEV_TR_IR;
+}
+
+/* A device that becomes combined keeps what it had: its transport is listed, its HTTP or TCP
+ * connection moves into "http" / "tcp", and each command is marked with that transport */
+static void device_convert_to_combined(cJSON *dev, int old_tr) {
+    if (old_tr == DEV_TR_HTTP || old_tr == DEV_TR_TCP) {
+        static const char *const keys[] = { "netHost", "netPort", "netTls", "netTlsVerify", "netTimeoutMs",
+                                             "httpHeaders", "httpAuthType", "httpUser", "httpPassword", "httpToken" };
+        const char *bk = old_tr == DEV_TR_HTTP ? "http" : "tcp";
+        cJSON_DeleteItemFromObjectCaseSensitive(dev, bk);
+        cJSON *blk = cJSON_AddObjectToObject(dev, bk);
+        for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
+            cJSON *j = cJSON_DetachItemFromObjectCaseSensitive(dev, keys[i]);
+            if (j) cJSON_AddItemToObject(blk, keys[i], j);
+        }
+    }
+    if (!cJSON_GetObjectItemCaseSensitive(dev, "transports")) {
+        cJSON *arr = cJSON_AddArrayToObject(dev, "transports");
+        cJSON_AddItemToArray(arr, cJSON_CreateString(device_transport_name(old_tr)));
+    }
+    cJSON *c = NULL;
+    cJSON_ArrayForEach(c, cJSON_GetObjectItemCaseSensitive(dev, "commands")) {
+        if (!cJSON_GetObjectItemCaseSensitive(c, "transport"))
+            cJSON_AddStringToObject(c, "transport", device_transport_name(old_tr));
+    }
+}
+
 static int device_int_fields_valid(const cJSON *p) {
     static const char *const keys[] = {
         "interDeviceDelay", "interKeyDelay", "holdInterKeyDelay", "powerOnDelay",
@@ -1078,6 +1128,10 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
         else if (cJSON_IsNumber(jid)) snprintf(dev_id, sizeof(dev_id), "%ld", (long)jid->valuedouble);
         cJSON *jcmd = req_j ? cJSON_GetObjectItemCaseSensitive(req_j, "command") : NULL;
         if (cJSON_IsString(jcmd)) snprintf(cmd_name, sizeof(cmd_name), "%s", jcmd->valuestring);
+        /* a combined device: which of its connections ("http" | "tcp"); a command names its own */
+        cJSON *jtr = req_j ? cJSON_GetObjectItemCaseSensitive(req_j, "transport") : NULL;
+        int tr_bit = cJSON_IsString(jtr) ? device_transport_bit(jtr->valuestring) : 0;
+        int want = tr_bit == DEV_TR_HTTP ? NET_KIND_HTTP : tr_bit == DEV_TR_TCP ? NET_KIND_TCP : 0;
         cJSON_Delete(req_j);
 
         /* copies of the device and command: the list is not held while the request runs */
@@ -1104,12 +1158,13 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
 
         if (!dev) {
             send_json_error(client_fd, 404, "No device with that id");
-        } else if (!net_device_kind(dev)) {
+        } else if (!net_device_kind(dev) && !(device_is_combined(dev) &&
+                   (want || cmd) && net_device_conn(dev, cmd, want, &(int){0}))) {
             send_json_error(client_fd, 400, "Not an HTTP or TCP device");
         } else if (cmd_name[0] && !cmd && !forget) {
             send_json_error(client_fd, 404, "The device has no command of that name");
         } else if (forget) {
-            int rc = net_action_forget_pin(dev);
+            int rc = net_action_forget_pin(dev, want);
             cJSON *resp_j = cJSON_CreateObject();
             cJSON_AddBoolToObject(resp_j, "ok", rc >= 0);
             cJSON_AddBoolToObject(resp_j, "removed", rc == 0);
@@ -1117,7 +1172,7 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
             cJSON_Delete(resp_j);
         } else {
             const cJSON *dn = cJSON_GetObjectItemCaseSensitive(dev, "name");
-            cJSON *resp_j = net_action_test(dev, cmd, dev_id, cJSON_IsString(dn) ? dn->valuestring : dev_id);
+            cJSON *resp_j = net_action_test(dev, cmd, want, dev_id, cJSON_IsString(dn) ? dn->valuestring : dev_id);
             send_cjson_resp(client_fd, 200, resp_j);
             cJSON_Delete(resp_j);
         }
@@ -1192,7 +1247,9 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
             cJSON_Delete(p);
             p = NULL;
         }
-        if (p && !device_net_fields_valid(p)) {
+        if (p && (!device_net_fields_valid(p) || !device_transports_field_valid(p) ||
+                  !device_net_fields_valid(cJSON_GetObjectItemCaseSensitive(p, "http")) ||
+                  !device_net_fields_valid(cJSON_GetObjectItemCaseSensitive(p, "tcp")))) {
             /* an HTTP/TCP host, port, header or credential that cannot be used (400) */
             cJSON_Delete(p);
             p = NULL;
@@ -1302,6 +1359,8 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                     cJSON_AddItemToObject(found_dev, "commands", cJSON_CreateArray());
                     cJSON_AddItemToArray(devs, found_dev);
                 }
+                int was_combined = device_is_combined(found_dev);
+                int old_tr = was_combined ? 0 : device_single_transport(found_dev);
                 if (j_cp != NULL) {
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "controlPort");
                     cJSON_AddNumberToObject(found_dev, "controlPort", cp_val);
@@ -1460,7 +1519,28 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                     cJSON_AddItemToObject(found_dev, "powerOffSequence", pf_copy);
                 }
 
-                apply_net_fields(p, found_dev);
+                int now_combined = device_is_combined(found_dev);
+                if (now_combined) {
+                    if (!was_combined) device_convert_to_combined(found_dev, old_tr);
+                    cJSON *j_tr = cJSON_GetObjectItemCaseSensitive(p, "transports");
+                    if (j_tr) {
+                        cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "transports");
+                        cJSON_AddItemToObject(found_dev, "transports", cJSON_Duplicate(j_tr, 1));
+                    }
+                    static const char *const blocks[] = { "http", "tcp" };
+                    for (int bi = 0; bi < 2; bi++) {
+                        const cJSON *pb = cJSON_GetObjectItemCaseSensitive(p, blocks[bi]);
+                        if (!cJSON_IsObject(pb)) continue;
+                        cJSON *db = cJSON_GetObjectItemCaseSensitive(found_dev, blocks[bi]);
+                        if (!cJSON_IsObject(db)) {
+                            cJSON_DeleteItemFromObjectCaseSensitive(found_dev, blocks[bi]);
+                            db = cJSON_AddObjectToObject(found_dev, blocks[bi]);
+                        }
+                        apply_net_fields(pb, db);
+                    }
+                } else {
+                    apply_net_fields(p, found_dev);
+                }
 
                 /* Plugin identification and settings persistence */
                 cJSON *j_config = cJSON_GetObjectItemCaseSensitive(p, "config");
@@ -1549,9 +1629,9 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                     }
                 }
 
-                /* Plugin devices do not use IR controlPort */
+                /* Plugin devices do not use IR controlPort (a combined one may) */
                 if (is_dev_plugin) {
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "controlPort");
+                    if (!now_combined) cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "controlPort");
 
                     if (resolved_plug[0]) {
                         cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "plugin");
@@ -1599,6 +1679,8 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                                         if (!raw && kc && cJSON_IsString(kc)) {
                                             cJSON_AddStringToObject(cmd_it, "raw", kc->valuestring);
                                         }
+                                        if (now_combined && !cJSON_GetObjectItemCaseSensitive(cmd_it, "transport"))
+                                            cJSON_AddStringToObject(cmd_it, "transport", "plugin");
                                     }
                                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "commands");
                                     cJSON_AddItemToObject(found_dev, "commands", cloned_cmds);
