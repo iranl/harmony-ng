@@ -64,7 +64,7 @@ jobs:
           cache: 'npm'
           cache-dependency-path: 'android-app/package-lock.json'
       - name: Set up Emscripten
-        uses: mymindstorm/setup-emsdk@v14
+        uses: mymindstorm/setup-emsdk@v15
         with:
           version: 6.0.13
       - name: Build remote screen renderer (WebAssembly)
@@ -91,7 +91,7 @@ jobs:
       - uses: actions/checkout@v7
       - name: Cache Bootlin ARM Toolchain
         id: cache-arm-toolchain
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: build/toolchains
           key: bootlin-armv5-uclibc-2017.05-9afe6d92b2fd
@@ -126,7 +126,7 @@ jobs:
       - uses: actions/checkout@v7
       - name: Cache Bootlin MIPS Toolchain
         id: cache-mips-toolchain
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: build/toolchains
           key: bootlin-mips32-uclibc-2017.05-a75aeb0f82ea
