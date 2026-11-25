@@ -128,8 +128,9 @@ export function createView() {
       buttons.push(['scan', t('usb_storage_mount_btn', 'Mount')]);
     } else {
       text = t('usb_storage_mounted', '{device} ({fs}): {free} MB free of {total} MB.', { device: st.device, fs: st.fs, free: mb(st.free_kb), total: mb(st.total_kb) });
-      if (st.offload) text += ' ' + t('usb_storage_offload_on', 'The icons and plugins are kept on the USB stick.');
-      buttons.push(st.offload
+      if (st.other_stick) text += ' ' + t('usb_storage_other_stick', 'This is not the USB stick the icons and plugins were moved to: it is not used for them.');
+      else if (st.offload) text += ' ' + t('usb_storage_offload_on', 'The icons and plugins are kept on the USB stick.');
+      if (!st.other_stick) buttons.push(st.offload
         ? ['restore', t('usb_storage_restore_btn', 'Keep icons and plugins on flash')]
         : ['offload', t('usb_storage_offload_btn', 'Move icons and plugins to USB stick')]);
       buttons.push(['eject', t('usb_storage_eject_btn', 'Eject')]);

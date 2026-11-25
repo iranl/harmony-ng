@@ -29,7 +29,8 @@ run_monitor() {
     # A USB device plugged in or out while in host mode: look for its driver again (a USB
     # Ethernet adapter plugged in after boot, or one whose driver was just installed)
     if [ "$(cat /tmp/harmony_usb_port_mode 2>/dev/null)" = "host" ]; then
-      usb_now=$(echo $(ls /sys/bus/usb/devices 2>/dev/null))
+      # with each device's number: another stick or adapter in the same port has the same name
+      usb_now=$(echo $(ls /sys/bus/usb/devices 2>/dev/null) $(cat /sys/bus/usb/devices/*/devnum 2>/dev/null))
       # The storage scan runs in the background: the first df of a large FAT stick reads its
       # whole FAT (about 40 s for 30 GB behind a full-speed hub) and must not stall the
       # failover below. While one still runs, usb_seen stays old so the next pass scans again.

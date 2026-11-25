@@ -59,7 +59,7 @@ HarmonyNG has kernel drivers for these USB Ethernet chipsets. They are **not ins
 2. When the driver (or a module it needs, such as `usbnet`) is missing, the Network page shows "USB Ethernet adapter `<vid>:<pid>` found: its driver `<name>` is not installed" with a **Download driver** button. The same data is in the `eth_driver` object of `GET /api/network-status`.
 3. The button calls `POST /api/ethernet-driver-install`, which runs `update.sh fetch-module`. That downloads `modules/<name>.ko` from the update source (the `update_repo` setting), checks it against the signed release manifest, and installs it to `/cache/modules/`. The adapter then comes up without a reboot.
 
-`python build/deploy_hub.py <HUB_IP> --eth-modules` copies every module at once, for a Hub without internet access. Modules already on a Hub stay there.
+`python build/deploy_hub.py <HUB_IP> --eth-modules` copies every module at once, for a Hub without internet access. Modules already on a Hub stay there. A Hub that will use Ethernet as its only link needs the driver before it loses Wi-Fi: download it once over Wi-Fi, or deploy with `--eth-modules`. A module that is installed but does not load (an older build) is shown as "installed but could not be loaded" with **Download again**.
 
 The IDs listed are the ones these module builds bind. An adapter with another ID of the same family is not supported by them, for example AX88772B `0B95:772B`, SMSC LAN9505 `0424:9505` or Davicom DM9620 `0A46:9620`. The page reports the ASIX AX88179 `0B95:1790` as not supported.
 

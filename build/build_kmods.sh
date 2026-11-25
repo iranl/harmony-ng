@@ -6,7 +6,7 @@
 #                (default ~/linux-2.6.31.14); it is copied, never changed
 #   STOCK_VMLINUX raw stock kernel image (vmlinux.bin, load address 0x80002000)
 #   USBCORE_KO   stock usbcore.ko (squashfs-root/lib/modules/2.6.31-g89d565c/...)
-#   OUT_DIR      where the .ko files go (default build/tmp/kmods)
+#   OUT_DIR      where the .ko files go (default payload/modules)
 #
 # The stock kernel was built with modversions, without SMP, hotplug (no kobject_uevent_env
 # export) and suspend (no refrigerator export): the copy's .config is set the same way. The CRCs
@@ -24,7 +24,7 @@ TOOLCHAIN="$REPO_ROOT/build/toolchains/mips32--uclibc--stable/bin/mips-buildroot
 KERNEL_DIR="${KERNEL_DIR:-$HOME/linux-2.6.31.14}"
 STOCK_VMLINUX="${STOCK_VMLINUX:-$REPO_ROOT/scratch/vmlinux.bin}"
 USBCORE_KO="${USBCORE_KO:-$REPO_ROOT/background/hub_firmware_extracted/squashfs-root/lib/modules/2.6.31-g89d565c/kernel/drivers/usb/core/usbcore.ko}"
-OUT_DIR="${OUT_DIR:-$REPO_ROOT/build/tmp/kmods}"
+OUT_DIR="${OUT_DIR:-$REPO_ROOT/payload/modules}"
 WORK="${WORK:-$HOME/kbuild-storage}"
 
 for f in "$KERNEL_DIR/.config" "$STOCK_VMLINUX" "$USBCORE_KO" "${TOOLCHAIN}gcc"; do
@@ -72,5 +72,5 @@ fi
 
 mkdir -p "$OUT_DIR"
 cp -v drivers/scsi/scsi_mod.ko drivers/scsi/sd_mod.ko drivers/usb/storage/usb-storage.ko "$OUT_DIR/"
-"${TOOLCHAIN}strip" --strip-debug "$OUT_DIR"/*.ko
-ls -lh "$OUT_DIR"/*.ko
+"${TOOLCHAIN}strip" --strip-debug "$OUT_DIR"/scsi_mod.ko "$OUT_DIR"/sd_mod.ko "$OUT_DIR"/usb-storage.ko
+ls -lh "$OUT_DIR"/scsi_mod.ko "$OUT_DIR"/sd_mod.ko "$OUT_DIR"/usb-storage.ko

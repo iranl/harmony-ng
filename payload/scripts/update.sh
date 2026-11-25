@@ -146,6 +146,11 @@ download_retry() {
       FETCH_TOKEN="" ;;
     *) FETCH_TOKEN="" ;;
   esac
+  # never in clear: a source without TLS gets no token
+  case "$REPO" in
+    https://*) ;;
+    *) FETCH_TOKEN="" ;;
+  esac
   if [ -z "$USE_FETCH" ]; then
     USE_FETCH=0
     if [ -x "$HUB_FETCH" ] && [ -s "$CA_BUNDLE" ] && LD_LIBRARY_PATH="$HUB_LIB" "$HUB_FETCH" --probe >/dev/null 2>&1; then
@@ -303,22 +308,29 @@ install_bundle() {
     install_file "$_pkg/bin/busybox" /cache/bin/busybox 755 || return 1
   fi
   # F. Icons archive -> /cache/icons.tar.gz, or to the USB stick it was moved to
+  # (best effort while the icons are on the stick: a full or failing stick does not stop the
+  # update, and with the stick out nothing is copied)
   if [ -f "$_pkg/icons.tar.gz" ]; then
-    install_file "$_pkg/icons.tar.gz" "$(icons_dest)" 644 || return 1
+    _icons=$(icons_dest)
+    if [ -z "$_icons" ]; then
+      echo "[!] USB stick with the icons is not mounted: icon archive not updated."
+    elif [ "$_icons" = /cache/icons.tar.gz ]; then
+      install_file "$_pkg/icons.tar.gz" "$_icons" 644 || return 1
+    else
+      install_file "$_pkg/icons.tar.gz" "$_icons" 644 || echo "[!] Could not write the icon archive to the USB stick; the old one stays."
+    fi
   fi
   return 0
 }
 
 # Where the icon archive goes: the USB stick while the icons are kept there (usb_storage.sh
-# offload) and it is mounted; else /cache. With the icons on a stick that is out, the archive goes
-# to RAM and is dropped (never back to flash); the link to the stick stays.
+# offload) and it is mounted; else /cache. With the icons on a stick that is out: nothing (never
+# back to flash); the link to the stick stays.
 icons_dest() {
   if [ -f /data/harmony/config/usb_offload ]; then
     if grep -q ' /mnt/usb ' /proc/mounts 2>/dev/null; then
       mkdir -p /mnt/usb/harmony 2>/dev/null
       echo /mnt/usb/harmony/icons.tar.gz
-    else
-      echo /tmp/icons_skipped.tar.gz
     fi
   else
     echo /cache/icons.tar.gz
@@ -698,8 +710,8 @@ do_apply() {
       # F. Icons archive -> /cache/icons.tar.gz or the USB stick (staged above)
       if [ -f "$TMPDIR/pkg/icons.tar.gz" ]; then
         _icons=$(icons_dest)
-        [ "$_icons" = /tmp/icons_skipped.tar.gz ] && _icons=/mnt/usb/harmony/icons.tar.gz
-        rm -f /data/harmony/icons.tar.gz /tmp/icons_skipped.tar.gz 2>/dev/null || true
+        [ -z "$_icons" ] && _icons=/mnt/usb/harmony/icons.tar.gz
+        rm -f /data/harmony/icons.tar.gz 2>/dev/null || true
         ln -sf "$_icons" /data/harmony/icons.tar.gz 2>/dev/null || true
         echo "[+] Icons archive updated in $_icons (symlinked)."
       fi
@@ -925,7 +937,7 @@ do_fetch_module() {
     rm -rf "$TMPDIR"
     return 1
   fi
-  if ! download_retry "${REPO}/modules/${name}.ko?_=${TIMESTAMP}" "$TMPDIR/${name}.ko" 20 3; then
+  if ! download_retry "${REPO}/modules/${name}.ko?_=${TIMESTAMP}" "$TMPDIR/${name}.ko" 20 3 signed; then
     echo "[-] modules/${name}.ko is not on ${REPO}."
     rm -rf "$TMPDIR"
     return 1

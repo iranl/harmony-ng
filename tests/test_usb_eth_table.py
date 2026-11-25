@@ -71,11 +71,16 @@ class UsbEthDriver(unittest.TestCase):
             dev.mkdir()
             for k, v in attrs.items():
                 if k == "if_class":
-                    (dev / f"{name}:1.0").mkdir()
-                    (dev / f"{name}:1.0" / "bInterfaceClass").write_text(v + "\n")
+                    # one interface per class, comma-separated (a composite device)
+                    for i, cls in enumerate(v.split(",")):
+                        (dev / f"{name}:1.{i}").mkdir()
+                        (dev / f"{name}:1.{i}" / "bInterfaceClass").write_text(cls + "\n")
                 else:
                     (dev / k).write_text(v + "\n")
         (root / "tmp").mkdir()
+        # a /proc of its own: modules of the host (usbnet for a dock, say) must not count as loaded
+        (root / "proc").mkdir()
+        (root / "proc" / "modules").write_text("")
         harmony = root / "data" / "harmony"
         (harmony / "modules").mkdir(parents=True)
         (harmony / "usb_eth_modules.txt").write_text(TABLE.read_text(encoding="utf-8"))
@@ -89,7 +94,7 @@ class UsbEthDriver(unittest.TestCase):
         (stub / "insmod").write_text(f"#!/bin/sh\necho \"$1\" >> '{root}/insmod.log'\n")
         for p in stub.iterdir():
             p.chmod(0o755)
-        text = re.sub(r"(?<![\w./$-])/(data|sys|cache|tmp)/", lambda m: f"{root}/{m.group(1)}/",
+        text = re.sub(r"(?<![\w./$-])/(data|sys|cache|tmp|proc)/", lambda m: f"{root}/{m.group(1)}/",
                       SCRIPT.read_text(encoding="utf-8"))
         (root / "usb_eth_driver.sh").write_text(text)
         env = dict(os.environ, PATH=f"{stub}:/usr/bin:/bin")
@@ -174,6 +179,26 @@ class UsbEthDriver(unittest.TestCase):
         # a full-speed stick alone is no reason to report anything
         root = self.sandbox({"1-1.4": bus("12")["1-1.4"]})
         self.assertEqual(self.state(root), {})
+        # a full-speed composite device with storage and a network interface does count
+        root = self.sandbox({
+            "1-1": dict(self.adapter("0bda:8153"), speed="480"),
+            "1-1.2": {"idVendor": "1234", "idProduct": "5678", "bDeviceClass": "00",
+                      "if_class": "08,ff", "speed": "12"},
+        })
+        self.assertEqual(self.loaded(root), [])
+        self.assertEqual(self.state(root).get("slow"), "1")
+
+    def test_installed_module_downloaded_again(self):
+        # a module file that is there but does not load (an old build) is fetched again
+        root = self.sandbox({"1-1": self.adapter("0b95:7720")})
+        fetched = root / "fetched.log"
+        update = root / "data" / "harmony" / "update.sh"
+        update.write_text(f"#!/bin/sh\necho \"$*\" >> '{fetched}'\n")
+        update.chmod(0o755)
+        subprocess.run(["sh", str(root / "usb_eth_driver.sh"), "install", "asix"],
+                       env=dict(os.environ, PATH=f"{root / 'stub'}:/usr/bin:/bin"),
+                       capture_output=True, text=True, timeout=30)
+        self.assertEqual(fetched.read_text().split("\n")[:2], ["fetch-module usbnet", "fetch-module asix"])
 
     def test_no_adapter_no_state(self):
         root = self.sandbox({"1-1": {"idVendor": "0781", "idProduct": "5567", "bDeviceClass": "00",

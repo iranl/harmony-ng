@@ -4,6 +4,7 @@
 - a usable http(s):// URL is stored in settings.json and returned, with update_repo_default;
 - a value with a shell character, a space or another scheme is refused with 400 and nothing
   changes;
+- a trailing slash or /bin/mips is stripped before it is stored; a URL without a host is refused;
 - an empty value clears it (back to the official source).
 """
 
@@ -49,6 +50,15 @@ def main():
             st, r = hub.http_post("/api/settings", {"update_repo": bad})
             check(st == 400, "refused: %s" % bad, "%s %s" % (st, r))
         check(stored(hub) == fork, "refused values change nothing")
+
+        # stored in the form every consumer reads: no trailing slash, no old /bin/mips suffix
+        for typed in (fork + "/", fork + "/bin/mips", fork + "/bin/mips/"):
+            st, r = hub.http_post("/api/settings", {"update_repo": typed})
+            check(st == 200 and stored(hub) == fork, "normalised: %s" % typed, "%s %s" % (st, r))
+        for bad in ("https://", "https:///ota", "http://bin/mips"):
+            st, r = hub.http_post("/api/settings", {"update_repo": bad})
+            check(st == 400, "refused (no host): %s" % bad, "%s %s" % (st, r))
+        check(stored(hub) == fork, "values without a host change nothing")
 
         st, r = hub.http_post("/api/settings", {"update_repo": ""})
         check(st == 200 and stored(hub) == "", "empty clears the source", "%s %s" % (st, r))

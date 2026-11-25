@@ -1,5 +1,5 @@
 import { HarmonyClient } from '../api.js';
-import { DEFAULT_OTA_URL, setOtaSource } from '../update_source.js';
+import { DEFAULT_OTA_URL, setOtaSource, otaSource } from '../update_source.js';
 import { getSavedHubs, saveHub, deleteHub, getActiveHub, setActiveHubId } from '../storage.js';
 import { createAppToken, revokeAppToken, hubBaseUrl, loginFields, withLoginCheck, finishReplace } from '../app_token.js';
 import { RemoteEngine } from '../remote-engine.js';
@@ -110,6 +110,8 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
   async saveUpdateRepo(value) {
     const clean = (value || '').trim().replace(/\/+$/, '').replace(/\/bin\/mips$/, '').replace(/\/+$/, '');
     const stored = clean === DEFAULT_OTA_URL ? '' : clean;
+    // unchanged: no settings write (a flash write and the settings applied again) per click
+    if ((clean || DEFAULT_OTA_URL) === otaSource()) return;
     try {
       await this.client.saveSettings({ update_repo: stored });
       setOtaSource(stored);

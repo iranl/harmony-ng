@@ -470,7 +470,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
   renderEthDriver(drv) {
     const el = document.getElementById('netEthDriver');
     if (!el) return;
-    if (!drv || (!drv.slow && !drv.unsupported && !(drv.missing && drv.missing.length) && !drv.installing && !drv.install_failed)) {
+    if (!drv || (!drv.slow && !drv.unsupported && !(drv.missing && drv.missing.length) && !drv.installing && !drv.install_failed && !(drv.driver && drv.loaded === false))) {
       el.style.display = 'none';
       el.innerHTML = '';
       return;
@@ -491,14 +491,18 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
       el.innerHTML = `<span style="color:var(--warning);">${escapeHtml(tf('eth_driver_unsupported', { id }))}</span>`;
       return;
     }
+    // files there but the module did not load (an old build): download it again
+    const notLoaded = !drv.install_failed && !(drv.missing && drv.missing.length);
     const msg = drv.install_failed
       ? tf('eth_driver_failed', { driver: drv.driver || '' })
-      : tf('eth_driver_missing', { id, driver: drv.driver || '' });
+      : notLoaded
+        ? tf('eth_driver_not_loaded', { driver: drv.driver || '' })
+        : tf('eth_driver_missing', { id, driver: drv.driver || '' });
     el.innerHTML = `<span style="color:var(--warning);">${escapeHtml(msg)}</span> `;
     if (!drv.driver) return;
     const btn = document.createElement('button');
     btn.className = 'btn btn-sm';
-    btn.textContent = t('eth_driver_download_btn');
+    btn.textContent = t(notLoaded ? 'eth_driver_redownload_btn' : 'eth_driver_download_btn');
     btn.addEventListener('click', async () => {
       btn.disabled = true;
       try {
@@ -940,8 +944,9 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
       buttons.push(['scan', 'usb_storage_mount_btn']);
     } else {
       text = tf('usb_storage_mounted', { device: st.device, fs: st.fs, free: mb(st.free_kb), total: mb(st.total_kb) });
-      if (st.offload) text += ' ' + t('usb_storage_offload_on');
-      buttons.push(st.offload ? ['restore', 'usb_storage_restore_btn'] : ['offload', 'usb_storage_offload_btn']);
+      if (st.other_stick) text += ' ' + t('usb_storage_other_stick');
+      else if (st.offload) text += ' ' + t('usb_storage_offload_on');
+      if (!st.other_stick) buttons.push(st.offload ? ['restore', 'usb_storage_restore_btn'] : ['offload', 'usb_storage_offload_btn']);
       buttons.push(['eject', 'usb_storage_eject_btn']);
     }
     if (st.failed && st.message) text += ' ' + tf('usb_storage_failed', { message: st.message });

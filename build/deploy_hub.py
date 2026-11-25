@@ -1021,7 +1021,7 @@ def main() -> None:
     parser.add_argument("--reboot", action="store_true", help="Reboot Hub safely after deployment (default: hot restart)")
     parser.add_argument("--dry-run", "-n", action="store_true", help="Read Hub state and report changes without modifying Hub")
     parser.add_argument("--no-backup", action="store_true", help="Skip pre-deployment backup")
-    parser.add_argument("--eth-modules", action="store_true", help="Also copy every USB Ethernet kernel module to /cache/modules (default: the Hub downloads the one its adapter needs)")
+    parser.add_argument("--eth-modules", action="store_true", help="Also copy every kernel module of payload/modules (USB Ethernet and USB storage) to /cache/modules (default: the Hub downloads the ones it needs)")
     parser.add_argument("--stage-remote-ota", action="store_true", help="Stage local remote_ui.ota.gz into Hub /tmp/remote_ui.ota.gz (RAM tmpfs) for offline testing")
     parser.add_argument("--dev-btstack", action="store_true", help="Install the hub_btstack dev build with BTstack info logs (build/output/hub_btstack_dev) instead of the release build")
     ssh_hostkeys.add_reset_option(parser, "the Hub")

@@ -983,13 +983,17 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
             item = cJSON_GetObjectItemCaseSensitive(p, "update_repo");
             if (item && cJSON_IsString(item) && item->valuestring) {
                 /* empty: back to the default source */
-                if (item->valuestring[0] && !ota_source_url_ok(item->valuestring)) {
+                char repo[sizeof(s.update_repo)];
+                snprintf(repo, sizeof(repo), "%s", item->valuestring);
+                /* stored without a trailing slash or /bin/mips, as every consumer expects */
+                ota_source_normalize(repo);
+                if (item->valuestring[0] && (!ota_source_url_ok(item->valuestring) || !ota_source_url_ok(repo))) {
                     cJSON_Delete(p);
-                    send_json_error(client_fd, 400, "Update source must be an http(s):// URL without spaces or quotes");
+                    send_json_error(client_fd, 400, "Update source must be an http(s):// URL with a host, without spaces or quotes");
                     close(client_fd);
                     return 1;
                 }
-                snprintf(s.update_repo, sizeof(s.update_repo), "%s", item->valuestring);
+                snprintf(s.update_repo, sizeof(s.update_repo), "%s", repo);
             }
             int save_rc = config_store_save_settings(&s);
             cJSON_Delete(p);

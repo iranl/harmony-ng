@@ -40,7 +40,7 @@ class UsbStorageScript(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def run_scan(self, stick: bool, modules: bool, action: str = "scan", setup=None):
+    def run_scan(self, stick: bool, modules: bool, action: str = "scan", setup=None, df_avail: int = 7799900):
         root = self.root
         usb = root / "sys" / "bus" / "usb" / "devices"
         usb.mkdir(parents=True)
@@ -70,7 +70,10 @@ class UsbStorageScript(unittest.TestCase):
         (stub / "busybox").write_text(
             "#!/bin/sh\n"
             f"echo \"$*\" >> '{log}'\n"
-            'case "$1" in df) echo "Filesystem 1K-blocks Used Available"; echo "/dev/sda1 7800000 100 7799900";; esac\n'
+            'case "$1" in\n'
+            f'  df) echo "Filesystem 1K-blocks Used Available Use% Mounted on"; echo "/dev/sda1 7800000 100 {df_avail} 1% /x";;\n'
+            '  du) shift; exec du "$@";;\n'
+            "esac\n"
             "exit 0\n")
         (stub / "insmod").write_text(f"#!/bin/sh\necho \"insmod $1\" >> '{log}'\n")
         (stub / "sleep").write_text("#!/bin/sh\nexit 0\n")
@@ -131,6 +134,92 @@ class UsbStorageScript(unittest.TestCase):
         self.assertTrue((self.root / "data" / "harmony" / "config" / "usb_offload").exists())
         self.assertIn(f"mount -o bind {usb}/plugins {self.root}/data/harmony/plugins", calls)
         self.assertEqual(st.get("offload"), "1")
+        # the flag and the stick carry the same id: only this stick is used
+        flag_id = (self.root / "data" / "harmony" / "config" / "usb_offload").read_text().strip()
+        self.assertTrue(flag_id)
+        self.assertEqual((usb / ".offload_id").read_text().strip(), flag_id)
+
+    # a stick the icons and plugins were moved to
+    def offloaded(self, root, plugins=("roku-ecp",), mounts_extra=""):
+        (root / "proc" / "mounts").write_text(f"/dev/sda1 {root}/mnt/usb vfat rw,noatime 0 0\n" + mounts_extra)
+        usb = root / "mnt" / "usb" / "harmony"
+        (usb / "custom_icons").mkdir(parents=True)
+        (usb / "custom_icons" / "tv.png").write_bytes(b"png")
+        (usb / "icons.tar.gz").write_bytes(b"archive")
+        for p in plugins:
+            (usb / "plugins" / p / "bin").mkdir(parents=True)
+            (usb / "plugins" / p / "manifest.json").write_text("{}")
+            (usb / "plugins" / p / "bin" / "x").write_bytes(b"\x7fELF" + p.encode())
+        (usb / ".offload_id").write_text("id-1\n")
+        (root / "data" / "harmony" / "config" / "usb_offload").write_text("id-1\n")
+        return usb
+
+    def test_offload_keeps_plugins_only_on_the_stick(self):
+        # restore without the stick, then offload again: the plugins on the stick must stay
+        def setup(root):
+            self.usb = self.offloaded(root, plugins=("roku-ecp",))
+            (root / "data" / "harmony" / "config" / "usb_offload").unlink()
+            plug = root / "data" / "harmony" / "plugins" / "android-tv"
+            plug.mkdir(parents=True)
+            (plug / "manifest.json").write_text("{}")
+        self.run_scan(stick=True, modules=True, action="offload", setup=setup)
+        self.assertEqual(self.out.returncode, 0, self.out.stdout + self.out.stderr)
+        self.assertTrue((self.usb / "plugins" / "roku-ecp" / "bin" / "x").exists())
+        self.assertTrue((self.usb / "plugins" / "android-tv" / "manifest.json").exists())
+
+    def test_restore_copies_back_and_merges(self):
+        def setup(root):
+            self.offloaded(root, plugins=("roku-ecp",))
+            # a plugin installed on flash while the stick was out (hidden below the mount)
+            plug = root / "data" / "harmony" / "plugins" / "android-tv"
+            plug.mkdir(parents=True)
+            (plug / "manifest.json").write_text("{}")
+        self.run_scan(stick=True, modules=True, action="restore", setup=setup)
+        data = self.root / "data" / "harmony"
+        self.assertIn("kept on flash again", self.out.stdout, self.out.stdout + self.out.stderr)
+        self.assertEqual((data / "plugins" / "roku-ecp" / "bin" / "x").read_bytes(), b"\x7fELFroku-ecp")
+        self.assertTrue((data / "plugins" / "android-tv" / "manifest.json").exists())
+        self.assertEqual((data / "custom_icons" / "tv.png").read_bytes(), b"png")
+        self.assertEqual((self.root / "cache" / "icons.tar.gz").read_bytes(), b"archive")
+        self.assertFalse((data / "config" / "usb_offload").exists())
+        self.assertFalse((data / "plugins.restore").exists())
+
+    def test_restore_without_room_changes_nothing(self):
+        def setup(root):
+            usb = self.offloaded(root, plugins=("roku-ecp", "big"))
+            (usb / "plugins" / "big" / "data.bin").write_bytes(b"x" * 300 * 1024)
+        self.run_scan(stick=True, modules=True, action="restore", setup=setup, df_avail=400)
+        data = self.root / "data" / "harmony"
+        self.assertNotEqual(self.out.returncode, 0)
+        self.assertIn("No room on flash", self.out.stdout)
+        self.assertFalse((data / "plugins").exists() and list((data / "plugins").iterdir()))
+        self.assertEqual(list((data / "custom_icons").iterdir()), [])
+        self.assertFalse((self.root / "cache" / "icons.tar.gz").exists())
+        self.assertTrue((data / "config" / "usb_offload").exists())
+
+    def test_restore_with_busy_icon_folder_fails(self):
+        # the fake umount never unmounts: the custom icon folder stays bound to the stick
+        def setup(root):
+            self.offloaded(root, mounts_extra=f"/dev/sda1 {root}/data/harmony/custom_icons vfat rw 0 0\n")
+        self.run_scan(stick=True, modules=True, action="restore", setup=setup)
+        self.assertNotEqual(self.out.returncode, 0)
+        self.assertIn("custom icon folder on the stick is still in use", self.out.stdout)
+        self.assertTrue((self.root / "data" / "harmony" / "config" / "usb_offload").exists())
+
+    def other_stick(self, root):
+        self.offloaded(root)
+        (root / "mnt" / "usb" / "harmony" / ".offload_id").write_text("id-other\n")
+
+    def test_other_stick_is_not_bound(self):
+        st, calls = self.run_scan(stick=True, modules=True, setup=self.other_stick)
+        self.assertFalse([c for c in calls if c.startswith("mount -o bind")], calls)
+        self.assertEqual(st.get("other_stick"), "1")
+
+    def test_other_stick_is_not_restored(self):
+        self.run_scan(stick=True, modules=True, action="restore", setup=self.other_stick)
+        self.assertNotEqual(self.out.returncode, 0)
+        self.assertEqual(list((self.root / "data" / "harmony" / "custom_icons").iterdir()), [])
+        self.assertTrue((self.root / "data" / "harmony" / "config" / "usb_offload").exists())
 
 
 class UsbStorageApi(unittest.TestCase):

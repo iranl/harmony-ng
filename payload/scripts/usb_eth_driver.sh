@@ -40,16 +40,21 @@ modules_for() {
   return 1
 }
 
-# is_candidate DIR: a USB device that can be a network adapter: not a hub (class 09), and no
-# interface of class 08 (mass storage, see usb_storage.sh) or 03 (keyboard, mouse)
+# is_candidate DIR: a USB device that can be a network adapter: not a hub (class 09), and not
+# a device whose interfaces are all of class 08 (mass storage, see usb_storage.sh), 03
+# (keyboard, mouse) or 09. A composite device with storage and CDC Ethernet is one.
 is_candidate() {
   [ -f "$1/idVendor" ] || return 1
   case "$(cat "$1/bDeviceClass" 2>/dev/null)" in 09) return 1 ;; esac
+  _only=""
   for _ic in "$1"/*:*/bInterfaceClass; do
     [ -f "$_ic" ] || continue
-    case "$(cat "$_ic" 2>/dev/null)" in 08|03|09) return 1 ;; esac
+    case "$(cat "$_ic" 2>/dev/null)" in
+      08|03|09) [ -z "$_only" ] && _only=1 ;;
+      *) _only=0 ;;
+    esac
   done
-  return 0
+  [ "$_only" != 1 ]
 }
 
 write_state() {
@@ -108,7 +113,7 @@ do_scan() {
   if _slow=$(slow_candidate); then
     _vid=$(cat "$_slow/idVendor" 2>/dev/null)
     _pid=$(cat "$_slow/idProduct" 2>/dev/null)
-    echo "[USB_ETH] USB device $_vid:$_pid on ${_slow##*/} runs at full speed (USB 1.1): no network driver is loaded, as it would freeze the Hub. Use a USB 2.0 (high-speed) adapter, hub or OTG cable."
+    echo "[USB_ETH] USB device $_vid:$_pid on ${_slow##*/} runs at full or low speed (USB 1.1): no network driver is loaded, as it would freeze the Hub. Use a USB 2.0 (high-speed) adapter, hub or OTG cable."
     write_state "$_vid" "$_pid" "" "" 0 0 1
     return 0
   fi
@@ -169,8 +174,9 @@ do_install() {
     echo "[-] $_name is not a USB Ethernet driver of this firmware" >&2
     return 1
   fi
+  # every module, also one that is there: a file that does not load (an old build) is replaced;
+  # update.sh writes only a file whose content changed
   for _m in $_list; do
-    find_mod "$_m" >/dev/null && continue
     /data/harmony/update.sh fetch-module "$_m" || return 1
   done
   do_scan

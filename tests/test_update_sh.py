@@ -67,6 +67,13 @@ class UpdateScript(unittest.TestCase):
         self.assertNotIn("[tok123]", args)
         self.assertNotIn("[Authorization:]", args)
 
+    def test_no_token_to_a_source_without_tls(self):
+        # an http:// mirror (from the update_repo setting, say) never gets the token in clear
+        self.run_update("check", "http://example.invalid/ota", "tok123")
+        args = self.wget_log.read_text().splitlines()
+        self.assertTrue(any(a.startswith("[http://example.invalid/ota/") for a in args), args)
+        self.assertNotIn("[Authorization: token tok123]", args)
+
     def test_no_token_no_header(self):
         self.run_update("check", "https://example.invalid/ota")
         self.assertNotIn("[--header]", self.wget_log.read_text().splitlines())

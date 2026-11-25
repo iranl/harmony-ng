@@ -8,13 +8,13 @@ This is a study, not a procedure. The repository has no tool that changes the pa
 
 ## 1. The flash
 
-The Hub (Atheros AR9344) has one 16 MB SPI NOR chip (`ar7240-nor0`). It has no NAND. The SPI bus is shared with the CC2544 RF chip, so the SPI rules in `AGENTS.md` apply to every flash write.
+The Hub (Atheros AR9330: the kernel prints `Atheros AR9330 (Hornet)`, U-Boot `AP121 (ar9331) U-boot`) has one 16 MB SPI NOR chip (`ar7240-nor0`). It has no NAND. The SPI bus is shared with the CC2544 RF chip, so the SPI rules in `AGENTS.md` apply to every flash write.
 
 | mtd | Name | Offset | Size | Use |
 | :-- | :-- | :-- | :-- | :-- |
 | 0 | u-boot | `0x000000` | 64 KB | Boot loader. The table has no separate environment partition. |
 | 1 | kernel | `0x010000` | 960 KB | Kernel uImage (`bootm 0x9f010000`). The stock image is 951,019 bytes, about 31 KB free. |
-| 2 | kernel2 | `0x100000` | 960 KB | **Unused.** The stock updater never writes it. |
+| 2 | kernel2 | `0x100000` | 960 KB | **Fallback kernel.** U-Boot boots it when the kernel in mtd1 fails its checksum (`bootcmd=bootm 0x9f010000 ; bootm 0x9f100000`). It holds an older stock kernel ("Pimento Kernel Image"); the stock updater never writes it. |
 | 3 | root | `0x1F0000` | 4096 KB | Stock SquashFS root (3,751,936 bytes, about 432 KB slack). |
 | 4 | data | `0x5F0000` | 5120 KB | JFFS2, the writable layer of the union root (`/data`, `/etc`, ...). |
 | 5 | cache | `0xAF0000` | 5120 KB | JFFS2, `/cache`. |
@@ -33,7 +33,7 @@ The Hub (Atheros AR9344) has one 16 MB SPI NOR chip (`ar7240-nor0`). It has no N
 
 | /data (5120 KB) | KB |
 | :-- | --: |
-| `harmony/bin` (`hub_daemon` 680, `hub_btstack` 498, `hub_rf` 480, `dropbearmulti` 422, `hub_util` 189, `reset_port` 114) | about 2400 |
+| `harmony/bin` (`hub_daemon` 736, `hub_btstack` 375, `hub_rf` 375, `dropbearmulti` 297, `hub_util` 184) | about 2000 |
 | Stock `/data/resources` (the web UI can empty it) | about 274 |
 | Configuration, scripts, custom icons | varies |
 
@@ -71,6 +71,8 @@ Partitions must be contiguous. kernel2 sits between kernel and root, so root mov
 
 cache keeps its place, so it does not need to be rewritten. The new data partition must be formatted, so everything on `/data` is lost and must be restored from a backup.
 
+This gives away the fallback kernel: U-Boot's second `bootm 0x9f100000` then points into the root file system, so a kernel in mtd1 that fails its checksum (a cut flash write, as in step 5.2 below) leaves a Hub that does not boot. The kernel in kernel2 has the stock partition tables built in, so it could not find a moved root anyway.
+
 ### Option B: also trim root (+about 1.4 MB)
 
 The stock root uses 3,664 KB of 4,096 KB. Shrinking root to 3,712 KB (a multiple of the 64 KB erase block, with a little margin) gives data another 384 KB.
@@ -81,7 +83,7 @@ Any later stock root image that is bigger no longer fits. HarmonyNG does not ref
 
 This release can keep the icon archive, the custom icons and the plugins on a USB stick (System page, **USB Storage**, or `POST /api/usb-storage`). That frees about 1.6 MB of `/cache` plus the custom icons and the plugins on `/data`. Nothing is reflashed. When the stick is pulled out, only the icons and the plugins are missing; plugin settings (`plugin-data`) and the shared libraries stay on flash.
 
-It needs the USB storage modules (`scsi_mod`, `sd_mod`, `usb-storage`, built by `build/build_kmods.sh`), which still have to be tested on a Hub (see the script's header).
+It needs the USB storage modules (`scsi_mod`, `sd_mod`, `usb-storage`, built by `build/build_kmods.sh`, in `payload/modules`). The Hub downloads them from the update source when a stick is plugged in (**Download drivers**). The stick is looked for in USB host mode only, which the Hub enters with Ethernet enabled and no PC on the port: with Ethernet turned off, the icons and plugins on a stick are not used after a restart.
 
 ---
 
@@ -98,6 +100,7 @@ It needs the USB storage modules (`scsi_mod`, `sd_mod`, `usb-storage`, built by 
 6. Boot. The built-in init formats the empty data partition. Then restore the `/data` backup and run `deploy_hub.py`.
 
 **Risks:**
+- Option A removes the fallback kernel in kernel2 (see above): a failed kernel write then has no second kernel to boot.
 - A kernel that does not boot, or a wrong offset, leaves a Hub that only boots to U-Boot. Recovery means TFTP or serial loading (`docs/OFFLINE_UNBRICK_AND_ROOT_GUIDE.md`).
 - A write over u-boot or mfg cannot be repaired without an SPI programmer.
 - The SPI bus is shared with the RF chip: stop `hub_rf` and `hub_btstack` (`killall -9`) before any flash write, and follow the sync and reboot rules in `AGENTS.md`.

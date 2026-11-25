@@ -12,6 +12,7 @@
 #include <strings.h>
 #include <unistd.h>
 #include <stdint.h>
+#include <time.h>
 #include <arpa/inet.h>
 
 static int parse_ipv4(const char *s, uint32_t *out) {
@@ -69,8 +70,14 @@ static void start_bg_job(const char *tag, const char *args) {
     snprintf(name, sizeof(name), "%s.log", tag);
     eth_driver_path(log_path, sizeof(log_path), name);
     unlink(rc_path);
+    /* the start time (seconds since boot): a job killed with its shell leaves the flag behind */
     FILE *ff = fopen(flag, "w");
-    if (ff) fclose(ff);
+    if (ff) {
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        fprintf(ff, "%ld\n", (long)ts.tv_sec);
+        fclose(ff);
+    }
     snprintf(cmd, sizeof(cmd),
              "/bin/sh -c 'sh /data/harmony/%s >%s 2>&1; echo $? >%s; rm -f %s' >/dev/null 2>&1 &",
              args, log_path, rc_path, flag);
@@ -81,12 +88,25 @@ static void start_bg_job(const char *tag, const char *args) {
 #endif
 }
 
+/* A job runs at most this long (a restore of a large plugin folder at USB 1.1 speed): an older
+ * flag is one a killed job left, and the job no longer counts as running */
+#define BG_JOB_MAX_SECS 1800
+
 /* 1 while the job runs; *rc: its exit code, -1 when it never ran or still runs */
 static int bg_job_state(const char *tag, int *rc) {
     char path[256], name[64], line[32];
     *rc = -1;
     snprintf(name, sizeof(name), "%s_running", tag);
-    if (access(eth_driver_path(path, sizeof(path), name), F_OK) == 0) return 1;
+    FILE *ff = fopen(eth_driver_path(path, sizeof(path), name), "r");
+    if (ff) {
+        long started = -1;
+        if (fgets(line, sizeof(line), ff)) started = atol(line);
+        fclose(ff);
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        if (started < 0 || (long)ts.tv_sec - started < BG_JOB_MAX_SECS) return 1;
+        unlink(path);
+    }
     snprintf(name, sizeof(name), "%s.rc", tag);
     FILE *f = fopen(eth_driver_path(path, sizeof(path), name), "r");
     if (f) {
@@ -149,7 +169,7 @@ static cJSON *usb_storage_json(void) {
     cJSON *o = cJSON_CreateObject();
     cJSON_AddBoolToObject(o, "ok", 1);
     cJSON *missing = cJSON_CreateArray();
-    int present = 0, mounted = 0, offload = 0;
+    int present = 0, mounted = 0, offload = 0, other_stick = 0;
     long total = -1, avail = -1;
     char device[32] = "", fs[16] = "";
     FILE *f = fopen(eth_driver_path(path, sizeof(path), "usb_storage_state"), "r");
@@ -162,6 +182,7 @@ static cJSON *usb_storage_json(void) {
             if (strcmp(line, "present") == 0) present = atoi(v) == 1;
             else if (strcmp(line, "mounted") == 0) mounted = atoi(v) == 1;
             else if (strcmp(line, "offload") == 0) offload = atoi(v) == 1;
+            else if (strcmp(line, "other_stick") == 0) other_stick = atoi(v) == 1;
             else if (strcmp(line, "device") == 0 && is_safe_param(v, "")) snprintf(device, sizeof(device), "%s", v);
             else if (strcmp(line, "fs") == 0 && is_safe_param(v, "")) snprintf(fs, sizeof(fs), "%s", v);
             else if (strcmp(line, "total_kb") == 0 && v[0]) total = atol(v);
@@ -183,6 +204,8 @@ static cJSON *usb_storage_json(void) {
     if (avail >= 0) cJSON_AddNumberToObject(o, "free_kb", (double)avail);
     /* the flag file is the setting; the state file only mirrors it at the last scan */
     cJSON_AddBoolToObject(o, "offload", offload || access(config_store_path("config/usb_offload"), F_OK) == 0);
+    /* a stick other than the one the icons and plugins were moved to: mounted, not used */
+    cJSON_AddBoolToObject(o, "other_stick", other_stick);
     int rc, busy = bg_job_state("usb_storage", &rc);
     cJSON_AddBoolToObject(o, "busy", busy);
     if (!busy && rc > 0) cJSON_AddBoolToObject(o, "failed", 1);

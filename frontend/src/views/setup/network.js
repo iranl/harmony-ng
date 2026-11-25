@@ -140,7 +140,7 @@ export function createView() {
   let drvPoll = null;
   function ethDriverNotice(drv) {
     clearTimeout(drvPoll);
-    if (!drv || (!drv.slow && !drv.unsupported && !(drv.missing && drv.missing.length) && !drv.installing && !drv.install_failed)) return null;
+    if (!drv || (!drv.slow && !drv.unsupported && !(drv.missing && drv.missing.length) && !drv.installing && !drv.install_failed && !(drv.driver && drv.loaded === false))) return null;
     const id = drv.vid && drv.pid ? `${drv.vid}:${drv.pid}` : '';
     const driver = drv.driver || '';
     const box = h('div', { className: 'card', style: { margin: '8px 0 0', padding: '8px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' } });
@@ -157,15 +157,19 @@ export function createView() {
       box.appendChild(h('span', { text: t('eth_driver_unsupported', 'USB adapter {id} is not supported by this firmware.', { id }) }));
       return box;
     }
+    // files there but the module did not load (an old build): download it again
+    const notLoaded = !drv.install_failed && !(drv.missing && drv.missing.length);
     box.appendChild(h('span', {
       text: drv.install_failed
         ? t('eth_driver_failed', 'The Ethernet driver {driver} could not be downloaded.', { driver })
-        : t('eth_driver_missing', 'USB Ethernet adapter {id} found: its driver {driver} is not installed.', { id, driver }),
+        : notLoaded
+          ? t('eth_driver_not_loaded', 'The Ethernet driver {driver} is installed but could not be loaded.', { driver })
+          : t('eth_driver_missing', 'USB Ethernet adapter {id} found: its driver {driver} is not installed.', { id, driver }),
     }));
     if (driver) {
       const btn = h('button', {
         className: 'btn btn-primary btn-sm',
-        text: t('eth_driver_download_btn', 'Download driver'),
+        text: notLoaded ? t('eth_driver_redownload_btn', 'Download again') : t('eth_driver_download_btn', 'Download driver'),
         onclick: async () => {
           btn.disabled = true;
           try {

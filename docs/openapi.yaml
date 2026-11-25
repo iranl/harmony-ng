@@ -3888,21 +3888,22 @@ paths:
         archive, the custom icons and the plugins. present/mounted come from the last scan (boot
         and every USB plug in or out); missing lists USB storage modules that are not installed;
         offload is true while the icons and plugins are kept on the stick (without it the icons
-        answer 404 and no plugin is installed until it is back).
+        answer 404 and no plugin is installed until it is back); other_stick is true when the
+        mounted stick is not the one they were moved to (not used for them).
       responses:
         '200':
           description: USB storage state
           content:
             application/json:
-              example: {ok: true, present: true, mounted: true, device: sda1, fs: vfat, missing: [], total_kb: 7800000, free_kb: 7700000, offload: true, busy: false, message: ""}
+              example: {ok: true, present: true, mounted: true, device: sda1, fs: vfat, missing: [], total_kb: 7800000, free_kb: 7700000, offload: true, other_stick: false, busy: false, message: ""}
     post:
       tags:
         - System & Status
       summary: Run a USB storage action
       description: |
         scan, install (download scsi_mod, sd_mod and usb-storage from the update source, signed
-        manifest), eject, offload (copy the icons to the stick, check, then remove them from
-        flash), restore (copy them back). Runs in the background; GET shows busy until it ends.
+        manifest), eject, offload (copy the icons and plugins to the stick, read them back, then
+        remove them from flash), restore (check the room, copy them back; fails without changes). Runs in the background; GET shows busy until it ends.
       requestBody:
         required: true
         content:
@@ -3934,7 +3935,10 @@ paths:
         eth_driver with missing modules, this downloads the driver and the modules it needs from
         the update source (update_repo setting), checks them against the signed release manifest,
         installs them to /cache/modules and loads them. Runs in the background; eth_driver.installing
-        is true until it ends, and install_failed is set when it failed.
+        is true until it ends, and install_failed is set when it failed. Every module is
+        fetched, also an installed one that did not load (eth_driver.loaded false with nothing
+        missing). eth_driver.slow is true while a network device runs at full or low speed (USB
+        1.1): then no driver is loaded.
       requestBody:
         required: true
         content:
