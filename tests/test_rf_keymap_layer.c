@@ -4,11 +4,13 @@
  * A key bound as layer_toggle turns the slot's layer on and sends its "on" command, or off and
  * sends "off"; its release sends the release of that same command. While the layer is on, the
  * keys of map "layers" -> <activity> come before the activity's own. The layer belongs to the
- * activity it was turned on in: another activity, or none, turns it off. The API functions set
- * and read it without sending anything.
+ * activity it was turned on in: another activity, or none, turns it off, and so does every switch
+ * the daemon counts, also one that ends in the same activity. The API functions set and read it
+ * without sending anything.
  *
  * As in test_rf_keymap_fallback.c, fopen() is wrapped (-Wl,--wrap=fopen) for the map, the
- * current activity and the state of a switch, and the sends are recorded from http_post_local().
+ * current activity, the state of a switch and the count of switches, and the sends are recorded
+ * from http_post_local(). The clock is the test's (s_now_ms).
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,7 +21,8 @@
 #include "rf_keymap.h"
 
 volatile bool g_running = true;
-uint64_t get_monotonic_ms(void) { return 0; }
+static uint64_t s_now_ms = 1000;
+uint64_t get_monotonic_ms(void) { return s_now_ms; }
 void mark_remote_slot_active(uint8_t slot) { (void)slot; }
 void rf_note_slot_family(uint8_t slot, remote_model_t family) { (void)slot; (void)family; }
 bool is_companion_slot(uint8_t slot) { (void)slot; return false; }
@@ -28,6 +31,7 @@ static char s_dir[64];
 static char s_map_path[128];
 static char s_act_path[128];
 static char s_state_path[128];
+static char s_switches_path[128];
 static char s_sock_path[128];
 
 FILE *__real_fopen(const char *path, const char *mode);
@@ -36,6 +40,7 @@ FILE *__wrap_fopen(const char *path, const char *mode) {
     if (path && (strcmp(path, "/tmp/current_activity") == 0 ||
                  strcmp(path, "/data/harmony/current_activity") == 0)) return __real_fopen(s_act_path, mode);
     if (path && strcmp(path, "/tmp/activity_state") == 0) return __real_fopen(s_state_path, mode);
+    if (path && strcmp(path, "/tmp/activity_switches") == 0) return __real_fopen(s_switches_path, mode);
     if (path && strncmp(path, "/data/", 6) == 0) return NULL;
     return __real_fopen(path, mode);
 }
@@ -62,6 +67,19 @@ static void write_file(const char *path, const char *text) {
 }
 
 static int failures;
+
+/* The daemon begins a switch: one more in its count (orchestrator.c note_activity_switch()) */
+static unsigned long s_switches;
+static void daemon_switch(void) {
+    char line[24];
+    snprintf(line, sizeof(line), "%lu\n", ++s_switches);
+    write_file(s_switches_path, line);
+}
+
+static void expect_poweroffs(const char *what, int want) {
+    printf("[%s] %s (poweroffs=%d)\n", s_poweroffs == want ? "+" : "-", what, s_poweroffs);
+    if (s_poweroffs != want) failures++;
+}
 
 /* Sends key on slot 2 (press or release); want_cmd NULL = nothing sent */
 static void check(const char *what, const char *key, const char *action, const char *want_dev, const char *want_cmd) {
@@ -113,6 +131,7 @@ int main(void) {
     snprintf(s_map_path, sizeof(s_map_path), "%s/map.json", s_dir);
     snprintf(s_act_path, sizeof(s_act_path), "%s/current_activity", s_dir);
     snprintf(s_state_path, sizeof(s_state_path), "%s/activity_state", s_dir);
+    snprintf(s_switches_path, sizeof(s_switches_path), "%s/activity_switches", s_dir);
     snprintf(s_sock_path, sizeof(s_sock_path), "%s/no_key_channel.sock", s_dir);
     g_rf_key_sock_path = s_sock_path;
 
@@ -247,9 +266,58 @@ int main(void) {
     rf_keymap_layer_set(2, 0, NULL);
     s_poweroffs = 0;
     check("Off pressed again with the layer off sends no key", "PowerOffActivity", "press", NULL, NULL);
-    check("nor its hold: the earlier press is over", "PowerOffActivity", "hold", NULL, NULL);
-    printf("[%s] both stop the activity (poweroffs=%d)\n", s_poweroffs == 2 ? "+" : "-", s_poweroffs);
-    if (s_poweroffs != 2) failures++;
+    expect_poweroffs("and stops the activity: the earlier press is over", 1);
+    check("nor its hold", "PowerOffActivity", "hold", NULL, NULL);
+    expect_poweroffs("which stops nothing again", 1);
+    check("released", "PowerOffActivity", "release", NULL, NULL);
+
+    /* Off stops the activity once for a press, however long it is held, also while the remote
+       browses a device; the next press stops it again. A hold whose press was lost is the press. */
+    s_poweroffs = 0;
+    check("Off pressed, no layer on", "PowerOffActivity", "press", NULL, NULL);
+    check("held", "PowerOffActivity", "hold", NULL, NULL);
+    check("held on", "PowerOffActivity", "hold", NULL, NULL);
+    check("released", "PowerOffActivity", "release", NULL, NULL);
+    expect_poweroffs("one stop for the press and its holds", 1);
+    dispatch_remote_button(2, "PowerOffActivity", "press", "5");
+    dispatch_remote_button(2, "PowerOffActivity", "hold", "5");
+    dispatch_remote_button(2, "PowerOffActivity", "hold", "5");
+    dispatch_remote_button(2, "PowerOffActivity", "release", "5");
+    expect_poweroffs("and one for a press held while browsing a device", 2);
+    check("Off held, its press lost", "PowerOffActivity", "hold", NULL, NULL);
+    check("held on", "PowerOffActivity", "hold", NULL, NULL);
+    check("released", "PowerOffActivity", "release", NULL, NULL);
+    expect_poweroffs("stops the activity once", 3);
+    check("the next press", "PowerOffActivity", "press", NULL, NULL);
+    check("released", "PowerOffActivity", "release", NULL, NULL);
+    expect_poweroffs("stops it again", 4);
+
+    /* A press whose release was lost is over for holds that come 2 s after the key's last frame:
+       they belong to a press that was lost too, and are the current mapping's. Holds that keep
+       coming keep the press, and a release always ends it where it went. */
+    rf_keymap_layer_set(2, 1, "amp");
+    check("arrow pressed with the amp's layer on, never released", "DirectionUp", "press", "5", "DirectionUp");
+    rf_keymap_layer_set(2, 0, NULL);
+    s_now_ms += 1500;
+    check("a hold 1.5 s later is still that press's", "DirectionUp", "hold", "5", "DirectionUp");
+    s_now_ms += 1500;
+    check("and so is the next, 1.5 s after it", "DirectionUp", "hold", "5", "DirectionUp");
+    s_now_ms += 2001;
+    check("a hold 2 s after the last one is the activity's arrow", "DirectionUp", "hold", "2", "Up");
+    check("and so is its release", "DirectionUp", "release", "2", "Up");
+    rf_keymap_layer_set(2, 1, "amp");
+    check("arrow pressed with the amp's layer on", "DirectionUp", "press", "5", "DirectionUp");
+    rf_keymap_layer_set(2, 0, NULL);
+    s_now_ms += 60000;
+    check("its release a minute later still goes to the amp", "DirectionUp", "release", "5", "DirectionUp");
+    rf_keymap_layer_set(2, 1, "quiet");
+    s_poweroffs = 0;
+    check("Off pressed, bound to nothing, never released", "PowerOffActivity", "press", NULL, NULL);
+    rf_keymap_layer_set(2, 0, NULL);
+    s_now_ms += 2001;
+    check("an Off hold 2 s later is a press of its own", "PowerOffActivity", "hold", NULL, NULL);
+    check("released", "PowerOffActivity", "release", NULL, NULL);
+    expect_poweroffs("and stops the activity", 1);
 
     /* A key whose press sent nothing: its holds and its release send nothing, whatever the layer
        or the activity binds by then */
@@ -270,8 +338,8 @@ int main(void) {
     check("held, it starts nothing again", "Red", "hold", NULL, NULL);
     check("released", "Red", "release", NULL, NULL);
 
-    /* While an activity is being started or stopped no layer comes on: the switch turned the
-       layers off when it began (rf_sync.c), also a switch to the activity that already runs */
+    /* While an activity is being started or stopped no layer comes on, also during a switch to
+       the activity that already runs */
     write_file(s_state_path, "starting\n");
     check("during a switch Guide sends nothing", "Guide", "press", NULL, NULL);
     check("nor its release", "Guide", "release", NULL, NULL);
@@ -292,13 +360,70 @@ int main(void) {
     expect_layer("and it is off", 0, "");
     write_file(s_state_path, "running\n");
 
-    /* The activity changing turns every layer off (rf_sync.c calls this), so a layer does not
-       come back with the same activity started again */
+    /* A switch the daemon begins turns the layer off, also one that ends in the same activity
+       and is over before anything here looks (the same activity started again) */
     rf_keymap_layer_set(2, 1, "amp");
-    rf_keymap_layers_off();
-    expect_layer("layers off when the activity changes", 0, "");
+    daemon_switch();
+    expect_layer("the same activity started again: the layer is off", 0, "");
     check("and the arrow is the activity's", "DirectionUp", "press", "2", "Up");
     check("released", "DirectionUp", "release", "2", "Up");
+    check("Guide turns the activity's own layer on", "Guide", "press", "3", "Green");
+    check("released", "Guide", "release", "3", "Green");
+    daemon_switch();
+    check("after a switch the arrow is the activity's, with no read in between", "DirectionUp", "press", "2", "Up");
+    check("released", "DirectionUp", "release", "2", "Up");
+    check("and Guide sends its on command again", "Guide", "press", "3", "Green");
+    check("released", "Guide", "release", "3", "Green");
+    rf_keymap_layer_set(2, 0, NULL);
+    rf_keymap_layer_set(2, 1, "amp");
+    daemon_switch();
+    s_poweroffs = 0;
+    check("after a switch Off is no longer the amp's power", "PowerOffActivity", "press", NULL, NULL);
+    check("released", "PowerOffActivity", "release", NULL, NULL);
+    expect_poweroffs("it stops the activity", 1);
+    /* A layer turned on after a switch stays on, whenever the rest of hub_rf notices the switch:
+       nothing but the next switch turns it off. Activity 1 to 2 and back, the layer turned on
+       in between each. */
+    daemon_switch();
+    write_file(s_state_path, "starting\n");
+    write_file(s_act_path, "2\n");
+    write_file(s_state_path, "running\n");
+    daemon_switch();
+    write_file(s_state_path, "starting\n");
+    write_file(s_act_path, "1\n");
+    write_file(s_state_path, "running\n");
+    check("after two switches Guide turns the layer on", "Guide", "press", "3", "Green");
+    check("released", "Guide", "release", "3", "Green");
+    expect_layer("the layer is on", 1, "1");
+    check("and stays on: the arrow is the layer's", "DirectionUp", "press", "3", "DirectionUp");
+    check("released", "DirectionUp", "release", "3", "DirectionUp");
+    expect_layer("still on at the next read", 1, "1");
+    /* and a layer turned on through the API after a switch goes off with the next one */
+    rf_keymap_layer_set(2, 0, NULL);
+    rf_keymap_layer_set(2, 1, "amp");
+    expect_layer_named("the amp's layer is on", 1, "1", "amp");
+    daemon_switch();
+    expect_layer("and off with the next switch", 0, "");
+
+    /* Off with a name turns off that layer only: another one that is on stays, and so does the
+       activity's own. A name the map lacks is refused, on or off. */
+    rf_keymap_layer_set(2, 1, "amp");
+    int other = rf_keymap_layer_set(2, 0, "quiet");
+    printf("[%s] off for another named layer is taken (rc=%d)\n", other == 0 ? "+" : "-", other);
+    if (other != 0) failures++;
+    expect_layer_named("and leaves the amp's layer on", 1, "1", "amp");
+    int off_typo = rf_keymap_layer_set(2, 0, "typo");
+    printf("[%s] off for a layer the map lacks is refused (rc=%d)\n", off_typo == -1 ? "+" : "-", off_typo);
+    if (off_typo != -1) failures++;
+    expect_layer_named("and leaves the amp's layer on", 1, "1", "amp");
+    rf_keymap_layer_set(2, 0, "amp");
+    expect_layer("off for the layer that is on turns it off", 0, "");
+    rf_keymap_layer_set(2, 1, NULL);
+    rf_keymap_layer_set(2, 0, "amp");
+    expect_layer("off for the amp's layer leaves the activity's own on", 1, "1");
+    rf_keymap_layer_set(2, 1, "amp");
+    rf_keymap_layer_set(2, 0, NULL);
+    expect_layer("off with no name turns off whatever layer is on", 0, "");
 
     /* Names: a layer the map lacks, and digits only (an activity's own layer), are refused */
     int missing = rf_keymap_layer_set(2, 1, "typo");
@@ -344,6 +469,7 @@ int main(void) {
     unlink(s_map_path);
     unlink(s_act_path);
     unlink(s_state_path);
+    unlink(s_switches_path);
     rmdir(s_dir);
     if (failures) {
         printf("[-] test_rf_keymap_layer: %d failure(s)\n", failures);

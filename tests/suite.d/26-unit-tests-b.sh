@@ -128,6 +128,8 @@ python3 "$SCRIPT_DIR/test_bt_power_link.py"
 # Legacy web UI modules import the functions they call (no build step reports a missing import)
 python3 "$SCRIPT_DIR/test_ui_imports.py"
 python3 "$SCRIPT_DIR/test_activity_queue.py"
+# Every switch the daemon begins is counted for hub_rf (a remote's key layer ends with it)
+python3 "$SCRIPT_DIR/test_activity_switches.py"
 python3 "$SCRIPT_DIR/test_activity_restore.py"
 python3 "$SCRIPT_DIR/test_activity_switch_timing.py"
 python3 "$SCRIPT_DIR/test_activity_save_match.py"

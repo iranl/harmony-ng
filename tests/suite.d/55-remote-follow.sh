@@ -12,6 +12,11 @@ build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_keymap
     "$SCRIPT_DIR/test_rf_keymap_layer.c" "$REPO_ROOT/payload/source/rf_keymap.c" "$REPO_ROOT/payload/source/cJSON.c" \
     -Wl,--wrap=fopen -lpthread -lm
 "$BUILD_DIR/test_rf_keymap_layer"
+# tests/run_tests.sh builds the RF loopback test with its own stubs for rf_api.c: it must still link (it is
+# not run here, it binds hub_rf's port)
+build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_loopback_links" \
+    "$SCRIPT_DIR/test_rf_loopback.c" "$REPO_ROOT/payload/source/rf_state.c" "$REPO_ROOT/payload/source/rf_api.c" \
+    "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm
 if command -v node >/dev/null 2>&1; then node "$SCRIPT_DIR/test_frontend_key_fallback.mjs"; else echo "    (node not found, test_frontend_key_fallback.mjs skipped)"; fi
 
 # The remote follows a Hub activity change only on home and activity screens; Settings, pairing

@@ -51,6 +51,16 @@ void *rf_ota_sender_worker(void *arg) { (void)arg; return NULL; }
 void rf_keymap_invalidate_devices_cache(void) {}
 void rf_keymap_invalidate_activities_cache(void) {}
 void rf_keymap_invalidate_map(uint8_t slot) { (void)slot; }
+void rf_config_version_bump(void) {}
+int is_activity_transitioning(void) { return 0; }
+/* the key layer API (GET/POST /api/rf/layer): no layer here */
+int rf_keymap_layer_active(uint8_t slot, char *act_out, size_t act_len, char *name_out, size_t name_len) {
+    (void)slot;
+    if (act_out && act_len) act_out[0] = '\0';
+    if (name_out && name_len) name_out[0] = '\0';
+    return 0;
+}
+int rf_keymap_layer_set(uint8_t slot, int on, const char *name) { (void)slot; (void)on; (void)name; return 0; }
 
 int main(void) {
     pthread_t th;

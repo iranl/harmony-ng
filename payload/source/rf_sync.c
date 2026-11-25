@@ -667,7 +667,6 @@ void *activity_sync_worker(void *arg) {
                 /* The target file follows the state file: no notice until it is there */
                 if (get_activity_target(target, sizeof(target)) && strcmp(target, started) != 0) {
                     snprintf(started, sizeof(started), "%s", target);
-                    rf_keymap_layers_off(); /* a key layer belongs to the activity it was turned on in */
                     printf("[*] RF activity switch starting: target=%s\n", target);
                     rf_send_hub_activity_sync_state(target, ++g_tx_seq, RF_ACT_SYNC_STARTING);
                 }
@@ -677,7 +676,6 @@ void *activity_sync_worker(void *arg) {
                 /* Also after a switch that ended on the same activity: it closes the remotes'
                    switch screen */
                 if (started[0] || strcmp(cur_act, last_act) != 0) {
-                    rf_keymap_layers_off();
                     started[0] = '\0';
                     snprintf(last_act, sizeof(last_act), "%s", cur_act);
                     rf_send_hub_activity_sync_state(cur_act, ++g_tx_seq, RF_ACT_SYNC_COMPLETE);

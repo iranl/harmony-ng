@@ -66,6 +66,5 @@ int rf_keymap_layer_set(uint8_t slot, int on, const char *name) {
     snprintf(g_stub_layer_name, sizeof(g_stub_layer_name), "%s", name ? name : "");
     return (name && strcmp(name, "refused") == 0) ? -1 : 0;
 }
-void rf_keymap_layers_off(void) {}
 
 #endif

@@ -1997,17 +1997,21 @@ not one of them, as `"devices"` is not.
   running the key sends nothing.
 - **A named layer** is `layers` → `<name>` (letters, digits, `_` and `-`, at most 23 characters, not digits only: those
   are the activities' own), for any activity. It is turned on through `POST /api/rf/layer`. A `layer_toggle` key pressed while any layer is on turns it off and sends `off`.
-- **Off** (`PowerOffActivity`) stops the activity, unless the layer that is on binds it: then it is that binding, for
-  the press and for its holds (bound to `{}`, Off does nothing). This is for the remotes that send Off as a key, the
+- **Off** (`PowerOffActivity`) stops the activity, once for a press however long it is held, unless the layer that is
+  on binds it: then it is that binding, for the press and for its holds (bound to `{}`, Off does nothing). This is for the remotes that send Off as a key, the
   Companion and the Smart Control. A touchscreen remote (Elite, Ultimate) stops the activity itself when Off is
   pressed and does not send the key, so a layer's Off binding never runs there.
 - **A key's holds and its release** send the command its press sent, also when the layer or the activity has changed
   in between, so no device is left with a key held. A key whose press sent no command sends none while it is held
-  or when it is released, and a key that starts an activity starts it once, however long it is held.
-- A layer belongs to the activity it was turned on in: every slot's layer goes off when the activity changes, stops or
-  is switched, also when the same activity is started again. While an activity is being started or stopped no layer
-  comes on: a `layer_toggle` key then sends nothing, unless a layer is still on, which it turns off. It is kept in
-  memory only, so it is off after `hub_rf` restarts.
+  or when it is released, and a key that starts an activity starts it once, however long it is held. A hold that
+  comes 2 s or more after the key's last press or hold is no longer that press's (its release was lost): it is looked
+  up as the key is bound then.
+- A layer belongs to the run of the activity it was turned on in: every slot's layer goes off when the Hub begins a
+  switch, to another activity, to none (a stop) or to the same activity again. The daemon counts the switches it
+  begins in `/tmp/activity_switches`, and `hub_rf` checks that count at every key and every read, so a layer turned
+  on after a switch stays on until the next one. While an activity is being started or stopped no layer comes on: a
+  `layer_toggle` key then sends nothing, unless a layer is still on, which it turns off. It is kept in memory only,
+  so it is off after `hub_rf` restarts.
 ```json
 {
   "activities": {
@@ -2032,7 +2036,9 @@ Reads every slot's key layer, or sets one without sending any key. Open to the `
 `HEAD` is not routed.
 - **Query Parameters** (POST): `slot` (1 to 6), `on` (`1` on, `0` off), `name` (optional: a named layer; left out or
   empty, the running activity's own). `on=1` with no activity running, or while one is being started or stopped,
-  leaves the layer off.
+  leaves the layer off. `on=0` with a `name` turns off that layer only: when another layer is on, or none, nothing
+  changes (still `200`); `on=0` without a `name` turns off whatever layer is on. A `name` the slot's mapping lacks is
+  a `400` with either.
 - **Response `200 OK`** (both methods): each slot's state; `activity` is the activity the layer was turned on in and
   `name` its name, both `""` when it is off or the activity's own.
   ```json
