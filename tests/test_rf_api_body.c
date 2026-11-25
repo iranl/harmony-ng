@@ -41,6 +41,28 @@ int main(void) {
     CHECK(status_of(tail, 4095) == 400, "Content-Length with trailing junk: 400");
     const char *zero = "POST /api/rf/remote-direct-buttons?slot=1 HTTP/1.1\r\nContent-Length: 0\r\n\r\n";
     CHECK(status_of(zero, 4095) == 0, "Content-Length 0: accepted");
+
+    /* POST /api/rf/layer: one slot, "on" 0 or 1, and a name the keymap takes; else 400 and
+     * nothing set */
+#define LAYER(q) rf_api_layer_post("POST /api/rf/layer" q " HTTP/1.1\r\nHost: x\r\n\r\n")
+    CHECK(LAYER("?slot=2&on=1&name=amp") == 0 && g_stub_layer_slot == 2 && g_stub_layer_on == 1 &&
+          strcmp(g_stub_layer_name, "amp") == 0, "layer: slot, on and name reach the keymap");
+    CHECK(LAYER("?slot=1&on=0") == 0 && g_stub_layer_slot == 1 && g_stub_layer_on == 0 &&
+          g_stub_layer_name[0] == '\0', "layer: off, no name");
+    int calls = g_stub_layer_calls;
+    CHECK(LAYER("?on=1") == 400, "layer: no slot: 400");
+    CHECK(LAYER("?slot=1") == 400, "layer: no on: 400");
+    CHECK(LAYER("") == 400, "layer: no query: 400");
+    CHECK(LAYER("?slot=257&on=1") == 400, "layer: slot 257 is not slot 1: 400");
+    CHECK(LAYER("?slot=1x&on=1") == 400, "layer: slot 1x: 400");
+    CHECK(LAYER("?slot=0&on=1") == 400 && LAYER("?slot=all&on=1") == 400, "layer: every slot at once: 400");
+    CHECK(LAYER("?slot=7&on=1") == 400, "layer: slot past the last: 400");
+    CHECK(LAYER("?slot=1&on=2") == 400 && LAYER("?slot=1&on=yes") == 400 && LAYER("?slot=1&on=") == 400,
+          "layer: on other than 0 or 1: 400");
+    CHECK(LAYER("?slot=1&on=1&name=a-name-longer-than-any-layer-name-can-be") == 400, "layer: a name too long: 400");
+    CHECK(g_stub_layer_calls == calls, "layer: none of those reached the keymap");
+    CHECK(LAYER("?slot=1&on=1&name=refused") == 400, "layer: a name the keymap refuses: 400");
+
     if (g_failures) return 1;
     printf("[+] hub_rf API request bodies: all checks passed\n");
     return 0;

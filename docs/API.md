@@ -1990,13 +1990,18 @@ keeps the activity's, and a key it binds to `{}` sends nothing. So a few keys ca
 such as the arrows, OK and Back driving a TV's own menu during an activity that sends them to a set-top box.
 - **The activity's own layer** is `layers` → `<activity id>`. A key bound as
   `{"action": "layer_toggle", "on": {"deviceId": "3", "command": "Green"}, "off": {"deviceId": "3", "command": "Blue"}}`
-  turns it on and sends `on`; pressed again, it turns the layer off and sends `off`. The release sends the release of
-  the same command. Bind it in the activity, not in the layer.
-- **A named layer** is `layers` → `<name>` (letters, digits, `_` and `-`, at most 23 characters), for any activity. It is
-  turned on through `POST /api/rf/layer`. A `layer_toggle` key pressed while any layer is on turns it off and sends `off`.
-- **Off** (`PowerOffActivity`) stops the activity, unless the layer that is on binds it: then it is that binding.
-- A layer belongs to the activity it was turned on in: it is off once another activity, or none, runs. It is kept in
-  memory only, so it is off after `hub_rf` restarts.
+  turns it on and sends `on`; pressed again, it turns the layer off and sends `off`. Held, it turns the layer over once:
+  the holds and the release send the command of the press. Bind it in the activity, not in the layer. With no activity
+  running the key sends nothing.
+- **A named layer** is `layers` → `<name>` (letters, digits, `_` and `-`, at most 23 characters, not digits only: those
+  are the activities' own), for any activity. It is turned on through `POST /api/rf/layer`. A `layer_toggle` key pressed while any layer is on turns it off and sends `off`.
+- **Off** (`PowerOffActivity`) stops the activity, unless the layer that is on binds it: then it is that binding. While
+  a touchscreen remote browses a device, Off always stops the activity.
+- **A key's holds and its release** send the command its press sent, also when the layer or the activity has changed
+  in between, so no device is left with a key held.
+- A layer belongs to the activity it was turned on in: every slot's layer goes off when the activity changes, stops or
+  is switched, also when the same activity is started again. It is kept in memory only, so it is off after `hub_rf`
+  restarts.
 ```json
 {
   "activities": {
@@ -2017,7 +2022,8 @@ such as the arrows, OK and Back driving a TV's own menu during an activity that 
 ```
 
 #### `GET /api/rf/layer` or `POST /api/rf/layer?slot={1..6}&on={0|1}[&name={layer}]`
-Reads every slot's key layer, or sets one without sending any key. Open to the `user` role (11.5), as a key press is.
+Reads every slot's key layer, or sets one without sending any key. Open to the `user` role (11.5), as a key press is;
+`HEAD` is not routed.
 - **Query Parameters** (POST): `slot` (1 to 6), `on` (`1` on, `0` off), `name` (optional: a named layer; left out or
   empty, the running activity's own). `on=1` with no activity running leaves the layer off.
 - **Response `200 OK`** (both methods): each slot's state; `activity` is the activity the layer was turned on in and
@@ -2027,7 +2033,9 @@ Reads every slot's key layer, or sets one without sending any key. Open to the `
                          {"slot": 2, "on": true, "activity": "1", "name": "amp"}]}
   ```
   The list has an entry for each of the 6 slots.
-- **Response `400`**: a slot outside 1 to 6 or a name with other characters; the body is the same, with `"ok": false`.
+- **Response `400`** (POST): no `slot` or one outside 1 to 6, no `on` or one other than `0` or `1`, or a name that has
+  other characters, is digits only, or is not a layer of the slot's mapping. Nothing is changed; the body is the same,
+  with `"ok": false`.
 
 #### `POST /api/rf-mapping-copy?from={1..6}&to={1..6}`
 Copies entire button mapping configuration from one remote slot to another.
@@ -3084,7 +3092,7 @@ With authentication on, each request is checked before its route runs:
 
   | Method | Paths |
   | --- | --- |
-  | `GET`, `HEAD` | `/api/status`, `/api/auth/me`, `/api/activities`, `/api/activity`, `/api/current_activity`, `/api/devices`, `/api/inventory`, `/api/icons`, `/api/icons/...`, `/api/icons/archive`, `/api/custom-icons`, `/api/ui-remote-layout`, `/api/rf/layer`, `/assets/...` |
+  | `GET`, `HEAD` | `/api/status`, `/api/auth/me`, `/api/activities`, `/api/activity`, `/api/current_activity`, `/api/devices`, `/api/inventory`, `/api/icons`, `/api/icons/...`, `/api/icons/archive`, `/api/custom-icons`, `/api/ui-remote-layout`, `/api/rf/layer` (`GET` only), `/assets/...` |
   | `POST` | `/api/auth/logout`, `/api/activity`, `/api/activity-start`, `/api/activity-stop`, `/api/poweroff`, `/api/activity-cancel`, `/api/ir-send`, `/ir/send`, `/api/ir-raw`, `/api/button-press`, `/api/mqtt-publish`, `/api/bt-key`, `/api/bt-text`, `/api/bt-mouse`, `/api/v1/bt/mouse`, `/api/rf/layer` |
 
   `/api/bt-key` and `/api/bt-text` are not REST routes: the two entries only decide whether a

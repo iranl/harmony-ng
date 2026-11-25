@@ -654,7 +654,8 @@ int http_auth_is_user_role_permitted(const char *method, const char *clean_path)
             strcmp(clean_path, "/api/icons/archive") == 0 ||
             strcmp(clean_path, "/api/custom-icons") == 0 ||
             strcmp(clean_path, "/api/ui-remote-layout") == 0 ||
-            strcmp(clean_path, "/api/rf/layer") == 0 ||
+            /* a remote's key layers: hub_rf routes GET only, so no HEAD */
+            (strcmp(clean_path, "/api/rf/layer") == 0 && strcmp(method, "GET") == 0) ||
             strcmp(clean_path, "/assets/icons.tar.gz") == 0 ||
             strncmp(clean_path, "/api/icons/", 11) == 0 ||
             strncmp(clean_path, "/assets/", 8) == 0) {

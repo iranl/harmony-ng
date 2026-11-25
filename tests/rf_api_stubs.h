@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
+#include <stdio.h>
+#include <string.h>
 
 bool is_ota_busy(void) { return false; }
 bool is_slot_direct_mode(int slot) { (void)slot; return false; }
@@ -52,6 +54,16 @@ int rf_keymap_layer_active(uint8_t slot, char *act_out, size_t act_len, char *na
     if (name_out && name_len) name_out[0] = '\0';
     return 0;
 }
-int rf_keymap_layer_set(uint8_t slot, int on, const char *name) { (void)slot; (void)on; (void)name; return 0; }
+/* what the last call asked for; a name "refused" is refused, as the keymap would a bad one */
+int g_stub_layer_slot = -1, g_stub_layer_on = -1, g_stub_layer_calls = 0;
+char g_stub_layer_name[32];
+int rf_keymap_layer_set(uint8_t slot, int on, const char *name) {
+    g_stub_layer_slot = slot;
+    g_stub_layer_on = on;
+    g_stub_layer_calls++;
+    snprintf(g_stub_layer_name, sizeof(g_stub_layer_name), "%s", name ? name : "");
+    return (name && strcmp(name, "refused") == 0) ? -1 : 0;
+}
+void rf_keymap_layers_off(void) {}
 
 #endif

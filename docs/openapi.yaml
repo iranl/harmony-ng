@@ -3420,7 +3420,7 @@ paths:
                     activity: ''
                     name: ''
         '400':
-          description: A slot outside 1 to 6, or a name with characters other than letters, digits, _ and -
+          description: No slot or one outside 1 to 6, no 'on' or one other than 0 or 1, or a name with other characters than letters, digits, _ and -, of digits only, or not a layer of the slot's mapping
   /api/rf/push-config:
     get:
       tags:

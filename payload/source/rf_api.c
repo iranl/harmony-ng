@@ -72,6 +72,18 @@ static int query_param(const char *buf, const char *key, char *out, size_t out_s
 /* The slot of a request: from the query (slot=1 to MAX_PAIRED_REMOTES, or 0 / all for every
  * remote), else from a JSON body ("slot": 0 to MAX_PAIRED_REMOTES). The whole request used to be searched for "slot=2" and
  * "slot=1", so a slot in another form or a typing error meant "all remotes" for unpair. */
+static int req_slot(const char *buf);
+
+int rf_api_layer_post(const char *buf) {
+    char ov[8] = "", nv[32] = "";
+    int slot = req_slot(buf);
+    int has_on = query_param(buf, "on", ov, sizeof(ov));
+    int has_name = query_param(buf, "name", nv, sizeof(nv));
+    if (slot < 1 || !has_on || (strcmp(ov, "0") != 0 && strcmp(ov, "1") != 0)) return 400;
+    if (has_name && strlen(nv) >= sizeof(nv) - 1) return 400; /* cut: longer than any layer name */
+    return rf_keymap_layer_set((uint8_t)slot, ov[0] == '1', nv) == 0 ? 0 : 400;
+}
+
 static int req_slot(const char *buf) {
     char v[16];
     if (query_param(buf, "slot", v, sizeof(v))) {
@@ -453,14 +465,10 @@ void *api_server_worker(void *arg) {
             } else if (route_is(buf, "GET /api/rf/layer") || route_is(buf, "POST /api/rf/layer")) {
                 /* The key layers (rf_keymap.h): POST ?slot=N&on=0|1[&name=] turns one off, or on in
                  * the running activity (the activity's own, or the named one), without sending
-                 * anything; both answer every slot's state, a bad slot or name 400 */
-                char sv[8], ov[8], nv[32] = "";
-                int bad = 0;
-                if (route_is(buf, "POST /api/rf/layer") && query_param(buf, "slot", sv, sizeof(sv)) &&
-                    query_param(buf, "on", ov, sizeof(ov))) {
-                    query_param(buf, "name", nv, sizeof(nv));
-                    bad = rf_keymap_layer_set((uint8_t)atoi(sv), atoi(ov) != 0, nv) != 0;
-                }
+                 * anything; both answer every slot's state. 400 for a POST without one slot
+                 * (1 to MAX_PAIRED_REMOTES), with an "on" other than 0 or 1, or a name that is
+                 * not allowed or not in the slot's map. */
+                int bad = route_is(buf, "POST /api/rf/layer") && rf_api_layer_post(buf) != 0;
                 /* Activity ids and layer names hold no character JSON would need escaped */
                 char res[256 + MAX_PAIRED_REMOTES * 128];
                 int rlen = snprintf(res, sizeof(res),

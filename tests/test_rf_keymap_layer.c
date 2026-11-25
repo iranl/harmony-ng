@@ -163,8 +163,57 @@ int main(void) {
     check("so Off sends no key there", "PowerOffActivity", "press", NULL, NULL);
     printf("[%s] and stops the activity (poweroffs=%d)\n", s_poweroffs == 2 ? "+" : "-", s_poweroffs);
     if (s_poweroffs != 2) failures++;
-    check("Guide off again", "Guide", "press", "3", "Blue");
-    expect_layer("every layer is off", 0, "");
+    expect_layer("and with it the layer is off: the activity stops", 0, "");
+
+    /* Off while the remote browses a device stops the activity, whatever the layer binds */
+    rf_keymap_layer_set(2, 1, "amp");
+    s_sends = 0;
+    dispatch_remote_button(2, "PowerOffActivity", "press", "5");
+    printf("[%s] Off while browsing a device stops the activity (poweroffs=%d, sends=%d)\n",
+           (s_poweroffs == 3 && s_sends == 0) ? "+" : "-", s_poweroffs, s_sends);
+    if (s_poweroffs != 3 || s_sends != 0) failures++;
+    expect_layer("and the layer is off", 0, "");
+
+    /* A held Guide turns the layer over once: its holds repeat the command of the press */
+    check("Guide pressed: on", "Guide", "press", "3", "Green");
+    check("Guide held: the same command", "Guide", "hold", "3", "Green");
+    check("Guide held on: still the same", "Guide", "hold", "3", "Green");
+    expect_layer("the layer is on, not turned over by the holds", 1, "1");
+    check("Guide released", "Guide", "release", "3", "Green");
+    expect_layer("and still on after the release", 1, "1");
+
+    /* A key's release goes where its press went, also once the layer is off */
+    check("arrow pressed with the layer on", "DirectionUp", "press", "3", "DirectionUp");
+    rf_keymap_layer_set(2, 0, NULL);
+    check("its hold after the layer went off", "DirectionUp", "hold", "3", "DirectionUp");
+    check("its release after the layer went off", "DirectionUp", "release", "3", "DirectionUp");
+    check("the next press is the activity's", "DirectionUp", "press", "2", "Up");
+    rf_keymap_layer_set(2, 1, NULL);
+    check("its release after the layer came on", "DirectionUp", "release", "2", "Up");
+    rf_keymap_layer_set(2, 1, "amp");
+    s_poweroffs = 0;
+    check("Off pressed with the amp's layer on", "PowerOffActivity", "press", "5", "PowerToggle");
+    rf_keymap_layer_set(2, 0, NULL);
+    check("Off held after the layer went off is still the amp's", "PowerOffActivity", "hold", "5", "PowerToggle");
+    check("and so is its release", "PowerOffActivity", "release", "5", "PowerToggle");
+    printf("[%s] the activity was not stopped by that press (poweroffs=%d)\n", s_poweroffs == 0 ? "+" : "-", s_poweroffs);
+    if (s_poweroffs != 0) failures++;
+
+    /* The activity changing turns every layer off (rf_sync.c calls this), so a layer does not
+       come back with the same activity started again */
+    rf_keymap_layer_set(2, 1, "amp");
+    rf_keymap_layers_off();
+    expect_layer("layers off when the activity changes", 0, "");
+    check("and the arrow is the activity's", "DirectionUp", "press", "2", "Up");
+    check("released", "DirectionUp", "release", "2", "Up");
+
+    /* Names: a layer the map lacks, and digits only (an activity's own layer), are refused */
+    int missing = rf_keymap_layer_set(2, 1, "typo");
+    int digits = rf_keymap_layer_set(2, 1, "2");
+    printf("[%s] a layer the map lacks and a name of digits are refused (rc=%d, %d)\n",
+           (missing == -1 && digits == -1) ? "+" : "-", missing, digits);
+    if (missing != -1 || digits != -1) failures++;
+    expect_layer("and no layer is on", 0, "");
     check("Guide again turns the activity's own layer on", "Guide", "press", "3", "Green");
     expect_layer("the activity's own layer", 1, "1");
     check("its arrow is the menu layer's", "DirectionUp", "press", "3", "DirectionUp");
@@ -185,6 +234,15 @@ int main(void) {
     write_file(s_act_path, "-1\n");
     rf_keymap_layer_set(2, 1, NULL);
     expect_layer("API on with no activity running stays off", 0, "");
+    /* Nothing runs: a layer_toggle key reached through the map's fallback has no layer to turn
+       on, and sends nothing */
+    write_file(s_map_path,
+        "{\"activities\":{\"-1\":{\"Guide\":{\"action\":\"layer_toggle\",\"on\":{\"deviceId\":\"3\",\"command\":\"Green\"},"
+        "\"off\":{\"deviceId\":\"3\",\"command\":\"Blue\"}}}},\"layers\":{},\"devices\":{}}");
+    rf_keymap_invalidate_map(2);
+    check("no activity: a layer_toggle key sends nothing", "Guide", "press", NULL, NULL);
+    check("nor its release", "Guide", "release", NULL, NULL);
+    expect_layer("and no layer is on", 0, "");
     int unknown = rf_keymap_layer_set(0, 1, NULL) + rf_keymap_layer_set(200, 1, NULL);
     printf("[%s] an unknown slot is refused (rc sum=%d)\n", unknown == -2 ? "+" : "-", unknown);
     if (unknown != -2) failures++;

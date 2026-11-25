@@ -49,9 +49,13 @@ void rf_keymap_invalidate_map(uint8_t slot);
  * "off": {"deviceId", "command"}} turns any layer off and sends "off", or, with none on, the
  * activity's own on and sends "on". active: 1 on (act_out = its activity, name_out = its name,
  * "" for the activity's own). set: name NULL or "" for the activity's own, letters, digits,
- * '_' and '-' otherwise; on only while an activity runs; -1 for a bad slot or name. */
+ * '_' and '-' otherwise, not digits only, and a layer the slot's map has; on only while an
+ * activity runs; -1 for a bad slot or name. A key's holds and its release send the command its
+ * press sent, whatever the layer is by then. */
 int rf_keymap_layer_active(uint8_t slot, char *act_out, size_t act_len, char *name_out, size_t name_len);
 int rf_keymap_layer_set(uint8_t slot, int on, const char *name);
+/* Every slot's layer off: the activity changed, stopped or is being switched */
+void rf_keymap_layers_off(void);
 
 #ifdef __cplusplus
 }
