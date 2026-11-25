@@ -124,6 +124,8 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
   // config goes as one JSON field: copied flat on top, a config key named like a device field
   // (name, deviceId) replaced it
   async saveNewDevice(data) {
+    // a combined device's "transports" is a list: a form would send "ir,bt", which the Hub refuses
+    if (Array.isArray(data.transports)) return this.postJson('/ir/new-device', data);
     const payload = { ...data };
     if (data.config && typeof data.config === 'object') {
       payload.config = JSON.stringify(data.config);

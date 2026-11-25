@@ -125,11 +125,11 @@ await t.check('new combined device: transports, plugin and its default commands'
   assert.ok(req, JSON.stringify(calls.map(c => c.path)));
   const p = bodyOf(req);
   assert.equal(p.type, 'Combined');
-  assert.deepEqual(JSON.parse(JSON.stringify(p.transports.split ? p.transports.split(',') : p.transports)), ['ir', 'http', 'plugin']);
+  // a JSON list: the Hub refuses "transports" sent as the form string "ir,http,plugin"
+  assert.deepEqual(p.transports, ['ir', 'http', 'plugin']);
   assert.equal(p.plugin, 'kodi');
-  assert.deepEqual(JSON.parse(p.config), { host: '10.0.0.7' });
-  const cmds = JSON.parse(p.commands);
-  assert.deepEqual(cmds, [{ name: 'Home', keyCode: 'PLUGIN:kodi:home', raw: 'PLUGIN:kodi:home', transport: 'plugin' }]);
+  assert.deepEqual(p.config, { host: '10.0.0.7' });
+  assert.deepEqual(p.commands, [{ name: 'Home', keyCode: 'PLUGIN:kodi:home', raw: 'PLUGIN:kodi:home', transport: 'plugin' }]);
   assert.equal(p.mqttTopic, undefined, 'MQTT not ticked');
 });
 
