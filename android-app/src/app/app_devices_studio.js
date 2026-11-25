@@ -18,7 +18,7 @@ import {
   safeImportName
 } from '../irdb.js';
 import { t, setLanguage, getInitialLanguage, tf } from '../i18n.js';
-import { pluginFieldIsBoolean, configFlagOn, pluginDefaultCommand } from './plugin_fields.js';
+import { pluginFieldIsBoolean, configFlagOn, pluginDefaultCommand, irAltBadgeHtml } from './plugin_fields.js';
 import iconMetadata from '../icon-metadata.json';
 import {
   initIconCache,
@@ -529,6 +529,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
           <div style="display: flex; align-items: center; gap: 6px;">
             <strong style="font-size: 13px; color: var(--text-main);">${escapeHtml(c.name)}</strong>
             ${isLocked ? `<span class="badge subtle mini" style="font-size: 10px;">${t('badge_locked')}</span>` : ''}
+            ${irAltBadgeHtml(c, dev.config)}
           </div>
           <div style="display: flex; gap: 6px; align-items: center;">
             <button type="button" class="btn btn-xs btn-secondary btn-studio-test" data-dev="${escapeHtml(dev.id)}" data-cmd="${escapeHtml(c.name)}" title="${escapeHtml(t('send_command_title'))}">▶ ${t('test')}</button>
@@ -950,6 +951,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
           <div>
             <strong style="font-size: 12px; color: var(--text-main);">${escapeHtml(c.name)}</strong>
             <span class="subtle mini" style="margin-left: 6px; font-family: monospace; font-size: 10px;">${escapeHtml(c.keyCode || '')}</span>
+            ${irAltBadgeHtml(c, dev.config)}
           </div>
           <div>
             ${isAdded ? `<span class="badge ok mini">${t('plg_added')}</span>` : `<button type="button" class="btn btn-xs btn-primary btn-plug-preset-add" data-name="${escapeHtml(c.name)}" data-code="${escapeHtml(c.keyCode || '')}">${t('plg_add_one')}</button>`}

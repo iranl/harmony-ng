@@ -4,6 +4,7 @@
 // - a command created from the manifest's default_commands keeps its range and its infrared
 //   alternative (irKeyCode, irWhen)
 import { escapeHtml } from '../html_escape.js';
+import { tf } from '../i18n.js';
 
 export function pluginFieldIsBoolean(f) {
   return !!f && String(f.type || '').toLowerCase() === 'boolean';
@@ -63,4 +64,14 @@ export function pluginDefaultCommand(c, pluginId) {
     ...(typeof c.irKeyCode === 'string' && c.irKeyCode ? { irKeyCode: c.irKeyCode } : {}),
     ...(typeof c.irWhen === 'string' && c.irWhen ? { irWhen: c.irWhen } : {}),
   };
+}
+
+// An "IR" badge for a command with an infrared alternative (irKeyCode, irWhen): lit while the
+// device's config field irWhen is on (the command then goes out as infrared), dimmed while off.
+// cfg: the device's config (null: dimmed)
+export function irAltBadgeHtml(c, cfg) {
+  if (!c || typeof c.irKeyCode !== 'string' || !c.irKeyCode || typeof c.irWhen !== 'string' || !c.irWhen) return '';
+  const on = !!cfg && typeof cfg === 'object' && configFlagOn(cfg[c.irWhen]);
+  const title = tf('plg_ir_alt_title', { field: c.irWhen, code: c.irKeyCode });
+  return `<span class="badge ${on ? 'ok' : 'subtle'} mini" style="font-size: 10px;" title="${escapeHtml(title)}">IR</span>`;
 }

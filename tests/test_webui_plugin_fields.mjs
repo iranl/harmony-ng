@@ -32,6 +32,21 @@ await t.check('legacy UI: a boolean field is a checkbox, checked from the stored
   assert.match(legacy.pluginFieldHtml(HOST, 'plug_cfg_', '10.0.0.5'), /type="text"\s+value="10\.0\.0\.5"/);
 });
 
+await t.check('legacy UI: a boolean field takes a whole grid row, other inputs sit at the bottom of their cell', () => {
+  assert.match(legacy.pluginFieldHtml(BOOL, 'plug_cfg_', true), /grid-column: 1 \/ -1/);
+  assert.match(legacy.pluginFieldHtml(HOST, 'plug_cfg_', ''), /justify-content: flex-end/);
+});
+
+await t.check('legacy UI: a command with an infrared alternative shows an IR badge, lit while its switch is on', () => {
+  const cmd = { name: 'HDMI 2', keyCode: 'PLUGIN:samsung-tv:HDMI 2', irKeyCode: IR, irWhen: 'hdmi_via_ir' };
+  assert.match(legacy.irAltBadgeHtml(cmd, { hdmi_via_ir: true }), /class="badge ok mini"[^>]*>IR</);
+  assert.match(legacy.irAltBadgeHtml(cmd, { hdmi_via_ir: false }), /class="badge subtle mini"/);
+  assert.match(legacy.irAltBadgeHtml(cmd, null), /class="badge subtle mini"/);
+  assert.ok(legacy.irAltBadgeHtml(cmd, {}).includes('0xE0E07D82'), 'the code is in the title');
+  assert.equal(legacy.irAltBadgeHtml({ name: 'Home', keyCode: 'PLUGIN:samsung-tv:Home' }, { hdmi_via_ir: true }), '');
+  assert.equal(legacy.irAltBadgeHtml({ name: 'X', irKeyCode: IR }, { hdmi_via_ir: true }), '', 'no irWhen: no badge');
+});
+
 await t.check('legacy UI: a checkbox saves true / false, a number field a number', () => {
   assert.equal(legacy.pluginInputValue({ type: 'checkbox', checked: true, value: 'on' }), true);
   assert.equal(legacy.pluginInputValue({ type: 'checkbox', checked: false, value: 'on' }), false);
