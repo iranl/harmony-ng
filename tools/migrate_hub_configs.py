@@ -761,9 +761,9 @@ def generate_stock_remote_maps(map_list_path: str, devices_obj: Dict[str, Any], 
             soft.sort(key=lambda x: x[0])
             rmap["_screen"][ctx] = [e for _, e in soft]
         if not target and not soft:
-            # An empty map counts as none: an activity then gets the default keys
-            # (_complete_remote_map()), and an empty "-1" would stop hub_rf's fallback to a
-            # map's only activity
+            # A map with nothing left to import (empty, or every button skipped above) counts as
+            # none: an activity then gets the default keys (_complete_remote_map()), and an
+            # empty "-1" would stop hub_rf's fallback to a map's only activity
             del (rmap["devices"] if kind == "Device" else rmap["activities"])[ctx]
         if root_commands:
             warnings.append(f"stock remote {rid}: {root_commands} device command key(s) of its root map not "
