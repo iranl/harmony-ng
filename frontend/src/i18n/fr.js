@@ -977,7 +977,7 @@ export default {
     "no_devices_found": "Aucun appareil trouvé.",
     "device_cmd_count_line": "{manufacturer} {model} ({count} commandes)",
     "device_studio_title": "Studio {name}",
-    "ir_learn_hint": "Pointez votre télécommande d'origine vers le capteur avant du Harmony Hub et appuyez sur Capturer.",
+    "ir_learn_hint": "Pointez votre télécommande d'origine vers le capteur avant du Harmony Hub, à 5-8 cm, appuyez sur Capturer, puis appuyez une fois brièvement sur la touche.",
     "start_ir_capture": "Démarrer la capture IR",
     "ir_listening_press_button": "Le Hub écoute le signal IR... appuyez sur une touche de la télécommande",
     "ir_capture_timed_out": "Délai de capture dépassé sans signal",

@@ -248,6 +248,26 @@ class CoSimulationRunner:
                         37500 <= carrier <= 38500 and raw.startswith("F%X" % carrier) and
                         cap.get("pulses") == len(want) and cap.get("duration_us") == sum(got),
                         f"pulses={cap.get('pulses')} duration_us={cap.get('duration_us')} carrier={carrier}")
+            self.record("IR learn: one frame is reported as one", cap.get("frames") == 1, f"frames={cap.get('frames')}")
+
+            # a whole press: three Sony frames 45 ms apart (start to start) are kept, as the stock
+            # capture keeps them (it reads until 200 ms without light)
+            press = []
+            for r in range(3):
+                press += sirc
+                if r < 2:
+                    press.append(45000 - sum(sirc))
+            with open(rx_path, "wb") as f:
+                f.write(ir_rx_bitstream(press, idle_after_us=250000))
+            st, cap3 = self.http_post_status("/api/capture", {"timeout": 3})
+            raw3 = cap3.get("raw", "") if isinstance(cap3, dict) else ""
+            got3 = learned_durations(raw3) if raw3 else []
+            want3 = press + [45000 - sum(sirc)]
+            whole = len(got3) == len(want3) and all(abs(a - b) <= 15 for a, b in zip(got3[:-1], want3[:-1]))
+            self.record("IR learn: every frame of a press is kept (three Sony frames, each gap as measured)",
+                        st == 200 and whole and cap3.get("frames") == 3,
+                        f"HTTP {st} frames={cap3.get('frames') if isinstance(cap3, dict) else None} {len(got3)}/{len(want3)} durations")
+
             st, tst = self.http_post_status("/api/ir-test-learned", {"deviceId": "", "raw": raw, "keycode": raw})
             self.record("IR learn: the learned code plays back (ir-test-learned)",
                         st == 200 and tst.get("ok") is True, f"HTTP {st} {tst}")

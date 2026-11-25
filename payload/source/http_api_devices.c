@@ -55,19 +55,23 @@ static uint8_t device_ir_ports(const char *dev_id) {
     return ports;
 }
 
-/* Counts the P/S durations of a learned raw string (F<carrier hex>P<hex>S<hex>...) and adds them up */
-static void learned_stats(const char *raw, int *pulses, unsigned long *total_us) {
+/* Counts the P/S durations of a learned raw string (F<carrier hex>P<hex>S<hex>...) and adds
+ * them up; *frames counts the frames (a space of 20 ms or more ends one, the last space too) */
+static void learned_stats(const char *raw, int *pulses, unsigned long *total_us, int *frames) {
     *pulses = 0;
     *total_us = 0;
+    *frames = 0;
     for (const char *p = raw; p && *p; p++) {
         if (*p == 'P' || *p == 'S') {
             char *end = NULL;
             unsigned long v = strtoul(p + 1, &end, 16);
             (*pulses)++;
             *total_us += v;
+            if (*p == 'S' && v >= 20000) (*frames)++;
             if (end) p = end - 1;
         }
     }
+    if (*pulses > 0 && *frames == 0) *frames = 1;
 }
 
 /* A timing field of the device save body as an int: a JSON number or a numeric string.
@@ -945,14 +949,22 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
             close(client_fd);
             return 1;
         }
-        char raw[8192];
-        int rc = ir_i2s_capture(raw, sizeof(raw), (unsigned int)timeout_s);
+        /* a whole press: up to 1023 mark/space pairs, about 6 characters each */
+        const size_t raw_size = 16384;
+        char *raw = (char *)malloc(raw_size);
+        if (!raw) {
+            pthread_mutex_unlock(&s_capture_lock);
+            send_json_error(client_fd, 500, "Out of memory");
+            close(client_fd);
+            return 1;
+        }
+        int rc = ir_i2s_capture(raw, raw_size, (unsigned int)timeout_s);
         pthread_mutex_unlock(&s_capture_lock);
 
         if (rc == 0) {
-            int pulses = 0;
+            int pulses = 0, frames = 0;
             unsigned long total_us = 0;
-            learned_stats(raw, &pulses, &total_us);
+            learned_stats(raw, &pulses, &total_us, &frames);
             unsigned long carrier = strtoul(raw + 1, NULL, 16);
             cJSON *resp = cJSON_CreateObject();
             cJSON_AddBoolToObject(resp, "ok", 1);
@@ -962,6 +974,7 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
             cJSON_AddNumberToObject(resp, "carrier_hz", (double)carrier);
             cJSON_AddNumberToObject(resp, "pulses", pulses);
             cJSON_AddNumberToObject(resp, "duration_us", (double)total_us);
+            cJSON_AddNumberToObject(resp, "frames", frames);
             send_cjson_resp(client_fd, 200, resp);
             cJSON_Delete(resp);
         } else if (rc == -EBUSY) {
@@ -975,6 +988,7 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
         } else {
             send_json_error(client_fd, 500, raw[0] ? raw : "IR capture failed");
         }
+        free(raw);
         close(client_fd);
         return 1;
     }

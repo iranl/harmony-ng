@@ -396,8 +396,14 @@ int ir_i2s_blast_blob_part(const uint8_t *blob, size_t blob_len, int part, uint8
  * - Stock inverts each byte and swaps the two bytes of every 16-bit sample;
  *   after that a 1 bit is light. Without the swap the carrier periods scatter.
  * - The sensor misses the start of the first burst, so the first frame of a
- *   press is often cut. The decoder keeps the first complete frame after a
- *   frame gap and falls back to the first frame for a very short press.
+ *   press is often cut. The capture mode's decoder keeps the first complete
+ *   frame after a frame gap and falls back to the first frame for a very short
+ *   press. The one-shot learn keeps the whole press instead (see below).
+ * - The stock Hub's capture (hal, thread 0x423994) reads until 200 ms without
+ *   light or 1023 mark/space pairs and keeps every frame of the press; a learned
+ *   code is then sent once per tap, so every frame goes out again. The one-shot
+ *   learn does the same, except that a first frame shorter than the next one is
+ *   dropped (the sensor cut it).
  */
 #define IR_RX_SAMPLE_NS      1500u
 #define IR_RX_BLOCK          768u
@@ -410,6 +416,10 @@ int ir_i2s_blast_blob_part(const uint8_t *blob, size_t blob_len, int part, uint8
 #define IR_RX_RECORD_US      400000u  /* recorded after the first light */
 #define IR_RX_QUIET_US       150000u  /* recording stops after this long without light */
 #define IR_RX_MAX_TIMINGS    600u
+/* one-shot learn (POST /api/capture): the whole press, as the stock capture keeps it */
+#define IR_RX_LEARN_QUIET_US    200000u   /* stock: 200 ms without light ends the capture */
+#define IR_RX_LEARN_RECORD_US   2000000u  /* a guard; the pair limit ends most long presses first */
+#define IR_RX_LEARN_MAX_TIMINGS 2046u     /* stock: 1023 mark/space pairs */
 
 static size_t ir_rx_bytes_for_us(unsigned long us) {
     return (size_t)(((unsigned long long)us * 1000u) / (IR_RX_SAMPLE_NS * 8u));
@@ -647,15 +657,20 @@ static void ir_rx_session_close(ir_rx_session_t *s) {
     s->chunk = NULL;
 }
 
+static int ir_rx_decode(const uint8_t *raw_buf, size_t raw_len, char *out, size_t outlen,
+                        uint32_t *measured_hz, int whole);
+
 /* Waits for light until deadline_ms, then records until IR_RX_QUIET_US without light or
- * IR_RX_RECORD_US after the first light, and decodes. stop (may be NULL) is asked before each
- * read; a 1 ends the wait or the recording. Returns 0 (out holds the raw string, *measured_hz
- * the carrier or 0), -5 no light before the deadline, -6 light that is not a code, -7 stalled,
- * -1 read error, -4 memory, -9 stopped. */
+ * IR_RX_RECORD_US after the first light, and decodes one frame. whole (the one-shot learn)
+ * records until IR_RX_LEARN_QUIET_US without light (IR_RX_LEARN_RECORD_US at most) and keeps
+ * every frame. stop (may be NULL) is asked before each read; a 1 ends the wait or the
+ * recording. Returns 0 (out holds the raw string, *measured_hz the carrier or 0), -5 no light
+ * before the deadline, -6 light that is not a code, -7 stalled, -1 read error, -4 memory, -9
+ * stopped. */
 static int ir_rx_record(ir_rx_session_t *s, char *out, size_t outlen, uint32_t *measured_hz,
-                        long long deadline_ms, int (*stop)(void)) {
-    const size_t record_len = ir_rx_bytes_for_us(IR_RX_RECORD_US);
-    const size_t quiet_len = ir_rx_bytes_for_us(IR_RX_QUIET_US);
+                        long long deadline_ms, int (*stop)(void), int whole) {
+    const size_t record_len = ir_rx_bytes_for_us(whole ? IR_RX_LEARN_RECORD_US : IR_RX_RECORD_US);
+    const size_t quiet_len = ir_rx_bytes_for_us(whole ? IR_RX_LEARN_QUIET_US : IR_RX_QUIET_US);
     const size_t cap = IR_RX_CHUNK_LEN + record_len + IR_RX_CHUNK_LEN;
     uint8_t *prev = (uint8_t *)malloc(IR_RX_CHUNK_LEN);
     uint8_t *raw_buf = (uint8_t *)malloc(cap);
@@ -707,7 +722,7 @@ static int ir_rx_record(ir_rx_session_t *s, char *out, size_t outlen, uint32_t *
     free(prev);
     if (rc == 0 && !active) rc = -5;
     if (rc == 0) {
-        rc = ir_i2s_decode_capture_ex(raw_buf, raw_len, out, outlen, measured_hz);
+        rc = ir_rx_decode(raw_buf, raw_len, out, outlen, measured_hz, whole);
     } else if (rc == -5) {
         snprintf(out, outlen, "No IR signal received: timeout waiting for remote button press");
     } else if (rc == -7) {
@@ -858,7 +873,7 @@ static void ir_mode_run(void) {
                 s_rx_refreq = 0;
             }
             uint32_t hz = 0;
-            rc = ir_rx_record(&s, out, sizeof(out), &hz, ir_rx_now_ms() + 1000, ir_mode_should_stop);
+            rc = ir_rx_record(&s, out, sizeof(out), &hz, ir_rx_now_ms() + 1000, ir_mode_should_stop, 0);
             if (rc == 0) {
                 /* the listener pair is replaced under the lock: take both together */
                 pthread_mutex_lock(&s_rx_lock);
@@ -1025,7 +1040,7 @@ int ir_i2s_capture(char *out, size_t outlen, unsigned int timeout_sec) {
     int rc = ir_rx_session_open(&s, out, outlen);
     if (rc == 0) {
         uint32_t hz = 0;
-        rc = ir_rx_record(&s, out, outlen, &hz, ir_rx_now_ms() + (long long)timeout_sec * 1000, NULL);
+        rc = ir_rx_record(&s, out, outlen, &hz, ir_rx_now_ms() + (long long)timeout_sec * 1000, NULL, 1);
         ir_rx_session_close(&s);
     }
     i2s_lock_release(lock_fd);
@@ -1050,12 +1065,24 @@ int ir_i2s_decode_capture(const uint8_t *raw_buf, size_t raw_len, char *out, siz
 }
 
 int ir_i2s_decode_capture_ex(const uint8_t *raw_buf, size_t raw_len, char *out, size_t outlen, uint32_t *measured_hz) {
+    return ir_rx_decode(raw_buf, raw_len, out, outlen, measured_hz, 0);
+}
+
+int ir_i2s_decode_capture_press(const uint8_t *raw_buf, size_t raw_len, char *out, size_t outlen, uint32_t *measured_hz) {
+    return ir_rx_decode(raw_buf, raw_len, out, outlen, measured_hz, 1);
+}
+
+/* whole 0: one frame (the capture mode's events). whole 1: every frame of the press (the
+ * one-shot learn), up to IR_RX_LEARN_MAX_TIMINGS. */
+static int ir_rx_decode(const uint8_t *raw_buf, size_t raw_len, char *out, size_t outlen,
+                        uint32_t *measured_hz, int whole) {
     if (measured_hz) *measured_hz = 0;
     if (!raw_buf || raw_len < 2 || !out || outlen < 32) return -1;
     out[0] = '\0';
     raw_len &= ~(size_t)1;   /* whole 16-bit samples */
 
-    uint32_t *t = (uint32_t *)malloc(IR_RX_MAX_TIMINGS * sizeof(uint32_t));
+    const size_t max_t = whole ? IR_RX_LEARN_MAX_TIMINGS : IR_RX_MAX_TIMINGS;
+    uint32_t *t = (uint32_t *)malloc(max_t * sizeof(uint32_t));
     if (!t) {
         snprintf(out, outlen, "Out of memory allocating timing buffer");
         return -4;
@@ -1071,7 +1098,8 @@ int ir_i2s_decode_capture_ex(const uint8_t *raw_buf, size_t raw_len, char *out, 
     unsigned long long on_sum = 0;
     unsigned long on_n = 0;
     int prev = 0;
-    for (size_t i = 0; i < bits && n + 2 < IR_RX_MAX_TIMINGS; i++) {
+    size_t i = 0;
+    for (; i < bits && n + 2 < max_t; i++) {
         int v = ir_rx_light(raw_buf, i);
         if (v) {
             if (!in_signal) {
@@ -1103,33 +1131,57 @@ int ir_i2s_decode_capture_ex(const uint8_t *raw_buf, size_t raw_len, char *out, 
         return -5;
     }
     t[n++] = (uint32_t)(last_light + 1 - burst_start);
-    /* the quiet tail after the last burst */
-    size_t tail = bits - last_light - 1;
+    /* the quiet tail after the last burst; none when the timing buffer filled up first */
+    size_t tail = (i < bits) ? 0 : bits - last_light - 1;
 
-    /* Frames end at a space of 20 ms or more. Keep the first complete frame after
-     * a frame gap; with a single frame keep that one. */
+    /* Frames end at a space of 20 ms or more. */
     size_t frame_samples = (size_t)((unsigned long long)IR_RX_FRAME_GAP_US * 1000u / IR_RX_SAMPLE_NS);
     size_t f_start = 0, f_end = n;   /* [f_start, f_end) timings, f_end at a mark */
     size_t first_gap = n;
     for (size_t k = 1; k < n; k += 2) {
         if (t[k] >= frame_samples) { first_gap = k; break; }
     }
+    size_t second_gap = n;
     if (first_gap < n) {
-        size_t second_gap = n;
         for (size_t k = first_gap + 2; k < n; k += 2) {
             if (t[k] >= frame_samples) { second_gap = k; break; }
         }
-        if (second_gap < n || tail >= frame_samples) {
-            f_start = first_gap + 1;
-            f_end = second_gap;
-        } else {
-            f_end = first_gap;
-        }
     }
-    /* trailing space: the measured frame gap, else a default */
     uint32_t gap_us = IR_RX_DEFAULT_GAP_US;
-    if (f_end < n) gap_us = ir_rx_us(t[f_end]);
-    else if (first_gap < n) gap_us = ir_rx_us(t[first_gap]);
+    if (whole) {
+        /* Every frame of the press. A first frame shorter than the next one is a copy the
+         * sensor cut; an NEC frame followed by its short repeat codes is longer and stays. */
+        if (first_gap < n && first_gap < (second_gap < n ? second_gap : n) - (first_gap + 1))
+            f_start = first_gap + 1;
+        /* A recording that ended without quiet (a limit) cut its last frame: drop it when an
+         * earlier frame stays. */
+        size_t last_gap = n;
+        for (size_t k = f_start + 1; k < n; k += 2) {
+            if (t[k] >= frame_samples) last_gap = k;
+        }
+        if (tail < frame_samples && last_gap < n) f_end = last_gap;
+        /* trailing space: the gap after the last frame kept, else the last gap inside, else a default */
+        if (f_end < n) {
+            gap_us = ir_rx_us(t[f_end]);
+        } else {
+            for (size_t k = f_start + 1; k < f_end; k += 2) {
+                if (t[k] >= frame_samples) gap_us = ir_rx_us(t[k]);
+            }
+        }
+    } else {
+        /* Keep the first complete frame after a frame gap; with a single frame keep that one. */
+        if (first_gap < n) {
+            if (second_gap < n || tail >= frame_samples) {
+                f_start = first_gap + 1;
+                f_end = second_gap;
+            } else {
+                f_end = first_gap;
+            }
+        }
+        /* trailing space: the measured frame gap, else a default */
+        if (f_end < n) gap_us = ir_rx_us(t[f_end]);
+        else if (first_gap < n) gap_us = ir_rx_us(t[first_gap]);
+    }
     if (gap_us > IR_RX_MAX_GAP_US) gap_us = IR_RX_MAX_GAP_US;
     if (gap_us < IR_RX_FRAME_GAP_US) gap_us = IR_RX_FRAME_GAP_US;
 

@@ -2028,7 +2028,7 @@ paths:
       tags:
         - Hardware & IR
       summary: Learn an IR code from the Hub's receiver
-      description: Waits for one IR signal and returns it as a Harmony raw timing string. timeout may also be given in the query (?timeout=5).
+      description: Waits for one IR signal and returns the whole press as a Harmony raw timing string, every frame until 200 ms without light (at most 1023 mark/space pairs), as the stock Hub's capture keeps it; a tap of the stored code sends all of it. timeout may also be given in the query (?timeout=5).
       requestBody:
         required: false
         content:
@@ -2039,7 +2039,7 @@ paths:
                 timeout: {type: integer, minimum: 1, maximum: 30, default: 10}
       responses:
         '200':
-          description: "Signal captured (pulses: number of P and S intervals in raw, marks and spaces together; duration_us: their sum)"
+          description: "Signal captured (pulses: number of P and S intervals in raw, marks and spaces together; duration_us: their sum; frames: the frames of the press, a space of 20 ms or more ends one)"
           content:
             application/json:
               example:
@@ -2050,6 +2050,7 @@ paths:
                 carrier_hz: 38000
                 pulses: 26
                 duration_us: 24000
+                frames: 1
         '408':
           description: No signal before the timeout
         '409':

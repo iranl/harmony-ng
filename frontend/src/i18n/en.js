@@ -977,7 +977,7 @@ export default {
     "no_devices_found": "No devices found.",
     "device_cmd_count_line": "{manufacturer} {model} ({count} commands)",
     "device_studio_title": "{name} Studio",
-    "ir_learn_hint": "Point your original remote at the Harmony Hub front sensor and press Capture.",
+    "ir_learn_hint": "Point your original remote at the Harmony Hub front sensor, 5 to 8 cm away, press Capture, then tap the key once.",
     "start_ir_capture": "Start IR Capture",
     "ir_listening_press_button": "Listening for IR signal on Hub... press button on remote",
     "ir_capture_timed_out": "Capture timed out without signal",

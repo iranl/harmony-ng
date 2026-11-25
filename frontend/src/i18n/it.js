@@ -977,7 +977,7 @@ export default {
     "no_devices_found": "Nessun dispositivo trovato.",
     "device_cmd_count_line": "{manufacturer} {model} ({count} comandi)",
     "device_studio_title": "Studio di {name}",
-    "ir_learn_hint": "Punta il telecomando originale verso il sensore frontale dell'Harmony Hub e premi Cattura.",
+    "ir_learn_hint": "Punta il telecomando originale verso il sensore frontale dell'Harmony Hub, a 5-8 cm, premi Cattura, poi premi una volta, brevemente, il tasto.",
     "start_ir_capture": "Avvia cattura IR",
     "ir_listening_press_button": "L'Hub è in ascolto del segnale IR... premi un tasto sul telecomando",
     "ir_capture_timed_out": "Cattura scaduta senza segnale",

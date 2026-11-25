@@ -977,7 +977,7 @@ export default {
     "no_devices_found": "Keine Geräte gefunden.",
     "device_cmd_count_line": "{manufacturer} {model} ({count} Befehle)",
     "device_studio_title": "{name}-Studio",
-    "ir_learn_hint": "Richten Sie Ihre Original-Fernbedienung auf den vorderen Sensor des Harmony Hub und drücken Sie auf Aufnehmen.",
+    "ir_learn_hint": "Richten Sie Ihre Original-Fernbedienung aus 5 bis 8 cm auf den vorderen Sensor des Harmony Hub, drücken Sie auf Aufnehmen und dann einmal kurz die Taste.",
     "start_ir_capture": "IR-Aufnahme starten",
     "ir_listening_press_button": "Hub wartet auf IR-Signal... drücken Sie eine Taste auf der Fernbedienung",
     "ir_capture_timed_out": "Zeitüberschreitung bei der Aufnahme, kein Signal",
