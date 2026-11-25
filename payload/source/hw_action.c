@@ -1211,7 +1211,9 @@ int hw_device_command_needs_value(const char *target, int match_mode, const char
         if (!cJSON_IsString(kc)) kc = cJSON_GetObjectItemCaseSensitive(c, "raw");
         int plugin = plugin_mgr_device_plugin_id(dev, NULL, 0) ||
                      (cJSON_IsString(kc) && strncasecmp(kc->valuestring, "PLUGIN:", 7) == 0);
-        needs = plugin && cmd_range_valid(cJSON_GetObjectItemCaseSensitive(c, "range"));
+        /* A command sent as infrared ignores the value: no value needed while its switch is on */
+        needs = plugin && !cmd_ir_alt_active(dev, c) &&
+                cmd_range_valid(cJSON_GetObjectItemCaseSensitive(c, "range"));
         break;
     }
     release_device_list(&snap);

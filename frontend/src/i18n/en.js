@@ -116,6 +116,7 @@ export default {
     "plg_repo_remove_failed": "Failed to remove repository: {error}",
     "plg_restart_failed": "Restart failed: {error}",
     "plg_upload_too_large": "The plugin archive is larger than 1 MB, the most the Hub accepts",
+    "plg_ir_alt_title": "Sent as infrared while \"{field}\" is on: {code}",
     "remote_mqtt_mirroring": "MQTT Button Mirroring",
     "remote_mqtt_help": "Mirror physical Harmony remote button presses to MQTT for Home Assistant automations.",
     "enable_remote_mqtt": "Mirror Harmony remote button presses to MQTT",

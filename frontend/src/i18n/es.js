@@ -116,6 +116,7 @@ export default {
     "plg_repo_remove_failed": "No se pudo quitar el repositorio: {error}",
     "plg_restart_failed": "Error al reiniciar: {error}",
     "plg_upload_too_large": "El archivo del plugin supera 1 MB, el máximo que acepta el Hub",
+    "plg_ir_alt_title": "Se envía por infrarrojos mientras \"{field}\" está activado: {code}",
     "remote_mqtt_mirroring": "Reflejo de botones en MQTT",
     "remote_mqtt_help": "Reenviar las pulsaciones de la tecla del mando Harmony a MQTT para automatizaciones de Home Assistant.",
     "enable_remote_mqtt": "Reenviar teclas del mando Harmony a MQTT",

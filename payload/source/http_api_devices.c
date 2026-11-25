@@ -93,7 +93,6 @@ static int device_int_field(const cJSON *j, int *out) {
     return 0;
 }
 
-/* Every timing field present in the body has a usable type */
 /* A config_fields entry of "type": "boolean" (a checkbox in the web UIs, e.g. the field an
  * irWhen names): its default is false, not "" */
 static int fld_is_boolean(const cJSON *fld) {
@@ -233,6 +232,7 @@ static void apply_net_fields(const cJSON *p, cJSON *dev) {
     if (net_device_kind(dev)) cJSON_DeleteItemFromObjectCaseSensitive(dev, "controlPort");
 }
 
+/* Every timing field present in the body has a usable type */
 static int device_int_fields_valid(const cJSON *p) {
     static const char *const keys[] = {
         "interDeviceDelay", "interKeyDelay", "holdInterKeyDelay", "powerOnDelay",

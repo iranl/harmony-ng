@@ -116,6 +116,7 @@ export default {
     "plg_repo_remove_failed": "Kan repository niet verwijderen: {error}",
     "plg_restart_failed": "Herstarten mislukt: {error}",
     "plg_upload_too_large": "Het pluginarchief is groter dan 1 MB, het maximum dat de Hub accepteert",
+    "plg_ir_alt_title": "Wordt via infrarood verzonden zolang \"{field}\" aan staat: {code}",
     "remote_mqtt_mirroring": "MQTT-knoppen spiegelen",
     "remote_mqtt_help": "Fysieke Harmony-afstandsbedieningsknoppen doorsturen naar MQTT voor Home Assistant-automatiseringen.",
     "enable_remote_mqtt": "Harmony-afstandsbedieningsknoppen spiegelen naar MQTT",

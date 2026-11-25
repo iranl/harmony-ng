@@ -116,6 +116,7 @@ export default {
     "plg_repo_remove_failed": "Impossibile rimuovere il repository: {error}",
     "plg_restart_failed": "Riavvio non riuscito: {error}",
     "plg_upload_too_large": "L'archivio del plugin supera 1 MB, il massimo accettato dall'Hub",
+    "plg_ir_alt_title": "Inviato a infrarossi quando \"{field}\" è attivo: {code}",
     "remote_mqtt_mirroring": "Mirroring tasti MQTT",
     "remote_mqtt_help": "Invia la pressione dei tasti del telecomando Harmony a MQTT per le automazioni di Home Assistant.",
     "enable_remote_mqtt": "Abilita mirroring tasti del telecomando Harmony su MQTT",
