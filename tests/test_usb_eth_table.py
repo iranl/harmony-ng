@@ -55,13 +55,19 @@ class UsbEthTable(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def loaded_modules(self, usb_id: str) -> list[str]:
-        root = self.base / usb_id.replace(":", "_")
+    def loaded_modules(self, usb_id: str, speed: str | None = None, interfaces: tuple[str, ...] = ("ff",)) -> list[str]:
+        root = self.base / (usb_id.replace(":", "_") + (f"_{speed}_{'_'.join(interfaces)}" if speed else ""))
         dev = root / "sys" / "bus" / "usb" / "devices" / "1-1"
         dev.mkdir(parents=True)
         vid, pid = usb_id.lower().split(":")
         (dev / "idVendor").write_text(vid + "\n")
         (dev / "idProduct").write_text(pid + "\n")
+        if speed:
+            (dev / "speed").write_text(speed + "\n")
+            (dev / "bDeviceClass").write_text("ff\n")
+            for i, cls in enumerate(interfaces):
+                (dev / f"1-1:1.{i}").mkdir()
+                (dev / f"1-1:1.{i}" / "bInterfaceClass").write_text(cls + "\n")
         mods = root / "data" / "harmony" / "modules"
         mods.mkdir(parents=True)
         for ko in MODULES.glob("*.ko"):
@@ -95,6 +101,15 @@ class UsbEthTable(unittest.TestCase):
                 if module not in loaded:
                     problems.append(f"{family}: start_usb_eth.sh loads {loaded} for {usb_id}, not {module}.ko")
         self.assertEqual(problems, [])
+
+    def test_full_speed_adapter_loads_no_driver(self):
+        # through the transaction translator the Hub freezes on the first receive
+        self.assertIn("asix", self.loaded_modules("0B95:772B", "480"))
+        loaded = self.loaded_modules("0B95:772B", "12")
+        self.assertFalse({"usbnet", "asix", "cdc_ether"} & set(loaded), loaded)
+        # a storage interface does not hide the network interface of a composite device
+        loaded = self.loaded_modules("0B95:772B", "12", ("ff", "08"))
+        self.assertFalse({"usbnet", "asix", "cdc_ether"} & set(loaded), loaded)
 
 
 if __name__ == "__main__":

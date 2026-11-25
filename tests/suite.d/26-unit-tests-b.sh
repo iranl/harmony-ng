@@ -121,6 +121,8 @@ python3 "$SCRIPT_DIR/test_co_simulation.py"
 
 # USB Ethernet adapters listed in the network guide reach a driver that binds them (start_usb_eth.sh in a host sandbox)
 python3 "$SCRIPT_DIR/test_usb_eth_table.py"
+# every module in payload/modules records the stock CRCs and has the stock struct sk_buff layout
+python3 "$SCRIPT_DIR/test_usb_eth_modules_crc.py"
 
 # 5a. Bluetooth links around activity power on and off (orchestrator, daemon in --dry-run)
 python3 "$SCRIPT_DIR/test_activity_test_sequence.py"

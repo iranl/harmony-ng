@@ -72,7 +72,38 @@ for i in 1 2 3 4 5; do
   sleep 1
 done
 
-if [ -f /sys/bus/usb/devices/1-1/idVendor ]; then
+# A network adapter at full or low speed (USB 1.1 adapter, or one behind a USB 1.1 hub, as in
+# some OTG cables with a hub) goes through the controller's transaction translator. The Hub
+# froze (only a power cycle helped) as soon as a driver waited for received data from such a
+# device, but that was seen with modules of a shifted struct sk_buff layout; until it is tested
+# again with the rebuilt modules, the guard stays. A loaded driver binds every matching device on the bus, so no network driver is loaded while
+# such a device is present. Hubs (class 09), USB sticks (08) and keyboards or mice (HID, 03)
+# do not count, but only when every interface of the device is one of these: a composite
+# device with storage and CDC Ethernet does.
+slow_usb_device() {
+  for _dev in /sys/bus/usb/devices/*; do
+    case "${_dev##*/}" in [0-9]*-*) ;; *) continue ;; esac
+    case "${_dev##*/}" in *:*) continue ;; esac
+    case "$(cat "$_dev/speed" 2>/dev/null)" in 12|1.5) ;; *) continue ;; esac
+    [ "$(cat "$_dev/bDeviceClass" 2>/dev/null)" = "09" ] && continue
+    _other=1
+    for _ic in "$_dev"/*:*/bInterfaceClass; do
+      [ -f "$_ic" ] || continue
+      case "$(cat "$_ic" 2>/dev/null)" in
+        03|08|09) [ "$_other" = 1 ] && _other=0 ;;
+        *) _other=2 ;;
+      esac
+    done
+    [ "$_other" = 0 ] && continue
+    echo "${_dev##*/} $(cat "$_dev/idVendor" 2>/dev/null):$(cat "$_dev/idProduct" 2>/dev/null)"
+    return 0
+  done
+  return 1
+}
+
+if slow=$(slow_usb_device); then
+  echo "[USB_ETH] USB device $slow runs at full or low speed (USB 1.1): no network driver is loaded (such an adapter froze the Hub in a test). Use a USB 2.0 (high-speed) adapter, hub or OTG cable."
+elif [ -f /sys/bus/usb/devices/1-1/idVendor ]; then
   vid=$(cat /sys/bus/usb/devices/1-1/idVendor 2>/dev/null)
   pid=$(cat /sys/bus/usb/devices/1-1/idProduct 2>/dev/null)
   echo "[USB_ETH] Detected USB device $vid:$pid"
