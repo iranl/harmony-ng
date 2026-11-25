@@ -88,6 +88,29 @@ MAIN_ROLE_TYPES = (
 )
 
 
+PRESS_MIN_REPEATS_MAX = 20  # config_sanitize.h PRESS_MIN_REPEATS_MAX
+
+
+def _press_min_repeats(value: Any) -> Optional[int]:
+    """A device's pressMinRepeats (frames an infrared press sends after the first), as the Hub's
+    config_sanitize.c keeps it: an int or numeric text >= 0, at most 20. None (leave the field
+    out, the Hub's default 3 applies) for a missing, negative or non-numeric value."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, float):
+        if value != value:
+            return None
+        value = int(value)
+    if isinstance(value, str):
+        try:
+            value = int(value.strip())
+        except ValueError:
+            return None
+    if not isinstance(value, int) or value < 0:
+        return None
+    return min(value, PRESS_MIN_REPEATS_MAX)
+
+
 def _int(value: Any, default: int, keep_zero: bool = False) -> int:
     """int(value or default) that does not raise: a value that is not a number gives default.
 
@@ -280,8 +303,9 @@ def migrate_stock_devices(device_list_path: str, function_list_path: Optional[st
                 "keyCode": key_code,
                 "raw": raw_str
             }
-            # No "repeats": stock keeps a repeat count per device (PressMinRepeats), not per
-            # command, and a held key repeats on the Hub by itself. The Hub's default applies.
+            # No "repeats": stock keeps the count of a press per device (PressMinRepeats, written
+            # to the device's "pressMinRepeats" below), not per command, and a held key repeats
+            # on the Hub by itself.
             if not is_bt and not is_mqtt:
                 cmd_obj["port"] = control_port
 
@@ -332,6 +356,12 @@ def migrate_stock_devices(device_list_path: str, function_list_path: Optional[st
             "powerOffSequence": p_off,
             "commands": clean_cmds
         }
+
+        # Frames a press sends after the first, from the account: kept only when the account has
+        # a value (stock uses 3 without one, and so does the Hub without the field)
+        press_min = d.get("PressMinRepeats")
+        if isinstance(press_min, int) and not isinstance(press_min, bool) and press_min >= 0 and not is_bt:
+            dev_obj["pressMinRepeats"] = min(press_min, PRESS_MIN_REPEATS_MAX)
 
         if is_mqtt:
             dev_obj["mqttEnabled"] = True
@@ -662,12 +692,24 @@ def generate_default_remote_map(activities_obj: Dict[str, Any], devices_obj: Dic
     return {"remote": remote_name, "activities": act_mappings, "devices": {}}
 
 
+def fit_stock_remote_maps(maps: List[Dict[str, Any]], warnings: List[str]) -> List[Dict[str, Any]]:
+    """The stock remote maps that get a slot: the first REMOTE_SLOT_MAX, a warning for each other."""
+    for extra in maps[REMOTE_SLOT_MAX:]:
+        warnings.append(f"{str(extra.get('remote') or 'stock remote').lower()}: only {REMOTE_SLOT_MAX} RF slots "
+                        "are imported, map skipped")
+    return maps[:REMOTE_SLOT_MAX]
+
+
 def generate_stock_remote_maps(map_list_path: str, devices_obj: Dict[str, Any], dev_map: Dict[str, str],
                                act_map: Dict[str, str], warnings: List[str]) -> List[Dict[str, Any]]:
     """Convert the stock MapList.json ButtonMaps into hub_rf remote maps, one per stock remote.
 
     Activity maps become activities -> id -> button, device maps (device browser) become
-    devices -> id -> button, an activity's screen buttons become its screen_buttons list.
+    devices -> id -> button, an activity's screen buttons become its screen_buttons list. A
+    remote's Root map (the keys with nothing running) becomes the "-1" entry, and a key that
+    starts an activity (a Companion's or Smart Control's activity keys) an activity_start entry.
+    Only those keys are kept from a Root map: hub_rf also uses "-1" for any key the running
+    activity leaves unmapped, so a Root map's device commands would be sent in every activity.
     hub_rf has no long press, double press or gestures, so those are reported and dropped.
     Maps are returned with the remote that has screen buttons first.
     """
@@ -680,34 +722,53 @@ def generate_stock_remote_maps(map_list_path: str, devices_obj: Dict[str, Any], 
         if not isinstance(bm, dict):
             continue
         ident = str(bm.get("ButtonMapIdentifier") or "")
-        m = re.search(r"(Activity|Device)(-?\d+)$", ident)
+        # "<remote model>Activity<id>", "<remote model>Device<id>" or "<remote model>Root". The
+        # remotes of one Hub share the RemoteId, so the model (16417 a touchscreen remote, 16422 a
+        # Companion, 16414 a Smart Control) is what tells their maps apart.
+        m = re.search(r"(\d*)(?:(Activity|Device)(-?\d+)|Root)$", ident)
         if not m:
             continue
-        is_act = m.group(1) == "Activity"
-        ctx = (act_map if is_act else dev_map).get(m.group(2))
-        if not ctx:
-            warnings.append(f"button map {ident}: unknown {m.group(1).lower()} {m.group(2)}, skipped")
-            continue
-        rid = str(bm.get("RemoteId-") or bm.get("RemoteId") or "0")
+        kind = m.group(2) or "Root"
+        if kind == "Root":
+            ctx = "-1"
+        else:
+            ctx = (act_map if kind == "Activity" else dev_map).get(m.group(3))
+            if not ctx:
+                warnings.append(f"button map {ident}: unknown {kind.lower()} {m.group(3)}, skipped")
+                continue
+        rid = m.group(1) or str(bm.get("RemoteId-") or bm.get("RemoteId") or "0")
         rmap = remotes.setdefault(rid, {"activities": {}, "devices": {}, "_screen": {}})
-        target = (rmap["activities"] if is_act else rmap["devices"]).setdefault(ctx, {})
-        label = f"{m.group(1).lower()} {ctx}"
+        target = (rmap["devices"] if kind == "Device" else rmap["activities"]).setdefault(ctx, {})
+        label = "root map" if kind == "Root" else f"{kind.lower()} {ctx}"
         dropped: Dict[str, int] = {}
         soft = []
+        root_commands = 0
 
         for b in bm.get("Buttons") or []:
             if not isinstance(b, dict):
                 continue
             act = b.get("ButtonAction") or {}
-            if act.get("__type") != "ButtonCommandAction":
+            if act.get("__type") == "ButtonActivityAction" and b.get("__type") == "HardRemoteButton":
+                aid = act_map.get(str(act.get("ActivityId-")))
+                if not aid:
+                    warnings.append(f"{label}: key '{b.get('ButtonKey')}' starts unknown activity "
+                                    f"{act.get('ActivityId-')}, skipped")
+                    continue
+                cmd = None
+                entry = {"action": "activity_start", "activityId": aid}
+            elif act.get("__type") != "ButtonCommandAction":
                 dropped["non-command buttons"] = dropped.get("non-command buttons", 0) + 1
                 continue
-            did = dev_map.get(str(act.get("DeviceId-")), str(act.get("DeviceId-")))
-            cmd = _find_command(devs.get(did), [str(act.get("CommandName") or "")])
-            if not cmd:
-                warnings.append(f"{label}: command '{act.get('CommandName')}' not found on device {did}, skipped")
+            elif kind == "Root":
+                root_commands += 1
                 continue
-            entry = _button_entry(did, cmd)
+            else:
+                did = dev_map.get(str(act.get("DeviceId-")), str(act.get("DeviceId-")))
+                cmd = _find_command(devs.get(did), [str(act.get("CommandName") or "")])
+                if not cmd:
+                    warnings.append(f"{label}: command '{act.get('CommandName')}' not found on device {did}, skipped")
+                    continue
+                entry = _button_entry(did, cmd)
             btype = b.get("__type")
             if btype == "HardRemoteButton":
                 key = str(b.get("ButtonKey") or "")
@@ -719,7 +780,7 @@ def generate_stock_remote_maps(map_list_path: str, devices_obj: Dict[str, Any], 
                 if b.get("ButtonLongPressAction") or b.get("ButtonDoublePressAction"):
                     dropped["long/double presses"] = dropped.get("long/double presses", 0) + 1
             elif btype == "SoftRemoteButton":
-                if is_act:
+                if kind == "Activity":
                     menu = b.get("MenuItem") or {}
                     soft.append(((_int(b.get("FunctionGroupType"), 0), _int(menu.get("IndexInMenu"), 0)),
                                  dict(entry, label=str(b.get("TextOnRemote") or cmd)[:12])))
@@ -729,6 +790,14 @@ def generate_stock_remote_maps(map_list_path: str, devices_obj: Dict[str, Any], 
         if soft:
             soft.sort(key=lambda x: x[0])
             rmap["_screen"][ctx] = [e for _, e in soft]
+        if not target and not soft:
+            # A map with nothing left to import (empty, or every button skipped above) counts as
+            # none: an activity then gets the default keys (_complete_remote_map()), and an
+            # empty "-1" would stop hub_rf's fallback to a map's only activity
+            del (rmap["devices"] if kind == "Device" else rmap["activities"])[ctx]
+        if root_commands:
+            warnings.append(f"stock remote {rid}: {root_commands} device command key(s) of its root map not "
+                            "imported: hub_rf would send them in every activity that leaves the key unmapped")
         if dropped:
             warnings.append(f"{label}: not supported by hub_rf, dropped: "
                             + ", ".join(f"{n} {k}" for k, n in sorted(dropped.items())))
@@ -931,6 +1000,9 @@ def sanitize_devices_json(devices_obj: Dict[str, Any]) -> Dict[str, Any]:
         }
         if transport is not None:
             clean_dev["transport"] = transport
+        press_min = _press_min_repeats(d.get("pressMinRepeats"))
+        if press_min is not None:
+            clean_dev["pressMinRepeats"] = press_min
         for idx, c in enumerate(d.get("commands", [])):
             # A command is an object, or (older configs) just its name
             if isinstance(c, str):
@@ -1185,7 +1257,8 @@ def migrate_directory(source_root: str, dest_harmony: str) -> Dict[str, Any]:
                  for aid, r in stock_activity_roles(os.path.join(res_dir, "ActivityList.json"), id_map).items()}
         map_list = os.path.join(res_dir, "MapList.json")
         if os.path.isfile(map_list):
-            stock_maps = generate_stock_remote_maps(map_list, devices_obj, dev_map, id_map, warnings)
+            stock_maps = fit_stock_remote_maps(
+                generate_stock_remote_maps(map_list, devices_obj, dev_map, id_map, warnings), warnings)
 
     # Write devices.json and activities.json
     if devices_obj:

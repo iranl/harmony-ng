@@ -169,6 +169,10 @@ int main(void) {
         { "{\"id\": \"ok\", \"version\": \"1\", \"entrypoint\": \"bin/drv\", \"device_definition\": {\"default_commands\": [{\"name\": \"L\", \"range\": [100, 1]}]}}", "range" },
         { "{\"id\": \"ok\", \"version\": \"1\", \"entrypoint\": \"bin/drv\", \"device_definition\": {\"default_commands\": [{\"name\": \"L\", \"range\": [1.5, 9]}]}}", "range" },
         { "{\"id\": \"ok\", \"version\": \"1\", \"entrypoint\": \"bin/drv\", \"device_definition\": {\"default_commands\": [{\"name\": \"L\", \"range\": [1]}]}}", "range" },
+        { "{\"id\": \"ok\", \"version\": \"1\", \"entrypoint\": \"bin/drv\", \"device_definition\": {\"default_commands\": [{\"name\": \"H\", \"irKeyCode\": 5}]}}", "irKeyCode" },
+        { "{\"id\": \"ok\", \"version\": \"1\", \"entrypoint\": \"bin/drv\", \"device_definition\": {\"default_commands\": [{\"name\": \"H\", \"irKeyCode\": \"\"}]}}", "irKeyCode" },
+        { "{\"id\": \"ok\", \"version\": \"1\", \"entrypoint\": \"bin/drv\", \"device_definition\": {\"default_commands\": [{\"name\": \"H\", \"irWhen\": \"a b\"}]}}", "irWhen" },
+        { "{\"id\": \"ok\", \"version\": \"1\", \"entrypoint\": \"bin/drv\", \"device_definition\": {\"default_commands\": [{\"name\": \"H\", \"irWhen\": true}]}}", "irWhen" },
         { "{\"id\": \"ok\", \"version\": \"1\", \"entrypoint\": \"bin/drv\", \"requires_libs\": \"libbearssl.so.0\"}", "must be an array" },
         { "{\"id\": \"ok\", \"version\": \"1\", \"entrypoint\": \"bin/drv\", \"requires_libs\": [\"../lib/x.so\"]}", "bad library name" },
         { "{\"id\": \"ok\", \"version\": \"1\", \"entrypoint\": \"bin/drv\", \"requires_libs\": [\"libnope.so.0\"]}", "does not have" },
@@ -185,7 +189,22 @@ int main(void) {
     }
     assert(access(ROOT "/plugins/ok", F_OK) != 0);
     unlink("/tmp/test_bad.tar.gz");
-    printf("[+] Bad manifests refused (id, version, entrypoint, config_fields, command range, requires_libs).\n");
+    printf("[+] Bad manifests refused (id, version, entrypoint, config_fields, command range, irKeyCode, irWhen, requires_libs).\n");
+
+    /* A command with an infrared alternative (irKeyCode, irWhen) is accepted */
+    make_src("iralt", "1", "exec sleep 300");
+    write_file(SRC "/manifest.json",
+               "{\"id\": \"iralt\", \"version\": \"1\", \"entrypoint\": \"bin/drv\", \"device_definition\": {"
+               "\"config_fields\": [{\"key\": \"hdmi_via_ir\", \"type\": \"boolean\"}], \"default_commands\": ["
+               "{\"name\": \"HDMI 2\", \"keyCode\": \"PLUGIN:iralt:KEY_HDMI2\", \"irKeyCode\": \"G:GoVideoO1 32 Bit:()(0xE0E07D82)():3\","
+               " \"irWhen\": \"hdmi_via_ir\"}]}}", 0);
+    pack("/tmp/test_iralt.tar.gz");
+    rc = plugin_mgr_install_archive("/tmp/test_iralt.tar.gz", NULL, err, sizeof(err));
+    if (rc != 0) fprintf(stderr, "irKeyCode install: rc=%d err=%s\n", rc, err);
+    assert(rc == 0);
+    plugin_mgr_uninstall("iralt");
+    unlink("/tmp/test_iralt.tar.gz");
+    printf("[+] default_commands with irKeyCode and irWhen: installed.\n");
 
     /* A library the Hub has (HARMONY_PLUGIN_LIB_DIR) is accepted */
     sh("mkdir -p " ROOT "/lib && : > " ROOT "/lib/libok.so.0");

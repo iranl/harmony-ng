@@ -7,6 +7,8 @@ python3 "$SCRIPT_DIR/test_mqtt_v2.py"
 python3 "$SCRIPT_DIR/test_rf_key_channel.py"
 # A held infrared key repeats until its release (real sends through the mock transmitter, timed)
 python3 "$SCRIPT_DIR/test_ir_hold.py"
+# An infrared press sends start + the device's pressMinRepeats repeat parts, as a stock Hub does
+python3 "$SCRIPT_DIR/test_ir_press_frames.py"
 # The held-key player sleeps while idle also where futex waits never sleep (the Hub's kernel)
 python3 "$SCRIPT_DIR/test_ir_hold_idle_cpu.py"
 # New web UI Wi-Fi form against a stubbed fetch (Node, no Hub)

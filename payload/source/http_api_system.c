@@ -8,6 +8,7 @@
 #include "icon_pack.h"
 #include "hub_network_util.h"
 #include "config_store.h"
+#include "hw_action.h"
 #include "orchestrator.h"
 #include "hub_mqtt.h"
 #include "hbus_server.h"
@@ -195,6 +196,7 @@ static void write_file_if_changed(const char *path, const char *text) {
 
 void apply_hub_settings(const struct hub_settings *s) {
     if (!s) return;
+    hw_set_hub_name(s->hub_name);   /* sent to plugins as "hub_name" */
     hub_mdns_apply_settings(s);
     hbus_apply_settings(s);
     hub_ssdp_apply_settings(s);

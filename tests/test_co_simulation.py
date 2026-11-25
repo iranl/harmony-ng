@@ -248,6 +248,26 @@ class CoSimulationRunner:
                         37500 <= carrier <= 38500 and raw.startswith("F%X" % carrier) and
                         cap.get("pulses") == len(want) and cap.get("duration_us") == sum(got),
                         f"pulses={cap.get('pulses')} duration_us={cap.get('duration_us')} carrier={carrier}")
+            self.record("IR learn: one frame is reported as one", cap.get("frames") == 1, f"frames={cap.get('frames')}")
+
+            # a whole press: three Sony frames 45 ms apart (start to start) are kept, as the stock
+            # capture keeps them (it reads until 200 ms without light)
+            press = []
+            for r in range(3):
+                press += sirc
+                if r < 2:
+                    press.append(45000 - sum(sirc))
+            with open(rx_path, "wb") as f:
+                f.write(ir_rx_bitstream(press, idle_after_us=250000))
+            st, cap3 = self.http_post_status("/api/capture", {"timeout": 3})
+            raw3 = cap3.get("raw", "") if isinstance(cap3, dict) else ""
+            got3 = learned_durations(raw3) if raw3 else []
+            want3 = press + [45000 - sum(sirc)]
+            whole = len(got3) == len(want3) and all(abs(a - b) <= 15 for a, b in zip(got3[:-1], want3[:-1]))
+            self.record("IR learn: every frame of a press is kept (three Sony frames, each gap as measured)",
+                        st == 200 and whole and cap3.get("frames") == 3,
+                        f"HTTP {st} frames={cap3.get('frames') if isinstance(cap3, dict) else None} {len(got3)}/{len(want3)} durations")
+
             st, tst = self.http_post_status("/api/ir-test-learned", {"deviceId": "", "raw": raw, "keycode": raw})
             self.record("IR learn: the learned code plays back (ir-test-learned)",
                         st == 200 and tst.get("ok") is True, f"HTTP {st} {tst}")
@@ -269,19 +289,17 @@ class CoSimulationRunner:
                 fcntl.flock(lk, fcntl.LOCK_EX)  # an IR send holds the I2S hardware
                 st, cap = self.http_post_status("/api/capture", {"timeout": 1})
                 fcntl.flock(lk, fcntl.LOCK_UN)
-            self.record("IR learn: I2S busy (IR send) is 409", st == 409, f"HTTP {st} {cap}")
+            self.record("IR learn: does not wait for the I2S lock an IR send holds (200)",
+                        st == 200 and str(cap.get("raw", "")).startswith("F"), f"HTTP {st} {cap}")
 
             # one capture at a time: a second request while the first waits for a signal
             with open(rx_path, "wb") as f:
-                f.write(ir_rx_bitstream(sirc))
+                f.write(b"\xff" * 4096)  # nobody presses a button: the first capture keeps waiting
             results = {}
-            with open("/tmp/harmony_i2s.lock", "a+") as lk:
-                fcntl.flock(lk, fcntl.LOCK_EX)  # keeps the first capture waiting for the hardware
-                t = threading.Thread(target=lambda: results.update(first=self.http_post_status("/api/capture", {"timeout": 2})))
-                t.start()
-                time.sleep(0.5)
-                st, cap = self.http_post_status("/api/capture", {"timeout": 1})
-                fcntl.flock(lk, fcntl.LOCK_UN)
+            t = threading.Thread(target=lambda: results.update(first=self.http_post_status("/api/capture", {"timeout": 2})))
+            t.start()
+            time.sleep(0.5)
+            st, cap = self.http_post_status("/api/capture", {"timeout": 1})
             t.join()
             self.record("IR learn: a second capture while one runs is 409",
                         st == 409 and "already running" in str(cap), f"HTTP {st} {cap}")

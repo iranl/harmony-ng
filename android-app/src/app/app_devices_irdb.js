@@ -219,7 +219,12 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
         if (rawBox) rawBox.value = res.raw;
         if (necBox && res.nec) necBox.value = res.nec;
         if (keyBox && res.keycode) keyBox.value = res.keycode;
-        if (status) status.textContent = tf('irdb_captured_signal', { mode: res.mode || 'raw' });
+        /* a learned code keeps every frame of the press, and a tap sends them all */
+        if (status) {
+          status.textContent = res.frames
+            ? tf('irdb_captured_frames', { frames: res.frames, ms: Math.round((res.duration_us || 0) / 1000) })
+            : tf('irdb_captured_signal', { mode: res.mode || 'raw' });
+        }
       } else {
         if (status) status.textContent = t('irdb_no_signal');
       }

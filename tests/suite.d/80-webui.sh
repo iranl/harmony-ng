@@ -28,3 +28,5 @@ webui_node_test test_webui_usb_wifi_toggle.mjs
 webui_node_test test_webui_hub_update_state.mjs
 # The update banner button starts the Hub update
 webui_node_test test_webui_update_banner.mjs
+# Plugin devices: boolean config fields are checkboxes, default commands keep irKeyCode / irWhen
+webui_node_test test_webui_plugin_fields.mjs

@@ -181,8 +181,7 @@ int hub_cmd_ir_capture(const cJSON *req, cJSON **reply) {
     char err[160] = {0};
     int rc = ir_i2s_capture_mode_set(enable, ir_capture_emit, NULL, err, sizeof(err));
     int code = 200;
-    if (rc == -EBUSY) code = 409;
-    else if (rc == -2 || rc == -3 || rc == -7) code = 503;
+    if (rc == -2 || rc == -3 || rc == -7) code = 503;
     else if (rc != 0) code = 500;
     cJSON_AddBoolToObject(*reply, "ok", code == 200);
     cJSON_AddBoolToObject(*reply, "ir_capture", ir_i2s_capture_mode_enabled());

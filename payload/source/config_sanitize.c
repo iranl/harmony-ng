@@ -6,7 +6,9 @@
 #include "json_number.h"
 #include "plugin_mgr.h"
 #include "cmd_range.h"
+#include "cmd_ir_alt.h"
 #include "net_device.h"
+#include "ir_encoder.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -215,6 +217,31 @@ int config_devices_have_secrets(const cJSON *root) {
  * 2. Normalize and validate fields to clean camelCase canonical schema
  * 3. Normalize commands and power sequences
  */
+_Static_assert(PRESS_MIN_REPEATS_MAX == IR_PRESS_MIN_REPEATS_MAX, "the sender's limit of pressMinRepeats");
+
+int press_min_repeats_value(const cJSON *j, int *out) {
+    double v;
+    if (!j || cJSON_IsNull(j)) return 0;
+    if (cJSON_IsNumber(j)) {
+        v = j->valuedouble;
+    } else if (cJSON_IsString(j) && j->valuestring) {
+        const char *t = j->valuestring;
+        while (isspace((unsigned char)*t)) t++;
+        if (!*t) return 0;
+        char *end = NULL;
+        long l = strtol(t, &end, 10);
+        while (end && isspace((unsigned char)*end)) end++;
+        if (!end || end == t || *end) return -1;
+        v = (double)l;
+    } else {
+        return -1;
+    }
+    if (v != v) return -1; /* NaN */
+    if (v < 0) return 0;
+    if (out) *out = v > PRESS_MIN_REPEATS_MAX ? PRESS_MIN_REPEATS_MAX : (int)v;
+    return 1;
+}
+
 void sanitize_devices_json(cJSON *root) {
     if (!root) return;
 
@@ -380,6 +407,12 @@ void sanitize_devices_json(cJSON *root) {
         if (cJSON_IsTrue(jhide) || (cJSON_IsNumber(jhide) && jhide->valuedouble > 0))
             cJSON_AddTrueToObject(cdev, "hideOnRemote");
 
+        /* Frames an infrared press sends after the first: kept only when set (no default
+         * written, the Hub's default applies without it) */
+        int pmr = 0;
+        if (press_min_repeats_value(cJSON_GetObjectItemCaseSensitive(src_d, "pressMinRepeats"), &pmr) == 1)
+            cJSON_AddNumberToObject(cdev, "pressMinRepeats", pmr);
+
         /* Left out of the web UIs' Devices tab only (not the remote) */
         cJSON *jhtab = cJSON_GetObjectItemCaseSensitive(src_d, "hideInDevicesTab");
         if (cJSON_IsTrue(jhtab) || (cJSON_IsNumber(jhtab) && jhtab->valuedouble > 0))
@@ -506,7 +539,21 @@ void sanitize_devices_json(cJSON *root) {
                 cJSON_AddStringToObject(ccmd, "keyCode", kc_val);
                 cJSON_AddStringToObject(ccmd, "raw", raw_val);
 
-                if (!is_bt && !is_mqtt && !is_plugin && !net_kind) {
+                /* The infrared alternative of a plugin device's command (cmd_ir_alt.h): irKeyCode and
+                 * irWhen, each kept only when valid; with an irKeyCode the command keeps its IR
+                 * fields (port, repeats) like a command of an IR device */
+                int ir_alt = 0;
+                if (is_plugin) {
+                    cJSON *cikc = cJSON_GetObjectItemCaseSensitive(c, "irKeyCode");
+                    cJSON *ciw = cJSON_GetObjectItemCaseSensitive(c, "irWhen");
+                    if (cmd_ir_keycode_ok(cikc)) {
+                        cJSON_AddStringToObject(ccmd, "irKeyCode", cikc->valuestring);
+                        ir_alt = 1;
+                    }
+                    if (cmd_ir_when_ok(ciw)) cJSON_AddStringToObject(ccmd, "irWhen", ciw->valuestring);
+                }
+
+                if (ir_alt || (!is_bt && !is_mqtt && !is_plugin && !net_kind)) {
                     /* a command's own port mask 1..7 (Emitter Port); none: the device's controlPort */
                     cJSON *cp_item = cJSON_GetObjectItemCaseSensitive(c, "port");
                     int port_val = (own_ports && cp_item && cJSON_IsNumber(cp_item)) ? json_number_int(cp_item, -1, 8, 0) : 0;

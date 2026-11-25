@@ -85,6 +85,12 @@ build_test -Wall -O2 -pthread -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_
 build_test -Wall -O1 -g -fsanitize=address -pthread -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_ir_blob" "$SCRIPT_DIR/test_ir_blob.c" "$REPO_ROOT/payload/source/ir_i2s.c" && "$BUILD_DIR/test_ir_blob"
 build_test -Wall -O2 -pthread -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_ir_tx_stall" "$SCRIPT_DIR/test_ir_tx_stall.c" "$REPO_ROOT/payload/source/ir_i2s.c" && HARMONY_MOCK_DIR="/tmp/harmony_mock" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_ir_tx_stall"
 build_test -Wall -O2 -pthread -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_ir_capture_mode_race" "$SCRIPT_DIR/test_ir_capture_mode_race.c" "$REPO_ROOT/payload/source/ir_i2s.c" && HARMONY_MOCK_DIR="/tmp/harmony_mock" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_ir_capture_mode_race"
+# Learning a press through the receiver thread, also while the capture mode is on
+build_test -Wall -Wextra -O2 -pthread -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_ir_learn_capture" "$SCRIPT_DIR/test_ir_learn_capture.c" "$REPO_ROOT/payload/source/ir_i2s.c" -lm && HARMONY_MOCK_DIR="/tmp/harmony_mock" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_ir_learn_capture"
+# ... and a learn result crossing the waiter's limit (it gives up right at the deadline here): no write after it gave up
+build_test -Wall -Wextra -O1 -g -fsanitize=address -pthread -DIR_LEARN_GRACE_MS=0 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_ir_learn_capture_race" "$SCRIPT_DIR/test_ir_learn_capture.c" "$REPO_ROOT/payload/source/ir_i2s.c" -lm
+ASAN_PRELOAD=$(ldd "$BUILD_DIR/test_ir_learn_capture_race" 2>/dev/null | grep libasan | awk '{print $3}' || true)
+HARMONY_MOCK_DIR="/tmp/harmony_mock" ASAN_OPTIONS=detect_leaks=0 LD_PRELOAD="${ASAN_PRELOAD:+$ASAN_PRELOAD:}$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_ir_learn_capture_race" race
 
 # 4c. hub_btstack reconnect queue and connected-hosts file
 build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source/hub_btstack" -o "$BUILD_DIR/test_bt_release_timers" "$SCRIPT_DIR/test_bt_release_timers.c" && "$BUILD_DIR/test_bt_release_timers"
@@ -113,8 +119,10 @@ echo "[-] Launching Full Hub & Remote Co-Simulation..."
 python3 "$SCRIPT_DIR/test_config_unreadable.py"
 python3 "$SCRIPT_DIR/test_co_simulation.py"
 
-# USB Ethernet adapters listed in the network guide reach a driver that binds them (start_usb_eth.sh in a host sandbox)
+# USB Ethernet adapters listed in the network guide reach a driver that binds them (usb_eth_driver.sh in a host sandbox)
 python3 "$SCRIPT_DIR/test_usb_eth_table.py"
+# every module in payload/modules records the stock CRCs and has the stock struct sk_buff layout
+python3 "$SCRIPT_DIR/test_usb_eth_modules_crc.py"
 
 # 5a. Bluetooth links around activity power on and off (orchestrator, daemon in --dry-run)
 python3 "$SCRIPT_DIR/test_activity_test_sequence.py"

@@ -1,6 +1,7 @@
 import { HarmonyAppHubsNetwork } from './app_hubs_network.js';
 import { escapeHtml, showToast, showConfirm } from './app_icons_ui.js';
 import { t, tf, tfHtml } from '../i18n.js';
+import { pluginFieldHtml } from './plugin_fields.js';
 
 export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
   constructor() {
@@ -674,13 +675,7 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
       <div class="card" style="padding: 12px; background: var(--bg-card); border: 1px solid var(--border);">
         <strong style="font-size: 13px; color: var(--accent); margin-bottom: 8px; display: block;">${tfHtml('plg_config_title_short', { name: displayName })}</strong>
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
-          ${fields.map(f => `
-            <div>
-              <label for="plug_cfg_${escapeHtml(f.key)}" style="font-size: 12px; margin-bottom: 2px;">${escapeHtml(f.label || f.key)}</label>
-              <input id="plug_cfg_${escapeHtml(f.key)}" class="form-control" type="${f.type === 'number' ? 'number' : (f.type === 'password' ? 'password' : 'text')}"
-                     value="${f.default !== undefined ? escapeHtml(String(f.default)) : ''}" placeholder="${escapeHtml(f.placeholder || '')}">
-            </div>
-          `).join('')}
+          ${fields.map(f => pluginFieldHtml(f, 'plug_cfg_', f.default)).join('')}
         </div>
         ${hasPairing ? `
           <div style="margin-top: 10px; padding: 10px; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 6px; display: flex; justify-content: space-between; align-items: center; gap: 8px;">
@@ -756,9 +751,9 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
     let fields = Array.isArray(plug.device_definition?.config_fields)
       ? plug.device_definition.config_fields.filter(f => f && f.key) : null;
     if (!fields && cfgObj && typeof cfgObj === 'object') {
-      const knownKeys = Object.keys(cfgObj).filter(k => !['id', 'name', 'type', 'config', 'commands', 'icon', 'manufacturer', 'model', 'interDeviceDelay', 'interKeyDelay', 'holdInterKeyDelay', 'powerOnDelay', 'isPowerAlwaysOn'].includes(k));
+      const knownKeys = Object.keys(cfgObj).filter(k => !['id', 'name', 'type', 'config', 'commands', 'icon', 'manufacturer', 'model', 'interDeviceDelay', 'interKeyDelay', 'holdInterKeyDelay', 'powerOnDelay', 'pressMinRepeats', 'isPowerAlwaysOn'].includes(k));
       if (knownKeys.length > 0) {
-        fields = knownKeys.map(k => ({ key: k, label: k.replace(/_/g, ' ').toUpperCase(), type: typeof cfgObj[k] === 'number' ? 'number' : 'string' }));
+        fields = knownKeys.map(k => ({ key: k, label: k.replace(/_/g, ' ').toUpperCase(), type: typeof cfgObj[k] === 'number' ? 'number' : (typeof cfgObj[k] === 'boolean' ? 'boolean' : 'string') }));
       }
     }
 
@@ -784,14 +779,7 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
             } else if (f.default !== undefined) {
               curVal = f.default;
             }
-            return `
-            <div>
-              <label for="edit_plug_cfg_${escapeHtml(f.key)}" style="font-size: 11px; margin-bottom: 2px;">${escapeHtml(f.label || f.key)}</label>
-              <input id="edit_plug_cfg_${escapeHtml(f.key)}" class="form-control form-control-sm"
-                     type="${f.type === 'number' ? 'number' : (f.type === 'password' ? 'password' : 'text')}"
-                     value="${escapeHtml(String(curVal))}" placeholder="${escapeHtml(f.placeholder || '')}">
-            </div>
-            `;
+            return pluginFieldHtml(f, 'edit_plug_cfg_', curVal, true);
           }).join('')}
         </div>
         ${hasPairing ? `

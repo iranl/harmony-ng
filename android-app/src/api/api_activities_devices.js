@@ -57,6 +57,8 @@ export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
         holdInterKeyDelay: dev.holdInterKeyDelay !== undefined ? Number(dev.holdInterKeyDelay) : 200,
         defaultInterDeviceDelay: dev.defaultInterDeviceDelay !== undefined ? Number(dev.defaultInterDeviceDelay) : 500,
         powerOnDelay: dev.powerOnDelay !== undefined ? Number(dev.powerOnDelay) : 1500,
+        // frames an IR press sends after the first; undefined when the device has none (the Hub uses 3)
+        pressMinRepeats: dev.pressMinRepeats !== undefined && dev.pressMinRepeats !== null ? Number(dev.pressMinRepeats) : undefined,
         isPowerAlwaysOn: Boolean(dev.isPowerAlwaysOn),
         hideOnRemote: Boolean(dev.hideOnRemote),
         hideInDevicesTab: Boolean(dev.hideInDevicesTab),

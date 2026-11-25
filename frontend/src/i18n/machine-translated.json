@@ -672,7 +672,8 @@
     "plg_pairing_failed",
     "plg_verify_code",
     "plg_confirm_running",
-    "plg_confirm_timeout"
+    "plg_confirm_timeout",
+    "plg_ir_alt_title"
   ],
   "fr": [
     "map_action_help",
@@ -1346,7 +1347,8 @@
     "plg_pairing_failed",
     "plg_verify_code",
     "plg_confirm_running",
-    "plg_confirm_timeout"
+    "plg_confirm_timeout",
+    "plg_ir_alt_title"
   ],
   "nl": [
     "map_action_help",
@@ -2020,7 +2022,8 @@
     "plg_pairing_failed",
     "plg_verify_code",
     "plg_confirm_running",
-    "plg_confirm_timeout"
+    "plg_confirm_timeout",
+    "plg_ir_alt_title"
   ],
   "es": [
     "map_action_help",
@@ -2694,7 +2697,8 @@
     "plg_pairing_failed",
     "plg_verify_code",
     "plg_confirm_running",
-    "plg_confirm_timeout"
+    "plg_confirm_timeout",
+    "plg_ir_alt_title"
   ],
   "it": [
     "map_action_help",
@@ -3368,6 +3372,7 @@
     "plg_pairing_failed",
     "plg_verify_code",
     "plg_confirm_running",
-    "plg_confirm_timeout"
+    "plg_confirm_timeout",
+    "plg_ir_alt_title"
   ]
 }

@@ -1,0 +1,71 @@
+--- a/drivers/net/usb/asix.c	2026-11-24 21:57:00.789789902 +0100
++++ b/drivers/net/usb/asix.c	2026-11-24 21:57:00.888333230 +0100
+@@ -48,6 +48,9 @@
+ #define AX_CMD_WRITE_MII_REG		0x08
+ #define AX_CMD_SET_HW_MII		0x0a
+ #define AX_CMD_READ_EEPROM		0x0b
++
++/* driver_info->data: the MAC address is in the EEPROM (AX88772B) */
++#define FLAG_EEPROM_MAC			(1UL << 0)
+ #define AX_CMD_WRITE_EEPROM		0x0c
+ #define AX_CMD_WRITE_ENABLE		0x0d
+ #define AX_CMD_WRITE_DISABLE		0x0e
+@@ -975,12 +978,27 @@
+ 	dbg("RX_CTL is 0x%04x setting to 0x0000", rx_ctl);
+ 
+ 	/* Get the MAC address */
+-	if ((ret = asix_read_cmd(dev, AX_CMD_READ_NODE_ID,
++	if (dev->driver_info->data & FLAG_EEPROM_MAC) {
++		int i;
++
++		for (i = 0; i < ETH_ALEN / 2; i++) {
++			if ((ret = asix_read_cmd(dev, AX_CMD_READ_EEPROM,
++						0x04 + i, 0, 2, buf + i * 2)) < 0) {
++				dbg("Failed to read MAC address: %d", ret);
++				goto out;
++			}
++		}
++	} else if ((ret = asix_read_cmd(dev, AX_CMD_READ_NODE_ID,
+ 				0, 0, ETH_ALEN, buf)) < 0) {
+ 		dbg("Failed to read MAC address: %d", ret);
+ 		goto out;
+ 	}
+ 	memcpy(dev->net->dev_addr, buf, ETH_ALEN);
++	if (!is_valid_ether_addr(dev->net->dev_addr)) {
++		random_ether_addr(dev->net->dev_addr);
++		printk(KERN_WARNING "asix: no valid MAC address in the adapter, using random %pM\n",
++		       dev->net->dev_addr);
++	}
+ 
+ 	/* Initialize MII structure */
+ 	dev->mii.dev = dev->net;
+@@ -1375,6 +1393,18 @@
+ 	.tx_fixup = asix_tx_fixup,
+ };
+ 
++static const struct driver_info ax88772b_info = {
++	.description = "ASIX AX88772B USB 2.0 Ethernet",
++	.bind = ax88772_bind,
++	.status = asix_status,
++	.link_reset = ax88772_link_reset,
++	.reset = ax88772_link_reset,
++	.flags = FLAG_ETHER | FLAG_FRAMING_AX,
++	.rx_fixup = asix_rx_fixup,
++	.tx_fixup = asix_tx_fixup,
++	.data = FLAG_EEPROM_MAC,
++};
++
+ static const struct driver_info ax88178_info = {
+ 	.description = "ASIX AX88178 USB 2.0 Ethernet",
+ 	.bind = ax88178_bind,
+@@ -1448,6 +1478,10 @@
+ 	USB_DEVICE (0x0b95, 0x7720),
+ 	.driver_info = (unsigned long) &ax88772_info,
+ }, {
++	// ASIX AX88772B 10/100
++	USB_DEVICE (0x0b95, 0x772b),
++	.driver_info = (unsigned long) &ax88772b_info,
++}, {
+ 	// ASIX AX88178 10/100/1000
+ 	USB_DEVICE (0x0b95, 0x1780),
+ 	.driver_info = (unsigned long) &ax88178_info,

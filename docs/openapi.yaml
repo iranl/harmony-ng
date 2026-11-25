@@ -1256,6 +1256,7 @@ paths:
                 interDeviceDelay: {type: integer, minimum: 0, maximum: 10000, default: 500, description: "ms waited before a command to this device after one to another device"}
                 interKeyDelay: {type: integer, minimum: 0, maximum: 10000, default: 100, description: "ms between two different commands to this device"}
                 holdInterKeyDelay: {type: integer, minimum: 0, maximum: 10000, default: 200, description: "ms between repeats of the same command"}
+                pressMinRepeats: {oneOf: [{type: integer}, {type: string}, {type: "null"}], description: "Infrared devices: frames a press sends after the first, as the Logitech account's PressMinRepeats: 0 to 20 (a larger number is lowered to 20; numeric text accepted). null, an empty string or a negative number removes it (the Hub then uses 3); left out, the stored value is kept; other text answers 400"}
                 icon: {oneOf: [{type: string}, {type: integer}]}
                 powerOnDelay: {type: integer}
                 isPowerAlwaysOn: {type: boolean}
@@ -1271,7 +1272,7 @@ paths:
                 btTriggerCommandName: {type: string, description: "Command that starts the reconnect (also deviceId:Command)"}
                 plugin: {type: string, description: "Id of the plugin this device belongs to (a safe id: letters, digits, - and _; 400 otherwise). Only this field or a type plugin:<id> makes a device a plugin device; it then has no controlPort."}
                 config: {oneOf: [{type: object}, {type: string}], description: "Plugin device settings (the plugin's config_fields), an object or that object as a JSON string. A top-level key is copied into config only for a plugin device and only when its config_fields declare it."}
-                commands: {oneOf: [{type: array, items: {type: object}}, {type: string}], description: "Replaces the device's commands (a non-empty array, or that array as a JSON string). A command without a range key keeps the range of the device's command of that name; range null or [] removes it; a command new to a plugin device gets the range of the manifest's default_commands entry of that name."}
+                commands: {oneOf: [{type: array, items: {type: object}}, {type: string}], description: "Replaces the device's commands (a non-empty array, or that array as a JSON string). A command without a range key keeps the range of the device's command of that name; range null or [] removes it; a command new to a plugin device gets the range of the manifest's default_commands entry of that name. A plugin device's command may carry irKeyCode (an infrared code, as an IR device's keyCode) and irWhen (the key of a boolean config field): while config[irWhen] is on (true, a number other than 0, \"true\" or \"1\") the command is sent as infrared instead of going to the plugin. They are kept (each one left out keeps the stored value), removed and filled from the manifest like range; an invalid one is left out."}
             example:
               deviceId: "70321456"
               name: LG OLED TV
@@ -1381,8 +1382,10 @@ paths:
                 oldName: {type: string, description: "Current name of the command, to rename it to name"}
                 raw: {type: string, description: "The code (also accepted as code). Left out on an update, the stored code is kept"}
                 script: {type: string, description: "Bluetooth macro; stored as the code BT:SCRIPT:<script>"}
+                irKeyCode: {type: [string, "null"], description: "Plugin devices only: the infrared code (a Harmony keycode, a learned raw code or Pronto hex) sent instead of the plugin command while config[irWhen] is on. null or empty removes it; left out, the stored one is kept (a new command gets the manifest's). A command with one stores port and repeats"}
+                irWhen: {type: [string, "null"], maxLength: 63, description: "Plugin devices only: the key of the boolean config field that turns irKeyCode on (letters, digits, _ or -). null or empty removes it; left out, the stored one is kept"}
                 port: {type: integer, description: "The command's own IR port mask 1..7, used by a send instead of the device's controlPort; 0 removes it (the device's port applies); left out, the stored one is kept. Numeric text (form post) is accepted"}
-                repeats: {type: integer, default: 3, description: "1..20 (higher is 20); left out, the stored value is kept (3 for a new command). Numeric text (form post) is accepted"}
+                repeats: {type: integer, default: 3, description: "1..20 (higher is 20); left out, the stored value is kept (3 for a new command). Numeric text (form post) is accepted. Stored only: how many frames a press sends comes from the device's pressMinRepeats"}
               required: [deviceId, name]
             example:
               deviceId: "70321456"
@@ -1452,6 +1455,8 @@ paths:
                       raw: {type: string}
                       port: {type: integer}
                       repeats: {type: integer}
+                      irKeyCode: {type: [string, "null"], description: "Plugin devices only, as in /api/command-save"}
+                      irWhen: {type: [string, "null"], maxLength: 63, description: "Plugin devices only, as in /api/command-save"}
                     required: [name, raw]
               required: [deviceId, commands]
             example:
@@ -2032,7 +2037,7 @@ paths:
       tags:
         - Hardware & IR
       summary: Learn an IR code from the Hub's receiver
-      description: Waits for one IR signal and returns it as a Harmony raw timing string. timeout may also be given in the query (?timeout=5).
+      description: Waits for one IR signal and returns the whole press as a Harmony raw timing string, every frame until 200 ms without light (at most 1023 mark/space pairs), as the stock Hub's capture keeps it; a tap of the stored code sends all of it. timeout may also be given in the query (?timeout=5). Works while the IR capture mode is on (no ir_received event for the learned press). Hub IR sends go out at once during a learn; a press that overlaps a send is not kept. One learn at a time.
       requestBody:
         required: false
         content:
@@ -2043,7 +2048,7 @@ paths:
                 timeout: {type: integer, minimum: 1, maximum: 30, default: 10}
       responses:
         '200':
-          description: "Signal captured (pulses: number of P and S intervals in raw, marks and spaces together; duration_us: their sum)"
+          description: "Signal captured (pulses: number of P and S intervals in raw, marks and spaces together; duration_us: their sum; frames: the frames of the press, a space of 20 ms or more ends one)"
           content:
             application/json:
               example:
@@ -2054,14 +2059,15 @@ paths:
                 carrier_hz: 38000
                 pulses: 26
                 duration_us: 24000
+                frames: 1
         '408':
-          description: No signal before the timeout
+          description: No signal before the timeout (also when a press overlapped a Hub IR send and was not kept)
         '409':
-          description: Another capture is running, the IR capture mode is on, or an IR send holds the hardware
+          description: Another capture is running
         '500':
           description: The capture failed for another reason (IR capture failed)
         '503':
-          description: No IR receiver
+          description: No IR receiver, the receiver stopped delivering data, or the Hub is shutting down
 
   /api/ir-capture:
     post:
@@ -2071,7 +2077,8 @@ paths:
       description: |
         While on, a thread keeps the IR receiver open and every button press becomes an ir_received
         event (WebSocket, MQTT <base>/ir/received). Sends keep working; what the receiver reads
-        during a send is dropped. POST /api/capture answers 409 meanwhile. Off at every start.
+        during a send is dropped. POST /api/capture works meanwhile: the press it learns is not an
+        event, and the mode stays reported on. Off at every start.
         Also the WebSocket and MQTT action ir_capture. Capability flag ir_capture.
       requestBody:
         required: true
@@ -2092,8 +2099,6 @@ paths:
                 ir_capture: true
         '400':
           description: enabled missing or not a boolean
-        '409':
-          description: A one-shot capture is running
         '500':
           description: The mode could not be changed for another reason
         '503':

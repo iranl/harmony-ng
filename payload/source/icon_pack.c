@@ -31,7 +31,7 @@
 
 /* gzip header written by tools/icon_pack.py: 10 bytes, XLEN, subfield 'H' 'I' with 20 bytes */
 #define PACK_HEADER_LEN 36
-#define PACK_VERSION 1
+#define PACK_VERSION ICON_PACK_VERSION
 #define PACK_MAX_INDEX (1024 * 1024)
 #define PACK_MAX_PART (4 * 1024 * 1024)
 /* A part is inflated as a whole stream: a final empty fixed-Huffman block (0x03 0x00) ends it,
@@ -137,15 +137,26 @@ static int entry_cmp(const void *a, const void *b) {
     return strcmp(((const struct pack_entry *)a)->name, ((const struct pack_entry *)b)->name);
 }
 
-/* -1 when the file open on fd has no pack header ('HI' gzip subfield), else its version byte
- * (PACK_VERSION when the file ends before it: a copy in progress) */
+/* -1 when the file open on fd has no pack header (the fixed gzip header of tools/icon_pack.py:
+ * FEXTRA only, XLEN 24, one 'HI' subfield of 20 bytes), else its version byte (PACK_VERSION when
+ * the file ends before it: a copy in progress). A gzip file of another tool that only happens to
+ * start a subfield with 'HI' is not a pack. */
 static int pack_header_version(int fd) {
     unsigned char h[17];
-    if (read_at(fd, h, 16, 0) != 0 || h[0] != 0x1f || h[1] != 0x8b || !(h[3] & 0x04) || h[12] != 'H' ||
-        h[13] != 'I') {
+    if (read_at(fd, h, 16, 0) != 0 || h[0] != 0x1f || h[1] != 0x8b || h[2] != 8 || h[3] != 0x04 ||
+        h[10] != 24 || h[11] != 0 || h[12] != 'H' || h[13] != 'I' || h[14] != 20 || h[15] != 0) {
         return -1;
     }
     return read_at(fd, h + 16, 1, 16) == 0 ? h[16] : PACK_VERSION;
+}
+
+/* The first regular file of ICON_PACK_ARCHIVES (*st filled), NULL when there is none */
+static const char *pick_archive(struct stat *st) {
+    static const char *const paths[] = ICON_PACK_ARCHIVES;
+    for (size_t i = 0; i < sizeof(paths) / sizeof(paths[0]); i++) {
+        if (stat(paths[i], st) == 0 && S_ISREG(st->st_mode)) return paths[i];
+    }
+    return NULL;
 }
 
 /* Reads the index of the archive open on fd (size bytes); 0 when it is a usable pack */
@@ -217,15 +228,8 @@ static int load_index(int fd, off_t size) {
 
 /* Brings the index up to date with the archive on flash; called with s_lock held */
 static void refresh_locked(void) {
-    static const char *const paths[] = ICON_PACK_ARCHIVES;
-    const char *path = NULL;
     struct stat st;
-    for (size_t i = 0; i < sizeof(paths) / sizeof(paths[0]); i++) {
-        if (stat(paths[i], &st) == 0 && S_ISREG(st.st_mode)) {
-            path = paths[i];
-            break;
-        }
-    }
+    const char *path = pick_archive(&st);
     if (!path) {
         if (s_looked && !s_path[0]) return;
         drop_index();
@@ -247,13 +251,10 @@ static void refresh_locked(void) {
     if (load_index(fd, st.st_size) == 0) {
         printf("[+] Icons read from %s (%zu names, %zu parts)\n", path, s_nentries, s_nparts);
     } else {
-        /* once per file state: the stat above is kept, so the next call returns early */
-        int ver = pack_header_version(fd);
-        if (ver == PACK_VERSION) {
+        /* once per file state: the stat above is kept, so the next call returns early. A pack
+         * of another version is logged by the caller that decides whether to unpack it */
+        if (pack_header_version(fd) == PACK_VERSION) {
             printf("[-] Icon pack %s: index not readable, no stock icons until it is deployed again\n", path);
-        } else if (ver >= 0) {
-            printf("[!] Icon pack %s: pack version %d, this firmware reads version %d: unpacked as a plain archive\n",
-                   path, ver, PACK_VERSION);
         }
     }
     close(fd);
@@ -264,12 +265,25 @@ static const struct pack_entry *find_locked(const char *name) {
     return s_nentries ? bsearch(&key, s_entries, s_nentries, sizeof(key), entry_cmp) : NULL;
 }
 
-int icon_pack_is_pack_file(const char *path) {
+int icon_pack_file_kind(const char *path, int *pack_version) {
+    if (pack_version) *pack_version = -1;
     int fd = path ? open(path, O_RDONLY | O_CLOEXEC) : -1;
-    if (fd < 0) return 0;
-    int ok = pack_header_version(fd) == PACK_VERSION;
+    if (fd < 0) return ICON_ARCHIVE_NONE;
+    int ver = pack_header_version(fd);
     close(fd);
-    return ok;
+    if (ver < 0) return ICON_ARCHIVE_PLAIN;
+    if (pack_version) *pack_version = ver;
+    return ver == PACK_VERSION ? ICON_ARCHIVE_PACK : ICON_ARCHIVE_PACK_OTHER;
+}
+
+int icon_pack_archive(char *path, size_t len, struct stat *st, int *pack_version) {
+    struct stat tmp;
+    if (!st) st = &tmp;
+    if (pack_version) *pack_version = -1;
+    const char *p = pick_archive(st);
+    if (!p || !path || len == 0 || strlen(p) >= len) return ICON_ARCHIVE_NONE;
+    memcpy(path, p, strlen(p) + 1);
+    return icon_pack_file_kind(path, pack_version);
 }
 
 int icon_pack_available(void) {
