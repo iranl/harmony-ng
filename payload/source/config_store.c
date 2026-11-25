@@ -701,6 +701,9 @@ int config_store_get_settings(struct hub_settings *settings) {
     item = cJSON_GetObjectItemCaseSensitive(root, "update_repo");
     if (item && cJSON_IsString(item) && ota_source_url_ok(item->valuestring)) {
         snprintf(settings->update_repo, sizeof(settings->update_repo), "%s", item->valuestring);
+        /* a settings.json from a backup or an import did not pass the API's normalisation */
+        ota_source_normalize(settings->update_repo);
+        if (!ota_source_url_ok(settings->update_repo)) settings->update_repo[0] = '\0';
     }
 
     cJSON_Delete(root);

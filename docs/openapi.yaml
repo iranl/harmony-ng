@@ -3903,7 +3903,7 @@ paths:
       description: |
         scan, install (download scsi_mod, sd_mod and usb-storage from the update source, signed
         manifest), eject, offload (copy the icons and plugins to the stick, read them back, then
-        remove them from flash), restore (check the room, copy them back; fails without changes). Runs in the background; GET shows busy until it ends.
+        remove them from flash), restore (check the room, move them back and remove them from the stick; fails without changes; nothing with offload off). Runs in the background; GET shows busy until it ends.
       requestBody:
         required: true
         content:

@@ -62,6 +62,11 @@ def main():
 
         st, r = hub.http_post("/api/settings", {"update_repo": ""})
         check(st == 200 and stored(hub) == "", "empty clears the source", "%s %s" % (st, r))
+
+    # a settings.json from a backup or an import: normalised when it is loaded
+    with HubHarness(port=PORT, extra_config_files={"settings.json": {"update_repo": fork + "/bin/mips/"}}) as hub:
+        st, r = hub.http_get("/api/settings")
+        check(r.get("update_repo") == fork, "normalised at load", str(r.get("update_repo")))
     if failed:
         print("update_repo setting: %d FAILED" % failed)
         sys.exit(1)

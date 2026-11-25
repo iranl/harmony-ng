@@ -72,7 +72,7 @@ class UsbStorageScript(unittest.TestCase):
             f"echo \"$*\" >> '{log}'\n"
             'case "$1" in\n'
             f'  df) echo "Filesystem 1K-blocks Used Available Use% Mounted on"; echo "/dev/sda1 7800000 100 {df_avail} 1% /x";;\n'
-            '  du) shift; exec du "$@";;\n'
+            '  du|ls) exec "$@";;\n'
             "esac\n"
             "exit 0\n")
         (stub / "insmod").write_text(f"#!/bin/sh\necho \"insmod $1\" >> '{log}'\n")
@@ -158,7 +158,9 @@ class UsbStorageScript(unittest.TestCase):
         # restore without the stick, then offload again: the plugins on the stick must stay
         def setup(root):
             self.usb = self.offloaded(root, plugins=("roku-ecp",))
-            (root / "data" / "harmony" / "config" / "usb_offload").unlink()
+            # what a restore without the stick leaves: no flag, its id kept
+            (root / "data" / "harmony" / "config" / "usb_offload").rename(
+                root / "data" / "harmony" / "config" / "usb_offload.last")
             plug = root / "data" / "harmony" / "plugins" / "android-tv"
             plug.mkdir(parents=True)
             (plug / "manifest.json").write_text("{}")
@@ -183,6 +185,75 @@ class UsbStorageScript(unittest.TestCase):
         self.assertEqual((self.root / "cache" / "icons.tar.gz").read_bytes(), b"archive")
         self.assertFalse((data / "config" / "usb_offload").exists())
         self.assertFalse((data / "plugins.restore").exists())
+        # a move: nothing of it stays on the stick to come back with the next offload
+        usb = self.root / "mnt" / "usb" / "harmony"
+        self.assertEqual(sorted(p.name for p in usb.iterdir()), [])
+
+    def test_offload_refuses_folders_of_another_hub(self):
+        # no flag and no kept id on this Hub: the stick's folders are not this Hub's
+        def setup(root):
+            self.usb = self.offloaded(root, plugins=("otherhub",))
+            (root / "data" / "harmony" / "config" / "usb_offload").unlink()
+            plug = root / "data" / "harmony" / "plugins" / "roku-ecp"
+            plug.mkdir(parents=True)
+            (plug / "manifest.json").write_text("{}")
+        self.run_scan(stick=True, modules=True, action="offload", setup=setup)
+        self.assertNotEqual(self.out.returncode, 0)
+        self.assertIn("not moved there from this Hub", self.out.stdout)
+        self.assertTrue((self.root / "data" / "harmony" / "plugins" / "roku-ecp" / "manifest.json").exists())
+        self.assertFalse((self.usb / "plugins" / "roku-ecp").exists())
+        self.assertEqual((self.usb / ".offload_id").read_text().strip(), "id-1")
+        self.assertFalse((self.root / "data" / "harmony" / "config" / "usb_offload").exists())
+
+    def test_restore_without_stick_keeps_the_id(self):
+        def setup(root):
+            (root / "data" / "harmony" / "config" / "usb_offload").write_text("id-1\n")
+        self.run_scan(stick=False, modules=True, action="restore", setup=setup)
+        cfg = self.root / "data" / "harmony" / "config"
+        self.assertEqual(self.out.returncode, 0, self.out.stdout + self.out.stderr)
+        self.assertFalse((cfg / "usb_offload").exists())
+        self.assertEqual((cfg / "usb_offload.last").read_text().strip(), "id-1")
+
+    def test_restore_without_flag_does_nothing(self):
+        # restore with offload off: the stick's folders must not replace the flash plugins
+        def setup(root):
+            self.offloaded(root, plugins=("roku-ecp",))
+            (root / "data" / "harmony" / "config" / "usb_offload").unlink()
+            plug = root / "data" / "harmony" / "plugins" / "roku-ecp"
+            plug.mkdir(parents=True)
+            (plug / "manifest.json").write_text('{"version":"2.0"}')
+        self.run_scan(stick=True, modules=True, action="restore", setup=setup)
+        self.assertEqual(self.out.returncode, 0)
+        self.assertIn("nothing to restore", self.out.stdout)
+        self.assertEqual((self.root / "data" / "harmony" / "plugins" / "roku-ecp" / "manifest.json").read_text(),
+                         '{"version":"2.0"}')
+
+    def test_leftovers_of_a_killed_restore_are_removed(self):
+        def setup(root):
+            left = root / "data" / "harmony" / "plugins.restore" / "big"
+            left.mkdir(parents=True)
+            (left / "data.bin").write_bytes(b"x" * 1024)
+        self.run_scan(stick=False, modules=True, setup=setup)
+        self.assertFalse((self.root / "data" / "harmony" / "plugins.restore").exists())
+
+    def test_lock_of_a_dead_run_is_taken_over(self):
+        def setup(root):
+            (root / "tmp" / "usb_storage.lock").mkdir()
+            (root / "tmp" / "usb_storage.lock" / "pid").write_text("999999\n")
+        st, _ = self.run_scan(stick=False, modules=True, setup=setup)
+        self.assertEqual(self.out.returncode, 0, self.out.stdout + self.out.stderr)
+        self.assertEqual(st.get("present"), "0")
+        self.assertFalse((self.root / "tmp" / "usb_storage.lock").exists())
+
+    def test_room_check_counts_file_sizes(self):
+        # 100 icons of 3 KB: 400 KB with 1 KB per file, far less than whole FAT clusters
+        def setup(root):
+            usb = self.offloaded(root, plugins=())
+            for i in range(100):
+                (usb / "custom_icons" / f"i{i}.png").write_bytes(b"x" * 3000)
+        self.run_scan(stick=True, modules=True, action="restore", setup=setup, df_avail=660)
+        self.assertEqual(self.out.returncode, 0, self.out.stdout + self.out.stderr)
+        self.assertEqual(len(list((self.root / "data" / "harmony" / "custom_icons").iterdir())), 101)
 
     def test_restore_without_room_changes_nothing(self):
         def setup(root):

@@ -244,14 +244,18 @@ enters with Ethernet enabled (`ETH_ENABLED=1`) and no PC on the port.
 
 #### `POST /api/usb-storage`
 - **Body**: `{"action": "scan" | "install" | "eject" | "offload" | "restore"}`.
-  - `install` downloads the USB storage modules from the update source (signed manifest).
-  - `offload` copies the icon archive, the custom icons and the plugins to the stick (plugin by
-    plugin: a plugin only on the stick stays), reads the copies back from the stick and only then
-    removes them from flash.
-  - `restore` copies them back to flash. It first checks the room (the stick's folders against the
-    free space of `/data`, keeping 256 KB for the settings) and fails without changes when it
-    does not fit; a copy that fails half way removes what it wrote. Without the stick it only
-    turns `offload` off: the icons and plugins stay on the stick.
+  - `install` downloads the USB storage modules from the update source (signed manifest), also
+    those already installed.
+  - `offload` copies the icon archive, the custom icons and the plugins to the stick, reads the
+    copies back from the stick and only then removes them from flash. Folders already on the
+    stick are merged plugin by plugin only when they were left there by this Hub (a `restore`
+    without the stick); a stick with icons or plugins from elsewhere is refused.
+  - `restore` moves them back to flash. It first checks the room (the file sizes on the stick
+    against the free space of `/data`, keeping 256 KB for the settings) and fails without changes
+    when it does not fit; a copy that fails half way removes what it wrote. Once the copies are
+    in place, the icons and plugins are removed from the stick. Without the stick it only turns
+    `offload` off: the icons and plugins stay on the stick, and the next `offload` to that stick
+    merges them. With `offload` off it does nothing.
   - `eject` writes everything to the stick and unmounts it.
 - **Response `202 Accepted`**: `{"ok": true, "status": "running", "action": "offload"}`; follow
   `busy` in `GET /api/usb-storage`. **`400`**: unknown action. **`409`**: an action is running.

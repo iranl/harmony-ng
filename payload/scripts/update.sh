@@ -313,7 +313,7 @@ install_bundle() {
   if [ -f "$_pkg/icons.tar.gz" ]; then
     _icons=$(icons_dest)
     if [ -z "$_icons" ]; then
-      echo "[!] USB stick with the icons is not mounted: icon archive not updated."
+      echo "[!] The USB stick with the icons is not mounted: icon archive not updated."
     elif [ "$_icons" = /cache/icons.tar.gz ]; then
       install_file "$_pkg/icons.tar.gz" "$_icons" 644 || return 1
     else
@@ -324,12 +324,14 @@ install_bundle() {
 }
 
 # Where the icon archive goes: the USB stick while the icons are kept there (usb_storage.sh
-# offload) and it is mounted; else /cache. With the icons on a stick that is out: nothing (never
-# back to flash); the link to the stick stays.
+# offload) and it is mounted; else /cache. With the icons on a stick that is out, or another
+# stick mounted (its id differs from the flag's): nothing (never back to flash); the link to the
+# stick stays.
 icons_dest() {
   if [ -f /data/harmony/config/usb_offload ]; then
-    if grep -q ' /mnt/usb ' /proc/mounts 2>/dev/null; then
-      mkdir -p /mnt/usb/harmony 2>/dev/null
+    _id=$(cat /data/harmony/config/usb_offload 2>/dev/null)
+    if [ -n "$_id" ] && grep -q ' /mnt/usb ' /proc/mounts 2>/dev/null &&
+       [ "$_id" = "$(cat /mnt/usb/harmony/.offload_id 2>/dev/null)" ]; then
       echo /mnt/usb/harmony/icons.tar.gz
     fi
   else
@@ -710,10 +712,11 @@ do_apply() {
       # F. Icons archive -> /cache/icons.tar.gz or the USB stick (staged above)
       if [ -f "$TMPDIR/pkg/icons.tar.gz" ]; then
         _icons=$(icons_dest)
-        [ -z "$_icons" ] && _icons=/mnt/usb/harmony/icons.tar.gz
-        rm -f /data/harmony/icons.tar.gz 2>/dev/null || true
-        ln -sf "$_icons" /data/harmony/icons.tar.gz 2>/dev/null || true
-        echo "[+] Icons archive updated in $_icons (symlinked)."
+        if [ -n "$_icons" ]; then
+          rm -f /data/harmony/icons.tar.gz 2>/dev/null || true
+          ln -sf "$_icons" /data/harmony/icons.tar.gz 2>/dev/null || true
+          echo "[+] Icons archive linked from $_icons."
+        fi
       fi
 
       OTA_BUNDLE_OK=1
