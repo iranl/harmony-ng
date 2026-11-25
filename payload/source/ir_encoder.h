@@ -59,6 +59,16 @@ int ir_parse_harmony_raw(const char *code, uint32_t *carrier_hz, int32_t *timing
 int ir_encode_harmony_keycode(const char *keycode, uint8_t min_repeats,
                              uint8_t **out_buf, size_t *out_len);
 
+/* 1 when keycode is a "G:<protocol>:..." code of an RC5 protocol with a toggle bit (its
+ * protocol name has "RC5" and "Toggle", as "Philips RC5 13 Bit Toggle") */
+int ir_keycode_is_rc5_toggle(const char *keycode);
+
+/* ir_encode_harmony_keycode() with the RC5 toggle bit of this press: rc5_toggle 1 sends an RC5
+ * "Toggle" code with its toggle bit (bit 11 of the 13 sent) flipped, 0 as stored. Other codes
+ * ignore it. A stock Hub keeps the bit per device and protocol and flips it after each press. */
+int ir_encode_harmony_keycode_toggle(const char *keycode, uint8_t min_repeats, int rc5_toggle,
+                                    uint8_t **out_buf, size_t *out_len);
+
 /* A device's "pressMinRepeats" when it has none: what a stock Hub uses for an account without
  * the value. The field takes 0..IR_PRESS_MIN_REPEATS_MAX. */
 #define IR_PRESS_MIN_REPEATS_DEFAULT 3

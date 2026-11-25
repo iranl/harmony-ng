@@ -42,6 +42,12 @@ const cJSON *get_device_list_acquire(struct cfg_snap **snap) {
             "{\"name\":\"Level\",\"keyCode\":\"PLUGIN:roku-ecp:Level\",\"range\":[1,100]}]},"
             "{\"id\":\"plug_typed\",\"name\":\"AndroidTV\",\"type\":\"plugin:androidtv\",\"config\":{\"host\":\"192.168.1.60\"},\"commands\":["
             "{\"name\":\"Back\",\"keyCode\":\"Back\"}]},"
+            "{\"id\":\"rc5_amp\",\"name\":\"Rc5Amp\",\"interDeviceDelay\":0,\"interKeyDelay\":0,\"holdInterKeyDelay\":0,\"commands\":["
+            "{\"name\":\"Mute\",\"keyCode\":\"G:Philips RC5 13 Bit Toggle:()(0x140D)():3\"},"
+            "{\"name\":\"Plain\",\"keyCode\":\"G:Philips RC5 13 Bit:()(0x140D)():3\"},"
+            "{\"name\":\"Other\",\"keyCode\":\"G:RC5 Second Toggle:()(0x140D)():3\"}]},"
+            "{\"id\":\"rc5_tv\",\"name\":\"Rc5Tv\",\"interDeviceDelay\":0,\"interKeyDelay\":0,\"holdInterKeyDelay\":0,\"commands\":["
+            "{\"name\":\"Mute\",\"keyCode\":\"G:Philips RC5 13 Bit Toggle:()(0x000D)():3\"}]},"
             "{\"id\":\"custom_dev\",\"name\":\"CustomDev\",\"commands\":["
             "{\"name\":\"Wake\",\"keyCode\":\"PLUGIN:ps5-wake:Boot\"},"
             "{\"name\":\"Netflix\",\"keyCode\":\"PLUGIN:android-tv:app:https://www.netflix.com/title/80057281?source=harmony-ng&trackId=255824129\"}]}]}");
@@ -78,6 +84,15 @@ int ir_encode_harmony_keycode(const char *keycode, uint8_t repeats, uint8_t **ou
     *out_len = 16;
     s_blasts++;
     return 0;
+}
+/* the RC5 toggle bit hw_action.c gave the last encode (ir_encoder.c) */
+static int s_last_toggle = -1;
+int ir_keycode_is_rc5_toggle(const char *keycode) {
+    return keycode && strstr(keycode, "RC5") != NULL && strstr(keycode, "Toggle:") != NULL;
+}
+int ir_encode_harmony_keycode_toggle(const char *keycode, uint8_t repeats, int rc5_toggle, uint8_t **out_bin, size_t *out_len) {
+    s_last_toggle = rc5_toggle;
+    return ir_encode_harmony_keycode(keycode, repeats, out_bin, out_len);
 }
 /* repeat parts of a press (ir_encoder.c): none here, a tap is one send */
 int ir_press_repeat_parts(const char *keycode, const uint8_t *blob, size_t blob_len, int press_min_repeats) {
@@ -318,6 +333,34 @@ int main(void) {
     assert(strstr(out, "plugin=android-tv") != NULL);
     assert(strstr(out, "cmd=app:https://www.netflix.com/title/80057281?source=harmony-ng&trackId=255824129 ") != NULL);
     printf("[+] Long plugin app link dispatched untruncated.\n");
+
+    /* 8c. The RC5 toggle bit: one per device and protocol, 0 at first, sent and then flipped at
+     * each press or tap, as a stock Hub does; a code without a toggle always gets 0 */
+    static const struct { const char *dev, *cmd; int want; } rc5[] = {
+        { "rc5_amp", "Mute", 0 }, { "rc5_amp", "Mute", 1 }, { "rc5_tv", "Mute", 0 }, { "rc5_amp", "Mute", 0 },
+        { "rc5_amp", "Plain", 0 }, { "rc5_tv", "Mute", 1 }, { "rc5_amp", "Mute", 1 }, { "rc5_amp", "Plain", 0 },
+        /* a second "Toggle" protocol of the same device has its own bit */
+        { "rc5_amp", "Mute", 0 }, { "rc5_amp", "Other", 0 }, { "rc5_amp", "Other", 1 }, { "rc5_amp", "Mute", 1 },
+    };
+    for (size_t i = 0; i < sizeof(rc5) / sizeof(rc5[0]); i++) {
+        usleep(120 * 1000); /* past the duplicate-press window */
+        s_last_toggle = -1;
+        assert(hw_device_command_send_action(rc5[i].dev, 0, rc5[i].cmd, HW_BTN_ACTION_TAP) == 0);
+        if (s_last_toggle != rc5[i].want) {
+            printf("[-] RC5 toggle of %s %s, send %zu: %d, wanted %d\n", rc5[i].dev, rc5[i].cmd, i, s_last_toggle, rc5[i].want);
+            assert(0);
+        }
+    }
+    usleep(120 * 1000);
+    assert(hw_device_command_send_action("rc5_amp", 0, "Mute", HW_BTN_ACTION_PRESS) == 0);
+    assert(s_last_toggle == 0);
+    assert(hw_device_command_send_action("rc5_amp", 0, "Mute", HW_BTN_ACTION_REPEAT) == 0);
+    assert(s_last_toggle == 0); /* a held key's repeats encode nothing: the press's frames go on */
+    assert(hw_device_command_send_action("rc5_amp", 0, "Mute", HW_BTN_ACTION_RELEASE) == 0);
+    usleep(120 * 1000);
+    assert(hw_device_command_send_action("rc5_amp", 0, "Mute", HW_BTN_ACTION_TAP) == 0);
+    assert(s_last_toggle == 1);
+    printf("[+] RC5 toggle bit kept per device and protocol, sent then flipped.\n");
 
     /* 9. Direct hw_plugin_command_send safety check */
     assert(hw_plugin_command_send(NULL, "dev", "Dev", "Cmd", 0, 0, NULL) == -1);

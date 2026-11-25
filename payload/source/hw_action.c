@@ -375,19 +375,47 @@ static int ir_play_press(const uint8_t *blob, size_t blob_len, uint8_t ports, in
     return rc;
 }
 
+/* The RC5 toggle bit, as a stock Hub keeps it (device.lua toggleByte): one per device and
+ * protocol, 0 after a start. A press or tap sends the stored bit and then flips it, so a
+ * receiver tells a new press of a key from the key held; a held key's repeats are that
+ * press's frames and keep its bit. No device (a keycode sent on its own): 0, as stored. */
+#define RC5_TOGGLE_MAX 32
+static struct { char key[128]; int bit; } s_rc5_toggles[RC5_TOGGLE_MAX];
+static pthread_mutex_t s_rc5_toggle_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static int rc5_toggle_take(const char *device_id, const char *keycode) {
+    if (!device_id || !device_id[0] || !ir_keycode_is_rc5_toggle(keycode)) return 0;
+    char key[sizeof(s_rc5_toggles[0].key)];
+    snprintf(key, sizeof(key), "%s/%.*s", device_id, (int)strcspn(keycode + 2, ":"), keycode + 2);
+    int bit = 0;
+    pthread_mutex_lock(&s_rc5_toggle_lock);
+    for (int i = 0; i < RC5_TOGGLE_MAX; i++) {
+        if (!s_rc5_toggles[i].key[0]) snprintf(s_rc5_toggles[i].key, sizeof(s_rc5_toggles[i].key), "%s", key);
+        if (strcmp(s_rc5_toggles[i].key, key) == 0) {
+            bit = s_rc5_toggles[i].bit;
+            s_rc5_toggles[i].bit = !bit;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&s_rc5_toggle_lock);
+    return bit; /* more than RC5_TOGGLE_MAX devices with RC5: the others send the code as stored */
+}
+
 /* press 0: one blocking send of the code's start sequence, as given (a fallback for a step that
  * names a raw or Pronto code). press 1: a press as a stock Hub sends it, the start part then
  * ir_press_repeat_parts() repeat parts for the device's press_min_repeats (negative: not set);
  * held_key NULL: a tap, it returns when the press is out; else the press of that key: the send
- * starts and goes on in the player until the release. */
+ * starts and goes on in the player until the release. device_id: the device the code belongs
+ * to, for its RC5 toggle bit; NULL: the code goes out as stored. */
 static int ir_send_keycode(const char *keycode, uint8_t ports, uint8_t repeats, int press, int press_min_repeats,
-                           const char *held_key) {
+                           const char *held_key, const char *device_id) {
     if (!keycode || !keycode[0]) return -1;
     if (ports == 0) return 0; /* 0 = No blasters / IR disabled */
 
     uint8_t *bin = NULL;
     size_t bin_len = 0;
-    int rc = ir_encode_harmony_keycode(keycode, repeats ? repeats : 3, &bin, &bin_len);
+    int rc = ir_encode_harmony_keycode_toggle(keycode, repeats ? repeats : 3, rc5_toggle_take(device_id, keycode),
+                                              &bin, &bin_len);
     if (rc != 0 || !bin || bin_len == 0) {
         return -2;
     }
@@ -420,7 +448,7 @@ static int ir_send_keycode(const char *keycode, uint8_t ports, uint8_t repeats, 
 }
 
 int hw_ir_send_harmony_keycode(const char *keycode, uint8_t ports, uint8_t repeats) {
-    return ir_send_keycode(keycode, ports, repeats, 0, -1, NULL);
+    return ir_send_keycode(keycode, ports, repeats, 0, -1, NULL, NULL);
 }
 
 static int is_bt_device_connected(const char *target_bdaddr) {
@@ -697,7 +725,7 @@ static int send_ir_command(const cJSON *target_dev, const cJSON *target_cmd, con
         cmd_ports = (uint8_t)j_cport->valuedouble;
     }
     return ir_send_keycode(keycode, cmd_ports, repeats, 1, press_min_repeats,
-                           action == HW_BTN_ACTION_PRESS ? held_key : NULL);
+                           action == HW_BTN_ACTION_PRESS ? held_key : NULL, dev_id);
 }
 
 static int send_match_in(const cJSON *root, const char *target, int match_mode, const char *command, int action, int value) {

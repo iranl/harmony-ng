@@ -50,6 +50,12 @@ int ir_encode_harmony_keycode(const char *keycode, uint8_t repeats, uint8_t **ou
     *out_len = 16;
     return 0;
 }
+/* the RC5 toggle bit of a press (ir_encoder.c): not looked at here */
+int ir_keycode_is_rc5_toggle(const char *keycode) { (void)keycode; return 0; }
+int ir_encode_harmony_keycode_toggle(const char *keycode, uint8_t repeats, int rc5_toggle, uint8_t **out_bin, size_t *out_len) {
+    (void)rc5_toggle;
+    return ir_encode_harmony_keycode(keycode, repeats, out_bin, out_len);
+}
 /* repeat parts of a press (ir_encoder.c): none here, a tap is one send */
 int ir_press_repeat_parts(const char *keycode, const uint8_t *blob, size_t blob_len, int press_min_repeats) {
     (void)keycode; (void)blob; (void)blob_len; (void)press_min_repeats;
