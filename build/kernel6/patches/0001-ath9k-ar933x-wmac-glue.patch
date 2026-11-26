@@ -1,0 +1,67 @@
+--- a/drivers/net/wireless/ath/ath9k/init.c	2026-11-26 15:21:20.108924980 +0100
++++ b/drivers/net/wireless/ath/ath9k/init.c	2026-11-26 15:21:38.396011264 +0100
+@@ -28,6 +28,54 @@
+ 
+ #include "ath9k.h"
+ 
++#ifdef CONFIG_ATH79
++#include <linux/delay.h>
++#include <asm/mach-ath79/ath79.h>
++#include <asm/mach-ath79/ar71xx_regs.h>
++
++/*
++ * The AR933x WMAC needs the SoC glue the old board code (dev-wmac.c) passed in platform
++ * data: a reset through the SoC reset controller, the reference clock and, on revision 1
++ * silicon, the revision from the SoC ID register.
++ */
++static int ar933x_wmac_reset(void)
++{
++	int retries = 20;
++
++	ath79_device_reset_set(AR933X_RESET_WMAC);
++	ath79_device_reset_clear(AR933X_RESET_WMAC);
++
++	while (ath79_reset_rr(AR933X_RESET_REG_BOOTSTRAP) & AR933X_BOOTSTRAP_EEPBUSY) {
++		if (retries-- == 0) {
++			pr_err("ar933x: WMAC reset timed out\n");
++			return -ETIMEDOUT;
++		}
++		mdelay(10);
++	}
++	return 0;
++}
++
++static int ar933x_soc_revision(void)
++{
++	return ath79_reset_rr(AR71XX_RESET_REG_REV_ID) & AR933X_REV_ID_REVISION_MASK;
++}
++
++static void ath9k_ar933x_glue(struct ath_hw *ah)
++{
++	if (ah->hw_version.devid != AR9300_DEVID_AR9330)
++		return;
++
++	ah->external_reset = ar933x_wmac_reset;
++	if (ar933x_soc_revision() == 1)
++		ah->get_mac_revision = ar933x_soc_revision;
++	ah->is_clk_25mhz = !(ath79_reset_rr(AR933X_RESET_REG_BOOTSTRAP) &
++				     AR933X_BOOTSTRAP_REF_CLK_40);
++	ar933x_wmac_reset();
++}
++#else
++static void ath9k_ar933x_glue(struct ath_hw *ah) {}
++#endif
++
+ struct ath9k_eeprom_ctx {
+ 	struct completion complete;
+ 	struct ath_hw *ah;
+@@ -633,6 +681,9 @@
+ 
+ 	ath_dbg(common, CONFIG, "parsing configuration from OF node\n");
+ 
++	if (bus_type == ATH_AHB)
++		ath9k_ar933x_glue(ah);
++
+ 	if (of_property_read_bool(np, "qca,no-eeprom")) {
+ 		/* ath9k-eeprom-<bus>-<id>.bin */
+ 		scnprintf(eeprom_name, sizeof(eeprom_name),

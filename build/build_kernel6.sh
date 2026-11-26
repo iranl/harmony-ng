@@ -51,6 +51,9 @@ rm -rf "$WORK"
 mkdir -p "$WORK" "$OUT_DIR"
 tar -xJf "$KERNEL_TARBALL" -C "$WORK" --strip-components=1
 cd "$WORK"
+for p in "$SRC"/patches/*.patch; do
+    tr -d '\r' < "$p" | patch -p1 --forward --quiet || { echo "Error: $p does not apply" >&2; exit 1; }
+done
 tr -d '\r' < "$SRC/$DTS.dts" > "arch/mips/boot/dts/qca/$DTS.dts"  # a Windows checkout has CRLF
 echo "dtb-\$(CONFIG_ATH79) += $DTS.dtb" >> arch/mips/boot/dts/qca/Makefile
 
