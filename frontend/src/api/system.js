@@ -143,8 +143,23 @@ export function createSystemApi(client) {
         gateway: data.gateway || '',
         mac: data.mac || '',
         ifconfig: data.ifconfig || '',
-        config: data.config || null
+        config: data.config || null,
+        eth_driver: data.eth_driver || null
       };
+    },
+
+    /* USB stick for the icons: state, and scan|install|eject|offload|restore (background job) */
+    async getUsbStorage() {
+      return client.request('/api/usb-storage');
+    },
+
+    async usbStorageAction(action) {
+      return client.postJson('/api/usb-storage', { action });
+    },
+
+    /* Download the USB Ethernet driver the plugged adapter needs (runs on the Hub in the background) */
+    async installEthernetDriver(module) {
+      return client.postJson('/api/ethernet-driver-install', { module });
     },
 
     async saveEthernet(data) {

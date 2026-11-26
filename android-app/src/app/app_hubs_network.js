@@ -1,4 +1,5 @@
 import { HarmonyClient } from '../api.js';
+import { DEFAULT_OTA_URL, setOtaSource, otaSource } from '../update_source.js';
 import { getSavedHubs, saveHub, deleteHub, getActiveHub, setActiveHubId } from '../storage.js';
 import { createAppToken, revokeAppToken, hubBaseUrl, loginFields, withLoginCheck, finishReplace } from '../app_token.js';
 import { RemoteEngine } from '../remote-engine.js';
@@ -104,14 +105,31 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
     }
   }
 
+  /* The update source field is the Hub's update_repo setting: the default URL is stored as
+     empty, so the Hub follows the official source if it moves. */
+  async saveUpdateRepo(value) {
+    const clean = (value || '').trim().replace(/\/+$/, '').replace(/\/bin\/mips$/, '').replace(/\/+$/, '');
+    const stored = clean === DEFAULT_OTA_URL ? '' : clean;
+    // unchanged: no settings write (a flash write and the settings applied again) per click
+    if ((clean || DEFAULT_OTA_URL) === otaSource()) return;
+    try {
+      await this.client.saveSettings({ update_repo: stored });
+      setOtaSource(stored);
+    } catch (err) {
+      showToast(tf('error_msg', { error: err.message }), 'error');
+      throw err;
+    }
+  }
+
   async checkSoftwareUpdate() {
     const log = document.getElementById('updateLog');
     const repoInput = document.getElementById('updateRepo')?.value.trim() || '';
     const tokenInput = document.getElementById('updateToken')?.value.trim() || '';
     try {
       if (log) log.textContent = t('checking_update_repo');
-      // A custom repo: the Hub reads its VERSION itself (the official one says nothing about it)
-      const remoteVer = repoInput ? '' : await this.fetchOnlineHubVersion(tokenInput);
+      // the field is the update_repo setting: save it, then read VERSION of that source
+      await this.saveUpdateRepo(repoInput);
+      const remoteVer = await this.fetchOnlineHubVersion(tokenInput);
 
       const res = await this.client.checkUpdate(true, repoInput, tokenInput, remoteVer);
       const stat = await this.client.getUpdateStatus().catch(() => ({}));
@@ -135,6 +153,7 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
     if (!await showConfirm(t('update_confirm', 'Download and apply update? Hub services will restart.'), { title: t('software_update'), okText: t('update_btn') })) return;
     const before = await this.client.getUpdateStatus().catch(() => ({}));
     try {
+      await this.saveUpdateRepo(repo);
       this.showUpdatingOverlay(t('hub_downloading_update'));
       if (log) log.textContent = t('update_applying', 'Applying software update...');
       await this.client.applyUpdate(token, repo);

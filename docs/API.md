@@ -196,6 +196,69 @@ Returns active network interface, Wi-Fi (`ath0`), USB Ethernet (`eth0`/`usb0`), 
     8.3); only `usb_wifi_setup` when there is no file. `usb_wifi_setup` is always there: `false`
     when `ethernet.conf` holds `USB_WIFI_SETUP=0`, else `true` (the default).
   - `ifconfig`: the text output of `/sbin/ifconfig`.
+  - `eth_driver` (only when a USB network adapter was found, or a driver download ran):
+    `{"vid": "0b95", "pid": "7720", "driver": "asix", "missing": ["usbnet", "asix"],
+    "loaded": false, "unsupported": false, "slow": false, "installing": false}`. `missing` lists
+    the modules not installed (USB Ethernet drivers are installed on demand); `loaded` is `false`
+    with nothing missing when the files are there but the driver did not load (the web UI offers
+    the download again); `unsupported` is `true` for an adapter no driver of this firmware
+    supports; `slow` is `true` while a network device runs at full or low speed (USB 1.1), when
+    no driver is loaded; `install_failed` is `true` after a download that failed.
+
+#### `POST /api/ethernet-driver-install`
+Downloads the USB Ethernet driver the plugged adapter needs, with the modules it depends on
+(every one, also one that is installed: a file that did not load is replaced; an unchanged file
+is not written again).
+The download comes from the update source (the `update_repo` setting) and is checked against
+the signed release manifest. The driver is then loaded. It runs in the background: follow
+`eth_driver.installing` in `GET /api/network-status`.
+- **Body**: `{"module": "asix"}`. Only the `driver` that `eth_driver` names is accepted.
+- **Response `202 Accepted`**: `{"ok": true, "status": "installing", "module": "asix"}`.
+- **`400`**: no adapter needs that module (or the name is not `[a-z0-9_]`). **`409`**: a download is
+  already running.
+
+#### `GET /api/usb-storage`
+A USB stick on the Hub's USB port (in host mode, through a USB hub cable) for files the Hub can
+run without: the icon archive, the custom icons and the plugins. Programs, scripts, settings and
+the web UI always stay on flash. The stick is looked for in USB host mode only, which the Hub
+enters with Ethernet enabled (`ETH_ENABLED=1`) and no PC on the port.
+- **Response `200 OK`**:
+  ```json
+  {"ok": true, "present": true, "mounted": true, "device": "sda1", "fs": "vfat", "missing": [],
+   "total_kb": 7800000, "free_kb": 7700000, "offload": true, "other_stick": false, "busy": false,
+   "message": ""}
+  ```
+  - `present`: a USB mass storage device was found at the last scan (boot, and every USB plug
+    in or out). `missing`: USB storage modules (`scsi_mod`, `sd_mod`, `usb-storage`) that are not
+    installed; they are downloaded on demand like the Ethernet drivers.
+  - `mounted`: the first partition is mounted on `/mnt/usb` (FAT or ext2).
+  - `offload`: the icons and the plugins are kept on the stick. Without the stick,
+    `/api/icons/archive` and the custom icons answer 404 (the web UI loads the archive online),
+    and the plugins are not installed (`/api/plugins` lists none), until the stick is back.
+    Plugin settings and state (`plugin-data`) stay on flash.
+  - `other_stick`: the mounted stick is not the one the icons and plugins were moved to
+    (`offload` writes one id to the flag file and to the stick): it is not used for them, and
+    `offload` and `restore` refuse it.
+  - `busy`: an action is running; `failed` (only when `true`) and `message` (the last output
+    line) describe the last one.
+
+#### `POST /api/usb-storage`
+- **Body**: `{"action": "scan" | "install" | "eject" | "offload" | "restore"}`.
+  - `install` downloads the USB storage modules from the update source (signed manifest), also
+    those already installed.
+  - `offload` copies the icon archive, the custom icons and the plugins to the stick, reads the
+    copies back from the stick and only then removes them from flash. Folders already on the
+    stick are merged plugin by plugin only when they were left there by this Hub (a `restore`
+    without the stick); a stick with icons or plugins from elsewhere is refused.
+  - `restore` moves them back to flash. It first checks the room (the file sizes on the stick
+    against the free space of `/data`, keeping 256 KB for the settings) and fails without changes
+    when it does not fit; a copy that fails half way removes what it wrote. Once the copies are
+    in place, the icons and plugins are removed from the stick. Without the stick it only turns
+    `offload` off: the icons and plugins stay on the stick, and the next `offload` to that stick
+    merges them. With `offload` off it does nothing.
+  - `eject` writes everything to the stick and unmounts it.
+- **Response `202 Accepted`**: `{"ok": true, "status": "running", "action": "offload"}`; follow
+  `busy` in `GET /api/usb-storage`. **`400`**: unknown action. **`409`**: an action is running.
 
 ### 1.6 Background Services
 #### `GET /api/services`
@@ -312,9 +375,17 @@ Returns global hub settings from `/data/harmony/config/settings.json`.
     "timezone": "Europe/Amsterdam",
     "led_mode": "green",
     "mdns_enabled": true,
-    "legacy_enabled": false
+    "legacy_enabled": false,
+    "update_repo": "",
+    "update_repo_default": "https://raw.githubusercontent.com/iranl/harmony-ng/ota"
   }
   ```
+  - `update_repo` (default empty, meaning `update_repo_default`): the update source. `update.sh`
+    (update check, update apply, remote OTA, Ethernet driver download) and the remote OTA in
+    `hub_rf` use it when a request names no `repo`. It must be an `http://` or `https://` URL of
+    letters, digits and `- _ . / : @ ~`; anything else is refused with `400`. For a
+    `raw.githubusercontent.com/<owner>/<repo>/...` source the version check falls back to that
+    repo's GitHub releases; for any other mirror it has no fallback.
   - `dry_run`: while `true`, `hub_daemon` simulates its outputs: nothing goes out over infrared,
     Bluetooth or MQTT, the sends are only logged. It is the state of the running daemon (set
     here, or by starting `hub_daemon` with `--dry-run`), not a stored setting: it is never stored

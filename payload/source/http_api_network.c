@@ -12,6 +12,7 @@
 #include <strings.h>
 #include <unistd.h>
 #include <stdint.h>
+#include <time.h>
 #include <arpa/inet.h>
 
 static int parse_ipv4(const char *s, uint32_t *out) {
@@ -44,6 +45,181 @@ static const char *static_address_error(const char *ip_s, const char *mask_s, co
         }
     }
     return NULL;
+}
+
+/* USB Ethernet driver state, written by usb_eth_driver.sh scan and install (RAM files) */
+static const char *eth_driver_path(char *buf, size_t sz, const char *name) {
+    const char *dir = "/tmp";
+#ifdef TEST_HARNESS
+    const char *t = getenv("HARMONY_TEST_TMP_DIR");
+    if (t && t[0]) dir = t;
+#endif
+    snprintf(buf, sz, "%s/%s", dir, name);
+    return buf;
+}
+
+/* A script of /data/harmony run in the background: <tag>_running exists while it runs, and
+ * <tag>.rc holds its exit code after, <tag>.log its output. args is put into the command as it
+ * is: callers pass only fixed words and checked names. */
+static void start_bg_job(const char *tag, const char *args) {
+    char flag[256], rc_path[256], log_path[256], name[64], cmd[1024];
+    snprintf(name, sizeof(name), "%s_running", tag);
+    eth_driver_path(flag, sizeof(flag), name);
+    snprintf(name, sizeof(name), "%s.rc", tag);
+    eth_driver_path(rc_path, sizeof(rc_path), name);
+    snprintf(name, sizeof(name), "%s.log", tag);
+    eth_driver_path(log_path, sizeof(log_path), name);
+    unlink(rc_path);
+    /* the start time (seconds since boot): a job killed with its shell leaves the flag behind */
+    FILE *ff = fopen(flag, "w");
+    if (ff) {
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        fprintf(ff, "%ld\n", (long)ts.tv_sec);
+        fclose(ff);
+    }
+    snprintf(cmd, sizeof(cmd),
+             "/bin/sh -c 'sh /data/harmony/%s >%s 2>&1; echo $? >%s; rm -f %s' >/dev/null 2>&1 &",
+             args, log_path, rc_path, flag);
+#ifndef TEST_HARNESS
+    system(cmd);
+#else
+    printf("[*] background job (test build, not run): %s\n", cmd);
+#endif
+}
+
+/* A job runs at most this long (a restore of a large plugin folder at USB 1.1 speed): an older
+ * flag is one a killed job left, and the job no longer counts as running */
+#define BG_JOB_MAX_SECS 1800
+
+/* 1 while the job runs; *rc: its exit code, -1 when it never ran or still runs */
+static int bg_job_state(const char *tag, int *rc) {
+    char path[256], name[64], line[32];
+    *rc = -1;
+    snprintf(name, sizeof(name), "%s_running", tag);
+    FILE *ff = fopen(eth_driver_path(path, sizeof(path), name), "r");
+    if (ff) {
+        long started = -1;
+        if (fgets(line, sizeof(line), ff)) started = atol(line);
+        fclose(ff);
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        if (started < 0 || (long)ts.tv_sec - started < BG_JOB_MAX_SECS) return 1;
+        unlink(path);
+    }
+    snprintf(name, sizeof(name), "%s.rc", tag);
+    FILE *f = fopen(eth_driver_path(path, sizeof(path), name), "r");
+    if (f) {
+        if (fgets(line, sizeof(line), f)) *rc = atoi(line);
+        fclose(f);
+    }
+    return 0;
+}
+
+/* A module name usb_eth_driver.sh and update.sh accept: [a-z0-9_], 1-31 characters */
+static int eth_module_name_ok(const char *s) {
+    if (!s || !s[0] || strlen(s) > 31) return 0;
+    for (; *s; s++) {
+        if (!((*s >= 'a' && *s <= 'z') || (*s >= '0' && *s <= '9') || *s == '_')) return 0;
+    }
+    return 1;
+}
+
+/* The "eth_driver" object of /api/network-status: the adapter found on USB, the driver it needs,
+ * the modules that are not installed, whether the driver is loaded, and a running or failed
+ * download. NULL (no object) when no adapter was found. */
+static cJSON *eth_driver_json(void) {
+    char path[256], line[160];
+    cJSON *o = NULL;
+    FILE *f = fopen(eth_driver_path(path, sizeof(path), "eth_driver_state"), "r");
+    if (f) {
+        o = cJSON_CreateObject();
+        cJSON *missing = cJSON_CreateArray();
+        while (fgets(line, sizeof(line), f)) {
+            line[strcspn(line, "\r\n")] = '\0';
+            char *v = strchr(line, '=');
+            if (!v) continue;
+            *v++ = '\0';
+            if (strcmp(line, "vid") == 0 || strcmp(line, "pid") == 0 || strcmp(line, "driver") == 0) {
+                cJSON_AddStringToObject(o, line, v);
+            } else if (strcmp(line, "missing") == 0) {
+                char *save = NULL;
+                for (char *m = strtok_r(v, " ", &save); m; m = strtok_r(NULL, " ", &save))
+                    if (eth_module_name_ok(m)) cJSON_AddItemToArray(missing, cJSON_CreateString(m));
+            } else if (strcmp(line, "loaded") == 0 || strcmp(line, "unsupported") == 0 ||
+                       strcmp(line, "slow") == 0) {
+                cJSON_AddBoolToObject(o, line, atoi(v) == 1);
+            }
+        }
+        fclose(f);
+        cJSON_AddItemToObject(o, "missing", missing);
+    }
+    int rc, installing = bg_job_state("eth_driver", &rc);
+    if (!o && !installing && rc < 0) return NULL;
+    if (!o) o = cJSON_CreateObject();
+    cJSON_AddBoolToObject(o, "installing", installing);
+    if (!installing && rc > 0) cJSON_AddBoolToObject(o, "install_failed", 1);
+    return o;
+}
+
+/* GET /api/usb-storage: the state usb_storage.sh scan wrote, the job running, and the last line
+ * the last job printed (its result or why it failed) */
+static cJSON *usb_storage_json(void) {
+    char path[256], line[256];
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddBoolToObject(o, "ok", 1);
+    cJSON *missing = cJSON_CreateArray();
+    int present = 0, mounted = 0, offload = 0, other_stick = 0;
+    long total = -1, avail = -1;
+    char device[32] = "", fs[16] = "";
+    FILE *f = fopen(eth_driver_path(path, sizeof(path), "usb_storage_state"), "r");
+    if (f) {
+        while (fgets(line, sizeof(line), f)) {
+            line[strcspn(line, "\r\n")] = '\0';
+            char *v = strchr(line, '=');
+            if (!v) continue;
+            *v++ = '\0';
+            if (strcmp(line, "present") == 0) present = atoi(v) == 1;
+            else if (strcmp(line, "mounted") == 0) mounted = atoi(v) == 1;
+            else if (strcmp(line, "offload") == 0) offload = atoi(v) == 1;
+            else if (strcmp(line, "other_stick") == 0) other_stick = atoi(v) == 1;
+            else if (strcmp(line, "device") == 0 && is_safe_param(v, "")) snprintf(device, sizeof(device), "%s", v);
+            else if (strcmp(line, "fs") == 0 && is_safe_param(v, "")) snprintf(fs, sizeof(fs), "%s", v);
+            else if (strcmp(line, "total_kb") == 0 && v[0]) total = atol(v);
+            else if (strcmp(line, "free_kb") == 0 && v[0]) avail = atol(v);
+            else if (strcmp(line, "missing") == 0) {
+                char *save = NULL;
+                for (char *m = strtok_r(v, " ", &save); m; m = strtok_r(NULL, " ", &save))
+                    if (is_safe_param(m, "")) cJSON_AddItemToArray(missing, cJSON_CreateString(m));
+            }
+        }
+        fclose(f);
+    }
+    cJSON_AddBoolToObject(o, "present", present);
+    cJSON_AddBoolToObject(o, "mounted", mounted);
+    cJSON_AddStringToObject(o, "device", device);
+    cJSON_AddStringToObject(o, "fs", fs);
+    cJSON_AddItemToObject(o, "missing", missing);
+    if (total >= 0) cJSON_AddNumberToObject(o, "total_kb", (double)total);
+    if (avail >= 0) cJSON_AddNumberToObject(o, "free_kb", (double)avail);
+    /* the flag file is the setting; the state file only mirrors it at the last scan */
+    cJSON_AddBoolToObject(o, "offload", offload || access(config_store_path("config/usb_offload"), F_OK) == 0);
+    /* a stick other than the one the icons and plugins were moved to: mounted, not used */
+    cJSON_AddBoolToObject(o, "other_stick", other_stick);
+    int rc, busy = bg_job_state("usb_storage", &rc);
+    cJSON_AddBoolToObject(o, "busy", busy);
+    if (!busy && rc > 0) cJSON_AddBoolToObject(o, "failed", 1);
+    char last[256] = "";
+    f = fopen(eth_driver_path(path, sizeof(path), "usb_storage.log"), "r");
+    if (f) {
+        while (fgets(line, sizeof(line), f)) {
+            line[strcspn(line, "\r\n")] = '\0';
+            if (line[0]) snprintf(last, sizeof(last), "%s", line);
+        }
+        fclose(f);
+    }
+    cJSON_AddStringToObject(o, "message", last);
+    return o;
 }
 
 int http_api_network_handle(int client_fd, const char *method, const char *clean_path,
@@ -168,6 +344,8 @@ int http_api_network_handle(int client_fd, const char *method, const char *clean
             pclose(pif);
         }
         cJSON_AddStringToObject(st, "ifconfig", ifconfig_buf);
+        cJSON *drv = eth_driver_json();
+        if (drv) cJSON_AddItemToObject(st, "eth_driver", drv);
 
         send_cjson_resp(client_fd, 200, st);
         cJSON_Delete(st);
@@ -324,6 +502,91 @@ int http_api_network_handle(int client_fd, const char *method, const char *clean
             return 1;
         }
         send_json_error(client_fd, 400, "Invalid parameters");
+        close(client_fd);
+        return 1;
+    }
+
+    /* Route: GET /api/usb-storage: a USB stick for non-essential files (icons) */
+    if (strcmp(clean_path, "/api/usb-storage") == 0 && strcmp(method, "GET") == 0) {
+        cJSON *st = usb_storage_json();
+        send_cjson_resp(client_fd, 200, st);
+        cJSON_Delete(st);
+        close(client_fd);
+        return 1;
+    }
+
+    /* Route: POST /api/usb-storage {action}: scan, install (download the USB storage modules),
+     * eject, offload (move the icons to the stick), restore (move them back). Runs
+     * usb_storage.sh in the background; GET shows busy until it ends. */
+    if (strcmp(clean_path, "/api/usb-storage") == 0 && strcmp(method, "POST") == 0) {
+        static const char *actions[] = {"scan", "install", "eject", "offload", "restore"};
+        cJSON *params = parse_request_params(body);
+        cJSON *ja = params ? cJSON_GetObjectItemCaseSensitive(params, "action") : NULL;
+        const char *action = NULL;
+        for (size_t i = 0; cJSON_IsString(ja) && i < sizeof(actions) / sizeof(actions[0]); i++)
+            if (strcmp(ja->valuestring, actions[i]) == 0) action = actions[i];
+        cJSON_Delete(params);
+        if (!action) {
+            send_json_error(client_fd, 400, "action must be scan, install, eject, offload or restore");
+            close(client_fd);
+            return 1;
+        }
+        int rc;
+        if (bg_job_state("usb_storage", &rc)) {
+            send_json_error(client_fd, 409, "A USB storage action is already running");
+            close(client_fd);
+            return 1;
+        }
+        char args[64];
+        snprintf(args, sizeof(args), "usb_storage.sh %s", action);
+        start_bg_job("usb_storage", args);
+        cJSON *resp = cJSON_CreateObject();
+        cJSON_AddBoolToObject(resp, "ok", 1);
+        cJSON_AddStringToObject(resp, "status", "running");
+        cJSON_AddStringToObject(resp, "action", action);
+        send_cjson_resp(client_fd, 202, resp);
+        cJSON_Delete(resp);
+        close(client_fd);
+        return 1;
+    }
+
+    /* Route: POST /api/ethernet-driver-install {module}: download the USB Ethernet driver the
+     * plugged adapter needs (and the modules it depends on) from the update source, checked
+     * against the signed release manifest, then load it. Runs in the background; progress is
+     * the eth_driver object of /api/network-status. Only the driver usb_eth_driver.sh asked for
+     * is accepted. */
+    if (strcmp(clean_path, "/api/ethernet-driver-install") == 0 && strcmp(method, "POST") == 0) {
+        cJSON *params = parse_request_params(body);
+        cJSON *jm = params ? cJSON_GetObjectItemCaseSensitive(params, "module") : NULL;
+        char module[32] = "";
+        if (cJSON_IsString(jm) && eth_module_name_ok(jm->valuestring))
+            snprintf(module, sizeof(module), "%s", jm->valuestring);
+        cJSON_Delete(params);
+        cJSON *drv = eth_driver_json();
+        cJSON *jd = drv ? cJSON_GetObjectItemCaseSensitive(drv, "driver") : NULL;
+        int wanted = module[0] && cJSON_IsString(jd) && strcmp(jd->valuestring, module) == 0;
+        int busy = drv && cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(drv, "installing"));
+        cJSON_Delete(drv);
+        if (!wanted) {
+            send_json_error(client_fd, 400, "module is not the driver the USB adapter needs");
+            close(client_fd);
+            return 1;
+        }
+        if (busy) {
+            send_json_error(client_fd, 409, "A driver download is already running");
+            close(client_fd);
+            return 1;
+        }
+        char args[64];
+        /* module is [a-z0-9_] only (checked above): safe inside the command */
+        snprintf(args, sizeof(args), "usb_eth_driver.sh install %s", module);
+        start_bg_job("eth_driver", args);
+        cJSON *resp = cJSON_CreateObject();
+        cJSON_AddBoolToObject(resp, "ok", 1);
+        cJSON_AddStringToObject(resp, "status", "installing");
+        cJSON_AddStringToObject(resp, "module", module);
+        send_cjson_resp(client_fd, 202, resp);
+        cJSON_Delete(resp);
         close(client_fd);
         return 1;
     }

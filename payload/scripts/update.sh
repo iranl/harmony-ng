@@ -42,12 +42,33 @@ if [ "$CMD" = "remote" ] || [ "$CMD" = "elite" ]; then
     REPO_ARG="${2:-}"
     TOKEN_ARG="${3:-}"
   fi
+elif [ "$CMD" = "fetch-module" ]; then
+  MODULE_ARG="${2:-}"
+  REPO_ARG="${3:-}"
+  TOKEN_ARG="${4:-}"
 else
   REPO_ARG="${2:-}"
   TOKEN_ARG="${3:-}"
 fi
 
 DEFAULT_OTA="https://raw.githubusercontent.com/iranl/harmony-ng/ota"
+# A usable update source: http(s):// and URL characters only (it ends up in wget arguments).
+repo_ok() {
+  case "$1" in
+    http://*|https://*) ;;
+    *) return 1 ;;
+  esac
+  case "$1" in
+    *[!A-Za-z0-9._/:@~-]*) return 1 ;;
+  esac
+  return 0
+}
+# Source order: the argument, the update_repo setting, (remote commands) the source of the last
+# check so the remote gets the release the Hub checked, then the default.
+if [ -z "$REPO_ARG" ] && [ -f /data/harmony/config/settings.json ]; then
+  SET_REPO=$(sed -n 's/.*"update_repo"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' /data/harmony/config/settings.json 2>/dev/null | sed -n 1p)
+  repo_ok "$SET_REPO" && REPO_ARG="$SET_REPO"
+fi
 if [ "$CMD" = "remote" -o "$CMD" = "elite" -o "$CMD" = "fetch-remote" -o "$CMD" = "fetch-remote-ota" -o "$CMD" = "repair-tls" ] && [ -z "$REPO_ARG" ] && [ -f /data/harmony/update_state.conf ]; then
   CONF_REPO=$(grep '^source=' /data/harmony/update_state.conf 2>/dev/null | cut -d= -f2- | tr -d '\r\n ')
   [ -n "$CONF_REPO" ] && REPO_ARG="$CONF_REPO"
@@ -123,6 +144,11 @@ download_retry() {
         *) return 1 ;;
       esac
       FETCH_TOKEN="" ;;
+    *) FETCH_TOKEN="" ;;
+  esac
+  # never in clear: a source without TLS gets no token
+  case "$REPO" in
+    https://*) ;;
     *) FETCH_TOKEN="" ;;
   esac
   if [ -z "$USE_FETCH" ]; then
@@ -281,11 +307,36 @@ install_bundle() {
   if [ -f "$_pkg/bin/busybox" ]; then
     install_file "$_pkg/bin/busybox" /cache/bin/busybox 755 || return 1
   fi
-  # F. Icons archive -> /cache/icons.tar.gz
+  # F. Icons archive -> /cache/icons.tar.gz, or to the USB stick it was moved to
+  # (best effort while the icons are on the stick: a full or failing stick does not stop the
+  # update, and with the stick out nothing is copied)
   if [ -f "$_pkg/icons.tar.gz" ]; then
-    install_file "$_pkg/icons.tar.gz" /cache/icons.tar.gz 644 || return 1
+    _icons=$(icons_dest)
+    if [ -z "$_icons" ]; then
+      echo "[!] The USB stick with the icons is not mounted: icon archive not updated."
+    elif [ "$_icons" = /cache/icons.tar.gz ]; then
+      install_file "$_pkg/icons.tar.gz" "$_icons" 644 || return 1
+    else
+      install_file "$_pkg/icons.tar.gz" "$_icons" 644 || echo "[!] Could not write the icon archive to the USB stick; the old one stays."
+    fi
   fi
   return 0
+}
+
+# Where the icon archive goes: the USB stick while the icons are kept there (usb_storage.sh
+# offload) and it is mounted; else /cache. With the icons on a stick that is out, or another
+# stick mounted (its id differs from the flag's): nothing (never back to flash); the link to the
+# stick stays.
+icons_dest() {
+  if [ -f /data/harmony/config/usb_offload ]; then
+    _id=$(cat /data/harmony/config/usb_offload 2>/dev/null)
+    if [ -n "$_id" ] && grep -q ' /mnt/usb ' /proc/mounts 2>/dev/null &&
+       [ "$_id" = "$(cat /mnt/usb/harmony/.offload_id 2>/dev/null)" ]; then
+      echo /mnt/usb/harmony/icons.tar.gz
+    fi
+  else
+    echo /cache/icons.tar.gz
+  fi
 }
 
 # The helpers built into hub_util are symlinks to it
@@ -398,9 +449,15 @@ do_check() {
     REMOTE_VER=$(cat /tmp/ota_ver.$$ | tr -d '\r\n v')
   fi
 
-  # 2. Fallback: try GitHub releases API
-  if [ -z "$REMOTE_VER" ]; then
-    if download_retry "https://api.github.com/repos/iranl/harmony-ng/releases/latest" /tmp/gh_rel.$$ 10 2; then
+  # 2. Fallback: the GitHub releases API of the same repo (only for a raw.githubusercontent.com
+  #    source: another mirror has no releases to ask, and the official ones are not its releases)
+  GH_SLUG=""
+  case "$REPO" in
+    https://raw.githubusercontent.com/*/*)
+      GH_SLUG=$(echo "${REPO#https://raw.githubusercontent.com/}" | cut -d/ -f1-2) ;;
+  esac
+  if [ -z "$REMOTE_VER" ] && [ -n "$GH_SLUG" ]; then
+    if download_retry "https://api.github.com/repos/${GH_SLUG}/releases/latest" /tmp/gh_rel.$$ 10 2; then
       REMOTE_VER=$(cat /tmp/gh_rel.$$ | awk -F'"tag_name":' '{print $2}' | awk -F'"' '{print $2}' | tr -d '\r\n v')
     fi
   fi
@@ -703,11 +760,14 @@ do_apply() {
         fi
       fi
 
-      # F. Icons archive -> /cache/icons.tar.gz (staged above)
+      # F. Icons archive -> /cache/icons.tar.gz or the USB stick (staged above)
       if [ -f "$TMPDIR/pkg/icons.tar.gz" ]; then
-        rm -f /data/harmony/icons.tar.gz 2>/dev/null || true
-        ln -sf /cache/icons.tar.gz /data/harmony/icons.tar.gz 2>/dev/null || true
-        echo "[+] Icons archive updated in /cache/icons.tar.gz (symlinked)."
+        _icons=$(icons_dest)
+        if [ -n "$_icons" ]; then
+          rm -f /data/harmony/icons.tar.gz 2>/dev/null || true
+          ln -sf "$_icons" /data/harmony/icons.tar.gz 2>/dev/null || true
+          echo "[+] Icons archive linked from $_icons."
+        fi
       fi
 
       OTA_BUNDLE_OK=1
@@ -919,6 +979,44 @@ do_remote_ota() {
   fi
 }
 
+# fetch-module NAME: download modules/NAME.ko from the update source, check it against the signed
+# manifest and install it to /cache/modules. Kernel modules are not part of the Hub bundle: the
+# Hub fetches only the driver its USB device needs (usb_eth_driver.sh, usb_storage.sh, web UI).
+# Names: letters, digits, _ and - (usb-storage), not starting with -.
+do_fetch_module() {
+  local name="$1"
+  case "$name" in
+    ''|-*|*[!a-z0-9_-]*) echo "[-] Bad module name: ${name}"; return 1 ;;
+  esac
+  TMPDIR="/tmp/ota_module.$$"
+  rm -rf "$TMPDIR" 2>/dev/null
+  mkdir -p "$TMPDIR" || return 1
+  if ! fetch_signed_manifest "$TMPDIR" >/dev/null; then
+    rm -rf "$TMPDIR"
+    return 1
+  fi
+  if ! download_retry "${REPO}/modules/${name}.ko?_=${TIMESTAMP}" "$TMPDIR/${name}.ko" 20 3 signed; then
+    echo "[-] modules/${name}.ko is not on ${REPO}."
+    rm -rf "$TMPDIR"
+    return 1
+  fi
+  # a name the signed manifest does not list fails here too
+  if ! verify_files "modules/${name}.ko=$TMPDIR/${name}.ko"; then
+    echo "[-] modules/${name}.ko does not match the signed release manifest."
+    rm -rf "$TMPDIR"
+    return 1
+  fi
+  mkdir -p /cache/modules 2>/dev/null
+  [ -e /data/harmony/modules ] || ln -sf /cache/modules /data/harmony/modules 2>/dev/null
+  if ! install_file "$TMPDIR/${name}.ko" "/cache/modules/${name}.ko" 644; then
+    rm -rf "$TMPDIR"
+    return 1
+  fi
+  rm -rf "$TMPDIR"
+  echo "[+] Installed /cache/modules/${name}.ko."
+  return 0
+}
+
 # repair-tls: hub_fetch and libbearssl.so.0 of the installed release, when missing. The update.sh of
 # v2.5.3 and older installs neither (its file list predates them) and keeps running from its old
 # file during the update that brings this one, so such a Hub has neither until it is repaired
@@ -1042,6 +1140,9 @@ case "$CMD" in
     ;;
   fetch-remote|fetch-remote-ota)
     do_fetch_remote_ota
+    ;;
+  fetch-module)
+    do_fetch_module "$MODULE_ARG"
     ;;
   repair-tls)
     # not while an update runs (it installs these files itself); a lock left by a killed run is

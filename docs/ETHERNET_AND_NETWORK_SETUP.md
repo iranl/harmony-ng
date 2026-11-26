@@ -53,12 +53,18 @@ Because the Hub requires power through its Micro-USB connector, you need an **OT
 ```
 
 ### Supported USB Ethernet Chipsets
-HarmonyNG bundles kernel drivers for these USB Ethernet chipsets in `/cache/modules/`. The IDs listed are the ones the shipped modules bind; an adapter with another ID of the same family (for example the ASIX AX88179 `0B95:1790`, SMSC LAN9505 `0424:9505` or Davicom DM9620 `0A46:9620`) is not supported by these module builds.
+HarmonyNG has kernel drivers for these USB Ethernet chipsets. They are **not installed by default**: the Hub downloads only the driver its adapter needs.
+
+1. With the Hub's USB port in host mode, `usb_eth_driver.sh scan` looks at every USB device (also behind a USB hub, skipping hubs, USB sticks and keyboards). It picks the driver from `usb_eth_modules.txt`, and loads it when it is in `/cache/modules/`. It runs at boot and again whenever a USB device is plugged in or out.
+2. When the driver (or a module it needs, such as `usbnet`) is missing, the Network page shows "USB Ethernet adapter `<vid>:<pid>` found: its driver `<name>` is not installed" with a **Download driver** button. The same data is in the `eth_driver` object of `GET /api/network-status`.
+3. The button calls `POST /api/ethernet-driver-install`, which runs `update.sh fetch-module`. That downloads `modules/<name>.ko` from the update source (the `update_repo` setting), checks it against the signed release manifest, and installs it to `/cache/modules/`. The adapter then comes up without a reboot.
+
+`python build/deploy_hub.py <HUB_IP> --eth-modules` copies every module at once, for a Hub without internet access. Modules already on a Hub stay there. A Hub that will use Ethernet as its only link needs the driver before it loses Wi-Fi: download it once over Wi-Fi, or deploy with `--eth-modules`. A module that is installed but does not load (an older build) is shown as "installed but could not be loaded" with **Download again**.
+
+The IDs listed are the ones these module builds bind. An adapter with another ID of the same family is not supported by them, for example SMSC LAN9505 `0424:9505` or Davicom DM9620 `0A46:9620`. The page reports the ASIX AX88179 `0B95:1790` as not supported.
 
 > [!WARNING]
-> **The adapter must run at high speed (USB 2.0, 480 Mbps).** A network adapter at full or low speed (a USB 1.1 adapter, or any adapter behind a USB 1.1 hub, as in some OTG cables with a built-in hub) froze the Hub as soon as its driver waited for received data; only a power cycle brought it back. This was seen with an AX88772B behind the full-speed hub of an OTG cable (`0a05:7211`), with modules that were later found to be built for another `struct sk_buff` layout, so it may not be a limit of the bus; until it is tested again with the rebuilt modules, `start_usb_eth.sh` loads no network driver while such a device is on the bus and logs `runs at full or low speed (USB 1.1)`. Check the speed with `cat /sys/bus/usb/devices/*/speed` (`480` is high speed, `12` full speed).
->
-> The modules in `payload/modules` reach a Hub only with `build/deploy_hub.py` (it copies each changed module to `/cache/modules`): an OTA update carries no kernel modules, so a Hub updated over the air keeps the modules it had.
+> **The adapter must run at high speed (USB 2.0, 480 Mbps).** A network adapter at full or low speed (a USB 1.1 adapter, or any adapter behind a USB 1.1 hub, as in some OTG cables with a built-in hub) froze the Hub as soon as its driver waited for received data; only a power cycle brought it back. This was seen with an AX88772B behind the full-speed hub of an OTG cable (`0a05:7211`), with modules that were later found to be built for another `struct sk_buff` layout, so it may not be a limit of the bus; until it is tested again with the rebuilt modules, `usb_eth_driver.sh` loads no network driver while such a device is on the bus and logs `runs at full or low speed (USB 1.1)`. Check the speed with `cat /sys/bus/usb/devices/*/speed` (`480` is high speed, `12` full speed).
 
 | Chipset Family | USB Vendor:Product IDs | Driver Modules | Notes |
 | :--- | :--- | :--- | :--- |
@@ -67,7 +73,7 @@ HarmonyNG bundles kernel drivers for these USB Ethernet chipsets in `/cache/modu
 | **SMSC / Microchip LAN9500** | `0424:9500`, `0424:EC00` | `usbnet.ko`, `smsc95xx.ko` | Standard embedded Ethernet chipset. Not tested on a Hub. |
 | **Davicom DM9601** | `0A46:9601`, `0A46:0268`, `0A46:6688`, `0A46:8515` | `usbnet.ko`, `dm9601.ko` | Common low-cost 10/100 adapters. Not tested on a Hub. |
 | **USB CDC-Ethernet (Standard)** | Any USB device with Class `02` Subclass `06` | `usbnet.ko`, `cdc_ether.ko` | Standard Linux USB Communication Device Class. Not tested on a Hub. |
-| **Realtek RTL8150** | `0BDA:8150` | `rtl8150.ko` | Legacy 10/100M adapter. The RTL8150 is a USB 1.1 (full speed) device, so `start_usb_eth.sh` loads no driver for it (see the warning above). |
+| **Realtek RTL8150** | `0BDA:8150` | `rtl8150.ko` | Legacy 10/100M adapter. The RTL8150 is a USB 1.1 (full speed) device, so `usb_eth_driver.sh` loads no driver for it (see the warning above). |
 
 ---
 

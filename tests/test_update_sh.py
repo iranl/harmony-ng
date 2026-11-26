@@ -67,9 +67,61 @@ class UpdateScript(unittest.TestCase):
         self.assertNotIn("[tok123]", args)
         self.assertNotIn("[Authorization:]", args)
 
+    def test_no_token_to_a_source_without_tls(self):
+        # an http:// mirror (from the update_repo setting, say) never gets the token in clear
+        self.run_update("check", "http://example.invalid/ota", "tok123")
+        args = self.wget_log.read_text().splitlines()
+        self.assertTrue(any(a.startswith("[http://example.invalid/ota/") for a in args), args)
+        self.assertNotIn("[Authorization: token tok123]", args)
+
     def test_no_token_no_header(self):
         self.run_update("check", "https://example.invalid/ota")
         self.assertNotIn("[--header]", self.wget_log.read_text().splitlines())
+
+    def set_update_repo(self, value: str):
+        conf = self.root / "data" / "harmony" / "config"
+        conf.mkdir(parents=True, exist_ok=True)
+        (conf / "settings.json").write_text('{\n\t"hub_name":\t"Hub",\n\t"update_repo":\t"%s"\n}\n' % value)
+
+    def urls(self) -> list[str]:
+        return [a[1:-1] for a in self.wget_log.read_text().splitlines() if a.startswith("[http")]
+
+    def test_setting_is_the_source_without_argument(self):
+        self.set_update_repo("https://example.invalid/fork")
+        self.run_update("check")
+        self.assertTrue(self.urls())
+        self.assertTrue(all(u.startswith("https://example.invalid/fork/") for u in self.urls()), self.urls())
+
+    def test_argument_beats_setting(self):
+        self.set_update_repo("https://example.invalid/fork")
+        self.run_update("check", "https://example.invalid/arg")
+        self.assertTrue(all(u.startswith("https://example.invalid/arg/") for u in self.urls()), self.urls())
+
+    def test_unsafe_setting_ignored(self):
+        self.set_update_repo("https://example.invalid/x;reboot")
+        self.run_update("check")
+        self.assertTrue(self.urls()[0].startswith("https://raw.githubusercontent.com/iranl/harmony-ng/ota/"))
+
+    def test_releases_fallback_follows_github_source(self):
+        self.set_update_repo("https://raw.githubusercontent.com/someone/fork/ota")
+        self.run_update("check")
+        self.assertIn("https://api.github.com/repos/someone/fork/releases/latest", self.urls())
+        self.assertFalse(any("iranl" in u for u in self.urls()), self.urls())
+
+    def test_no_releases_fallback_for_other_mirror(self):
+        self.run_update("check", "https://mirror.example.invalid/ota")
+        self.assertFalse(any("api.github.com" in u for u in self.urls()), self.urls())
+
+    def test_fetch_module_uses_signed_manifest_of_source(self):
+        res = self.run_update("fetch-module", "asix", "https://example.invalid/ota")
+        self.assertEqual(self.urls()[0].split("?")[0], "https://example.invalid/ota/manifest.json", self.urls())
+        self.assertNotEqual(res.returncode, 0)
+        self.assertFalse((self.root / "cache" / "modules" / "asix.ko").exists())
+
+    def test_fetch_module_bad_name(self):
+        res = self.run_update("fetch-module", "../asix")
+        self.assertIn("Bad module name", res.stdout)
+        self.assertFalse(self.wget_log.exists())
 
     def _stub_hub_fetch(self) -> pathlib.Path:
         """hub_fetch stub: "--probe" succeeds (with the library path set), other calls record
@@ -232,6 +284,31 @@ class UpdateScript(unittest.TestCase):
         res = self.run_update("apply")
         self.assertIn("Starting software update", res.stdout)
         self.assertFalse(self.lock.exists(), "the lock is removed when the run ends")
+
+    def icons_dest(self) -> str:
+        # icons_dest() alone, with /proc/mounts and /mnt/usb in the sandbox
+        text = self.script.read_text()
+        fn = text[text.index("icons_dest() {"):]
+        fn = fn[:fn.index("\n}\n") + 3]
+        fn = fn.replace("/proc/mounts", f"{self.root}/mounts").replace("/mnt/usb", f"{self.root}/mnt/usb")
+        res = subprocess.run(["sh", "-c", fn + "icons_dest"], env=self.env, capture_output=True, text=True, timeout=30)
+        return res.stdout.strip()
+
+    def test_icon_archive_goes_only_to_the_offload_stick(self):
+        flag = self.root / "data" / "harmony" / "config" / "usb_offload"
+        stick = self.root / "mnt" / "usb" / "harmony"
+        (self.root / "mounts").write_text("")
+        self.assertEqual(self.icons_dest(), f"{self.root}/cache/icons.tar.gz")
+        flag.parent.mkdir(parents=True)
+        flag.write_text("id-1\n")
+        self.assertEqual(self.icons_dest(), "", "stick out")
+        (self.root / "mounts").write_text(f"/dev/sda1 {self.root}/mnt/usb vfat rw 0 0\n")
+        stick.mkdir(parents=True)
+        self.assertEqual(self.icons_dest(), "", "a blank stick")
+        (stick / ".offload_id").write_text("id-other\n")
+        self.assertEqual(self.icons_dest(), "", "another stick")
+        (stick / ".offload_id").write_text("id-1\n")
+        self.assertEqual(self.icons_dest(), f"{self.root}/mnt/usb/harmony/icons.tar.gz")
 
 
 if __name__ == "__main__":

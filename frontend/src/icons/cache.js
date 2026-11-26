@@ -6,6 +6,7 @@
  */
 
 import { t } from '../i18n/index.js';
+import { otaSource } from '../utils/update_source.js';
 
 const DB_NAME = 'harmony_icons_db';
 const DB_VERSION = 1;
@@ -338,7 +339,7 @@ export async function syncIconsFromHub(baseUrl, client, onProgress = null) {
  * Fallback: Download official icon archive directly from GitHub OTA mirror.
  */
 export async function syncIconsFromOta(onProgress = null) {
-  const otaUrl = `https://raw.githubusercontent.com/iranl/harmony-ng/ota/icons.tar.gz?_=${Date.now()}`;
+  const otaUrl = `${otaSource()}/icons.tar.gz?_=${Date.now()}`;
   if (onProgress) onProgress({ status: 'downloading', percent: 20, message: t('icons_downloading_ota', 'Downloading icons from OTA release...') });
   const res = await fetch(otaUrl);
   if (!res.ok) {

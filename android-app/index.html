@@ -3854,6 +3854,7 @@ harmony_send_command:
           <div id="netUsbMode">-</div>
           <div><strong data-i18n="ethernet_adapter_lbl">Ethernet Adapter</strong></div>
           <div id="netEthStatus">-</div>
+          <div id="netEthDriver" style="grid-column: 1 / -1; display: none;"></div>
           <div><strong data-i18n="wifi_status_lbl">Wi-Fi Status</strong></div>
           <div id="netWifiStatus">-</div>
         </div>
@@ -4552,7 +4553,7 @@ harmony_send_command:
             <div>
               <label for="updateRepo" data-i18n="update_mirror_url">Update Mirror URL</label>
               <input id="updateRepo" class="form-control"
-                value="https://raw.githubusercontent.com/iranl/harmony-ng/ota/bin/mips/">
+                value="https://raw.githubusercontent.com/iranl/harmony-ng/ota">
             </div>
             <div>
               <label for="updateToken" data-i18n="github_token">GitHub Token (Private repos only)</label>
@@ -4603,6 +4604,16 @@ harmony_send_command:
             <div id="iconSyncProgressBar"
               style="width: 0%; height: 100%; background: var(--accent); transition: width 0.2s ease;"></div>
           </div>
+        </div>
+      </div>
+
+      <!-- USB Storage: a USB stick for icons (non-essential files only) -->
+      <div id="cardUsbStorage" class="card" style="margin-bottom: 14px;">
+        <h3 style="font-size: 15px; margin-bottom: 6px;" data-i18n="usb_storage_title">USB Storage</h3>
+        <div class="help" data-i18n="usb_storage_desc">A USB stick (through a USB hub cable on the Hub's port) can hold the icon archive, the custom icons and the plugins to free flash. The Hub keeps working when the stick is pulled out; only the icons and plugins are missing until it is back.</div>
+        <div style="margin-top: 10px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+          <span id="usbStorageStatus" class="subtle" data-i18n="usb_storage_none">No USB stick connected.</span>
+          <div id="usbStorageActions" style="display: flex; gap: 8px; flex-wrap: wrap;"></div>
         </div>
       </div>
 

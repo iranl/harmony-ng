@@ -120,7 +120,7 @@ echo "[-] Launching Full Hub & Remote Co-Simulation..."
 python3 "$SCRIPT_DIR/test_config_unreadable.py"
 python3 "$SCRIPT_DIR/test_co_simulation.py"
 
-# USB Ethernet adapters listed in the network guide reach a driver that binds them (start_usb_eth.sh in a host sandbox)
+# USB Ethernet adapters listed in the network guide reach a driver that binds them (usb_eth_driver.sh in a host sandbox)
 python3 "$SCRIPT_DIR/test_usb_eth_table.py"
 # every module in payload/modules records the stock CRCs and has the stock struct sk_buff layout
 python3 "$SCRIPT_DIR/test_usb_eth_modules_crc.py"
@@ -136,6 +136,7 @@ python3 "$SCRIPT_DIR/test_activity_switch_timing.py"
 python3 "$SCRIPT_DIR/test_activity_save_match.py"
 python3 "$SCRIPT_DIR/test_config_cache_race.py"
 python3 "$SCRIPT_DIR/test_config_safe_writes.py"
+python3 "$SCRIPT_DIR/test_update_repo_setting.py"
 
 # Hub boot scripts in a host sandbox (reboot counter, emergency recovery mode)
 python3 "$SCRIPT_DIR/test_hub_boot_counter.py"
