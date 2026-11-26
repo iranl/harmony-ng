@@ -50,6 +50,9 @@ sh /data/harmony/hub_sshd || echo "rc.sh: no SSH server"
 modprobe ath9k || echo "rc.sh: ath9k did not load"
 
 echo "rc.sh: done; console shell follows"
+# Only plain sh: the BusyBox on a Hub's /cache may lack setsid and cttyhack (a loop on a
+# missing applet spun forever). The sleep keeps any failure from spinning.
 while true; do
-    setsid cttyhack sh
+    sh < /dev/console > /dev/console 2>&1
+    sleep 1
 done
