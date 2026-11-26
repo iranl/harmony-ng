@@ -934,7 +934,10 @@
     "press_min_repeats",
     "press_min_repeats_title",
     "click_start_capture_hint",
-    "irdb_captured_frames"
+    "irdb_captured_frames",
+    "step_press_mode",
+    "step_press_tap",
+    "step_press_hold"
   ],
   "fr": [
     "map_action_help",
@@ -2806,7 +2809,10 @@
     "press_min_repeats",
     "press_min_repeats_title",
     "click_start_capture_hint",
-    "irdb_captured_frames"
+    "irdb_captured_frames",
+    "step_press_mode",
+    "step_press_tap",
+    "step_press_hold"
   ],
   "es": [
     "map_action_help",
@@ -3742,7 +3748,10 @@
     "press_min_repeats",
     "press_min_repeats_title",
     "click_start_capture_hint",
-    "irdb_captured_frames"
+    "irdb_captured_frames",
+    "step_press_mode",
+    "step_press_tap",
+    "step_press_hold"
   ],
   "it": [
     "map_action_help",
@@ -4678,6 +4687,9 @@
     "press_min_repeats",
     "press_min_repeats_title",
     "click_start_capture_hint",
-    "irdb_captured_frames"
+    "irdb_captured_frames",
+    "step_press_mode",
+    "step_press_tap",
+    "step_press_hold"
   ]
 }

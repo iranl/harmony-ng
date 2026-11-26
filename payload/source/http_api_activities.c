@@ -35,11 +35,11 @@ static cJSON *build_activity_steps_cjson(const char *seq_text) {
         while (*p == '\n' || *p == '\r') p++;
         if (!line[0]) continue;
 
-        char type[32] = {0}, dev_id[32] = {0}, cmd[80] = {0}, del_str[32] = {0};
-        char *f[4] = { type, dev_id, cmd, del_str };
+        char type[32] = {0}, dev_id[32] = {0}, cmd[80] = {0}, del_str[32] = {0}, hold_str[32] = {0};
+        char *f[5] = { type, dev_id, cmd, del_str, hold_str };
         int fi = 0;
         char *lp = line;
-        while (fi < 4 && *lp) {
+        while (fi < 5 && *lp) {
             char *sep = strchr(lp, '|');
             if (sep) {
                 *sep = '\0';
@@ -83,6 +83,8 @@ static cJSON *build_activity_steps_cjson(const char *seq_text) {
             cJSON_AddStringToObject(step, "deviceId", dev_id);
             cJSON_AddStringToObject(step, "command", cmd);
             cJSON_AddNumberToObject(step, "delay", delay_ms >= 0 ? delay_ms : 0);
+            int hold_ms = atoi(hold_str);
+            if (hold_ms > 0) cJSON_AddNumberToObject(step, "hold", hold_ms); /* config_sanitize.c caps it */
         }
         cJSON_AddItemToArray(arr, step);
     }
@@ -739,7 +741,23 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
                     cJSON *jcmd = cJSON_GetObjectItemCaseSensitive(st, "command");
                     const char *cmd = (jcmd && cJSON_IsString(jcmd)) ? jcmd->valuestring : "";
 
-                    if (dev_buf[0] && cmd[0]) {
+                    /* A Command step with a hold keeps its key down that long, as the orchestrator
+                     * does: press, a hold every 300 ms (a held IR key repeats only while they
+                     * come), release */
+                    cJSON *jhold = cJSON_GetObjectItemCaseSensitive(st, "hold");
+                    int hold_ms = (jhold && cJSON_IsNumber(jhold)) ? (int)jhold->valuedouble : 0;
+                    if (hold_ms > STEP_HOLD_MAX_MS) hold_ms = STEP_HOLD_MAX_MS;
+
+                    if (dev_buf[0] && cmd[0] && hold_ms > 0 && strcasecmp(type, "BTCommand") != 0) {
+                        hw_device_command_send_action(dev_buf, 1, cmd, HW_BTN_ACTION_PRESS);
+                        for (int held = 0; held < hold_ms; held += 300) {
+                            int slice = (hold_ms - held) < 300 ? (hold_ms - held) : 300;
+                            usleep((useconds_t)slice * 1000);
+                            if (held + slice < hold_ms) hw_device_command_send_action(dev_buf, 1, cmd, HW_BTN_ACTION_REPEAT);
+                        }
+                        hw_device_command_send_action(dev_buf, 1, cmd, HW_BTN_ACTION_RELEASE);
+                        executed++;
+                    } else if (dev_buf[0] && cmd[0]) {
                         hw_device_command_send(dev_buf, cmd);
                         executed++;
                     }

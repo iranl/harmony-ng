@@ -127,6 +127,8 @@ python3 "$SCRIPT_DIR/test_usb_eth_modules_crc.py"
 # 5a. Bluetooth links around activity power on and off (orchestrator, daemon in --dry-run)
 python3 "$SCRIPT_DIR/test_activity_test_sequence.py"
 python3 "$SCRIPT_DIR/test_bt_power_link.py"
+# A sequence step that holds its key ("hold"), released before the next step
+python3 "$SCRIPT_DIR/test_step_hold.py"
 # Legacy web UI modules import the functions they call (no build step reports a missing import)
 python3 "$SCRIPT_DIR/test_ui_imports.py"
 python3 "$SCRIPT_DIR/test_activity_queue.py"

@@ -9,6 +9,12 @@
 #include <string.h>
 #include <strings.h>
 
+/* A step's hold, at most ORCH_HOLD_MAX_MS */
+static uint32_t step_hold_ms(const struct activity_step *st) {
+    if (st->hold_ms <= 0) return 0;
+    return st->hold_ms > ORCH_HOLD_MAX_MS ? ORCH_HOLD_MAX_MS : (uint32_t)st->hold_ms;
+}
+
 void append_orch_step(orch_step_t *steps, size_t *count, const struct activity_step *st, const char *prefix) {
     if (!steps || !count || !st || *count >= ORCH_MAX_STEPS) return;
     memset(&steps[*count], 0, sizeof(orch_step_t));
@@ -34,6 +40,7 @@ void append_orch_step(orch_step_t *steps, size_t *count, const struct activity_s
         strncpy(steps[*count].device_id, st->device_id, sizeof(steps[*count].device_id) - 1);
         strncpy(steps[*count].command_name, st->command, sizeof(steps[*count].command_name) - 1);
         steps[*count].delay_ms = st->delay_ms > 0 ? (uint32_t)st->delay_ms : 250;
+        steps[*count].hold_ms = step_hold_ms(st);
         snprintf(steps[*count].description, sizeof(steps[*count].description), "%s: %s", prefix,
                  st->command[0] ? st->command : st->type);
     }
@@ -148,7 +155,7 @@ int orch_build_steps(const char *current_id, const char *target_id,
         for (int k = 0; k < stop_limit && main_count < max_main; k++) {
             if (shared_device_power_step(&leaving_act->stop_steps[k], leaving_devs, entering_devs, 0)) continue;
             append_orch_step(main_steps, &main_count, &leaving_act->stop_steps[k], "Stop");
-            t_sim += main_steps[main_count - 1].delay_ms;
+            t_sim += main_steps[main_count - 1].delay_ms + main_steps[main_count - 1].hold_ms;
         }
 
         if (sw1_idx >= 0) {
@@ -176,7 +183,7 @@ int orch_build_steps(const char *current_id, const char *target_id,
                     append_orch_step(&b->step, &dummy, st, "Stop tail");
                     b->relative_offset_ms = cur_offset;
                     b->anchor_step = 1;
-                    cur_offset += b->step.delay_ms;
+                    cur_offset += b->step.delay_ms + b->step.hold_ms;
                 }
             }
         }
@@ -248,10 +255,11 @@ int orch_build_steps(const char *current_id, const char *target_id,
                             strncpy(main_steps[main_count].device_id, st->device_id, sizeof(main_steps[main_count].device_id) - 1);
                             strncpy(main_steps[main_count].command_name, st->command, sizeof(main_steps[main_count].command_name) - 1);
                             main_steps[main_count].delay_ms = st->delay_ms > 0 ? (uint32_t)st->delay_ms : 250;
+                            main_steps[main_count].hold_ms = step_hold_ms(st);
                             snprintf(main_steps[main_count].description, sizeof(main_steps[main_count].description),
                                      "Power off %s: %s", dev->name, st->command);
                         }
-                        t_sim += main_steps[main_count].delay_ms;
+                        t_sim += main_steps[main_count].delay_ms + main_steps[main_count].hold_ms;
                         main_count++;
                     }
                 } else {
@@ -275,7 +283,7 @@ int orch_build_steps(const char *current_id, const char *target_id,
                         strncpy(main_steps[main_count].command_name, cmd_name, sizeof(main_steps[main_count].command_name) - 1);
                         main_steps[main_count].delay_ms = dev->inter_device_delay > 0 ? (uint32_t)dev->inter_device_delay : 250;
                         snprintf(main_steps[main_count].description, sizeof(main_steps[main_count].description), "Power off %s", dev->name);
-                        t_sim += main_steps[main_count].delay_ms;
+                        t_sim += main_steps[main_count].delay_ms + main_steps[main_count].hold_ms;
                         main_count++;
                     }
                 }
@@ -337,10 +345,11 @@ int orch_build_steps(const char *current_id, const char *target_id,
                             strncpy(main_steps[main_count].device_id, st->device_id, sizeof(main_steps[main_count].device_id) - 1);
                             strncpy(main_steps[main_count].command_name, st->command, sizeof(main_steps[main_count].command_name) - 1);
                             main_steps[main_count].delay_ms = st->delay_ms > 0 ? (uint32_t)st->delay_ms : 250;
+                            main_steps[main_count].hold_ms = step_hold_ms(st);
                             snprintf(main_steps[main_count].description, sizeof(main_steps[main_count].description),
                                      "Power on %s: %s", dev->name, st->command);
                         }
-                        t_sim += main_steps[main_count].delay_ms;
+                        t_sim += main_steps[main_count].delay_ms + main_steps[main_count].hold_ms;
                         main_count++;
                     }
                 } else {
@@ -364,7 +373,7 @@ int orch_build_steps(const char *current_id, const char *target_id,
                         strncpy(main_steps[main_count].command_name, cmd_name, sizeof(main_steps[main_count].command_name) - 1);
                         main_steps[main_count].delay_ms = dev->inter_device_delay > 0 ? (uint32_t)dev->inter_device_delay : 250;
                         snprintf(main_steps[main_count].description, sizeof(main_steps[main_count].description), "Power on %s", dev->name);
-                        t_sim += main_steps[main_count].delay_ms;
+                        t_sim += main_steps[main_count].delay_ms + main_steps[main_count].hold_ms;
                         main_count++;
                     }
                 }
@@ -400,7 +409,7 @@ int orch_build_steps(const char *current_id, const char *target_id,
         for (int k = 0; k < start_limit && main_count < max_main; k++) {
             if (shared_device_power_step(&entering_act->start_steps[k], leaving_devs, entering_devs, 1)) continue;
             append_orch_step(main_steps, &main_count, &entering_act->start_steps[k], pfx);
-            t_sim += main_steps[main_count - 1].delay_ms;
+            t_sim += main_steps[main_count - 1].delay_ms + main_steps[main_count - 1].hold_ms;
         }
 
         t_sw4 = t_sim;
@@ -429,7 +438,7 @@ int orch_build_steps(const char *current_id, const char *target_id,
                     append_orch_step(&b->step, &dummy, st, "Start tail");
                     b->relative_offset_ms = cur_offset;
                     b->anchor_step = 4;
-                    cur_offset += b->step.delay_ms;
+                    cur_offset += b->step.delay_ms + b->step.hold_ms;
                 }
             }
         }

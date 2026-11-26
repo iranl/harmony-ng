@@ -292,6 +292,8 @@ static void parse_steps(const cJSON *arr, const char *dev_id, struct activity_st
         }
         const cJSON *del = cJSON_GetObjectItemCaseSensitive(item, "delay");
         if (del && cJSON_IsNumber(del)) steps[cnt].delay_ms = del->valueint;
+        const cJSON *hold = cJSON_GetObjectItemCaseSensitive(item, "hold");
+        if (hold && cJSON_IsNumber(hold)) steps[cnt].hold_ms = json_number_int(hold, 0, INT_MAX, 0);
         cnt++;
     }
     *steps_out = steps;
@@ -500,6 +502,13 @@ static void parse_activity_steps_array(const cJSON *arr, struct activity_step *s
         if (del) {
             if (cJSON_IsNumber(del)) st->delay_ms = json_number_int(del, INT_MIN, INT_MAX, 0);
             else if (cJSON_IsString(del) && del->valuestring) st->delay_ms = atoi(del->valuestring);
+        }
+
+        const cJSON *hold = cJSON_GetObjectItemCaseSensitive(item, "hold");
+        if (hold) {
+            if (cJSON_IsNumber(hold)) st->hold_ms = json_number_int(hold, 0, INT_MAX, 0);
+            else if (cJSON_IsString(hold) && hold->valuestring) st->hold_ms = atoi(hold->valuestring);
+            if (st->hold_ms < 0) st->hold_ms = 0;
         }
 
         const cJSON *order = cJSON_GetObjectItemCaseSensitive(item, "order");

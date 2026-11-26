@@ -1126,12 +1126,20 @@ Saves activity configuration with start and stop sequence steps.
   - `deviceIds` (also `devices`): the devices of the activity, as a list or as text separated by
     commas. When left out, the list is built from the devices named in the two sequences.
   - Steps are stored in one form, each with `type`, `command` and `deviceId`. Types: `Command` (a
-    device command, with an optional `delay` after it), `BTCommand` (a Bluetooth command: also any
+    device command, with an optional `delay` after it, and an optional `hold`: how long the key is
+    held, in ms, 0 to 10000; without it the key is tapped), `BTCommand` (a Bluetooth command: also any
     command that starts with `HID:` or `BT:`), `Delay` (`delay` in ms; 1000 when left out) and
     `Switched` (the point from which the activity counts as switched, see 4.2 `busy`; the steps
     after it are sent in the background). `delay` is 0 to 120000 ms (a larger value is lowered to
     120000). A step without a command and without a delay is dropped.
-  - A sequence may also be given as text, one step per line: `Type|deviceId|command|delay`.
+  - A sequence may also be given as text, one step per line: `Type|deviceId|command|delay|hold`
+    (`hold` optional).
+  - A `Command` step with a `hold` presses its key, keeps it down (a hold every 300 ms, so a held
+    infrared key keeps repeating) and releases it when the hold is up; its `delay` runs from the
+    release, and the next step comes after it. A cancel, or a new transition, releases a key that
+    is still held. A `BTCommand` step (a raw `HID:` or `BT:` code) keeps no `hold`: hold the
+    device's command instead (a `Command` step of a Bluetooth device). The steps of a device's
+    `powerOnSequence` and `powerOffSequence` (3.2) take `hold` the same way.
 - **Response `200 OK`**: `{"ok": true, "message": "Activity saved successfully"}`
 - **Response `400`**: `{"ok": false, "message": "Failed to save activity"}` when the body is empty.
 - **Response `500`**: `{"ok": false, "error": "..."}` when `activities.json` could not be written
@@ -1161,7 +1169,8 @@ Executes a test sequence immediately without modifying activity state.
   ```
 - **Response `200 OK`**: `{"ok": true, "executed": 2}`. The steps run before the answer is sent.
   `sequence` is accepted for `steps`, also as text lines (4.6). Each delay is cut to 3000 ms. A
-  command step that also has a `delay` counts twice in `executed`.
+  command step that also has a `delay` counts twice in `executed`. A `Command` step with a `hold`
+  (4.6) holds its key that long (at most 10000 ms) before the next step.
 - **Error `400`**: more than 64 steps (`"Too many steps (limit 64)"`); nothing is run.
 
 ### 4.9 Activity Progress Webhook

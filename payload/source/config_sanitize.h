@@ -18,6 +18,8 @@ extern "C" {
  * kept the Hub in "starting" for hours: a loaded or saved value above the limit is lowered. */
 #define POWER_ON_DELAY_MAX_MS 120000
 #define STEP_DELAY_MAX_MS 120000
+/* The longest hold of a Command step (orchestrator.c ORCH_HOLD_MAX_MS) */
+#define STEP_HOLD_MAX_MS 10000
 
 /* A device's "pressMinRepeats" (the frames an infrared press sends after the first, as the
  * Logitech account's PressMinRepeats): 0..PRESS_MIN_REPEATS_MAX, a larger number is lowered.

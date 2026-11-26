@@ -20,6 +20,9 @@ int hub_events_subscribe(hub_event_sink_fn fn, void *user) { (void)fn; (void)use
 int hw_device_bt_disconnect(const char *device_id) { (void)device_id; return 0; }
 int hw_device_bt_host(const char *device_id, char *out, size_t outlen) { (void)device_id; (void)out; (void)outlen; return -1; }
 int hw_device_command_send(const char *device_id, const char *command) { (void)device_id; (void)command; return 0; }
+int hw_device_command_send_action(const char *target, int match_mode, const char *command, int action) {
+    (void)target; (void)match_mode; (void)command; (void)action; return 0;
+}
 int hw_ir_cancel(uint8_t ports) { (void)ports; return 0; }
 int hw_ir_send_harmony_keycode(const char *keycode, uint8_t ports, uint8_t repeats) { (void)keycode; (void)ports; (void)repeats; return 0; }
 int hw_ir_send_pronto(const char *pronto_hex, uint8_t ports, uint8_t repeats) { (void)pronto_hex; (void)ports; (void)repeats; return 0; }

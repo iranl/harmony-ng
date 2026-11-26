@@ -643,6 +643,14 @@ void sanitize_activity_steps(cJSON *steps) {
         }
         if (delay_val > STEP_DELAY_MAX_MS) delay_val = STEP_DELAY_MAX_MS;
 
+        /* How long a Command step holds its key (orchestrator.c), 0 to STEP_HOLD_MAX_MS */
+        cJSON *hold_item = cJSON_GetObjectItemCaseSensitive(s, "hold");
+        int hold_val = 0;
+        if (cJSON_IsNumber(hold_item)) hold_val = json_number_int(hold_item, 0, STEP_HOLD_MAX_MS, 0);
+        else if (cJSON_IsString(hold_item) && hold_item->valuestring) hold_val = atoi(hold_item->valuestring);
+        if (hold_val < 0) hold_val = 0;
+        if (hold_val > STEP_HOLD_MAX_MS) hold_val = STEP_HOLD_MAX_MS;
+
         /* Check for Switched pseudo-step */
         if (strcasecmp(tstr, "Switched") == 0 || strcasecmp(cmd, "Switched") == 0) {
             cJSON *clean_step = cJSON_CreateObject();
@@ -668,15 +676,15 @@ void sanitize_activity_steps(cJSON *steps) {
         /* Check for BT or IR command step */
         if (cmd && cmd[0]) {
             cJSON *clean_step = cJSON_CreateObject();
-            if (strcasecmp(tstr, "BTCommand") == 0 || strncmp(cmd, "HID:", 4) == 0 || strncmp(cmd, "BT:", 3) == 0) {
-                cJSON_AddStringToObject(clean_step, "type", "BTCommand");
-            } else {
-                cJSON_AddStringToObject(clean_step, "type", "Command");
-            }
+            int is_bt = strcasecmp(tstr, "BTCommand") == 0 || strncmp(cmd, "HID:", 4) == 0 || strncmp(cmd, "BT:", 3) == 0;
+            cJSON_AddStringToObject(clean_step, "type", is_bt ? "BTCommand" : "Command");
             cJSON_AddStringToObject(clean_step, "command", cmd);
             cJSON_AddStringToObject(clean_step, "deviceId", (dev_id && dev_id[0]) ? dev_id : "0");
             if (delay_val > 0) {
                 cJSON_AddNumberToObject(clean_step, "delay", delay_val);
+            }
+            if (hold_val > 0 && !is_bt) {
+                cJSON_AddNumberToObject(clean_step, "hold", hold_val); /* a raw BTCommand is always a tap */
             }
             cJSON_AddItemToArray(new_arr, clean_step);
         }

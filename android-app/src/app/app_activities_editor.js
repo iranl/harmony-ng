@@ -297,6 +297,9 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
     const devices = this.inventory.devices || [];
     const { devId: initDevId, locked: devLocked } = stepDeviceChoice(containerId, initialData, devices, this.powerSeqOwnerId);
     const initDelay = initialData?.delay !== undefined ? initialData.delay : (isDelay ? 1000 : 0);
+    // A Command step taps its key, or holds it for `hold` ms (at most 10 s, orchestrator.c)
+    const initHold = Number(initialData?.hold) > 0 ? Number(initialData.hold) : 0;
+    const isCmd = !isDelay && !isSwitched;
 
     row.innerHTML = `
       <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: 1;">
@@ -310,6 +313,14 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
         </select>
         <span class="step-dev-icon" style="display: ${(!isDelay && !isSwitched) ? 'inline-flex' : 'none'}; align-items: center;"></span>
         <select class="form-control step-cmd-select" style="flex: 1; min-width: 120px; font-size: 12px; padding: 4px 6px; display: ${(!isDelay && !isSwitched) ? 'block' : 'none'};"></select>
+        <select class="form-control step-press-select" title="${t('step_press_mode')}" style="width: 90px; font-size: 12px; padding: 4px 6px; display: ${isCmd ? 'block' : 'none'};">
+          <option value="tap" ${initHold ? '' : 'selected'}>${t('step_press_tap')}</option>
+          <option value="hold" ${initHold ? 'selected' : ''}>${t('step_press_hold')}</option>
+        </select>
+        <div class="step-hold-wrap" style="display: ${(isCmd && initHold) ? 'inline-flex' : 'none'}; align-items: center; gap: 4px;">
+          <input type="number" class="form-control step-hold-input" min="0.1" max="10" step="0.1" value="${initHold ? initHold / 1000 : 2}" style="width: 60px; font-size: 12px; padding: 4px 6px;">
+          <span class="muted mini" style="font-size: 11px;">s</span>
+        </div>
         <div class="step-delay-wrap" style="display: ${isDelay ? 'inline-flex' : 'none'}; align-items: center; gap: 4px;">
           <span class="muted mini" style="font-size: 11px;">${t('step_wait_label')}</span>
           <input type="number" class="form-control step-delay-input" min="50" max="60000" step="50" value="${initDelay > 0 ? initDelay : 1000}" style="width: 75px; font-size: 12px; padding: 4px 6px;">
@@ -333,6 +344,11 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
     const delayWrap = row.querySelector('.step-delay-wrap');
     const delayInp = row.querySelector('.step-delay-input');
     const switchedWrap = row.querySelector('.step-switched-wrap');
+    const pressSel = row.querySelector('.step-press-select');
+    const holdWrap = row.querySelector('.step-hold-wrap');
+    pressSel.addEventListener('change', () => {
+      holdWrap.style.display = pressSel.value === 'hold' ? 'inline-flex' : 'none';
+    });
 
     const updateCmdsForDev = () => {
       const selectedId = devSel.value;
@@ -370,6 +386,8 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
       devSel.style.display = (!isD && !isS) ? 'block' : 'none';
       if (devIconSpan) devIconSpan.style.display = (!isD && !isS) ? 'inline-flex' : 'none';
       cmdSel.style.display = (!isD && !isS) ? 'block' : 'none';
+      pressSel.style.display = (!isD && !isS) ? 'block' : 'none';
+      holdWrap.style.display = (!isD && !isS && pressSel.value === 'hold') ? 'inline-flex' : 'none';
       delayWrap.style.display = isD ? 'inline-flex' : 'none';
       switchedWrap.style.display = isS ? 'inline-flex' : 'none';
       if (isD && delayInp && parseInt(delayInp.value, 10) <= 0) {
@@ -406,6 +424,8 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
       const devSel = row.querySelector('.step-dev-select');
       const cmdSel = row.querySelector('.step-cmd-select');
       const delayInp = row.querySelector('.step-delay-input');
+      const pressSel = row.querySelector('.step-press-select');
+      const holdInp = row.querySelector('.step-hold-input');
 
       const val = typeSel ? typeSel.value : 'Command';
       if (val === 'Switched') {
@@ -427,12 +447,18 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
         const did = devSel?.value || '';
         const cmd = cmdSel?.value || '';
         if (did && cmd) {
-          steps.push({
+          const step = {
             type: 'Command',
             deviceId: String(did),
             command: String(cmd),
             delay: 0
-          });
+          };
+          if (pressSel?.value === 'hold') {
+            const secs = parseFloat(holdInp?.value);
+            const ms = Math.round((secs > 0 ? secs : 2) * 1000);
+            step.hold = Math.min(Math.max(ms, 100), 10000);
+          }
+          steps.push(step);
         }
       }
     });

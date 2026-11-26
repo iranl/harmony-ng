@@ -73,6 +73,43 @@ export function createSequenceEditor(steps = [], availableDevices = [], commands
         },
       });
 
+      // A Command step taps its key, or holds it for `hold` ms (at most 10 s, orchestrator.c)
+      const holdInput = h('input', {
+        type: 'number',
+        className: 'form-input',
+        min: '0.1',
+        max: '10',
+        step: '0.1',
+        style: { width: '64px', padding: '6px 8px', fontSize: '13px', display: step.hold > 0 ? '' : 'none' },
+        value: step.hold > 0 ? step.hold / 1000 : 2,
+        title: t('step_hold_seconds', 'Hold time (s)'),
+        oninput: (e) => {
+          const secs = Number(e.target.value);
+          step.hold = Math.min(Math.max(Math.round((secs > 0 ? secs : 2) * 1000), 100), 10000);
+          notify();
+        },
+      });
+
+      const pressSelect = h('select', {
+        className: 'form-select',
+        style: { width: '110px', padding: '6px 10px', fontSize: '13px' },
+        title: t('step_press_mode', 'Press or hold the key'),
+        onchange: (e) => {
+          if (e.target.value === 'hold') {
+            const secs = Number(holdInput.value);
+            step.hold = Math.min(Math.max(Math.round((secs > 0 ? secs : 2) * 1000), 100), 10000);
+            holdInput.style.display = '';
+          } else {
+            delete step.hold;
+            holdInput.style.display = 'none';
+          }
+          notify();
+        },
+      }, [
+        h('option', { value: 'tap', text: t('step_press_tap', 'Press'), selected: !(step.hold > 0) }),
+        h('option', { value: 'hold', text: t('step_press_hold', 'Hold'), selected: step.hold > 0 }),
+      ]);
+
       const moveUpBtn = h('button', {
         className: 'btn btn-secondary btn-sm',
         text: '↑',
@@ -116,6 +153,8 @@ export function createSequenceEditor(steps = [], availableDevices = [], commands
         h('span', { className: 'badge', text: `${idx + 1}` }),
         isDelay ? h('span', { style: { fontWeight: 'bold', fontSize: '13px' }, text: t('delay_ms', 'Delay (ms):') }) : devSelect,
         isDelay ? null : cmdSelect,
+        isDelay ? null : pressSelect,
+        isDelay ? null : holdInput,
         delayInput,
         moveUpBtn,
         moveDownBtn,
