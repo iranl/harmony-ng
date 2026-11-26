@@ -53,10 +53,6 @@ build_mips() {
 
     make defconfig
     # Enable static compilation and disable tc (requires linux kernel headers) and seedrng (requires getrandom syscall)
-    if [ "${LINK:-static}" != dynamic ]; then
-        sed -i 's/.*CONFIG_STATIC.*/CONFIG_STATIC=y/' .config
-        sed -i 's/.*CONFIG_STATIC_LIBGCC.*/CONFIG_STATIC_LIBGCC=y/' .config
-    fi
     sed -i 's/CONFIG_TC=y/# CONFIG_TC is not set/' .config
     sed -i 's/CONFIG_FEATURE_TC_INGRESS=y/# CONFIG_FEATURE_TC_INGRESS is not set/' .config
     sed -i 's/CONFIG_SEEDRNG=y/# CONFIG_SEEDRNG is not set/' .config
@@ -100,12 +96,9 @@ build_mips() {
     make -j"$(nproc)" CROSS_COMPILE="$CROSS" busybox
     "${CROSS}strip" busybox
 
-    # LINK=dynamic: shared uClibc-ng, for the Linux 6.18 root file system (build/build_rootfs6.sh)
-    dest="$REPO_ROOT/payload/bin/busybox"
-    if [ "${LINK:-static}" = dynamic ]; then
-        dest="$REPO_ROOT/build/output/kernel6/harmony/bin/busybox"
-        mkdir -p "$(dirname "$dest")"
-    fi
+    # shared uClibc-ng, for the Linux 6.18 root file system (build/build_rootfs6.sh)
+    dest="$REPO_ROOT/build/output/kernel6/bin/busybox"
+    mkdir -p "$(dirname "$dest")"
     cp busybox "$dest"
     echo "[+] MIPS BusyBox built: $dest ($(ls -lh "$dest" | awk '{print $5}'))"
 }

@@ -537,7 +537,7 @@ wait_activity_switch() {
 
 # A release with the Linux 6.18 system image (kernel6/ in the manifest, scripts/publish_ota.py), on
 # a Hub that runs it: the root file system is staged in /cache/kernel6/rootfs.sqfs (the kernel's
-# init boots the fallback for it, which writes it: build/kernel6/init.c, rc.sh), then the kernel is
+# init writes it at the next boot, before it mounts it: build/kernel6/init.c), then the kernel is
 # written. Staged first: a failure leaves the old kernel with the old root file system. Returns 0
 # when the system was updated and needs a reboot.
 apply_kernel6() {

@@ -80,10 +80,8 @@ export AR="mips-buildroot-linux-uclibc-gcc-ar" RANLIB="mips-buildroot-linux-ucli
 # --disable-harden below drops PIE and relro (size); its other flags are kept here.
 # No -mno-abicalls: mixed with the PIC static libc, scp -t segfaults on the Hub (-13 KB only).
 CFLAGS="-D_FORTIFY_SOURCE=2 -fno-strict-overflow -Wno-pointer-sign -Os -flto -fno-unwind-tables -fno-asynchronous-unwind-tables -ffunction-sections -fdata-sections"
-# LINK=dynamic: shared uClibc-ng, for the Linux 6.18 root file system (build/build_rootfs6.sh)
-STATIC=-static
-[ "${LINK:-static}" = dynamic ] && STATIC=""
-LDFLAGS="-Os -flto $STATIC -Wl,--gc-sections -Wl,-z,norelro -Wl,--build-id=none -Wl,--hash-style=sysv"
+# shared uClibc-ng, for the Linux 6.18 root file system (build/build_rootfs6.sh)
+LDFLAGS="-Os -flto -Wl,--gc-sections -Wl,-z,norelro -Wl,--build-id=none -Wl,--hash-style=sysv"
 
 # syslog stays on (about 3 KB): the Hub runs syslogd, and a refused key or a missing host key
 # would otherwise leave no trace there
@@ -107,7 +105,5 @@ make -j"$(nproc)" PROGRAMS="dropbear dropbearkey scp" MULTI=1
 echo "=== RESULT DROPBEARMULTI ==="
 ls -l dropbearmulti
 mips-buildroot-linux-uclibc-size dropbearmulti
-if [ "${LINK:-static}" = dynamic ]; then
-    mkdir -p "$REPO_ROOT/build/output/kernel6/harmony/bin"
-    cp dropbearmulti "$REPO_ROOT/build/output/kernel6/harmony/bin/"
-fi
+mkdir -p "$REPO_ROOT/build/output/kernel6/bin"
+cp dropbearmulti "$REPO_ROOT/build/output/kernel6/bin/"

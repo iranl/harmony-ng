@@ -10,8 +10,9 @@
 # layout back (upper/ to its top, the overlay's work dir removed): the stock kernel finds the
 # Hub's HarmonyNG and settings as before the migration.
 #
-# The root partition is the running system's: a static hub_util runs from RAM (/tmp), writes it
-# with --force and the Hub restarts at once. Do not cut the power until the Hub is back on the
+# The root partition is the running system's: the static rescue hub_util (LINK=static sh
+# build/compile_all.sh util) runs from RAM (/tmp), writes it last with --force and the Hub
+# restarts at once. Do not cut the power until the Hub is back on the
 # stock firmware (a cut write leaves a Hub that needs the serial console).
 #   SSH_KEY  private key for root (default: ssh's own choice)
 set -euo pipefail
@@ -23,7 +24,7 @@ export MSYS_NO_PATHCONV=1
 SSH=(ssh -o BatchMode=yes -o ConnectTimeout=8 -o LogLevel=ERROR ${SSH_KEY:+-i "$SSH_KEY"} "root@$HOST")
 push() { "${SSH[@]}" "cat > $2" < "$1"; }
 
-for f in "$BK/kernel.bin" "$BK/kernel2.bin" "$BK/root.bin" "$REPO/payload/bin/hub_util"; do
+for f in "$BK/kernel.bin" "$BK/kernel2.bin" "$BK/root.bin" "$REPO/build/output/kernel6/static/hub_util"; do
     [ -f "$f" ] || { echo "Error: $f not found" >&2; exit 1; }
 done
 head -c 4 "$BK/root.bin" | grep -q hsqs || { echo "Error: $BK/root.bin is not a squashfs" >&2; exit 1; }
@@ -39,7 +40,7 @@ echo "=== Copying the stock images to $HOST:/tmp ==="
 cat "$BK/kernel.bin" "$BK/kernel2.bin" > "$BK/kernels.bin"
 push "$BK/kernels.bin" /tmp/rb/kernels.bin
 push "$BK/root.bin" /tmp/rb/root.bin
-push "$REPO/payload/bin/hub_util" /tmp/rb/hub_util
+push "$REPO/build/output/kernel6/static/hub_util" /tmp/rb/hub_util
 for f in kernels.bin root.bin; do
     [ "$("${SSH[@]}" "md5sum /tmp/rb/$f | cut -d' ' -f1")" = "$(md5sum < "$BK/$f" | cut -d' ' -f1)" ] ||
         { echo "Error: /tmp/rb/$f does not match the backup" >&2; exit 1; }

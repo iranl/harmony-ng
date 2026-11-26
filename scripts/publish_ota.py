@@ -235,15 +235,11 @@ def package_ota(output_dir: Path, version: str):
         ver_file = (output_dir / "v2" / "VERSION") if (major >= 2 and (output_dir / "v2" / "VERSION").exists()) else (output_dir / "VERSION")
         tar.add(ver_file, arcname="VERSION")
         # Binaries
-        for bname in HUB_BINARIES + ["busybox", "dropbearmulti"]:
+        # BusyBox and dropbear are the Linux 6.18 root file system's (build/build_rootfs6.sh)
+        for bname in HUB_BINARIES:
             src = find_candidate_file(bname, MIPS_SEARCH_PATHS)
             if src and src.exists():
-                # The SSH server takes Ed25519 user keys only. The update.sh of v2.5.3 and older
-                # installs bin/dropbearmulti unchecked and reboots, which would lock out a Hub
-                # whose root has no Ed25519 key: under this name that script skips it, and the new
-                # update.sh installs it as dropbearmulti behind its key check.
-                arc = "bin/dropbearmulti_ed25519" if bname == "dropbearmulti" else f"bin/{bname}"
-                tar.add(src, arcname=arc)
+                tar.add(src, arcname=f"bin/{bname}")
         # Scripts
         scripts_dir = REPO_ROOT / "payload" / "scripts"
         if scripts_dir.is_dir():

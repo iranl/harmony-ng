@@ -16,7 +16,8 @@
 #   INITRAMFS_MODULES=1  put every module in the initramfs image too (about 1 MB more: each
 #                   1 MB costs about 9 minutes with tools/uboot_mm_load.py)
 #   INIT_CC         C compiler for init.c (default: the uClibc toolchain in build/toolchains)
-#   BUSYBOX         static MIPS BusyBox (default payload/bin/busybox from build/build_busybox.sh)
+#   BUSYBOX         static MIPS BusyBox for the initramfs test image (RAM boot over serial);
+#                   without it that image is not built
 #   HOST_TOOLS      optional prefix with flex, bison, m4 and mkimage (usr/bin, usr/share/bison)
 #                   for a build host without them installed (apt-get download + dpkg -x)
 #
@@ -29,7 +30,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SRC="$REPO_ROOT/build/kernel6"
 KERNEL_TARBALL="${KERNEL_TARBALL:-$HOME/kbuild6/linux-$KVER.tar.xz}"
-BUSYBOX="${BUSYBOX:-$REPO_ROOT/payload/bin/busybox}"
+BUSYBOX="${BUSYBOX:-}"
 OUT_DIR="${OUT_DIR:-$REPO_ROOT/build/output/kernel6}"
 WORK="${WORK:-$HOME/kbuild6/work}"
 DTS=ar9330_logitech_harmony-hub
@@ -44,7 +45,7 @@ fi
 for t in mips-linux-gnu-gcc flex bison bc xz mkimage; do
     command -v "$t" >/dev/null || { echo "Error: $t not found" >&2; exit 1; }
 done
-for f in "$KERNEL_TARBALL" "$BUSYBOX" "$INIT_CC"; do
+for f in "$KERNEL_TARBALL" ${BUSYBOX:+"$BUSYBOX"} "$INIT_CC"; do
     [ -e "$f" ] || { echo "Error: $f not found" >&2; exit 1; }
 done
 [ "$KVER" != 6.18.65 ] || echo "$KSHA256  $KERNEL_TARBALL" | sha256sum -c --quiet - \
@@ -136,7 +137,8 @@ build_with_initramfs() {
 }
 
 echo "=== Building the flash image ==="
-"$INIT_CC" -Os -static -Wall -Wextra -o flash-init "$SRC/init.c"
+"$INIT_CC" -Os -static -Wall -Wextra -I"$REPO_ROOT/payload/source" -o flash-init "$SRC/init.c" \
+    "$REPO_ROOT/payload/source/flash_image.c"
 "${INIT_CC%gcc}strip" flash-init
 {
     for d in /dev /proc /sys /tmp /cache /mnt /mnt/data; do echo "dir $d 755 0 0"; done
@@ -149,6 +151,10 @@ if [ "$size" -gt "$SLOT_SIZE" ]; then
     echo "Error: harmony-hub-flash.uImage is $size bytes, the slot holds $SLOT_SIZE" >&2
     exit 1
 fi
+
+echo "=== Result ==="
+echo "harmony-hub-flash.uImage: $size bytes, $((SLOT_SIZE - size)) of the $SLOT_SIZE byte slot free"
+[ -n "$BUSYBOX" ] || exit 0
 
 echo "=== Building the initramfs test image ==="
 KREL="$(cat include/config/kernel.release)"
@@ -166,6 +172,4 @@ KREL="$(cat include/config/kernel.release)"
 tr -d '\r' < "$SRC/initramfs_init" > initramfs-init
 build_with_initramfs "$WORK/initramfs.list" "$OUT_DIR/harmony-hub-initramfs.uImage" "Linux-$KVER-harmony-initramfs"
 
-echo "=== Result ==="
-echo "harmony-hub-flash.uImage: $size bytes, $((SLOT_SIZE - size)) of the $SLOT_SIZE byte slot free"
 echo "harmony-hub-initramfs.uImage: $(stat -c %s "$OUT_DIR/harmony-hub-initramfs.uImage") bytes (RAM boot only)"

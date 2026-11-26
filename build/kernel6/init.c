@@ -9,9 +9,13 @@
  * The first boot moves what the data partition holds (the stock union's writable layer) into
  * /overlay/upper.
  *
- * Fallback boot (the root partition still holds the stock root, or no squashfs, or a new root
- * file system waits in /cache/kernel6/rootfs.sqfs for rc.sh to write it): /cache and /mnt/data
- * mounted, /cache/bin/busybox sh /cache/kernel6/rc.sh.
+ * A new root file system waiting in /cache/kernel6/rootfs.sqfs (update.sh, the migration and
+ * deploy tools put it there) is written to mtd "root" first, by init itself: static, it needs no
+ * C library, while everything else on the Hub links the root file system's shared uClibc-ng.
+ * Written, the file goes; refused or failed, it becomes rootfs.sqfs.failed.
+ *
+ * Fallback boot (the root partition holds no XZ squashfs, or its boot failed): /cache and
+ * /mnt/data mounted, /cache/bin/busybox sh /cache/kernel6/rc.sh (a static BusyBox: rescue only).
  *
  * Factory reset: with /cache/kernel6/factory-reset present (rc.sh sets it when the Pair button is
  * held at boot) the data and cache partitions are erased before anything is mounted from them.
@@ -27,6 +31,8 @@
 #include <sys/mount.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+#include "flash_image.h"
 
 #define BUSYBOX "/cache/bin/busybox"
 #define RC "/cache/kernel6/rc.sh"
@@ -94,6 +100,58 @@ static int our_root(int n) {
          sb[20] == 4 && sb[21] == 0;   /* compression id 4 = XZ, little endian */
     close(fd);
     return ok;
+}
+
+static int mtd_erase(int fd, uint32_t off, uint32_t len) {
+    struct erase_info_user ei = { .start = off, .length = len };
+    return ioctl(fd, MEMERASE, &ei);
+}
+
+static long mtd_pread(int fd, void *buf, uint32_t len, uint32_t off) {
+    return pread(fd, buf, len, off);
+}
+
+static long mtd_pwrite(int fd, const void *buf, uint32_t len, uint32_t off) {
+    return pwrite(fd, buf, len, off);
+}
+
+/* writes PENDING_ROOT (an XZ squashfs that fits) to mtd "root", block by block with read-back */
+static void write_pending_root(void) {
+    static const struct flash_ops ops = { mtd_erase, mtd_pread, mtd_pwrite };
+    char dev[32], err[128] = "";
+    struct mtd_info_user mi;
+    struct flash_part part;
+    struct stat st;
+    uint8_t *img = NULL;
+    int n = mtd_num("root"), fd = -1, mfd = -1, written = 0, ok = 0;
+
+    if (stat(PENDING_ROOT, &st) != 0) return;
+    msg("writing", PENDING_ROOT, 0);
+    snprintf(dev, sizeof(dev), "/dev/mtd%d", n);
+    if (n < 0 || (mfd = open(dev, O_RDWR)) < 0 || ioctl(mfd, MEMGETINFO, &mi) != 0) {
+        snprintf(err, sizeof(err), "no root partition");
+    } else if ((uint32_t)st.st_size > mi.size) {
+        snprintf(err, sizeof(err), "larger than the root partition");
+    } else if (!(img = malloc(st.st_size)) || (fd = open(PENDING_ROOT, O_RDONLY)) < 0 ||
+               read(fd, img, st.st_size) != st.st_size) {
+        snprintf(err, sizeof(err), "cannot read it");
+    } else if (squashfs_check(img, st.st_size, SQUASHFS_XZ, err, sizeof(err)) == 0) {
+        part.fd = mfd;
+        part.size = mi.size;
+        part.erasesize = mi.erasesize;
+        ok = flash_write_image(&part, 1, &ops, img, st.st_size, &written, err, sizeof(err)) == 0;
+    }
+    if (fd >= 0) close(fd);
+    if (mfd >= 0) close(mfd);
+    free(img);
+    if (ok) {
+        unlink(PENDING_ROOT);
+        dprintf(2, "init: root file system written (%d blocks)\n", written);
+    } else {
+        rename(PENDING_ROOT, PENDING_ROOT ".failed");
+        msg("root file system not written:", err, 0);
+    }
+    sync();
 }
 
 /* first boot of the root file system: the data partition still has the stock union layout
@@ -182,8 +240,8 @@ int main(void) {
         mnt("mtd:cache", "/cache", "jffs2", 0, NULL);
     }
 
-    /* a new root file system waiting in /cache: the fallback boot writes it (rc.sh) */
-    root_mtd = access(PENDING_ROOT, F_OK) == 0 ? -1 : mtd_num("root");
+    write_pending_root();
+    root_mtd = mtd_num("root");
     if (root_mtd >= 0 && our_root(root_mtd) && root_boot(root_mtd) == 0)
         return 0;   /* not reached: rcS runs */
 

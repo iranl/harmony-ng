@@ -2,11 +2,11 @@
 # Build the root file system of the Linux 6.18 Hub system: an XZ squashfs for the stock root
 # partition (mtd "root", 4 MB). Run in WSL/Linux after build_kernel6.sh and the dynamic builds:
 #
-#   LINK=dynamic sh build/compile_all.sh all          hub_util (system tool: usbhid, mfg skin)
-#   LINK=dynamic bash build/build_busybox.sh mips
-#   LINK=dynamic bash build/build_minimal_dropbear.sh
-#   LINK=dynamic bash build/build_wpa_supplicant.sh
-#   LINK=dynamic bash build/build_bluez_tools.sh
+#   sh build/compile_all.sh util                      hub_util (system tool: usbhid, mfg skin)
+#   bash build/build_busybox.sh mips
+#   bash build/build_minimal_dropbear.sh
+#   bash build/build_wpa_supplicant.sh
+#   bash build/build_bluez_tools.sh
 #
 # The kernel's init (build/kernel6/init.c) mounts it as the lower layer under the data partition
 # (overlayfs), so the stock layout (/data/harmony, /etc, /home/root) comes from the data partition
@@ -23,7 +23,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SRC="$REPO_ROOT/build/kernel6"
 OUT="${OUT:-$REPO_ROOT/build/output/kernel6}"
-DYN="$REPO_ROOT/build/output/kernel6/harmony/bin"
+DYN="$REPO_ROOT/build/output/kernel6/bin"   # system tools (busybox, dropbear, wpa_supplicant, BlueZ)
+HNG="$REPO_ROOT/payload/bin"                # HarmonyNG binaries (hub_util)
 SYSROOT="$REPO_ROOT/build/toolchains/mips32--uclibc--stable/mips-buildroot-linux-uclibc/sysroot"
 CROSS="$REPO_ROOT/build/toolchains/mips32--uclibc--stable/bin/mips-buildroot-linux-uclibc-"
 BB_BUILD="$REPO_ROOT/build/tmp/busybox-1.36.1-mips"
@@ -34,8 +35,8 @@ if [ -n "${HOST_TOOLS:-}" ]; then
     export PATH="$HOST_TOOLS/usr/bin:$PATH"
 fi
 command -v mksquashfs >/dev/null || { echo "Error: mksquashfs not found (squashfs-tools)" >&2; exit 1; }
-for f in busybox dropbearmulti wpa_supplicant wpa_cli bccmd hciattach hciconfig hub_util; do
-    [ -f "$DYN/$f" ] || { echo "Error: $DYN/$f not built (dynamic build, see the header)" >&2; exit 1; }
+for f in "$DYN/busybox" "$DYN/dropbearmulti" "$DYN/wpa_supplicant" "$DYN/wpa_cli" "$DYN/bccmd"          "$DYN/hciattach" "$DYN/hciconfig" "$HNG/hub_util"; do
+    [ -f "$f" ] || { echo "Error: $f not built (see the header)" >&2; exit 1; }
 done
 [ -f "$OUT/kernel6-modules.tgz" ] || { echo "Error: $OUT/kernel6-modules.tgz missing (build_kernel6.sh)" >&2; exit 1; }
 [ -f "$BB_BUILD/.config" ] || { echo "Error: $BB_BUILD missing (build_busybox.sh mips)" >&2; exit 1; }
@@ -70,7 +71,8 @@ cp "$DYN/dropbearmulti" usr/sbin/
 # tools of the system, under the stock names where the stock scripts call them. An applet link
 # of the same name goes first: writing through it would overwrite bin/busybox.
 rm -f usr/sbin/wpa_supplicant usr/sbin/wpa_cli sbin/wlanconfig sbin/modprobe
-for t in wpa_supplicant wpa_cli bccmd hciattach hciconfig hub_util; do cp "$DYN/$t" usr/lib/kernel6/bin/; done
+for t in wpa_supplicant wpa_cli bccmd hciattach hciconfig; do cp "$DYN/$t" usr/lib/kernel6/bin/; done
+cp "$HNG/hub_util" usr/lib/kernel6/bin/
 printf '#!/bin/sh\nexec /usr/lib/kernel6/bin/wpa_supplicant -D nl80211 "$@"\n' > usr/sbin/wpa_supplicant
 printf '#!/bin/sh\nexit 0\n' > sbin/wlanconfig
 ln -s ../lib/kernel6/bin/wpa_cli usr/sbin/wpa_cli

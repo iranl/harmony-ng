@@ -662,12 +662,12 @@ class HubDeployer:
                 "/cache/icons.tar.gz /etc/init.d/rcS.local"
             )
 
-            # Dropbear SSH server (deploy first so remote scp server is updated and verified)
+            # Dropbear SSH server (deploy first so remote scp server is updated and verified). The
+            # Linux 6.18 root file system has its own (build/build_rootfs6.sh): only a dropbearmulti
+            # put in the binaries directory by hand is deployed.
             dropbear_src = None
             if (self.bin_dir / "dropbearmulti").is_file():
                 dropbear_src = self.bin_dir / "dropbearmulti"
-            elif (self.repo_root / "tools" / "bin" / "dropbearmulti_mips").is_file():
-                dropbear_src = self.repo_root / "tools" / "bin" / "dropbearmulti_mips"
 
             key_problem = self.ed25519_login_problem() if dropbear_src else None
             if key_problem:

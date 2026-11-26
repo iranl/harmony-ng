@@ -7,12 +7,7 @@ REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 SRC="$REPO_ROOT/payload/source/hub_btstack"
 BIN="$REPO_ROOT/payload/bin"
 OUT="$SCRIPT_DIR/output"
-# LINK=dynamic: against the toolchain's shared uClibc-ng, for the Linux 6.18 root file system
-# (build/build_rootfs6.sh); never into payload/bin, whose static binary runs everywhere
-if [ "${LINK:-static}" = dynamic ]; then
-    BIN="$SCRIPT_DIR/output/kernel6/harmony/bin"
-    OUT="$SCRIPT_DIR/output/kernel6/harmony/out"
-fi
+# against the toolchain's shared uClibc-ng 1.0.24, the Linux 6.18 Hub system's C library
 TMP="$SCRIPT_DIR/tmp"
 BTSTACK_DIR="$TMP/btstack"
 
@@ -86,7 +81,7 @@ cd "$REPO_ROOT"
 INCLUDES="-Ipayload/source/hub_btstack -Ipayload/source -Ibuild/tmp/btstack/src -Ibuild/tmp/btstack/platform/posix -Ibuild/tmp/btstack/3rd-party/micro-ecc -Ibuild/tmp/btstack/3rd-party/rijndael -Ibuild/tmp/btstack/3rd-party/bluedroid/encoder/include -Ibuild/tmp/btstack/3rd-party/bluedroid/decoder/include -Ibuild/tmp/btstack/3rd-party/yxml"
 
 CFLAGS="-Os -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -static -DNDEBUG -ffunction-sections -fdata-sections -Wl,--gc-sections"
-[ "${LINK:-static}" = dynamic ] && CFLAGS=$(echo "$CFLAGS" | sed "s/ -static//")
+CFLAGS=$(echo "$CFLAGS" | sed "s/ -static//")
 
 BTSTACK_SRCS="
 build/tmp/btstack/src/ad_parser.c

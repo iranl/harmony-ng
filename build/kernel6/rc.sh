@@ -2,7 +2,7 @@
 # Boot script of the Linux 6.18 Hub system, started by its init (build/kernel6/init.c) as PID 1:
 #   root file system boot  /etc/init.d/rcS of the overlay root (build/build_rootfs6.sh)
 #   fallback boot          /cache/kernel6/rc.sh (the root partition holds no root file system of
-#                          ours yet, or a new one is pending in /cache/kernel6/rootfs.sqfs)
+#                          ours): rescue only, the dynamic tools need the root file system's libc
 #
 # It plays the part of the stock /etc/init.d/rcS: it gives the HarmonyNG scripts written for the
 # stock kernel their environment (paths, tool names, the ath0 interface, ttyS0), loads the
@@ -33,7 +33,7 @@ else
     $B mkdir -p /bin /sbin /usr/bin /usr/sbin /usr/share/udhcpc /var/run /var/log /var/volatile/tmp /lib
     $B --install -s /bin
 fi
-F=/cache/kernel6               # flags and a pending root file system image
+F=/cache/kernel6               # flags
 export PATH=/data/harmony/bin:/cache/bin:/usr/sbin:/usr/bin:/sbin:/bin
 exec > /dev/console 2>&1
 echo "rc.sh: $(uname -r), $([ $ROOTFS = 1 ] && echo 'root file system' || echo 'fallback') boot"
@@ -44,6 +44,14 @@ SERIAL=0
 if [ $ROOTFS = 1 ]; then
     mount -t tmpfs tmpfs /var/volatile
     mkdir -p /var/volatile/run /var/volatile/log /var/volatile/lock /var/volatile/tmp
+    # HarmonyNG's scripts call /cache/bin/busybox and /data/harmony/bin/dropbearmulti, which
+    # were its own static copies on the stock root: here the root file system's dynamic ones
+    # (a static copy left from before is replaced by the link, freeing its flash)
+    mkdir -p /cache/bin
+    [ "$(readlink /cache/bin/busybox)" = /bin/busybox ] || ln -sf /bin/busybox /cache/bin/busybox
+    if [ -d /data/harmony/bin ] && [ "$(readlink /data/harmony/bin/dropbearmulti)" != /usr/sbin/dropbearmulti ]; then
+        ln -sf /usr/sbin/dropbearmulti /data/harmony/bin/dropbearmulti
+    fi
 else
     # The stock union root put the writable layer under /: its /data, /etc, /home (root's home is
     # /home/root) and /root are the paths every script and tool uses.
@@ -63,20 +71,6 @@ if [ $ROOTFS = 0 ]; then
     cp $K/modprobe.sh /sbin/modprobe && chmod 755 /sbin/modprobe
 fi
 echo /sbin/modprobe > /proc/sys/kernel/modprobe
-
-# A new root file system waits in /cache (init booted the fallback for it): write it while
-# nothing uses the SPI bus (no RF driver yet), then boot it. Kept as .failed when it does not go.
-if [ $ROOTFS = 0 ] && [ -f $F/rootfs.sqfs ]; then
-    n=$(grep '"root"' /proc/mtd | cut -d: -f1)
-    echo "rc.sh: writing the root file system to /dev/$n"
-    if $T/hub_util flash-image $F/rootfs.sqfs /dev/$n; then
-        rm -f $F/rootfs.sqfs
-        sync
-        echo b > /proc/sysrq-trigger
-    fi
-    mv -f $F/rootfs.sqfs $F/rootfs.sqfs.failed
-    sync
-fi
 
 # stock tool names: wpa_supplicant with the nl80211 driver (stock: athr), wlanconfig not needed
 # (ath0 is the renamed wlan0), udhcpc's default script (in the root file system these exist)
