@@ -94,7 +94,7 @@ make_uimage "$OUT_DIR/harmony-hub-kernel.uImage" "Linux-$KVER-harmony"
 cp .config "$OUT_DIR/config"
 cp System.map "$OUT_DIR/System.map"
 rm -rf modroot
-"${MAKE[@]}" INSTALL_MOD_PATH="$WORK/modroot" INSTALL_MOD_STRIP=1 DEPMOD=true modules_install > /dev/null
+"${MAKE[@]}" INSTALL_MOD_PATH="$WORK/modroot" INSTALL_MOD_STRIP=1 DEPMOD=/sbin/depmod modules_install > /dev/null
 tar -czf "$OUT_DIR/modules.tar.gz" -C modroot lib
 
 echo "=== Building the initramfs test image ==="
@@ -107,7 +107,7 @@ KREL="$(cat include/config/kernel.release)"
     echo "file /init $WORK/initramfs-init 755 0 0"
     if [ "${INITRAMFS_MODULES:-0}" = 1 ]; then
         (cd modroot && find "lib/modules/$KREL" -mindepth 1 -type d | sort | sed 's|^|dir /|; s|$| 755 0 0|')
-        (cd modroot && find "lib/modules/$KREL" -name '*.ko' | sort | sed "s|.*|file /& $WORK/modroot/& 644 0 0|")
+        (cd modroot && find "lib/modules/$KREL" -type f | sort | sed "s|.*|file /& $WORK/modroot/& 644 0 0|")
     fi
 } > initramfs.list
 tr -d '\r' < "$SRC/initramfs_init" > initramfs-init
