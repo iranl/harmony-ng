@@ -346,15 +346,18 @@ static int mtd_mounted(int num) {
  * --stock, the stock LZMA one, to go back) over "root", which may not be mounted (the Linux 6.18
  * system writes a new root from its fallback boot: build/kernel6/init.c). */
 static int run_flash_image(int argc, char **argv) {
-    int dry = 0, stock = 0, first = 1;
+    int dry = 0, stock = 0, force = 0, first = 1;
     for (; first < argc && argv[first][0] == '-'; first++) {
         if (strcmp(argv[first], "--dry-run") == 0) dry = 1;
         else if (strcmp(argv[first], "--stock") == 0) stock = 1;
+        /* write a mounted root partition: only for tools/rollback_kernel6.sh, which runs a static
+         * hub_util from RAM and restarts right after (the running system reads garbage) */
+        else if (strcmp(argv[first], "--force") == 0) force = 1;
         else break;
     }
     if (argc - first < 2 || argc - first > 3) {
         fprintf(stderr, "usage: hub_util flash-image [--dry-run] <uImage> /dev/mtdN [/dev/mtdN+1]\n"
-                        "       hub_util flash-image [--dry-run] [--stock] <squashfs> /dev/mtdN\n");
+                        "       hub_util flash-image [--dry-run] [--stock] [--force] <squashfs> /dev/mtdN\n");
         return 2;
     }
     const char *image = argv[first];
@@ -407,7 +410,7 @@ static int run_flash_image(int argc, char **argv) {
                 fprintf(stderr, "flash-image: %s is \"%s\"; a squashfs goes to \"root\" only\n", dev, name);
                 goto out;
             }
-            if (mtd_mounted(num)) {
+            if (mtd_mounted(num) && !force) {
                 fprintf(stderr, "flash-image: %s is mounted (the running root file system)\n", dev);
                 goto out;
             }
