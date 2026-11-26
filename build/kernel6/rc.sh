@@ -39,6 +39,12 @@ exec > /dev/console 2>&1
 echo "rc.sh: $(uname -r), $([ $ROOTFS = 1 ] && echo 'root file system' || echo 'fallback') boot"
 SERIAL=0
 [ -f $F/serial-console ] && SERIAL=1
+# data and cache on a USB stick (usb_storage.sh): the port stays in host mode for it; with the
+# stick missing at boot (init: usb-missing) the rescue, no HarmonyNG on the flash's old data
+USBDATA=0
+grep -q ' /usb ' /proc/mounts && USBDATA=1
+RESCUE=0
+[ -f $F/usb-missing ] && RESCUE=1
 
 # --- the stock layout ---
 if [ $ROOTFS = 1 ]; then
@@ -99,7 +105,11 @@ modprobe phy-ath79-usb
 modprobe ci_hdrc_usb2
 R=/sys/bus/platform/devices/1b000000.usb/ci_hdrc.0/role
 for i in 1 2 3 4 5; do [ -e $R ] && break; sleep 1; done
-echo gadget > $R 2>/dev/null || echo "rc.sh: cannot set the USB role"
+if [ $USBDATA = 1 ]; then
+    echo host > /tmp/harmony_usb_port_mode   # init.sh: no USB device side
+else
+    echo gadget > $R 2>/dev/null || echo "rc.sh: cannot set the USB role"
+fi
 
 # Wi-Fi: ath9k; its interface gets the stock name ath0
 if modprobe ath9k; then
@@ -166,7 +176,7 @@ echo 1 > /proc/sys/vm/overcommit_memory
 # 192.168.7.1 and gives the PC 192.168.7.2. The network interface is renamed usb0 -> gadget0:
 # network_manager.sh takes usb* for a USB Ethernet adapter. start_usb_eth.sh takes all of it
 # down for host mode.
-if sh $K/usb_gadget.sh up; then
+if [ $USBDATA = 0 ] && sh $K/usb_gadget.sh up; then
     for i in 1 2 3; do [ -e /sys/class/net/usb0 ] && break; sleep 1; done
     if ip link set usb0 name gadget0 && ifconfig gadget0 192.168.7.1 netmask 255.255.255.0 up; then
         printf 'start 192.168.7.2\nend 192.168.7.2\ninterface gadget0\nlease_file /tmp/udhcpd.leases\npidfile /var/run/udhcpd.gadget0.pid\noption subnet 255.255.255.0\n' > /tmp/udhcpd.conf
@@ -179,7 +189,8 @@ else
     echo "rc.sh: no USB device side"
 fi
 
-if [ -f /etc/init.d/rcS.local ]; then
+[ $RESCUE = 1 ] && echo "rc.sh: the USB stick with the Hub's data is missing: rescue (no HarmonyNG)"
+if [ -f /etc/init.d/rcS.local ] && [ $RESCUE = 0 ]; then
     # As the stock rcS: source rcS.local (in a subshell: its emergency branch ends in exit, and
     # PID 1 must not exit), then start /usr/sbin/dropbear, which rcS.local set up.
     load_modules() { :; }   # the stock rcS function: the drivers are loaded above
@@ -190,7 +201,9 @@ else
     mkdir -p /var/run/wpa_supplicant
     /usr/sbin/wpa_supplicant -B -i ath0 -c /etc/wpa_supplicant.conf
     udhcpc -b -i ath0 -x hostname:HarmonyHub
-    [ -x /data/harmony/bin/dropbearmulti ] && /data/harmony/bin/dropbearmulti dropbear -s -g -K 300
+    for d in /usr/sbin/dropbearmulti /data/harmony/bin/dropbearmulti; do
+        [ -x $d ] && { $d dropbear -s -g -K 300; break; }
+    done
 fi
 
 echo "rc.sh: done"

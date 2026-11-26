@@ -16,6 +16,7 @@ kernel/drivers/net/usb/rtl8150.ko
 kernel/drivers/usb/storage/usb-storage.ko
 kernel/drivers/scsi/sd_mod.ko
 kernel/fs/fat/vfat.ko
+kernel/fs/ext4/ext4.ko
 kernel/fs/nls/nls_cp437.ko
 kernel/fs/nls/nls_iso8859-1.ko
 # Wi-Fi

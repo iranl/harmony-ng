@@ -17,6 +17,13 @@
  * Fallback boot (the root partition holds no XZ squashfs, or its boot failed): /cache and
  * /mnt/data mounted, /cache/bin/busybox sh /cache/kernel6/rc.sh (a static BusyBox: rescue only).
  *
+ * Data and cache on a USB stick (build/kernel6/usb_storage.sh, set up by the user): with
+ * /cache/kernel6/usb-storage (the stick's UUID) the root file system's usb_storage.sh, chrooted in
+ * /rom, brings up USB host mode and mounts the stick, which init moves to /usb. Its data/ is the
+ * overlay's upper layer and its cache/ becomes /cache, with the flash's /cache (now /flash) bound
+ * over /cache/kernel6: the boot state stays on flash. Without the stick: the flash data and
+ * /cache/kernel6/usb-missing, for which rc.sh starts no HarmonyNG (rescue).
+ *
  * Factory reset: with /cache/kernel6/factory-reset present (rc.sh sets it when the Pair button is
  * held at boot) the data and cache partitions are erased before anything is mounted from them.
  */
@@ -30,6 +37,7 @@
 #include <sys/ioctl.h>
 #include <sys/mount.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include "flash_image.h"
@@ -38,6 +46,8 @@
 #define RC "/cache/kernel6/rc.sh"
 #define RESET_FLAG "/cache/kernel6/factory-reset"
 #define PENDING_ROOT "/cache/kernel6/rootfs.sqfs"
+#define USB_FLAG "/cache/kernel6/usb-storage"
+#define USB_MISSING "/cache/kernel6/usb-missing"
 
 static void msg(const char *what, const char *arg, int err) {
     dprintf(2, "init: %s %s%s%s\n", what, arg, err ? ": " : "", err ? strerror(err) : "");
@@ -178,27 +188,94 @@ static void move_mount(const char *from, const char *to) {
     if (mount(from, to, NULL, MS_MOVE, NULL) != 0) msg("cannot move mount", from, errno);
 }
 
+/* the stick of USB_FLAG on /usb, through usb_storage.sh boot chrooted in /rom (its BusyBox,
+ * modprobe and drivers): 0 when it is there, -1 when not */
+static int usb_storage(void) {
+    static char *const env[] = { "PATH=/usr/sbin:/usr/bin:/sbin:/bin", NULL };
+    const char *binds[] = { "/proc", "/sys", "/dev" };
+    char uuid[64] = "", dst[16];
+    int st = -1, fd;
+    pid_t pid;
+
+    fd = open(USB_FLAG, O_RDONLY);
+    if (fd >= 0) {
+        ssize_t n = read(fd, uuid, sizeof(uuid) - 1);
+        uuid[n > 0 ? n : 0] = 0;
+        close(fd);
+    }
+    uuid[strcspn(uuid, "\r\n")] = 0;
+    if (!uuid[0]) return -1;
+    for (int i = 0; i < 3; i++) {
+        snprintf(dst, sizeof(dst), "/rom%s", binds[i]);
+        if (mount(binds[i], dst, NULL, MS_BIND, NULL) != 0) msg("cannot bind", dst, errno);
+    }
+    pid = fork();
+    if (pid == 0) {
+        if (chroot("/rom") == 0 && chdir("/") == 0)
+            execle("/bin/sh", "sh", "/usr/lib/kernel6/usb_storage.sh", "boot", uuid, (char *)NULL, env);
+        _exit(127);
+    }
+    if (pid > 0) waitpid(pid, &st, 0);
+    for (int i = 2; i >= 0; i--) {
+        snprintf(dst, sizeof(dst), "/rom%s", binds[i]);
+        umount2(dst, MNT_DETACH);
+    }
+    if (pid < 0 || !WIFEXITED(st) || WEXITSTATUS(st) != 0) {
+        msg("USB storage:", "the stick is not there, rescue boot from the flash", 0);
+        return -1;
+    }
+    move_mount("/rom/mnt", "/usb");
+    return 0;
+}
+
 static int root_boot(int root_mtd) {
     char dev[32];
     struct stat st;
     snprintf(dev, sizeof(dev), "/dev/mtdblock%d", root_mtd);
+    const char *layers = "lowerdir=/rom,upperdir=/overlay/upper,workdir=/overlay/work";
+    int usb = -1;
     if (mnt(dev, "/rom", "squashfs", MS_RDONLY, NULL) != 0) return -1;
-    if (mnt("mtd:data", "/overlay", "jffs2", 0, NULL) != 0) {
+    if (access(USB_FLAG, F_OK) == 0) {
+        usb = usb_storage();
+        if (usb == 0) {
+            unlink(USB_MISSING);
+        } else {
+            int fd = open(USB_MISSING, O_WRONLY | O_CREAT, 0644);
+            if (fd >= 0) close(fd);
+        }
+        sync();
+    }
+    if (usb == 0) {
+        layers = "lowerdir=/rom,upperdir=/usb/data/upper,workdir=/usb/data/work";
+    } else {
+        if (mnt("mtd:data", "/overlay", "jffs2", 0, NULL) != 0) {
+            umount("/rom");
+            return -1;
+        }
+        if (stat("/overlay/upper", &st) != 0) migrate_data();
+        mkdir("/overlay/upper", 0755);
+        mkdir("/overlay/work", 0755);
+    }
+    if (mnt("overlay", "/newroot", "overlay", 0, layers) != 0) {
+        /* the fallback boot mounts mtd:data itself */
+        if (usb == 0) umount("/usb");
+        else umount("/overlay");
         umount("/rom");
         return -1;
     }
-    if (stat("/overlay/upper", &st) != 0) migrate_data();
-    mkdir("/overlay/upper", 0755);
-    mkdir("/overlay/work", 0755);
-    if (mnt("overlay", "/newroot", "overlay", 0,
-            "lowerdir=/rom,upperdir=/overlay/upper,workdir=/overlay/work") != 0) {
-        /* the fallback boot mounts mtd:data itself */
-        umount("/overlay");
-        umount("/rom");
-        return -1;
+    if (usb == 0) {
+        /* the stick's cache/ is /cache, the flash's boot state stays at /cache/kernel6 */
+        move_mount("/cache", "/flash");
+        mkdir("/usb/cache/kernel6", 0755);
+        if (mount("/usb/cache", "/cache", NULL, MS_BIND, NULL) != 0 ||
+            mount("/flash/kernel6", "/cache/kernel6", NULL, MS_BIND, NULL) != 0)
+            msg("cannot bind", "/cache", errno);
+        move_mount("/usb", "/newroot/usb");
+        move_mount("/flash", "/newroot/flash");
+    } else {
+        move_mount("/overlay", "/newroot/overlay");
     }
     move_mount("/rom", "/newroot/rom");
-    move_mount("/overlay", "/newroot/overlay");
     move_mount("/cache", "/newroot/cache");
     move_mount("/dev", "/newroot/dev");
     move_mount("/proc", "/newroot/proc");

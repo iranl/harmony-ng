@@ -558,7 +558,9 @@ apply_kernel6() {
   # a root file system boot does not need the fallback boot's modules any more
   grep -q '^overlay / overlay' /proc/mounts && rm -rf /cache/kernel6/modules 2>/dev/null
   _need=$(( $(wc -c < "$TMPDIR/harmony-hub-rootfs.sqfs") / 1024 + 64 ))
-  _free=$(df -k /cache 2>/dev/null | awk 'NR == 2 { print $4 }')
+  mkdir -p /cache/kernel6
+  # /cache/kernel6 is on flash also when /cache is on a USB stick (usb_storage.sh)
+  _free=$(df -k /cache/kernel6 2>/dev/null | awk 'NR == 2 { print $4 }')
   if [ "${_free:-0}" -lt "$_need" ]; then
     echo "[-] /cache has ${_free} KB free, the root file system needs ${_need} KB: the system image is not updated"
     return 1

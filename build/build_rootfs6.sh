@@ -7,6 +7,7 @@
 #   bash build/build_minimal_dropbear.sh
 #   bash build/build_wpa_supplicant.sh
 #   bash build/build_bluez_tools.sh
+#   bash build/build_e2fsprogs.sh
 #
 # The kernel's init (build/kernel6/init.c) mounts it as the lower layer under the data partition
 # (overlayfs), so the stock layout (/data/harmony, /etc, /home/root) comes from the data partition
@@ -35,7 +36,7 @@ if [ -n "${HOST_TOOLS:-}" ]; then
     export PATH="$HOST_TOOLS/usr/bin:$PATH"
 fi
 command -v mksquashfs >/dev/null || { echo "Error: mksquashfs not found (squashfs-tools)" >&2; exit 1; }
-for f in "$DYN/busybox" "$DYN/dropbearmulti" "$DYN/wpa_supplicant" "$DYN/wpa_cli" "$DYN/bccmd"          "$DYN/hciattach" "$DYN/hciconfig" "$HNG/hub_util"; do
+for f in "$DYN/busybox" "$DYN/dropbearmulti" "$DYN/wpa_supplicant" "$DYN/wpa_cli" "$DYN/bccmd"          "$DYN/hciattach" "$DYN/hciconfig" "$DYN/mke2fs" "$HNG/hub_util"; do
     [ -f "$f" ] || { echo "Error: $f not built (see the header)" >&2; exit 1; }
 done
 [ -f "$OUT/kernel6-modules.tgz" ] || { echo "Error: $OUT/kernel6-modules.tgz missing (build_kernel6.sh)" >&2; exit 1; }
@@ -46,7 +47,7 @@ rm -rf "$STAGE"
 mkdir -p "$STAGE"
 cd "$STAGE"
 mkdir -p bin sbin lib usr/bin usr/sbin usr/lib/kernel6/bin usr/share/udhcpc etc/init.d \
-    proc sys dev tmp cache rom overlay mnt data home/root root var/volatile lib/modules
+    proc sys dev tmp cache rom overlay mnt usb flash data home/root root var/volatile lib/modules
 chmod 1777 tmp
 chmod 700 home/root root
 for d in run log lock tmp; do ln -s volatile/$d var/$d; done
@@ -71,7 +72,8 @@ cp "$DYN/dropbearmulti" usr/sbin/
 # tools of the system, under the stock names where the stock scripts call them. An applet link
 # of the same name goes first: writing through it would overwrite bin/busybox.
 rm -f usr/sbin/wpa_supplicant usr/sbin/wpa_cli sbin/wlanconfig sbin/modprobe
-for t in wpa_supplicant wpa_cli bccmd hciattach hciconfig; do cp "$DYN/$t" usr/lib/kernel6/bin/; done
+for t in wpa_supplicant wpa_cli bccmd hciattach hciconfig mke2fs; do cp "$DYN/$t" usr/lib/kernel6/bin/; done
+ln -s ../lib/kernel6/bin/mke2fs usr/sbin/mkfs.ext4   # ext4 with a journal (BusyBox: ext2)
 cp "$HNG/hub_util" usr/lib/kernel6/bin/
 printf '#!/bin/sh\nexec /usr/lib/kernel6/bin/wpa_supplicant -D nl80211 "$@"\n' > usr/sbin/wpa_supplicant
 printf '#!/bin/sh\nexit 0\n' > sbin/wlanconfig
@@ -79,7 +81,7 @@ ln -s ../lib/kernel6/bin/wpa_cli usr/sbin/wpa_cli
 chmod 755 usr/sbin/wpa_supplicant sbin/wlanconfig
 
 # boot and helper scripts
-for f in rc.sh modprobe.sh udhcpc.sh usb_gadget.sh; do
+for f in rc.sh modprobe.sh udhcpc.sh usb_gadget.sh usb_storage.sh; do
     tr -d '\r' < "$SRC/$f" > "usr/lib/kernel6/$f"
     chmod 755 "usr/lib/kernel6/$f"
 done
