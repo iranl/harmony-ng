@@ -17,6 +17,18 @@ echo /bin/modprobe > /proc/sys/kernel/modprobe
 exec > /dev/console 2>&1
 echo "rc.sh: $(uname -r)"
 
+# BusyBox modprobe on these Hubs does not find modules in this tree ("module not found" while
+# insmod of the same file works): load a module and what it needs, in modules.dep order.
+kmod() {
+    _d=/lib/modules/$(uname -r)
+    _l=$(grep "/$1.ko:" $_d/modules.dep) || { echo "kmod: no $1"; return 1; }
+    for _m in $(echo ${_l%%:*} ${_l#*:} | tr ' ' '
+' | awk '{a[NR]=$0} END {for (i=NR; i>0; i--) print a[i]}'); do
+        _n=$(basename $_m .ko | tr - _)
+        grep -q "^$_n " /proc/modules || insmod $_d/$_m || return 1
+    done
+}
+
 # The stock union root put the writable layer under /; its paths (/data/harmony,
 # /etc/dropbear, /home/root/.ssh: root's home in /etc/passwd) are the ones every script and
 # tool uses.
@@ -31,9 +43,9 @@ ifconfig lo 127.0.0.1 up
 # USB: device mode, RNDIS + CDC ECM to the PC. The Hub is 192.168.7.1 and gives the PC
 # 192.168.7.2 by DHCP.
 # No hotplug helper loads drivers for device tree nodes: the PHY first, then the controller.
-modprobe phy-ath79-usb
-modprobe ci_hdrc_usb2
-if modprobe g_ether && ifconfig usb0 192.168.7.1 netmask 255.255.255.0 up; then
+kmod phy-ath79-usb
+kmod ci_hdrc_usb2
+if kmod usb_f_ecm && kmod usb_f_ecm_subset && kmod g_ether && ifconfig usb0 192.168.7.1 netmask 255.255.255.0 up; then
     cat > /tmp/udhcpd.conf <<EOF
 start 192.168.7.2
 end 192.168.7.2
@@ -60,10 +72,10 @@ fi || echo "rc.sh: no SSH server"
 # Wi-Fi: ath9k, wpa_supplicant (nl80211, /mnt/data/kernel6/bin) with the stock
 # /etc/wpa_supplicant.conf, DHCP (lease script /cache/kernel6/udhcpc.sh).
 W=/mnt/data/kernel6/bin
-if modprobe ath9k && [ -x $W/wpa_supplicant ]; then
+if kmod ath9k && [ -x $W/wpa_supplicant ]; then
     mkdir -p /var/run/wpa_supplicant
     $W/wpa_supplicant -B -D nl80211 -i wlan0 -c /etc/wpa_supplicant.conf
-    udhcpc -b -i wlan0 -h HarmonyHub -s /cache/kernel6/udhcpc.sh
+    udhcpc -b -i wlan0 -x hostname:HarmonyHub -s /cache/kernel6/udhcpc.sh
 else
     echo "rc.sh: no Wi-Fi"
 fi
