@@ -1,10 +1,9 @@
 # Modules installed on the Hub (/cache/kernel6/modules); build_kernel6.sh adds what they need.
-# USB device mode (network to a PC)
+# USB device mode (configfs gadget: HID for the USB Wi-Fi setup, NCM network to a PC)
 kernel/drivers/phy/qualcomm/phy-ath79-usb.ko
 kernel/drivers/usb/chipidea/ci_hdrc_usb2.ko
-kernel/drivers/usb/gadget/legacy/g_ether.ko
-kernel/drivers/usb/gadget/function/usb_f_ecm.ko
-kernel/drivers/usb/gadget/function/usb_f_ecm_subset.ko
+kernel/drivers/usb/gadget/function/usb_f_hid.ko
+kernel/drivers/usb/gadget/function/usb_f_ncm.ko
 # USB host mode: Ethernet adapters, sticks
 kernel/drivers/net/usb/r8152.ko
 kernel/drivers/net/usb/asix.ko

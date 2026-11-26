@@ -24,9 +24,9 @@ load_mod() {
 if [ "$KERNEL6" = 1 ]; then
   echo "[USB_ETH] Switching USB controller to Host mode (ChipIdea role)..."
   echo host > /tmp/harmony_usb_port_mode 2>/dev/null || true
-  # the USB network to a PC (rc.sh: g_ether on rndis0, udhcpd) goes with device mode
-  kill "$(cat /var/run/udhcpd.rndis0.pid 2>/dev/null)" 2>/dev/null || true
-  rmmod g_ether usb_f_ecm_subset usb_f_ecm usb_f_rndis u_ether libcomposite 2>/dev/null || true
+  # the USB device side (rc.sh: HID + network gadget, udhcpd, hub_util usbhid) goes
+  kill "$(cat /var/run/udhcpd.gadget0.pid 2>/dev/null)" "$(cat /var/run/usbhid.pid 2>/dev/null)" 2>/dev/null || true
+  sh /cache/kernel6/usb_gadget.sh down 2>/dev/null || true
   echo host > "$CI_ROLE" || echo "[USB_ETH] Error: cannot set the USB role to host" >&2
 else
 # Preload usbcore

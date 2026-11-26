@@ -82,7 +82,7 @@ done
 # kernel showed the jack as eth1; here eth1 is a bridge of the switch ports and eth0, so it has
 # a link whichever port the jack is on, and network_manager.sh keeps using eth1.
 skin=$(cat /data/harmony/skin 2>/dev/null)
-[ -n "$skin" ] || skin=$(hub_util mfg skin 2>/dev/null)
+[ -n "$skin" ] || skin=$($W/hub_util mfg skin 2>/dev/null)
 if [ "$skin" = 115 ] && modprobe ag71xx && modprobe ar9331 && modprobe bridge; then
     for i in 1 2 3 4 5; do [ -e /sys/class/net/lan0 ] && break; sleep 1; done
     ip link set eth1 name ethsw && ip link set ethsw up
@@ -106,18 +106,22 @@ syslogd -C256
 klogd
 echo 1 > /proc/sys/vm/overcommit_memory
 
-# USB network to a PC (RNDIS + CDC ECM): the Hub is 192.168.7.1 and gives the PC 192.168.7.2.
-# (The stock system ran its usbhid on gadgetfs here; start_usb_eth.sh removes the gadget for
-# host mode.)
-# Its interface is renamed usb0 -> rndis0: network_manager.sh takes usb* for a USB Ethernet
-# adapter.
-if modprobe usb_f_ecm && modprobe usb_f_ecm_subset && modprobe g_ether &&
-    ip link set usb0 name rndis0 && ifconfig rndis0 192.168.7.1 netmask 255.255.255.0 up; then
-    printf 'start 192.168.7.2\nend 192.168.7.2\ninterface rndis0\nlease_file /tmp/udhcpd.leases\npidfile /var/run/udhcpd.rndis0.pid\noption subnet 255.255.255.0\n' > /tmp/udhcpd.conf
-    touch /tmp/udhcpd.leases
-    udhcpd /tmp/udhcpd.conf
+# USB device side (usb_gadget.sh): the HID device of the stock USB Wi-Fi setup (046D:C129,
+# relayed to hub_util usbwifi by hub_util usbhid) and a network to the PC (CDC NCM): the Hub is
+# 192.168.7.1 and gives the PC 192.168.7.2. The network interface is renamed usb0 -> gadget0:
+# network_manager.sh takes usb* for a USB Ethernet adapter. start_usb_eth.sh takes all of it
+# down for host mode.
+if sh $K/usb_gadget.sh up; then
+    for i in 1 2 3; do [ -e /sys/class/net/usb0 ] && break; sleep 1; done
+    if ip link set usb0 name gadget0 && ifconfig gadget0 192.168.7.1 netmask 255.255.255.0 up; then
+        printf 'start 192.168.7.2\nend 192.168.7.2\ninterface gadget0\nlease_file /tmp/udhcpd.leases\npidfile /var/run/udhcpd.gadget0.pid\noption subnet 255.255.255.0\n' > /tmp/udhcpd.conf
+        touch /tmp/udhcpd.leases
+        udhcpd /tmp/udhcpd.conf
+    fi
+    $W/hub_util usbhid > /tmp/usbhid.log 2>&1 &
+    echo $! > /var/run/usbhid.pid
 else
-    echo "rc.sh: no USB network"
+    echo "rc.sh: no USB device side"
 fi
 
 if [ -f /etc/init.d/rcS.local ]; then

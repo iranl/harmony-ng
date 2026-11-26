@@ -125,7 +125,7 @@ build_fetch() {
 build_util() {
     echo "[-] Building hub_util..."
     # unused functions are left out (the Wi-Fi code shares http_util.c with hub_daemon)
-    "$CC" $CFLAGS $OTA_KEY_CFLAGS -Ipayload/source -o "$BIN/hub_util" payload/source/hub_util.c payload/source/flash_image.c payload/source/mfg_id.c payload/source/hub_ntp.c payload/source/ota_verify.c payload/source/tweetnacl.c payload/source/sha256.c payload/source/cJSON.c payload/source/usb_wifi.c payload/source/wifi_config.c payload/source/http_util.c $COMPAT_SRC -lm
+    "$CC" $CFLAGS $OTA_KEY_CFLAGS -Ipayload/source -o "$BIN/hub_util" payload/source/hub_util.c payload/source/flash_image.c payload/source/mfg_id.c payload/source/usb_hid_relay.c payload/source/hub_ntp.c payload/source/ota_verify.c payload/source/tweetnacl.c payload/source/sha256.c payload/source/cJSON.c payload/source/usb_wifi.c payload/source/wifi_config.c payload/source/http_util.c $COMPAT_SRC -lm
     for app in hub_sync sync mknod register_ehci eth_fix hub_sntp hub_usbwifi; do
         ln -sf hub_util "$BIN/$app"
     done

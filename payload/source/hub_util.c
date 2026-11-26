@@ -12,6 +12,7 @@
  *   - hub_usbwifi / usbwifi (USB Wi-Fi setup, usb_wifi.c)
  *   - flash-image (kernel uImage to the kernel partitions, flash_image.c)
  *   - mfg skin (the factory skin number: 115 = Hub Pro 2400; mfg_id.c)
+ *   - usbhid (USB Wi-Fi setup transport on the Linux 6.18 system; usb_hid_relay.c)
  */
 
 #include <stdio.h>
@@ -36,6 +37,7 @@
 
 #include "flash_image.h"
 #include "mfg_id.h"
+#include "usb_hid_relay.h"
 
 #include "hub_ntp.h"
 #include "usb_wifi.h"
@@ -471,6 +473,8 @@ int main(int argc, char **argv) {
             return run_flash_image(argc - 1, argv + 1);
         if (strcmp(cmd, "mfg") == 0)
             return run_mfg(argc - 1, argv + 1);
+        if (strcmp(cmd, "usbhid") == 0)
+            return usbhid_relay_main(argc - 1, argv + 1);
         if (strcmp(cmd, "usbwifi") == 0 || strcmp(cmd, "hub_usbwifi") == 0)
             return usbwifi_main(argc - 1, argv + 1);
     }
@@ -486,6 +490,7 @@ int main(int argc, char **argv) {
     fprintf(stderr, "  ota-verify    Check a signed OTA manifest and files against it\n");
     fprintf(stderr, "  flash-image   Write a kernel uImage to the kernel partitions\n");
     fprintf(stderr, "  mfg skin      Print the factory skin number (115 = Hub Pro 2400)\n");
+    fprintf(stderr, "  usbhid        Relay the USB HID gadget to hub_util usbwifi (Linux 6.18)\n");
     fprintf(stderr, "  usbwifi       USB Wi-Fi setup: answers the stock usbhid on 127.0.0.1:16716\n");
     return 1;
 }
