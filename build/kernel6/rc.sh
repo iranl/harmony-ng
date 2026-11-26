@@ -8,15 +8,9 @@
 # /mnt/data                         mtd:data, the writable layer of the stock union root
 
 B=/cache/bin/busybox
-mkdir -p /tmp/bin
+# no applet is on PATH yet (mkdir is not an ash builtin)
+$B mkdir -p /tmp/bin
 $B --install -s /tmp/bin
-# On the first 6.18 boot every applet was "not found" after --install: link them one by one
-if [ ! -e /tmp/bin/ls ]; then
-    echo "rc.sh: busybox --install made no links, linking from --list"
-    for a in $($B --list); do
-        $B ln -sf $B /tmp/bin/$a
-    done
-fi
 export PATH=/tmp/bin:/data/harmony/bin
 exec > /dev/console 2>&1
 echo "rc.sh: $(uname -r)"
@@ -50,8 +44,15 @@ else
     echo "rc.sh: no USB network"
 fi
 
-# SSH as on the stock kernel: hub_sshd picks the binary, key logins only
-sh /data/harmony/hub_sshd || echo "rc.sh: no SSH server"
+# SSH as on the stock kernel: hub_sshd picks the binary, key logins only. Installs older than
+# hub_sshd have only the multi-call binary.
+if [ -f /data/harmony/hub_sshd ]; then
+    sh /data/harmony/hub_sshd
+elif [ -x /data/harmony/bin/dropbearmulti ]; then
+    /data/harmony/bin/dropbearmulti dropbear -s -g -K 300 -R
+else
+    false
+fi || echo "rc.sh: no SSH server"
 
 # Wi-Fi driver only: there is no nl80211 wpa_supplicant yet
 modprobe ath9k || echo "rc.sh: ath9k did not load"
