@@ -13,6 +13,8 @@
  */
 /dts-v1/;
 
+#include <dt-bindings/gpio/gpio.h>
+
 #include "ar9331.dtsi"
 
 / {
@@ -44,6 +46,19 @@
 
 				clocks = <&pll ATH79_CLK_AHB>;
 				clock-names = "wdt";
+			};
+
+			/*
+			 * IR blaster and receiver (build/kernel6/drivers/harmony_i2s.c): MBOX DMA, stereo
+			 * block, GPIO_FUNCTION_1. The three IR outputs are enabled by active-low GPIOs.
+			 */
+			i2s: i2s@180b0000 {
+				compatible = "logitech,harmony-hub-i2s";
+				reg = <0x180a0000 0x100>, <0x180b0000 0x40>, <0x18040028 0x4>;
+				interrupts = <7>;
+				resets = <&rst 0>;
+				ir-gpios = <&gpio 16 GPIO_ACTIVE_LOW>, <&gpio 28 GPIO_ACTIVE_LOW>,
+					   <&gpio 13 GPIO_ACTIVE_LOW>;
 			};
 		};
 	};

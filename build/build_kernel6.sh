@@ -100,7 +100,12 @@ echo "=== Building kernel, modules, DTB ==="
 cp .config "$OUT_DIR/config"
 cp System.map "$OUT_DIR/System.map"
 rm -rf modroot
-"${MAKE[@]}" INSTALL_MOD_PATH="$WORK/modroot" INSTALL_MOD_STRIP=1 DEPMOD=/sbin/depmod modules_install > /dev/null
+rm -rf harmony_drivers && mkdir harmony_drivers
+for f in "$SRC"/drivers/*.c "$SRC"/drivers/Makefile; do tr -d '\r' < "$f" > "harmony_drivers/${f##*/}"; done
+"${MAKE[@]}" M="$WORK/harmony_drivers" modules > build-drivers.log 2>&1 || { grep -n -m 20 -i "error\|warning" build-drivers.log >&2; exit 1; }
+"${MAKE[@]}" INSTALL_MOD_PATH="$WORK/modroot" INSTALL_MOD_STRIP=1 DEPMOD=true modules_install > /dev/null
+"${MAKE[@]}" M="$WORK/harmony_drivers" INSTALL_MOD_PATH="$WORK/modroot" INSTALL_MOD_STRIP=1 DEPMOD=true modules_install > /dev/null
+/sbin/depmod -b "$WORK/modroot" "$(cat include/config/kernel.release)"
 tar -czf "$OUT_DIR/modules.tar.gz" -C modroot lib
 
 # $1 initramfs list, $2 output, $3 image name
