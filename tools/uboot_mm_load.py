@@ -132,7 +132,9 @@ def main():
         if args.catch:
             catch_prompt(con, args.catch_timeout)
         else:
-            con.command('')
+            # 'q' ends a leftover mm and is a harmless unknown command at the prompt; a bare CR
+            # would repeat the last command
+            con.command('q')
         load(con, data, args.addr, args.lookahead)
         if not args.boot:
             return
