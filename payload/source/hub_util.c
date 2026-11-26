@@ -10,6 +10,7 @@
  *   - eth_fix / hub_eth_fix
  *   - hub_sntp / sntp
  *   - hub_usbwifi / usbwifi (USB Wi-Fi setup, usb_wifi.c)
+ *   - flash-image (kernel uImage to the kernel partitions, flash_image.c)
  */
 
 #include <stdio.h>
@@ -30,6 +31,9 @@
 #include <linux/if.h>
 #include <linux/sockios.h>
 #include <linux/ethtool.h>
+#include <mtd/mtd-user.h>
+
+#include "flash_image.h"
 
 #include "hub_ntp.h"
 #include "usb_wifi.h"
@@ -263,6 +267,156 @@ static int run_ota_verify(int argc, char **argv) {
     return 0;
 }
 
+/* =========================================================================
+ * Subcommand: flash-image [--dry-run] <uImage> /dev/mtdN [/dev/mtdN+1]
+ * Writes a kernel uImage over the kernel partitions (only those named "kernel" and "kernel2",
+ * in flash order), block by block with read-back (flash_image.c).
+ * ========================================================================= */
+static int mtd_erase(int fd, uint32_t off, uint32_t len) {
+    struct erase_info_user ei = { .start = off, .length = len };
+    return ioctl(fd, MEMERASE, &ei);
+}
+
+static long mtd_pread(int fd, void *buf, uint32_t len, uint32_t off) {
+    return pread(fd, buf, len, off);
+}
+
+static long mtd_pwrite(int fd, const void *buf, uint32_t len, uint32_t off) {
+    return pwrite(fd, buf, len, off);
+}
+
+/* partition name of /dev/mtdN from /proc/mtd ("mtdN: size erasesize \"name\"") */
+static int mtd_name(int num, char *name, size_t len) {
+    FILE *f = fopen("/proc/mtd", "r");
+    if (!f) return -1;
+    char line[128];
+    int rc = -1;
+    while (fgets(line, sizeof(line), f)) {
+        int n;
+        char *q = strchr(line, '"');
+        if (sscanf(line, "mtd%d:", &n) == 1 && n == num && q) {
+            char *e = strchr(q + 1, '"');
+            if (e) {
+                snprintf(name, len, "%.*s", (int)(e - q - 1), q + 1);
+                rc = 0;
+            }
+            break;
+        }
+    }
+    fclose(f);
+    return rc;
+}
+
+/* a process with this name runs (/proc/PID/stat; the stock 2.6.31 kernel has no comm file) */
+static int process_running(const char *want) {
+    char path[64], buf[128];
+    for (int pid = 2; pid < 32768; pid++) {
+        snprintf(path, sizeof(path), "/proc/%d/stat", pid);
+        int fd = open(path, O_RDONLY);
+        if (fd < 0) continue;
+        ssize_t n = read(fd, buf, sizeof(buf) - 1);
+        close(fd);
+        if (n <= 0) continue;
+        buf[n] = '\0';
+        char *a = strchr(buf, '('), *b = strrchr(buf, ')');
+        if (a && b && (size_t)(b - a - 1) == strlen(want) && strncmp(a + 1, want, b - a - 1) == 0)
+            return 1;
+    }
+    return 0;
+}
+
+static int run_flash_image(int argc, char **argv) {
+    int dry = argc > 1 && strcmp(argv[1], "--dry-run") == 0;
+    int first = dry ? 2 : 1;
+    if (argc - first < 2 || argc - first > 3) {
+        fprintf(stderr, "usage: hub_util flash-image [--dry-run] <uImage> /dev/mtdN [/dev/mtdN+1]\n");
+        return 2;
+    }
+    const char *image = argv[first];
+    int nparts = argc - first - 1;
+
+    /* the CC2544 shares the SPI bus with the flash (AGENTS.md) */
+    if (!dry && (process_running("hub_rf") || process_running("hub_btstack"))) {
+        fprintf(stderr, "flash-image: stop hub_rf and hub_btstack first (killall -9)\n");
+        return 1;
+    }
+
+    FILE *f = fopen(image, "rb");
+    if (!f) { perror(image); return 1; }
+    uint8_t *img = malloc(4u << 20);
+    size_t len = img ? fread(img, 1, 4u << 20, f) : 0;
+    int more = fgetc(f) != EOF;
+    fclose(f);
+    char err[160];
+    if (!img || len == 0 || more) {
+        fprintf(stderr, "flash-image: %s is empty or over 4 MB\n", image);
+        free(img);
+        return 1;
+    }
+    if (uimage_check(img, len, err, sizeof(err)) != 0) {
+        fprintf(stderr, "flash-image: %s: %s\n", image, err);
+        free(img);
+        return 1;
+    }
+
+    struct flash_part parts[2];
+    int prev = -1, rc = 1;
+    for (int i = 0; i < nparts; i++) parts[i].fd = -1;
+    for (int i = 0; i < nparts; i++) {
+        const char *dev = argv[first + 1 + i];
+        int num;
+        char name[32];
+        if (sscanf(dev, "/dev/mtd%d", &num) != 1 || mtd_name(num, name, sizeof(name)) != 0) {
+            fprintf(stderr, "flash-image: %s is not an mtd device\n", dev);
+            goto out;
+        }
+        if (strcmp(name, i == 0 ? "kernel" : "kernel2") != 0 || (prev >= 0 && num != prev + 1)) {
+            fprintf(stderr, "flash-image: %s is \"%s\"; only \"kernel\" then the next partition "
+                    "\"kernel2\" may be written\n", dev, name);
+            goto out;
+        }
+        prev = num;
+        parts[i].fd = open(dev, dry ? O_RDONLY : O_RDWR);
+        struct mtd_info_user mi;
+        if (parts[i].fd < 0 || ioctl(parts[i].fd, MEMGETINFO, &mi) != 0) {
+            perror(dev);
+            goto out;
+        }
+        if (!dry && !(mi.flags & MTD_WRITEABLE)) {
+            fprintf(stderr, "flash-image: %s is read-only\n", dev);
+            goto out;
+        }
+        parts[i].size = mi.size;
+        parts[i].erasesize = mi.erasesize;
+    }
+    uint64_t total = 0;
+    for (int i = 0; i < nparts; i++) total += parts[i].size;
+    printf("%s: %u bytes, valid uImage; %d partition(s), %llu bytes\n", image, (unsigned)len,
+           nparts, (unsigned long long)total);
+    if (len > total) {
+        fprintf(stderr, "flash-image: image does not fit\n");
+        goto out;
+    }
+    if (dry) {
+        rc = 0;
+        goto out;
+    }
+    static const struct flash_ops ops = { mtd_erase, mtd_pread, mtd_pwrite };
+    int written;
+    if (flash_write_image(parts, nparts, &ops, img, len, &written, err, sizeof(err)) != 0) {
+        fprintf(stderr, "flash-image: %s (%d blocks were rewritten)\n", err, written);
+        goto out;
+    }
+    sync();
+    printf("flash-image: done, %d blocks rewritten and verified\n", written);
+    rc = 0;
+out:
+    for (int i = 0; i < nparts; i++)
+        if (parts[i].fd >= 0) close(parts[i].fd);
+    free(img);
+    return rc;
+}
+
 int main(int argc, char **argv) {
     const char *name = get_progname(argv[0]);
 
@@ -295,6 +449,8 @@ int main(int argc, char **argv) {
             return run_sntp(argc - 1, argv + 1);
         if (strcmp(cmd, "ota-verify") == 0)
             return run_ota_verify(argc - 1, argv + 1);
+        if (strcmp(cmd, "flash-image") == 0)
+            return run_flash_image(argc - 1, argv + 1);
         if (strcmp(cmd, "usbwifi") == 0 || strcmp(cmd, "hub_usbwifi") == 0)
             return usbwifi_main(argc - 1, argv + 1);
     }
