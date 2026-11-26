@@ -57,8 +57,16 @@ else
     false
 fi || echo "rc.sh: no SSH server"
 
-# Wi-Fi driver only: there is no nl80211 wpa_supplicant yet
-modprobe ath9k || echo "rc.sh: ath9k did not load"
+# Wi-Fi: ath9k, wpa_supplicant (nl80211, /mnt/data/kernel6/bin) with the stock
+# /etc/wpa_supplicant.conf, DHCP (lease script /cache/kernel6/udhcpc.sh).
+W=/mnt/data/kernel6/bin
+if modprobe ath9k && [ -x $W/wpa_supplicant ]; then
+    mkdir -p /var/run/wpa_supplicant
+    $W/wpa_supplicant -B -D nl80211 -i wlan0 -c /etc/wpa_supplicant.conf
+    udhcpc -b -i wlan0 -h HarmonyHub -s /cache/kernel6/udhcpc.sh
+else
+    echo "rc.sh: no Wi-Fi"
+fi
 
 echo "rc.sh: done; console shell follows"
 # Only plain sh: the BusyBox on a Hub's /cache may lack setsid and cttyhack (a loop on a
