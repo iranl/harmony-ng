@@ -1,0 +1,119 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * Logitech Harmony Hub (Atheros AR9330 "Hornet", 64 MB DDR, 16 MB SPI NOR).
+ *
+ * Phase 1 tree: only what the stock board code proves (UART, SPI flash with the stock
+ * partition table, GPIO, watchdog, USB, Wi-Fi). Every partition is read-only, so a test
+ * kernel cannot write the flash. GPIO users (LEDs, buttons, CC2544 IRQ, BT reset) are added
+ * once their numbers are read from the stock kernel.
+ *
+ * The CC2544 RF chip sits on SPI CS1 next to the flash (CS0). No device is declared on CS1:
+ * nothing may talk to it until a driver that follows the AGENTS.md SPI rules exists.
+ */
+/dts-v1/;
+
+#include "ar9331.dtsi"
+
+/ {
+	model = "Logitech Harmony Hub";
+	compatible = "logitech,harmony-hub", "qca,ar9330";
+
+	aliases {
+		serial0 = &uart;
+	};
+
+	chosen {
+		/* the stock U-Boot passes console=none: its UART is also the CSR8811 BCSP link */
+		bootargs = "console=ttyATH0,115200";
+	};
+
+	memory@0 {
+		device_type = "memory";
+		reg = <0x0 0x4000000>;
+	};
+};
+
+/* bootstrap register 0x180600ac reads 0x00021207 on a Hub: REF_CLK_40 set */
+&ref {
+	clock-frequency = <40000000>;
+};
+
+&uart {
+	status = "okay";
+};
+
+&gpio {
+	status = "okay";
+};
+
+&usb {
+	dr_mode = "peripheral";
+	status = "okay";
+};
+
+&usb_phy {
+	status = "okay";
+};
+
+&spi {
+	num-chipselects = <2>;
+	status = "okay";
+
+	flash@0 {
+		compatible = "jedec,spi-nor";
+		reg = <0>;
+		spi-max-frequency = <25000000>;
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			partition@0 {
+				label = "u-boot";
+				reg = <0x000000 0x010000>;
+				read-only;
+			};
+
+			partition@10000 {
+				label = "kernel";
+				reg = <0x010000 0x0f0000>;
+				read-only;
+			};
+
+			partition@100000 {
+				label = "kernel2";
+				reg = <0x100000 0x0f0000>;
+				read-only;
+			};
+
+			partition@1f0000 {
+				label = "root";
+				reg = <0x1f0000 0x400000>;
+				read-only;
+			};
+
+			partition@5f0000 {
+				label = "data";
+				reg = <0x5f0000 0x500000>;
+				read-only;
+			};
+
+			partition@af0000 {
+				label = "cache";
+				reg = <0xaf0000 0x500000>;
+				read-only;
+			};
+
+			partition@ff0000 {
+				label = "mfg";
+				reg = <0xff0000 0x010000>;
+				read-only;
+			};
+		};
+	};
+};
+
+&wifi {
+	status = "okay";
+};
