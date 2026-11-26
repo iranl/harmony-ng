@@ -20,5 +20,6 @@ python3 "$SCRIPT_DIR/test_factory_reset_sh.py"
 python3 "$SCRIPT_DIR/test_init_flash_writes.py"
 # start_usb_eth.sh: the EHCI device is registered at most once per boot
 python3 "$SCRIPT_DIR/test_start_usb_eth_once.py"
+python3 "$SCRIPT_DIR/test_start_usb_eth_kernel6.py"
 # hub_util mknod refuses a bad type, eth_fix reports failed offload changes
 python3 "$SCRIPT_DIR/test_hub_util_cli.py"

@@ -1,135 +1,143 @@
 #!/bin/sh
 # /cache/kernel6/rc.sh: boot script of the Linux 6.18 kernel, started by its init (init.c) as
 # PID 1. It lives on /cache so it can be changed from the stock system without writing the
-# kernel. Step 3b: bring the system up far enough to reach it without serial (USB network and
-# SSH); the Harmony services come later.
+# kernel.
 #
-# /cache/kernel6/modules/<release>  the kernel modules (modules.tar.gz of the same build)
+# It plays the part of the stock /etc/init.d/rcS: it builds the environment the HarmonyNG
+# scripts were written for on the stock kernel (paths, tool names, the ath0 interface, ttyS0),
+# loads the drivers, and then sources /etc/init.d/rcS.local as rcS did. rcS.local starts
+# wpa_supplicant, Bluetooth and init.sh (network_manager.sh, hub_daemon, hub_rf, hub_btstack,
+# SSH). Without HarmonyNG installed it brings up Wi-Fi, USB network and SSH itself.
+#
+# /cache/kernel6/modules/<release>  kernel modules          /mnt/data/kernel6/bin  tools
 # /mnt/data                         mtd:data, the writable layer of the stock union root
+# /cache/kernel6/serial-console     present: keep the serial console, no Bluetooth (shared UART)
 
 B=/cache/bin/busybox
+K=/cache/kernel6
+W=/mnt/data/kernel6/bin
 # The RAM root has no /bin: the applets go there, so /bin/sh (the login shell in /etc/passwd)
-# and the default PATH of SSH logins work. (mkdir is not an ash builtin: use $B.)
-$B mkdir -p /bin
+# and the default PATH work. (mkdir is not an ash builtin: use $B.)
+$B mkdir -p /bin /sbin /usr/bin /usr/sbin /usr/share/udhcpc /var/run /var/log /var/volatile/tmp /lib
 $B --install -s /bin
-export PATH=/bin:/data/harmony/bin
-echo /bin/modprobe > /proc/sys/kernel/modprobe
+export PATH=/data/harmony/bin:/cache/bin:/usr/sbin:/usr/bin:/sbin:/bin
 exec > /dev/console 2>&1
 echo "rc.sh: $(uname -r)"
+SERIAL=0
+[ -f $K/serial-console ] && SERIAL=1
 
-# BusyBox modprobe on these Hubs does not find modules in this tree ("module not found" while
-# insmod of the same file works): load a module and what it needs, in modules.dep order.
-kmod() {
-    _d=/lib/modules/$(uname -r)
-    _l=$(grep "/$1.ko:" $_d/modules.dep) || { echo "kmod: no $1"; return 1; }
-    for _m in $(echo ${_l%%:*} ${_l#*:} | tr ' ' '
-' | awk '{a[NR]=$0} END {for (i=NR; i>0; i--) print a[i]}'); do
-        _n=$(basename $_m .ko | tr - _)
-        grep -q "^$_n " /proc/modules || insmod $_d/$_m || return 1
-    done
-}
-
-# The stock union root put the writable layer under /; its paths (/data/harmony,
-# /etc/dropbear, /home/root/.ssh: root's home in /etc/passwd) are the ones every script and
-# tool uses.
+# --- the stock layout ---
+# The stock union root put the writable layer under /: its /data, /etc, /home (root's home is
+# /home/root), /root and /usr/local are the paths every script and tool uses.
 for d in data etc home root; do
     [ -e /$d ] || ln -s /mnt/data/$d /$d
 done
-mkdir -p /var/run /var/log /lib
-[ -e /lib/modules ] || ln -s /cache/kernel6/modules /lib/modules
-hostname HarmonyHub
+[ -e /lib/modules ] || ln -s $K/modules /lib/modules
+[ -e /lib/firmware ] || ln -s /mnt/data/kernel6/firmware /lib/firmware
+ln -sf ttyATH0 /dev/ttyS0      # the stock name of the UART (Bluetooth)
+mount -t devpts devpts /dev/pts 2>/dev/null || { mkdir -p /dev/pts && mount -t devpts devpts /dev/pts; }
+hostname -F /etc/hostname 2>/dev/null || hostname HarmonyHub
 ifconfig lo 127.0.0.1 up
 
-# USB: device mode, RNDIS + CDC ECM to the PC. The Hub is 192.168.7.1 and gives the PC
-# 192.168.7.2 by DHCP.
-# No hotplug helper loads drivers for device tree nodes: the PHY first, then the controller.
-kmod phy-ath79-usb
-kmod ci_hdrc_usb2
-# the OTG ID pin is not wired and reads "host": start in device mode (the device tree comment)
+# modprobe that follows modules.dep (BusyBox's small one loads by trial), also for the kernel
+cp $K/modprobe.sh /sbin/modprobe && chmod 755 /sbin/modprobe
+echo /sbin/modprobe > /proc/sys/kernel/modprobe
+
+# stock tool names: wpa_supplicant with the nl80211 driver (stock: athr), wlanconfig not needed
+# (ath0 is the renamed wlan0), the BlueZ tools, udhcpc's default script
+printf '#!/bin/sh\nexec %s -D nl80211 "$@"\n' "$W/wpa_supplicant" > /usr/sbin/wpa_supplicant
+printf '#!/bin/sh\nexit 0\n' > /sbin/wlanconfig
+chmod 755 /usr/sbin/wpa_supplicant /sbin/wlanconfig
+ln -sf $W/wpa_cli /usr/sbin/wpa_cli
+ln -sf $K/udhcpc.sh /usr/share/udhcpc/default.script
+if [ $SERIAL = 0 ]; then
+    for t in bccmd hciattach hciconfig; do ln -sf $W/$t /usr/sbin/$t; done
+fi
+
+# --- drivers ---
+# USB: device mode by default. The OTG ID pin is not wired and reads "host"; start_usb_eth.sh
+# switches to host mode for USB Ethernet and sticks.
+modprobe phy-ath79-usb
+modprobe ci_hdrc_usb2
 R=/sys/bus/platform/devices/1b000000.usb/ci_hdrc.0/role
 for i in 1 2 3 4 5; do [ -e $R ] && break; sleep 1; done
 echo gadget > $R 2>/dev/null || echo "rc.sh: cannot set the USB role"
-if kmod usb_f_ecm && kmod usb_f_ecm_subset && kmod g_ether && ifconfig usb0 192.168.7.1 netmask 255.255.255.0 up; then
-    cat > /tmp/udhcpd.conf <<EOF
-start 192.168.7.2
-end 192.168.7.2
-interface usb0
-lease_file /tmp/udhcpd.leases
-option subnet 255.255.255.0
-EOF
+
+# Wi-Fi: ath9k; its interface gets the stock name ath0
+if modprobe ath9k; then
+    for i in 1 2 3 4 5; do [ -e /sys/class/net/wlan0 ] && break; sleep 1; done
+    ip link set wlan0 name ath0 || echo "rc.sh: cannot rename wlan0"
+else
+    echo "rc.sh: no Wi-Fi driver"
+fi
+
+# Hub hardware with the stock interfaces (build/kernel6/drivers): Pair button and light
+# (input0), RF (/dev/rfspi), IR (/dev/i2s). harmony_pimento first: it disables JTAG, whose pins
+# are the RF ready line and chip select and the Pair button.
+for m in harmony_pimento harmony_cc2544 harmony_i2s; do
+    modprobe $m || echo "rc.sh: $m did not load"
+done
+
+# Hub Pro 2400 (skin 115) Ethernet: the AR9331 MACs and the internal switch (DSA). The stock
+# kernel showed the jack as eth1; here eth1 is a bridge of the switch ports and eth0, so it has
+# a link whichever port the jack is on, and network_manager.sh keeps using eth1.
+skin=$(cat /data/harmony/skin 2>/dev/null)
+[ -n "$skin" ] || skin=$(hub_util mfg skin 2>/dev/null)
+if [ "$skin" = 115 ] && modprobe ag71xx && modprobe ar9331 && modprobe bridge; then
+    for i in 1 2 3 4 5; do [ -e /sys/class/net/lan0 ] && break; sleep 1; done
+    ip link set eth1 name ethsw && ip link set ethsw up
+    brctl addbr eth1
+    for p in eth0 lan0 lan1 lan2 lan3; do
+        [ -e /sys/class/net/$p ] && brctl addif eth1 $p && ip link set $p up
+    done
+fi
+
+# Bluetooth: the CSR8811 is on the only UART, also the serial console. rcS.local/init.sh load
+# its PSKEYs and attach it (bccmd, hciattach on ttyS0); keep the kernel off the UART.
+if [ $SERIAL = 0 ]; then
+    modprobe hci_uart
+    echo "rc.sh: Bluetooth takes the UART; console output from here on in /tmp/rc.log"
+    exec > /tmp/rc.log 2>&1
+    dmesg -n 1
+fi
+
+# --- the system ---
+syslogd -C256
+klogd
+echo 1 > /proc/sys/vm/overcommit_memory
+
+# USB network to a PC (RNDIS + CDC ECM): the Hub is 192.168.7.1 and gives the PC 192.168.7.2.
+# (The stock system ran its usbhid on gadgetfs here; start_usb_eth.sh removes the gadget for
+# host mode.)
+# Its interface is renamed usb0 -> rndis0: network_manager.sh takes usb* for a USB Ethernet
+# adapter.
+if modprobe usb_f_ecm && modprobe usb_f_ecm_subset && modprobe g_ether &&
+    ip link set usb0 name rndis0 && ifconfig rndis0 192.168.7.1 netmask 255.255.255.0 up; then
+    printf 'start 192.168.7.2\nend 192.168.7.2\ninterface rndis0\nlease_file /tmp/udhcpd.leases\npidfile /var/run/udhcpd.rndis0.pid\noption subnet 255.255.255.0\n' > /tmp/udhcpd.conf
     touch /tmp/udhcpd.leases
     udhcpd /tmp/udhcpd.conf
 else
     echo "rc.sh: no USB network"
 fi
 
-# SSH as on the stock kernel: hub_sshd picks the binary, key logins only. Installs older than
-# hub_sshd have only the multi-call binary.
-if [ -f /data/harmony/hub_sshd ]; then
-    sh /data/harmony/hub_sshd
-elif [ -x /data/harmony/bin/dropbearmulti ]; then
-    /data/harmony/bin/dropbearmulti dropbear -s -g -K 300
+if [ -f /etc/init.d/rcS.local ]; then
+    # As the stock rcS: source rcS.local (in a subshell: its emergency branch ends in exit, and
+    # PID 1 must not exit), then start /usr/sbin/dropbear, which rcS.local set up.
+    load_modules() { :; }   # the stock rcS function: the drivers are loaded above
+    ( . /etc/init.d/rcS.local )
+    [ -x /usr/sbin/dropbear ] && /usr/sbin/dropbear
 else
-    false
-fi || echo "rc.sh: no SSH server"
-
-# Wi-Fi: ath9k, wpa_supplicant (nl80211, /mnt/data/kernel6/bin) with the stock
-# /etc/wpa_supplicant.conf, DHCP (lease script /cache/kernel6/udhcpc.sh).
-W=/mnt/data/kernel6/bin
-if kmod ath9k && [ -x $W/wpa_supplicant ]; then
+    # no HarmonyNG: Wi-Fi with the stock configuration and SSH
     mkdir -p /var/run/wpa_supplicant
-    $W/wpa_supplicant -B -D nl80211 -i wlan0 -c /etc/wpa_supplicant.conf
-    udhcpc -b -i wlan0 -x hostname:HarmonyHub -s /cache/kernel6/udhcpc.sh
-else
-    echo "rc.sh: no Wi-Fi"
-fi
-
-# Hub Pro 2400 Ethernet (ag71xx MACs, AR9331 switch over DSA). On a plain Hub the MACs and the
-# switch exist too but nothing is plugged in; network_manager.sh picks an interface with a link.
-kmod ag71xx && kmod ar9331 || echo "rc.sh: no Ethernet drivers"
-
-# Hub hardware with the stock interfaces (build/kernel6/drivers): Pair button and light
-# (input0), RF (/dev/rfspi), IR (/dev/i2s). harmony_pimento first: it disables JTAG, whose pins
-# are the RF ready line and chip select and the Pair button.
-for m in harmony_pimento harmony_cc2544 harmony_i2s; do
-    kmod $m || echo "rc.sh: $m did not load"
-done
-
-# Bluetooth: the CSR8811 is on the only UART (ttyATH0), which is also the serial console. With
-# /cache/kernel6/serial-console present the console stays and Bluetooth is not started.
-# Otherwise as the stock rcS.local: PSKEYs (ROM patches, BT address from the Wi-Fi MAC) with
-# bccmd over BCSP, then hciattach and hci0 up.
-SERIAL=0
-[ -f /cache/kernel6/serial-console ] && SERIAL=1
-if [ $SERIAL = 0 ]; then
-    echo "rc.sh: Bluetooth takes the UART; console output from here on in /tmp/rc.log"
-    exec > /tmp/rc.log 2>&1
-    dmesg -n 1
-    F=/mnt/data/kernel6/firmware
-    kmod hci_uart
-    name=$($W/bccmd -t bcsp -d /dev/ttyATH0 -b 115200 buildname 2>/dev/null)
-    hw=$(sed -n '/hw_ver/{N N N N s/^[^0-9]*\([0-9][0-9]\)/\1/p}' /dev/$(grep mfg /proc/mtd | cut -d: -f1))
-    case "$name" in
-        *A06*) psr=csr8811-a06.psr ;;
-        *A08*) [ "$hw" = 00.40 ] && psr=csr8811-a08-pb1.psr || psr=csr8811-a08.psr ;;
-        *) psr="" ;;
-    esac
-    if [ -n "$psr" ] && [ -f $F/$psr ]; then
-        cat $F/$psr > /tmp/pskeys.psr
-        sed 's/\([0-9a-f][0-9a-f]\):\([0-9a-f][0-9a-f]\):\([0-9a-f][0-9a-f]\):\([0-9a-f][0-9a-f]\):\([0-9a-f][0-9a-f]\):\([0-9a-f][0-9a-f]\).*/\&0x0001 = 0x\4 0x\5\6 0x\3 0x\1\2/' \
-            /sys/class/net/wlan0/address >> /tmp/pskeys.psr
-        $W/bccmd -t bcsp -d /dev/ttyATH0 -b 115200 psload -r /tmp/pskeys.psr
-        sleep 1
-        $W/hciattach ttyATH0 bcsp 115200 && $W/hciconfig hci0 up || echo "rc.sh: hci0 not up"
-    else
-        echo "rc.sh: no CSR8811 answer (buildname '$name')"
-    fi
+    /usr/sbin/wpa_supplicant -B -i ath0 -c /etc/wpa_supplicant.conf
+    udhcpc -b -i ath0 -x hostname:HarmonyHub
+    [ -x /data/harmony/bin/dropbearmulti ] && /data/harmony/bin/dropbearmulti dropbear -s -g -K 300
 fi
 
 echo "rc.sh: done"
 if [ $SERIAL = 1 ]; then
-    # Only plain sh: the BusyBox on a Hub's /cache may lack setsid and cttyhack (a loop on a
-    # missing applet spun forever). The sleep keeps any failure from spinning.
+    # Only plain sh: the BusyBox on a Hub's /cache may lack setsid and cttyhack. The sleep keeps
+    # any failure from spinning.
     while true; do
         $B sh < /dev/console > /dev/console 2>&1
         sleep 1

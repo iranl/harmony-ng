@@ -2,10 +2,17 @@
 # USB Ethernet Host mode activator
 MODULES_DIR="/data/harmony/modules"
 BIN_DIR="/data/harmony/bin"
+# Linux 6.18 Hub system (build/kernel6): ChipIdea USB controller, role switched in sysfs
+CI_ROLE=/sys/bus/platform/devices/1b000000.usb/ci_hdrc.0/role
+KERNEL6=0
+[ -e "$CI_ROLE" ] && KERNEL6=1
 
 load_mod() {
   mod="$1"
-  if [ -f "$MODULES_DIR/$mod" ]; then
+  if [ "$KERNEL6" = 1 ]; then
+    # its own modules (/lib/modules/<release>), with what they need
+    modprobe "${mod%.ko}" 2>/dev/null || true
+  elif [ -f "$MODULES_DIR/$mod" ]; then
     insmod "$MODULES_DIR/$mod" 2>/dev/null || true
   elif [ -f "$MODULES_DIR/usb_net/$mod" ]; then
     insmod "$MODULES_DIR/usb_net/$mod" 2>/dev/null || true
@@ -14,6 +21,14 @@ load_mod() {
   fi
 }
 
+if [ "$KERNEL6" = 1 ]; then
+  echo "[USB_ETH] Switching USB controller to Host mode (ChipIdea role)..."
+  echo host > /tmp/harmony_usb_port_mode 2>/dev/null || true
+  # the USB network to a PC (rc.sh: g_ether on rndis0, udhcpd) goes with device mode
+  kill "$(cat /var/run/udhcpd.rndis0.pid 2>/dev/null)" 2>/dev/null || true
+  rmmod g_ether usb_f_ecm_subset usb_f_ecm usb_f_rndis u_ether libcomposite 2>/dev/null || true
+  echo host > "$CI_ROLE" || echo "[USB_ETH] Error: cannot set the USB role to host" >&2
+else
 # Preload usbcore
 insmod /lib/modules/2.6.31-g89d565c/kernel/drivers/usb/core/usbcore.ko 2>/dev/null || true
 
@@ -65,6 +80,7 @@ if [ ! -d /sys/devices/platform/ar7240-ehci.0/driver ] && \
     echo "[USB_ETH] Error: register_ehci not found!" >&2
   fi
 fi
+fi  # stock kernel
 
 # Detect plugged USB device and load ONLY its specific driver (never load cdc_ether with r8152)
 for i in 1 2 3 4 5; do
@@ -142,6 +158,20 @@ else
 fi
 
 # Wait briefly for network interface creation and apply MIPS checksum/TSO fix
+# Linux 6.18 on a plain Hub loads no onboard Ethernet driver, so a USB adapter can get eth0 or
+# eth1, the names network_manager.sh keeps for the onboard ports: it becomes eth2 or eth3
+if [ "$KERNEL6" = 1 ]; then
+  for i in 1 2 3 4 5; do
+    for _n in eth0 eth1; do
+      case "$(readlink -f "/sys/class/net/$_n/device" 2>/dev/null)" in
+        */usb*) ip link set "$_n" name "eth$((${_n#eth} + 2))" 2>/dev/null ;;
+      esac
+    done
+    ls /sys/class/net/eth[2-9] >/dev/null 2>&1 && break
+    sleep 1
+  done
+fi
+
 for i in 1 2 3; do
   for ifpath in /sys/class/net/eth* /sys/class/net/usb*; do
     [ -d "$ifpath" ] || continue

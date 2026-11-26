@@ -12,6 +12,8 @@ kernel/drivers/net/usb/ax88179_178a.ko
 kernel/drivers/net/usb/cdc_ether.ko
 kernel/drivers/net/usb/cdc_ncm.ko
 kernel/drivers/net/usb/smsc95xx.ko
+kernel/drivers/net/usb/dm9601.ko
+kernel/drivers/net/usb/rtl8150.ko
 kernel/drivers/usb/storage/usb-storage.ko
 kernel/drivers/scsi/sd_mod.ko
 kernel/fs/fat/vfat.ko
@@ -24,6 +26,7 @@ kernel/drivers/bluetooth/hci_uart.ko
 # Hub Pro 2400 Ethernet
 kernel/drivers/net/ethernet/atheros/ag71xx.ko
 kernel/drivers/net/dsa/qca/ar9331.ko
+kernel/net/bridge/bridge.ko
 # Hub hardware (build/kernel6/drivers)
 updates/harmony_pimento.ko
 updates/harmony_cc2544.ko

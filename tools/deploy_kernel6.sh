@@ -49,7 +49,7 @@ echo "=== Copying to $HOST:/tmp/k6 ==="
 push "$OUT/harmony-hub-flash.uImage" /tmp/k6/flash.uImage
 push "$OUT/kernel6-modules.tgz" /tmp/k6/modules.tgz
 push "$REPO/payload/bin/hub_util" /tmp/k6/hub_util
-for f in rc.sh udhcpc.sh; do
+for f in rc.sh udhcpc.sh modprobe.sh; do
     tr -d '\r' < "$REPO/build/kernel6/$f" > "$OUT/$f.lf"
     push "$OUT/$f.lf" "/tmp/k6/$f"
 done
@@ -63,10 +63,10 @@ done
 echo "=== Installing ==="
 "${SSH[@]}" "set -e
 cd /tmp/k6
-chmod 755 hub_util bin/* rc.sh udhcpc.sh
+chmod 755 hub_util bin/* rc.sh udhcpc.sh modprobe.sh
 rm -rf /cache/kernel6/modules && mkdir -p /cache/kernel6/modules
 tar -xzf modules.tgz -C /cache/kernel6/modules
-cp rc.sh udhcpc.sh /cache/kernel6/
+cp rc.sh udhcpc.sh modprobe.sh /cache/kernel6/
 mkdir -p /mnt/data/kernel6
 rm -rf /mnt/data/kernel6/bin /mnt/data/kernel6/firmware /mnt/data/kernel6/net
 cp -a bin firmware /mnt/data/kernel6/

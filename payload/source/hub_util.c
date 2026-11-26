@@ -11,6 +11,7 @@
  *   - hub_sntp / sntp
  *   - hub_usbwifi / usbwifi (USB Wi-Fi setup, usb_wifi.c)
  *   - flash-image (kernel uImage to the kernel partitions, flash_image.c)
+ *   - mfg skin (the factory skin number: 115 = Hub Pro 2400; mfg_id.c)
  */
 
 #include <stdio.h>
@@ -34,6 +35,7 @@
 #include <mtd/mtd-user.h>
 
 #include "flash_image.h"
+#include "mfg_id.h"
 
 #include "hub_ntp.h"
 #include "usb_wifi.h"
@@ -417,6 +419,22 @@ out:
     return rc;
 }
 
+/* hub_util mfg skin: prints the factory skin number (115 = Harmony Hub Pro 2400). The Linux 6.18
+ * boot script (build/kernel6/rc.sh) reads it before hub_daemon has written /data/harmony/skin. */
+static int run_mfg(int argc, char **argv) {
+    uint8_t skin;
+    if (argc != 2 || strcmp(argv[1], "skin") != 0) {
+        fprintf(stderr, "usage: hub_util mfg skin\n");
+        return 2;
+    }
+    if (mfg_read_skin(NULL, &skin) != 0) {
+        fprintf(stderr, "mfg: no skin record\n");
+        return 1;
+    }
+    printf("%u\n", skin);
+    return 0;
+}
+
 int main(int argc, char **argv) {
     const char *name = get_progname(argv[0]);
 
@@ -451,6 +469,8 @@ int main(int argc, char **argv) {
             return run_ota_verify(argc - 1, argv + 1);
         if (strcmp(cmd, "flash-image") == 0)
             return run_flash_image(argc - 1, argv + 1);
+        if (strcmp(cmd, "mfg") == 0)
+            return run_mfg(argc - 1, argv + 1);
         if (strcmp(cmd, "usbwifi") == 0 || strcmp(cmd, "hub_usbwifi") == 0)
             return usbwifi_main(argc - 1, argv + 1);
     }
@@ -464,6 +484,8 @@ int main(int argc, char **argv) {
     fprintf(stderr, "  eth_fix       Disable offloads for USB Ethernet\n");
     fprintf(stderr, "  sntp          SNTP time synchronization client\n");
     fprintf(stderr, "  ota-verify    Check a signed OTA manifest and files against it\n");
+    fprintf(stderr, "  flash-image   Write a kernel uImage to the kernel partitions\n");
+    fprintf(stderr, "  mfg skin      Print the factory skin number (115 = Hub Pro 2400)\n");
     fprintf(stderr, "  usbwifi       USB Wi-Fi setup: answers the stock usbhid on 127.0.0.1:16716\n");
     return 1;
 }
