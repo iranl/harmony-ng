@@ -3887,28 +3887,28 @@ paths:
     get:
       tags:
         - System & Status
-      summary: USB stick for the icons and plugins
+      summary: Data and cache on a USB stick
       description: |
-        A USB stick (Hub USB port in host mode) for files the Hub can run without: the icon
-        archive, the custom icons and the plugins. present/mounted come from the last scan (boot
-        and every USB plug in or out); missing lists USB storage modules that are not installed;
-        offload is true while the icons and plugins are kept on the stick (without it the icons
-        answer 404 and no plugin is installed until it is back); other_stick is true when the
-        mounted stick is not the one they were moved to (not used for them).
+        Linux 6.18 system: an ext4 USB stick (Hub USB port in host mode) holds the Hub's data and
+        cache; the flash keeps the boot state and the data as at the set-up. mode is flash, usb
+        (device, total_kb and free_kb describe the stick) or usb-missing (set up, stick not there
+        at boot: rescue mode, no HarmonyNG). disks lists the USB disks the Hub sees (host mode
+        only, see scan).
       responses:
         '200':
           description: USB storage state
           content:
             application/json:
-              example: {ok: true, present: true, mounted: true, device: sda1, fs: vfat, missing: [], total_kb: 7800000, free_kb: 7700000, offload: true, other_stick: false, busy: false, message: ""}
+              example: {ok: true, mode: usb, device: /dev/sda1, total_kb: 7800000, free_kb: 7700000, disks: [], busy: false, message: ""}
     post:
       tags:
         - System & Status
       summary: Run a USB storage action
       description: |
-        scan, install (download scsi_mod, sd_mod and usb-storage from the update source, signed
-        manifest), eject, offload (copy the icons and plugins to the stick, read them back, then
-        remove them from flash), restore (check the room, move them back and remove them from the stick; fails without changes; nothing with offload off). Runs in the background; GET shows busy until it ends.
+        scan (USB host mode, the USB device side goes; lists the disks), setup (device from disks
+        and confirm true: erases that disk, formats it ext4, copies data and cache to it, restarts
+        onto it), disable (the flash again from the next restart, with the data as at the
+        set-up). Runs in the background; GET shows busy until it ends.
       requestBody:
         required: true
         content:
@@ -3917,53 +3917,20 @@ paths:
               type: object
               required: [action]
               properties:
-                action: {type: string, enum: [scan, install, eject, offload, restore]}
-            example: {action: offload}
+                action: {type: string, enum: [scan, setup, disable]}
+                device: {type: string, pattern: "^/dev/sd[a-z][1-9]?$", description: "setup: a disk from disks"}
+                confirm: {type: boolean, description: "setup: must be true (the disk is erased)"}
+            example: {action: setup, device: /dev/sda, confirm: true}
       responses:
         '202':
           description: Action started
           content:
             application/json:
-              example: {ok: true, status: running, action: offload}
+              example: {ok: true, status: running, action: setup}
         '400':
-          description: Unknown action
+          description: Unknown action, or setup without a listed disk or without confirm true
         '409':
           description: An action is already running
-
-  /api/ethernet-driver-install:
-    post:
-      tags:
-        - Network & MQTT
-      summary: Download the USB Ethernet driver the plugged adapter needs
-      description: |
-        USB Ethernet drivers are installed on demand. When GET /api/network-status reports an
-        eth_driver with missing modules, this downloads the driver and the modules it needs from
-        the update source (update_repo setting), checks them against the signed release manifest,
-        installs them to /cache/modules and loads them. Runs in the background; eth_driver.installing
-        is true until it ends, and install_failed is set when it failed. Every module is
-        fetched, also an installed one that did not load (eth_driver.loaded false with nothing
-        missing). eth_driver.slow is true while a network device runs at full or low speed (USB
-        1.1): then no driver is loaded.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [module]
-              properties:
-                module: {type: string, pattern: "^[a-z0-9_]{1,31}$", description: "The driver eth_driver names; any other is refused"}
-            example: {module: asix}
-      responses:
-        '202':
-          description: Download started
-          content:
-            application/json:
-              example: {ok: true, status: installing, module: asix}
-        '400':
-          description: No adapter needs that module
-        '409':
-          description: A driver download is already running
 
   /api/ethernet-save:
     post:

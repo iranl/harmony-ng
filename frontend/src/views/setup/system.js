@@ -83,14 +83,14 @@ export function createView() {
     ]),
   ]);
 
-  // USB Storage Card: a USB stick for the icons (non-essential files only)
+  // USB Storage Card: the Hub's data and cache on a USB stick (Linux 6.18 system)
   const usbStatus = h('div', { className: 'text-dim', style: { marginBottom: '8px' } });
   const usbActions = h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } });
   const usbCard = h('div', { className: 'card' }, [
     h('div', { className: 'card-header' }, [
       h('h3', { className: 'card-title', text: t('usb_storage_title', 'USB Storage') }),
     ]),
-    h('div', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '10px' }, text: t('usb_storage_desc', "A USB stick (through a USB hub cable on the Hub's port) can hold the icon archive, the custom icons and the plugins to free flash. The Hub keeps working when the stick is pulled out; only the icons and plugins are missing until it is back.") }),
+    h('div', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '10px' }, text: t('usb_storage_desc', "A USB stick (on a USB hub cable at the Hub's port) can hold all of the Hub's data and cache: settings, icons and plugins, with room to spare. The Hub then needs the stick: without it, it starts in rescue mode only (Wi-Fi and SSH, no remote control). The USB port stays in host mode, so the USB Wi-Fi setup from a PC is not available.") }),
     usbStatus,
     usbActions,
   ]);
@@ -111,40 +111,14 @@ export function createView() {
       return;
     }
     const mb = (kb) => Math.round((kb || 0) / 1024);
-    let text;
-    const buttons = [];
-    if (!st.present) {
-      text = st.offload
-        ? t('usb_storage_gone_offload', 'The USB stick with the icons and plugins is not connected: they are missing until it is back.')
-        : t('usb_storage_none', 'No USB stick connected.');
-      if (st.offload) buttons.push(['restore', t('usb_storage_restore_btn', 'Keep icons and plugins on flash')]);
-    } else if (st.missing && st.missing.length) {
-      text = t('usb_storage_missing', 'USB stick found: the USB storage drivers are not installed.');
-      buttons.push(['install', t('usb_storage_install_btn', 'Download drivers')]);
-    } else if (!st.mounted) {
-      text = st.device
-        ? t('usb_storage_not_mounted', 'USB stick found but it could not be mounted (FAT or ext2 needed).')
-        : t('usb_storage_ejected', 'USB stick ejected: it can be removed.');
-      buttons.push(['scan', t('usb_storage_mount_btn', 'Mount')]);
-    } else {
-      text = t('usb_storage_mounted', '{device} ({fs}): {free} MB free of {total} MB.', { device: st.device, fs: st.fs, free: mb(st.free_kb), total: mb(st.total_kb) });
-      if (st.other_stick) text += ' ' + t('usb_storage_other_stick', 'This is not the USB stick the icons and plugins were moved to: it is not used for them.');
-      else if (st.offload) text += ' ' + t('usb_storage_offload_on', 'The icons and plugins are kept on the USB stick.');
-      if (!st.other_stick) buttons.push(st.offload
-        ? ['restore', t('usb_storage_restore_btn', 'Keep icons and plugins on flash')]
-        : ['offload', t('usb_storage_offload_btn', 'Move icons and plugins to USB stick')]);
-      buttons.push(['eject', t('usb_storage_eject_btn', 'Eject')]);
-    }
-    if (st.failed && st.message) text += ' ' + t('usb_storage_failed', 'Last action failed: {message}', { message: st.message });
-    usbStatus.textContent = text;
-    for (const [action, label] of buttons) {
+    const button = (label, run) => {
       const btn = h('button', {
         className: 'btn btn-secondary btn-sm',
         text: label,
         onclick: async () => {
           btn.disabled = true;
           try {
-            await api.usbStorageAction(action);
+            await run();
           } catch (err) {
             toast.error(err.message);
           }
@@ -152,7 +126,40 @@ export function createView() {
         },
       });
       usbActions.appendChild(btn);
+    };
+    const disable = async () => {
+      const ok = await confirm.ask({
+        title: t('usb_storage_title', 'USB Storage'),
+        message: t('usb_storage_disable_confirm', 'Use the flash again from the next restart? It holds the data as they were when the stick was set up: later changes stay on the stick only.'),
+        danger: true,
+      });
+      if (ok) await api.usbStorageAction('disable');
+    };
+    let text;
+    if (st.mode === 'usb') {
+      text = t('usb_storage_mode_usb', 'Data and cache are on the USB stick {device}: {free} MB free of {total} MB.', { device: st.device, free: mb(st.free_kb), total: mb(st.total_kb) });
+      button(t('usb_storage_disable_btn', 'Back to flash'), disable);
+    } else if (st.mode === 'usb-missing') {
+      text = t('usb_storage_mode_missing', "The USB stick with the Hub's data is missing: the Hub runs in rescue mode. Plug the stick in and restart the Hub.");
+      button(t('usb_storage_disable_btn', 'Back to flash'), disable);
+    } else {
+      text = t('usb_storage_mode_flash', "Data and cache are on the Hub's flash.");
+      for (const d of st.disks || []) {
+        const vars = { device: d.device, size: mb(d.size_kb) };
+        button(t('usb_storage_setup_btn', 'Use {device} ({size} MB) for data and cache', vars), async () => {
+          const ok = await confirm.ask({
+            title: t('usb_storage_title', 'USB Storage'),
+            message: t('usb_storage_setup_confirm', "Erase {device} ({size} MB) and move the Hub's data and cache onto it? Everything on the stick is lost. The Hub restarts.", vars),
+            danger: true,
+          });
+          if (ok) await api.usbStorageAction('setup', { device: d.device, confirm: true });
+        });
+      }
+      if (!(st.disks || []).length) text += ' ' + t('usb_storage_scan_note', 'Looking for sticks switches the USB port to host mode: a USB connection to a PC stops.');
+      button(t('usb_storage_scan_btn', 'Look for USB sticks'), () => api.usbStorageAction('scan'));
     }
+    if (st.failed && st.message) text += ' ' + t('usb_storage_failed', 'Last action failed: {message}', { message: st.message });
+    usbStatus.textContent = text;
   }
 
   // Maintenance & Reboot Card

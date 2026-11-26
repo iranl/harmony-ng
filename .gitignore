@@ -29,7 +29,6 @@ scratch/
 *.pcap*
 scratch_*
 *.ko
-!payload/modules/*.ko
 *.bin
 *.hfw2
 *.jks

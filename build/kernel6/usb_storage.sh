@@ -7,6 +7,7 @@
 #
 #   usb_storage.sh status               mode=flash|usb|usb-missing, the stick and its space
 #   usb_storage.sh devices              the USB disks: device size_kb (host mode needed)
+#   usb_storage.sh scan                 USB host mode (the USB device side goes), then devices
 #   usb_storage.sh setup <dev> --yes    erase <dev>, copy data and cache to it, reboot onto it
 #   usb_storage.sh disable              back to the flash at the next boot (its copy from the
 #                                       set-up: what changed on the stick since is not on it)
@@ -48,6 +49,15 @@ boot)
         umount /mnt
         die "$dev holds no Hub data"
     fi
+    ;;
+
+scan)
+    echo host > /tmp/harmony_usb_port_mode   # init.sh: no USB device side from now on
+    kill "$(cat /var/run/udhcpd.gadget0.pid 2>/dev/null)" "$(cat /var/run/usbhid.pid 2>/dev/null)" 2>/dev/null
+    sh /usr/lib/kernel6/usb_gadget.sh down 2>/dev/null
+    host_mode || die "no USB host mode"
+    sleep 5   # the stick's disk shows up a few seconds after host mode
+    sh "$0" devices
     ;;
 
 devices)
@@ -126,7 +136,7 @@ disable)
     ;;
 
 *)
-    sed -n '8,14p' "$0" >&2
+    sed -n '8,15p' "$0" >&2
     exit 2
     ;;
 esac

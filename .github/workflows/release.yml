@@ -298,11 +298,10 @@ jobs:
           
           # 1. Package Complete Hub Release Bundle
           if [ -d artifacts/hub-binaries ]; then
-            mkdir -p staging_hub/bin staging_hub/scripts staging_hub/modules staging_hub/www staging_hub/tools
+            mkdir -p staging_hub/bin staging_hub/scripts staging_hub/www staging_hub/tools
             cp -rf artifacts/hub-binaries/* staging_hub/bin/
             rm -f staging_hub/bin/hub_daemon.gz 2>/dev/null || true
             cp -rf payload/scripts/* staging_hub/scripts/
-            [ -d payload/modules ] && cp -rf payload/modules/*.ko staging_hub/modules/ || true
             if [ -d artifacts/webui-assets ]; then
               cp -rf artifacts/webui-assets/* staging_hub/www/
             fi

@@ -5,7 +5,6 @@ build_test -Wall -O2 -pthread -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_
     "$REPO_ROOT/payload/source/hub_network_util.c" "$REPO_ROOT/payload/source/wifi_config.c" "$REPO_ROOT/payload/source/cJSON.c" -ldl -lm && "$BUILD_DIR/test_wpa_conf"
 # Wi-Fi and static Ethernet settings the Hub cannot use get 400 (daemon on a private mock root, port 9143)
 python3 "$SCRIPT_DIR/test_network_settings_api.py"
-python3 "$SCRIPT_DIR/test_eth_driver_api.py"
 python3 "$SCRIPT_DIR/test_usb_storage.py"
 # network_manager.sh: Ethernet settings read, DNS list, wpa_supplicant configuration file
 python3 "$SCRIPT_DIR/test_network_manager_sh.py"

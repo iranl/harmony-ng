@@ -196,69 +196,38 @@ Returns active network interface, Wi-Fi (`ath0`), USB Ethernet (`eth0`/`usb0`), 
     8.3); only `usb_wifi_setup` when there is no file. `usb_wifi_setup` is always there: `false`
     when `ethernet.conf` holds `USB_WIFI_SETUP=0`, else `true` (the default).
   - `ifconfig`: the text output of `/sbin/ifconfig`.
-  - `eth_driver` (only when a USB network adapter was found, or a driver download ran):
-    `{"vid": "0b95", "pid": "7720", "driver": "asix", "missing": ["usbnet", "asix"],
-    "loaded": false, "unsupported": false, "slow": false, "installing": false}`. `missing` lists
-    the modules not installed (USB Ethernet drivers are installed on demand); `loaded` is `false`
-    with nothing missing when the files are there but the driver did not load (the web UI offers
-    the download again); `unsupported` is `true` for an adapter no driver of this firmware
-    supports; `slow` is `true` while a network device runs at full or low speed (USB 1.1), when
-    no driver is loaded; `install_failed` is `true` after a download that failed.
-
-#### `POST /api/ethernet-driver-install`
-Downloads the USB Ethernet driver the plugged adapter needs, with the modules it depends on
-(every one, also one that is installed: a file that did not load is replaced; an unchanged file
-is not written again).
-The download comes from the update source (the `update_repo` setting) and is checked against
-the signed release manifest. The driver is then loaded. It runs in the background: follow
-`eth_driver.installing` in `GET /api/network-status`.
-- **Body**: `{"module": "asix"}`. Only the `driver` that `eth_driver` names is accepted.
-- **Response `202 Accepted`**: `{"ok": true, "status": "installing", "module": "asix"}`.
-- **`400`**: no adapter needs that module (or the name is not `[a-z0-9_]`). **`409`**: a download is
-  already running.
 
 #### `GET /api/usb-storage`
-A USB stick on the Hub's USB port (in host mode, through a USB hub cable) for files the Hub can
-run without: the icon archive, the custom icons and the plugins. Programs, scripts, settings and
-the web UI always stay on flash. The stick is looked for in USB host mode only, which the Hub
-enters with Ethernet enabled (`ETH_ENABLED=1`) and no PC on the port.
+The Hub's data and cache on a USB stick (Linux 6.18 system, `build/kernel6/usb_storage.sh`). An
+ext4 stick on the Hub's USB port (in host mode, through a USB hub cable) holds the overlay's
+writable layer and `/cache`: settings, icons and plugins, with room to spare. The flash keeps the
+boot state (`/cache/kernel6`: flags, a staged root file system) and the data as they were at the
+set-up. Without the stick at boot the Hub starts in rescue mode (Wi-Fi, SSH and the USB network,
+no HarmonyNG). While the stick is used the port stays in host mode (no USB device side).
 - **Response `200 OK`**:
   ```json
-  {"ok": true, "present": true, "mounted": true, "device": "sda1", "fs": "vfat", "missing": [],
-   "total_kb": 7800000, "free_kb": 7700000, "offload": true, "other_stick": false, "busy": false,
-   "message": ""}
+  {"ok": true, "mode": "usb", "device": "/dev/sda1", "total_kb": 7800000, "free_kb": 7700000,
+   "disks": [], "busy": false, "message": ""}
   ```
-  - `present`: a USB mass storage device was found at the last scan (boot, and every USB plug
-    in or out). `missing`: USB storage modules (`scsi_mod`, `sd_mod`, `usb-storage`) that are not
-    installed; they are downloaded on demand like the Ethernet drivers.
-  - `mounted`: the first partition is mounted on `/mnt/usb` (FAT or ext2).
-  - `offload`: the icons and the plugins are kept on the stick. Without the stick,
-    `/api/icons/archive` and the custom icons answer 404 (the web UI loads the archive online),
-    and the plugins are not installed (`/api/plugins` lists none), until the stick is back.
-    Plugin settings and state (`plugin-data`) stay on flash.
-  - `other_stick`: the mounted stick is not the one the icons and plugins were moved to
-    (`offload` writes one id to the flag file and to the stick): it is not used for them, and
-    `offload` and `restore` refuse it.
+  - `mode`: `flash`, `usb` (`device`, `total_kb`, `free_kb` describe the stick) or `usb-missing`
+    (set up, but the stick was not there at boot: rescue mode).
+  - `disks`: the USB disks the Hub sees (`{"device": "/dev/sda", "size_kb": 7800000}`), in USB host
+    mode only (`scan`).
   - `busy`: an action is running; `failed` (only when `true`) and `message` (the last output
     line) describe the last one.
 
 #### `POST /api/usb-storage`
-- **Body**: `{"action": "scan" | "install" | "eject" | "offload" | "restore"}`.
-  - `install` downloads the USB storage modules from the update source (signed manifest), also
-    those already installed.
-  - `offload` copies the icon archive, the custom icons and the plugins to the stick, reads the
-    copies back from the stick and only then removes them from flash. Folders already on the
-    stick are merged plugin by plugin only when they were left there by this Hub (a `restore`
-    without the stick); a stick with icons or plugins from elsewhere is refused.
-  - `restore` moves them back to flash. It first checks the room (the file sizes on the stick
-    against the free space of `/data`, keeping 256 KB for the settings) and fails without changes
-    when it does not fit; a copy that fails half way removes what it wrote. Once the copies are
-    in place, the icons and plugins are removed from the stick. Without the stick it only turns
-    `offload` off: the icons and plugins stay on the stick, and the next `offload` to that stick
-    merges them. With `offload` off it does nothing.
-  - `eject` writes everything to the stick and unmounts it.
-- **Response `202 Accepted`**: `{"ok": true, "status": "running", "action": "offload"}`; follow
-  `busy` in `GET /api/usb-storage`. **`400`**: unknown action. **`409`**: an action is running.
+- **Body**: `{"action": "scan" | "setup" | "disable"}`.
+  - `scan` switches the USB port to host mode (the USB device side, such as a network to a PC,
+    goes) and lists the disks.
+  - `setup` with `"device"` (a disk from `disks`, `/dev/sdX` or `/dev/sdXN`) and `"confirm": true`:
+    stops the Hub services, **erases** that disk, formats it as ext4, copies the data and cache to
+    it and restarts the Hub onto it.
+  - `disable`: the flash again from the next restart, with the data as they were at the set-up
+    (later changes stay on the stick).
+- **Response `202 Accepted`**: `{"ok": true, "status": "running", "action": "setup"}`; follow
+  `busy` in `GET /api/usb-storage`. **`400`**: unknown action, or `setup` without a listed disk
+  or without `confirm: true`. **`409`**: an action is running.
 
 ### 1.6 Background Services
 #### `GET /api/services`

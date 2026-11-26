@@ -42,10 +42,6 @@ if [ "$CMD" = "remote" ] || [ "$CMD" = "elite" ]; then
     REPO_ARG="${2:-}"
     TOKEN_ARG="${3:-}"
   fi
-elif [ "$CMD" = "fetch-module" ]; then
-  MODULE_ARG="${2:-}"
-  REPO_ARG="${3:-}"
-  TOKEN_ARG="${4:-}"
 else
   REPO_ARG="${2:-}"
   TOKEN_ARG="${3:-}"
@@ -323,20 +319,10 @@ install_bundle() {
   return 0
 }
 
-# Where the icon archive goes: the USB stick while the icons are kept there (usb_storage.sh
-# offload) and it is mounted; else /cache. With the icons on a stick that is out, or another
-# stick mounted (its id differs from the flag's): nothing (never back to flash); the link to the
-# stick stays.
+# Where the icon archive goes: /cache (on the USB stick when the Hub keeps its data and cache
+# there: build/kernel6/usb_storage.sh)
 icons_dest() {
-  if [ -f /data/harmony/config/usb_offload ]; then
-    _id=$(cat /data/harmony/config/usb_offload 2>/dev/null)
-    if [ -n "$_id" ] && grep -q ' /mnt/usb ' /proc/mounts 2>/dev/null &&
-       [ "$_id" = "$(cat /mnt/usb/harmony/.offload_id 2>/dev/null)" ]; then
-      echo /mnt/usb/harmony/icons.tar.gz
-    fi
-  else
-    echo /cache/icons.tar.gz
-  fi
+  echo /cache/icons.tar.gz
 }
 
 # The helpers built into hub_util are symlinks to it
@@ -979,44 +965,6 @@ do_remote_ota() {
   fi
 }
 
-# fetch-module NAME: download modules/NAME.ko from the update source, check it against the signed
-# manifest and install it to /cache/modules. Kernel modules are not part of the Hub bundle: the
-# Hub fetches only the driver its USB device needs (usb_eth_driver.sh, usb_storage.sh, web UI).
-# Names: letters, digits, _ and - (usb-storage), not starting with -.
-do_fetch_module() {
-  local name="$1"
-  case "$name" in
-    ''|-*|*[!a-z0-9_-]*) echo "[-] Bad module name: ${name}"; return 1 ;;
-  esac
-  TMPDIR="/tmp/ota_module.$$"
-  rm -rf "$TMPDIR" 2>/dev/null
-  mkdir -p "$TMPDIR" || return 1
-  if ! fetch_signed_manifest "$TMPDIR" >/dev/null; then
-    rm -rf "$TMPDIR"
-    return 1
-  fi
-  if ! download_retry "${REPO}/modules/${name}.ko?_=${TIMESTAMP}" "$TMPDIR/${name}.ko" 20 3 signed; then
-    echo "[-] modules/${name}.ko is not on ${REPO}."
-    rm -rf "$TMPDIR"
-    return 1
-  fi
-  # a name the signed manifest does not list fails here too
-  if ! verify_files "modules/${name}.ko=$TMPDIR/${name}.ko"; then
-    echo "[-] modules/${name}.ko does not match the signed release manifest."
-    rm -rf "$TMPDIR"
-    return 1
-  fi
-  mkdir -p /cache/modules 2>/dev/null
-  [ -e /data/harmony/modules ] || ln -sf /cache/modules /data/harmony/modules 2>/dev/null
-  if ! install_file "$TMPDIR/${name}.ko" "/cache/modules/${name}.ko" 644; then
-    rm -rf "$TMPDIR"
-    return 1
-  fi
-  rm -rf "$TMPDIR"
-  echo "[+] Installed /cache/modules/${name}.ko."
-  return 0
-}
-
 # repair-tls: hub_fetch and libbearssl.so.0 of the installed release, when missing. The update.sh of
 # v2.5.3 and older installs neither (its file list predates them) and keeps running from its old
 # file during the update that brings this one, so such a Hub has neither until it is repaired
@@ -1140,9 +1088,6 @@ case "$CMD" in
     ;;
   fetch-remote|fetch-remote-ota)
     do_fetch_remote_ota
-    ;;
-  fetch-module)
-    do_fetch_module "$MODULE_ARG"
     ;;
   repair-tls)
     # not while an update runs (it installs these files itself); a lock left by a killed run is

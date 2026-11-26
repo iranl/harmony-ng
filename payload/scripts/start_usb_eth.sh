@@ -131,6 +131,10 @@ elif [ -f /sys/bus/usb/devices/1-1/idVendor ]; then
       echo "[USB_ETH] Loading Realtek native driver (r8152.ko)..."
       load_mod r8152.ko
       ;;
+    0b95:1790|0b95:178a)
+      echo "[USB_ETH] Loading ASIX AX88179 driver..."
+      load_mod ax88179_178a.ko
+      ;;
     0b95:*|077b:2226|0846:1040)
       echo "[USB_ETH] Loading ASIX driver..."
       load_mod usbnet.ko
@@ -154,6 +158,7 @@ elif [ -f /sys/bus/usb/devices/1-1/idVendor ]; then
       echo "[USB_ETH] Loading generic CDC Ethernet driver..."
       load_mod usbnet.ko
       load_mod cdc_ether.ko
+      load_mod cdc_ncm.ko
       ;;
   esac
 else

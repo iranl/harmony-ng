@@ -11,11 +11,6 @@ run_monitor() {
   ping_check_cycle=0
   gw_seen=0
 
-  # USB devices seen in host mode, on one line (echo joins them; BusyBox tr misreads escapes).
-  # Empty at start, so the first pass scans once: devices behind a USB hub (a stick on an OTG
-  # cable with a hub) can enumerate after the boot scan in start_usb_eth.sh has run.
-  usb_seen=""
-
   # Cache initial working gateway on startup
   get_current_gw >/dev/null 2>&1
 
@@ -25,25 +20,6 @@ run_monitor() {
   while true; do
     sleep 3
     load_config
-
-    # A USB device plugged in or out while in host mode: look for its driver again (a USB
-    # Ethernet adapter plugged in after boot, or one whose driver was just installed)
-    if [ "$(cat /tmp/harmony_usb_port_mode 2>/dev/null)" = "host" ]; then
-      # with each device's number: another stick or adapter in the same port has the same name
-      usb_now=$(echo $(ls /sys/bus/usb/devices 2>/dev/null) $(cat /sys/bus/usb/devices/*/devnum 2>/dev/null))
-      # The storage scan runs in the background: the first df of a large FAT stick reads its
-      # whole FAT (about 40 s for 30 GB behind a full-speed hub) and must not stall the
-      # failover below. While one still runs, usb_seen stays old so the next pass scans again.
-      if [ "$usb_now" != "$usb_seen" ] && ! { [ -n "$usb_scan_pid" ] && kill -0 "$usb_scan_pid" 2>/dev/null; }; then
-        usb_seen="$usb_now"
-        [ -f /data/harmony/usb_eth_driver.sh ] && sh /data/harmony/usb_eth_driver.sh scan >> "$LOG" 2>&1
-        usb_scan_pid=""
-        if [ -f /data/harmony/usb_storage.sh ]; then
-          sh /data/harmony/usb_storage.sh scan >> "$LOG" 2>&1 &
-          usb_scan_pid=$!
-        fi
-      fi
-    fi
 
     cur_eth=""
     [ "$ETH_ENABLED" = "1" ] && cur_eth=$(find_eth_interface)

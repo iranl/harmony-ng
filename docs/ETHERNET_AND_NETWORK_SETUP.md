@@ -53,27 +53,20 @@ Because the Hub requires power through its Micro-USB connector, you need an **OT
 ```
 
 ### Supported USB Ethernet Chipsets
-HarmonyNG has kernel drivers for these USB Ethernet chipsets. They are **not installed by default**: the Hub downloads only the driver its adapter needs.
-
-1. With the Hub's USB port in host mode, `usb_eth_driver.sh scan` looks at every USB device (also behind a USB hub, skipping hubs, USB sticks and keyboards). It picks the driver from `usb_eth_modules.txt`, and loads it when it is in `/cache/modules/`. It runs at boot and again whenever a USB device is plugged in or out.
-2. When the driver (or a module it needs, such as `usbnet`) is missing, the Network page shows "USB Ethernet adapter `<vid>:<pid>` found: its driver `<name>` is not installed" with a **Download driver** button. The same data is in the `eth_driver` object of `GET /api/network-status`.
-3. The button calls `POST /api/ethernet-driver-install`, which runs `update.sh fetch-module`. That downloads `modules/<name>.ko` from the update source (the `update_repo` setting), checks it against the signed release manifest, and installs it to `/cache/modules/`. The adapter then comes up without a reboot.
-
-`python build/deploy_hub.py <HUB_IP> --eth-modules` copies every module at once, for a Hub without internet access. Modules already on a Hub stay there. A Hub that will use Ethernet as its only link needs the driver before it loses Wi-Fi: download it once over Wi-Fi, or deploy with `--eth-modules`. A module that is installed but does not load (an older build) is shown as "installed but could not be loaded" with **Download again**.
-
-The IDs listed are the ones these module builds bind. An adapter with another ID of the same family is not supported by them, for example SMSC LAN9505 `0424:9505` or Davicom DM9620 `0A46:9620`. The page reports the ASIX AX88179 `0B95:1790` as not supported.
+The Linux 6.18 Hub system carries these drivers in its root file system (`build/kernel6/modules.list`): nothing is downloaded. With the Hub's USB port in host mode, `start_usb_eth.sh` reads the adapter's USB ID and loads its driver (`modprobe`, with the modules it needs). The kernel's drivers bind every ID of their family, so the list below is wider than the old stock-kernel builds.
 
 > [!WARNING]
-> **The adapter must run at high speed (USB 2.0, 480 Mbps).** A network adapter at full or low speed (a USB 1.1 adapter, or any adapter behind a USB 1.1 hub, as in some OTG cables with a built-in hub) froze the Hub as soon as its driver waited for received data; only a power cycle brought it back. This was seen with an AX88772B behind the full-speed hub of an OTG cable (`0a05:7211`), with modules that were later found to be built for another `struct sk_buff` layout, so it may not be a limit of the bus; until it is tested again with the rebuilt modules, `usb_eth_driver.sh` loads no network driver while such a device is on the bus and logs `runs at full or low speed (USB 1.1)`. Check the speed with `cat /sys/bus/usb/devices/*/speed` (`480` is high speed, `12` full speed).
+> **Use a high-speed (USB 2.0, 480 Mbps) adapter, hub or OTG cable.** On the stock kernel a network adapter at full or low speed (USB 1.1, or behind a USB 1.1 hub as in some OTG cables) froze the Hub as soon as its driver waited for received data. Until this is tested on Linux 6.18, `start_usb_eth.sh` loads no network driver while such a device is on the bus and logs `runs at full or low speed (USB 1.1)`. Check the speed with `cat /sys/bus/usb/devices/*/speed` (`480` is high speed, `12` full speed).
 
-| Chipset Family | USB Vendor:Product IDs | Driver Modules | Notes |
+| Chipset Family | Example USB IDs | Driver | Notes |
 | :--- | :--- | :--- | :--- |
-| **Realtek RTL8152 / RTL8153** | `0BDA:8152`, `0BDA:8153`, `2357:0601` | `r8152.ko` + `eth_fix` | **Tested & verified** (`0BDA:8152`, `0BDA:8153`). 10/100M Fast Ethernet. Automatic checksum fix applied on load. |
-| **ASIX AX88772 / AX88772B / AX88178** | `0B95:7720`, `0B95:772A`, `0B95:772B`, `0B95:1720`, `0B95:1780`, `077B:2226`, `0846:1040` | `usbnet.ko`, `asix.ko` | Common in generic USB-to-LAN adapters. Standard software checksumming. AX88772B (patched in by `build/patches/usb_net/asix-ax88772b.patch`): MAC address read from the EEPROM. It bound and opened on a Hub with an earlier build of these modules; with the shipped build no adapter has been bound and no network traffic tested. The other ASIX IDs are not tested on a Hub. |
-| **SMSC / Microchip LAN9500** | `0424:9500`, `0424:EC00` | `usbnet.ko`, `smsc95xx.ko` | Standard embedded Ethernet chipset. Not tested on a Hub. |
-| **Davicom DM9601** | `0A46:9601`, `0A46:0268`, `0A46:6688`, `0A46:8515` | `usbnet.ko`, `dm9601.ko` | Common low-cost 10/100 adapters. Not tested on a Hub. |
-| **USB CDC-Ethernet (Standard)** | Any USB device with Class `02` Subclass `06` | `usbnet.ko`, `cdc_ether.ko` | Standard Linux USB Communication Device Class. Not tested on a Hub. |
-| **Realtek RTL8150** | `0BDA:8150` | `rtl8150.ko` | Legacy 10/100M adapter. The RTL8150 is a USB 1.1 (full speed) device, so `usb_eth_driver.sh` loads no driver for it (see the warning above). |
+| **Realtek RTL8152 / RTL8153** | `0BDA:8152`, `0BDA:8153`, `2357:0601` | `r8152` | Tested on the stock kernel (`0BDA:8152`, `0BDA:8153`). Not yet tested on Linux 6.18. |
+| **ASIX AX88772 / AX88772B / AX88178** | `0B95:7720`, `0B95:772A`, `0B95:772B`, `0B95:1780`, `077B:2226`, `0846:1040` | `asix` | Not yet tested on Linux 6.18. |
+| **ASIX AX88179 / AX88178A** | `0B95:1790`, `0B95:178A` | `ax88179_178a` | Gigabit (the Hub's USB 2.0 port limits it). Not tested on a Hub. |
+| **SMSC / Microchip LAN95xx** | `0424:9500`, `0424:EC00`, `0424:9505` | `smsc95xx` | Not tested on a Hub. |
+| **Davicom DM96xx** | `0A46:9601`, `0A46:9620` | `dm9601` | Not tested on a Hub. |
+| **USB CDC-Ethernet / CDC-NCM** | Class `02` Subclass `06` / `0D` | `cdc_ether`, `cdc_ncm` | Phones, docks and generic adapters. Not tested on a Hub. |
+| **Realtek RTL8150** | `0BDA:8150` | `rtl8150` | A USB 1.1 (full speed) device: no driver is loaded for it while the guard above is in place. |
 
 ---
 
