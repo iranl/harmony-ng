@@ -403,6 +403,19 @@ static void handle_hub_frame_body(const rf_frame_t *f) {
             break;
         }
 
+        case RF_MSG_BUTTON_ICON: {
+            /* [0] index in the button list, [1..2] icon id (little endian), see rf_proto.h */
+            sync_touch_chunk();
+            uint8_t idx = f->payload[0];
+            if (idx < MAX_RF_BUTTONS) {
+                g_rf_buttons[idx].icon_id = (uint16_t)(f->payload[1] | (f->payload[2] << 8));
+            }
+            rf_frame_t ack;
+            rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
+            rf_send_frame(&ack);
+            break;
+        }
+
         case RF_MSG_NAME_TAIL_CHUNK: {
             /* [0] 0 = activity, 1 = device, [1] index, [2] offset in the name, [3..24] name bytes */
             sync_touch_chunk();
@@ -462,6 +475,7 @@ static void handle_hub_frame_body(const rf_frame_t *f) {
                 sanitize_ascii(g_rf_buttons[idx].label, sizeof(g_rf_buttons[idx].label));
                 g_rf_buttons[idx].btn_index = f->payload[1];
                 g_rf_buttons[idx].action_type = f->payload[24];
+                g_rf_buttons[idx].icon_id = 0; /* its RF_MSG_BUTTON_ICON, if any, comes next */
                 if (idx >= g_rf_button_count) g_rf_button_count = idx + 1;
 
                 add_act_trigger(&g_rf_buttons[idx]);

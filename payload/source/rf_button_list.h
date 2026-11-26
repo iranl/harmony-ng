@@ -19,6 +19,7 @@ typedef struct {
     uint8_t ctype;       /* 0x01 on-screen button, 0x00 hard key */
     uint8_t atype;       /* 0x01 device command, 0x02 activity start, 0x03 activity stop, 0x04 Help */
     uint8_t idx;         /* position in the activity's on-screen list or hard-key map */
+    char icon[64];       /* an on-screen button's icon name ("bulb.png"), "" for none */
 } rf_button_entry_t;
 
 /*

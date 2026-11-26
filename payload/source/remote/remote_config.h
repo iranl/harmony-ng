@@ -25,6 +25,9 @@ void add_act_trigger(const rf_button_t *b);
 void resolve_activity_icon(uint16_t icon_id, const char *image_key, const char *clean_name, char *out_path, size_t max_len);
 bool resolve_device_icon(uint16_t icon_id, const char *icon_key, const char *dev_name, const char *dev_id, char *out_path, size_t max_len);
 bool resolve_button_icon(const char *icon_key, const char *label, char *out_path, size_t max_len);
+/* The image of an on-screen button's icon id (RF_MSG_BUTTON_ICON): a custom icon the Hub sent
+ * (0x8000 set, /data/assets/custom/<id>.png) or a stock image; false for 0 or a missing file */
+bool resolve_button_icon_id(uint16_t icon_id, char *out_path, size_t max_len);
 /* Switches to a theme and redraws: icon paths and the wallpaper depend on it */
 void apply_theme(const char *name);
 void map_icon_type_to_str(uint8_t type, const char *name, char *out, size_t out_len);

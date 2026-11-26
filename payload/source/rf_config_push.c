@@ -50,6 +50,48 @@ static void queue_name_tail(push_queue_t *q, uint8_t slot, uint8_t kind, int idx
     }
 }
 
+/* A custom icon an on-screen button uses: sent after the push (8b), as the activity and device
+   icons are */
+typedef struct {
+    uint16_t id;
+    char name[64];
+} btn_custom_icon_t;
+#define BTN_CUSTOM_ICONS_MAX 16
+
+/* Queue the icon of the on-screen button at index idx of the button list (the payload[0] of the
+   BUTTON_LIST_CHUNK just queued), for remotes that report RF_CAP_BUTTON_ICONS: a stock icon id,
+   or a custom icon id that is noted in custom[] for the icon transfer after the push */
+static void queue_button_icon(push_queue_t *q, uint8_t slot, int idx, const char *icon,
+                              btn_custom_icon_t *custom, int *custom_count) {
+    if (!icon || !icon[0]) return;
+    if (slot < 1 || slot > MAX_PAIRED_REMOTES || !(g_remote_versions[slot - 1].caps & RF_CAP_BUTTON_ICONS)) return;
+    uint16_t icon_id;
+    if (send_as_custom_icon(icon)) {
+        icon_id = custom_icon_registry_get_id(icon);
+        if (icon_id) {
+            bool known = false;
+            for (int i = 0; i < *custom_count; i++) {
+                if (custom[i].id == icon_id) { known = true; break; }
+            }
+            if (!known && *custom_count < BTN_CUSTOM_ICONS_MAX) {
+                custom[*custom_count].id = icon_id;
+                snprintf(custom[*custom_count].name, sizeof(custom[0].name), "%s", icon);
+                (*custom_count)++;
+            }
+        }
+    } else {
+        icon_id = lookup_stock_icon_id(icon);
+    }
+    if (!icon_id) return;
+    uint8_t payload[25] = {0};
+    rf_frame_t f;
+    payload[0] = (uint8_t)idx;
+    payload[1] = (uint8_t)(icon_id & 0xFF);
+    payload[2] = (uint8_t)((icon_id >> 8) & 0xFF);
+    rf_build_frame(&f, slot, RF_MSG_BUTTON_ICON, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 25);
+    push_queue_add(q, &f);
+}
+
 void rf_request_config_push(void) {
     pthread_t th;
     if (rf_create_thread(&th, 128 * 1024, config_push_worker, NULL) == 0) pthread_detach(th);
@@ -92,6 +134,8 @@ static void *config_push_once(void *arg) {
     uint8_t target_slots[MAX_PAIRED_REMOTES] = {0};
     push_queue_t queue[MAX_PAIRED_REMOTES] = {{0}};
     int num_targets = 0;
+    btn_custom_icon_t btn_custom[MAX_PAIRED_REMOTES][BTN_CUSTOM_ICONS_MAX];
+    int btn_custom_count[MAX_PAIRED_REMOTES] = {0};
 
     /* Every slot alike: a paired touchscreen remote that spoke since hub_rf started (an old
      * pipe-table entry never speaks, and a push would wait for it). The linked ones; while all
@@ -451,6 +495,10 @@ static void *config_push_once(void *arg) {
 
                             rf_build_frame(&f, target_slot, RF_MSG_BUTTON_LIST_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 25);
                             push_queue_add(&queue[t], &f);
+                            cJSON *jicon = cJSON_GetObjectItem(sitem, "icon");
+                            queue_button_icon(&queue[t], target_slot, btn_count,
+                                              cJSON_IsString(jicon) ? jicon->valuestring : NULL,
+                                              btn_custom[t], &btn_custom_count[t]);
                             btn_count++;
                             sidx++;
                         }
@@ -483,6 +531,10 @@ static void *config_push_once(void *arg) {
 
                 rf_build_frame(&f, target_slot, RF_MSG_BUTTON_LIST_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 25);
                 push_queue_add(&queue[t], &f);
+                if (entries[i].ctype == 0x01) {
+                    queue_button_icon(&queue[t], target_slot, btn_count, entries[i].icon,
+                                      btn_custom[t], &btn_custom_count[t]);
+                }
                 btn_count++;
             }
             free(entries);
@@ -942,6 +994,17 @@ static void *config_push_once(void *arg) {
                     if (synced_count < 32) synced_ids[synced_count++] = devs[i].icon_id;
                     custom_icon_registry_sync_remote(target_slot, devs[i].icon_id, devs[i].icon_name);
                 }
+            }
+        }
+        /* the custom icons of on-screen buttons (queue_button_icon) */
+        for (int i = 0; i < btn_custom_count[t]; i++) {
+            bool already = false;
+            for (int p = 0; p < synced_count; p++) {
+                if (synced_ids[p] == btn_custom[t][i].id) { already = true; break; }
+            }
+            if (!already) {
+                if (synced_count < 32) synced_ids[synced_count++] = btn_custom[t][i].id;
+                custom_icon_registry_sync_remote(target_slot, btn_custom[t][i].id, btn_custom[t][i].name);
             }
         }
         if (target_slot >= 1 && target_slot <= MAX_PAIRED_REMOTES) {

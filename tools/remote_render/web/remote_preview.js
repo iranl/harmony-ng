@@ -82,7 +82,11 @@ export function writeRemoteConfig(module, { activities = [], devices = [], remot
       for (const b of screenButtons) {
         if (buttons.length >= 48) break;
         if (!b || typeof b !== 'object') continue;
-        buttons.push({ ctx: ctx.slice(0, 9), label: String(b.label || 'Button').slice(0, 12), ctype: 1, atype: 1, bidx: i++ });
+        // the stock icon the Hub sends for an on-screen button (RF_MSG_BUTTON_ICON); a custom one
+        // is not known here (see above), so that button shows its label's fallback
+        const iconId = b.icon ? stockIconId(module, String(b.icon), '') : 0;
+        buttons.push({ ctx: ctx.slice(0, 9), label: String(b.label || 'Button').slice(0, 12), ctype: 1, atype: 1, bidx: i++,
+          ...(iconId ? { icon_id: iconId } : {}) });
       }
       continue;
     }

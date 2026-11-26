@@ -194,6 +194,52 @@ int main(void) {
           "after a reload of the saved config: Help key %s, start key %s (%d times)",
           help_at >= 0 ? "kept" : "lost", start_at >= 0 ? "kept" : "lost", watch_count);
 
+    /* The icon of an on-screen button (RF_MSG_BUTTON_ICON) follows its chunk: stored with the
+       button, ACKed, kept by the saved config, and dropped when the chunk comes again */
+    last_ack(NULL);
+    uint8_t sb[25] = {0};
+    sb[0] = 2;
+    sb[1] = 0;
+    sb[2] = 0x01;
+    memcpy(&sb[3], "10", 2);
+    memcpy(&sb[12], "Salon", 5);
+    sb[24] = 0x01;
+    hub(RF_MSG_BUTTON_LIST_CHUNK, RF_FLAG_ACK_REQ, sb, sizeof(sb));
+    uint8_t bi[25] = {0};
+    bi[0] = 2;
+    bi[1] = 0xD0;
+    bi[2] = 0x01; /* 464 */
+    last_ack(NULL);
+    hub(RF_MSG_BUTTON_ICON, RF_FLAG_ACK_REQ, bi, sizeof(bi));
+    CHECK(last_ack(NULL) >= 0, "a button icon frame got no ACK");
+    CHECK(g_rf_button_count > 2 && g_rf_buttons[2].icon_id == 464, "the button's icon id is %d, not 464",
+          g_rf_button_count > 2 ? g_rf_buttons[2].icon_id : -1);
+    save_rf_config();
+    g_rf_buttons[2].icon_id = 0;
+    load_rf_config();
+    CHECK(g_rf_buttons[2].icon_id == 464, "after a reload of the saved config the icon id is %d, not 464",
+          g_rf_buttons[2].icon_id);
+    uint16_t icon_got = 0;
+    char label_got[16] = "";
+    snprintf(g_active_activity_id, sizeof(g_active_activity_id), "%s", "10");
+    g_has_hub_config = true;
+    int ok = get_active_dev_cmd_item(0, label_got, sizeof(label_got), NULL, NULL, NULL, 0, &icon_got);
+    CHECK(ok == 0 && strcmp(label_got, "Salon") == 0 && icon_got == 464,
+          "the running activity's button list gives %s with icon %d (expected Salon, 464)", label_got, icon_got);
+    hub(RF_MSG_BUTTON_LIST_CHUNK, RF_FLAG_ACK_REQ, sb, sizeof(sb));
+    CHECK(g_rf_buttons[2].icon_id == 0, "a new chunk for the button kept the old icon id %d", g_rf_buttons[2].icon_id);
+    /* The receive thread drops a frame rf_is_valid_frame() refuses before any handler sees it:
+       a streamed push then stalled at the first icon frame */
+    uint8_t raw_remote[32] = {0x20, 0x21, 0x12, 0x01, 0x41, RF_MSG_BUTTON_ICON, RF_FLAG_ACK_REQ};
+    uint8_t raw_hub[30] = {0x12, 0x01, 0x41, RF_MSG_BUTTON_ICON, RF_FLAG_ACK_REQ};
+    CHECK(rf_is_valid_frame(raw_remote, sizeof(raw_remote)) && rf_is_valid_frame(raw_hub, sizeof(raw_hub)),
+          "rf_is_valid_frame() refuses RF_MSG_BUTTON_ICON (%d, %d)",
+          rf_is_valid_frame(raw_remote, sizeof(raw_remote)), rf_is_valid_frame(raw_hub, sizeof(raw_hub)));
+    bi[0] = 250; /* no such button */
+    last_ack(NULL);
+    hub(RF_MSG_BUTTON_ICON, RF_FLAG_ACK_REQ, bi, sizeof(bi));
+    CHECK(last_ack(NULL) >= 0, "an icon frame for an index out of range got no ACK");
+
     char cdir[512];
     snprintf(cdir, sizeof(cdir), "%s", getenv("HARMONY_MOCK_DIR") ? getenv("HARMONY_MOCK_DIR") : "/tmp/harmony_mock");
     mkdir(cdir, 0755);

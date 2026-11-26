@@ -116,6 +116,13 @@
 #define RF_UNIT_ID_MAX             24
 #define RF_UNIT_ID_SKIN_OFF        24
 
+/* Hub -> Remote: the icon of an on-screen button (ACK'd), sent right after its
+ * RF_MSG_BUTTON_LIST_CHUNK and only to remotes that report RF_CAP_BUTTON_ICONS. payload[0] = the
+ * button's index in the button list (payload[0] of its BUTTON_LIST_CHUNK), payload[1..2] = the
+ * icon id, little endian: a stock icon id (remote_stock_icons.c), or a custom icon id
+ * (0x8000 set, sent with RF_MSG_ICON_START after the push like the activity and device icons). */
+#define RF_MSG_BUTTON_ICON         0x32
+
 /* RF_MSG_BUTTON_PRESS payload[RF_KEY_COUNTER_OFF]: the key event counter. The remote numbers
  * every key frame it sends (press, hold, release) 1..255 and then 1 again; 0 = a remote without
  * the counter. Key frames are sent once and never acknowledged, so the Hub counts the gaps to
@@ -138,6 +145,7 @@
 #define RF_CAP_SWITCH_START        0x10  /* RF_ACT_SYNC_STARTING (older remotes take it for the end) */
 #define RF_CAP_HELP_KEY            0x20  /* button list atype 0x04, a hard key mapped to Help */
 #define RF_CAP_STREAM_PUSH         0x40  /* takes a streamed config push (RF_FLAG_STREAM) */
+#define RF_CAP_BUTTON_ICONS        0x80  /* stores and ACKs RF_MSG_BUTTON_ICON */
 #define RF_WARMUP_STEPS_MAX        4     /* Warmup steps per start sequence (one per device, longest first) */
 
 /* Screen timeout of the remote settings, in seconds: 0 kept the screen on (and the remote awake)
@@ -190,14 +198,15 @@ static inline uint8_t rf_key_counter_next(uint8_t c) {
     return (uint8_t)(c >= 255 ? 1 : c + 1);
 }
 
-/* Helper: validate received frame */
+/* Helper: validate received frame. A new message type must be added here (the last one is
+   RF_MSG_BUTTON_ICON), or the remote drops it before any handler sees it. */
 static inline int rf_is_valid_frame(const uint8_t *raw, size_t len) {
     if (len >= 32 && raw[0] == RF_REPORT_ID && raw[2] == 0x12) {
         if ((raw[4] & 0xE0) == 0x40 || (raw[4] & 0xE0) == 0x60) {
             uint8_t t = raw[5];
             return (t >= RF_MSG_ACTIVITY_SYNC && t <= RF_MSG_DEVICE_CMD_INDEX) ||
                    (t >= RF_MSG_BUTTON_PRESS && t <= RF_MSG_SLEEP_REQ) ||
-                   (t >= RF_MSG_OTA_START && t <= RF_MSG_UNIT_ID) ||
+                   (t >= RF_MSG_OTA_START && t <= RF_MSG_BUTTON_ICON) ||
                    (t == RF_MSG_ACK || t == RF_MSG_PING);
         }
         return 0;
@@ -207,7 +216,7 @@ static inline int rf_is_valid_frame(const uint8_t *raw, size_t len) {
             uint8_t t = raw[3];
             return (t >= RF_MSG_ACTIVITY_SYNC && t <= RF_MSG_DEVICE_CMD_INDEX) ||
                    (t >= RF_MSG_BUTTON_PRESS && t <= RF_MSG_SLEEP_REQ) ||
-                   (t >= RF_MSG_OTA_START && t <= RF_MSG_UNIT_ID) ||
+                   (t >= RF_MSG_OTA_START && t <= RF_MSG_BUTTON_ICON) ||
                    (t == RF_MSG_ACK || t == RF_MSG_PING);
         }
         return 0;
