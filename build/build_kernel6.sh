@@ -115,7 +115,7 @@ echo "=== Building the flash image ==="
 "$INIT_CC" -Os -static -Wall -Wextra -o flash-init "$SRC/init.c"
 "${INIT_CC%gcc}strip" flash-init
 {
-    for d in /dev /proc /sys /tmp /cache /data; do echo "dir $d 755 0 0"; done
+    for d in /dev /proc /sys /tmp /cache /mnt /mnt/data; do echo "dir $d 755 0 0"; done
     echo "nod /dev/console 600 0 0 c 5 1"
     echo "file /init $WORK/flash-init 755 0 0"
 } > flash.list

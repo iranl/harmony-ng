@@ -5,8 +5,8 @@
  * partitions the stock firmware already has and hands over to a script there, which can be
  * changed from the stock system without writing the kernel again:
  *
- *   /cache  mtd:cache (BusyBox in /cache/bin, our files in /cache/kernel6)
- *   /data   mtd:data  (the stock writable layer: /data/data/harmony, configuration)
+ *   /cache     mtd:cache (BusyBox in /cache/bin, our files in /cache/kernel6)
+ *   /mnt/data  mtd:data, the writable layer of the stock union root (data/harmony, etc, root)
  *   then    /cache/bin/busybox sh /cache/kernel6/rc.sh
  *
  * When something is missing, a BusyBox shell (or, without BusyBox, nothing) is started on the
@@ -48,7 +48,8 @@ int main(void) {
     }
 
     mnt("mtd:cache", "/cache", "jffs2", 0);
-    mnt("mtd:data", "/data", "jffs2", 0);
+    mkdir("/mnt", 0755);
+    mnt("mtd:data", "/mnt/data", "jffs2", 0);
 
     /* the kernel loads modules on demand through this path */
     fd = open("/proc/sys/kernel/modprobe", O_WRONLY);
