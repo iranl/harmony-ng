@@ -39,7 +39,8 @@ def main():
         return ser.read(65536).decode('latin-1')
 
     shell('stty -echo', 1)
-    ser.write(f'base64 -d > {args.dest}\n'.encode())
+    # a here-document keeps the data away from the shell even if base64 stops early
+    ser.write(f"base64 -d > {args.dest} <<'__PUSH_END__'\n".encode())
     time.sleep(0.5)
     start = time.monotonic()
     sent = 0
@@ -52,7 +53,7 @@ def main():
         if ahead > 0:
             time.sleep(ahead)
         ser.reset_input_buffer()
-    ser.write(b'\x04')
+    ser.write(b'__PUSH_END__\n')
     time.sleep(1)
     out = shell(f'stty echo; md5sum {args.dest}', 3)
     want = hashlib.md5(data).hexdigest()
