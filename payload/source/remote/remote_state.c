@@ -103,6 +103,7 @@ int g_selected_pair_opt = 0;
 bool g_touch_enabled = true;
 bool g_physical_nav_enabled = false;
 bool g_cap_buttons_enabled = true;
+int g_haptic_ms = 0;   /* the Vibration setting: pulse length in ms (0 off, 20, 40 or 80) */
 int g_touch_sensitivity = 2;   /* 1 = Low, 2 = Normal, 3 = High */
 uint64_t g_last_switch_completed_ms = 0;
 char g_last_switch_target_id[16] = "";

@@ -148,7 +148,7 @@ and from then on 300 s before the next one.
   `/tmp/last_kmsg.log`; with Debug Logging on both go to `/data` instead. Everything in `/tmp` is
   lost at a reboot (see the flight recorder below).
 - **Files in `/data`**: `remote_settings.conf` (the settings, one `key=value` per line: `touch`,
-  `physical_nav`, `cap_buttons`, `touch_sens`, `gyro`, `deep_standby` (`-1` at once,
+  `physical_nav`, `cap_buttons`, `haptic` (vibration length in ms, `0` off), `touch_sens`, `gyro`, `deep_standby` (`-1` at once,
   `0` never, or 15, 30, 60, 120, 240 minutes), `btn_backlight`, `clean_wake`, `night_start`, `night_end`,
   `timeout`, `brightness`, `no_screen`, `log_level`, `debug_logging`, `confirm_act`, `slot`,
   `language`, `theme`, `layout` (`theme`, `list`, `grid`, `carousel`), `order` (`yours`, `used`),
@@ -356,7 +356,7 @@ The remote's settings menu has six categories (`payload/source/remote/remote_ui_
 [SETTINGS]
   ├── 1. CONFIG          --> Confirm switch, language, sync config from Hub, activity order
   ├── 2. DISPLAY         --> Brightness, timeout, button backlight, night start and end, theme, home layout
-  ├── 3. TOUCH           --> Touchscreen, capacitive buttons, sensitivity, physical button nav
+  ├── 3. TOUCH           --> Touchscreen, capacitive buttons, sensitivity, physical button nav, vibration
   ├── 4. POWER           --> Tilt / pickup wake, gyroscope rate, deep standby, battery, debug logging, suspend
   ├── 5. SYSTEM          --> RF pairing & link, reboot, factory reset
   └── 6. FIRMWARE UPDATE --> Pull firmware OTA from Hub, check for updates
@@ -390,6 +390,7 @@ Pages have no Back item: swipe left to right, or press `Back`, to return to the 
 - **`Capacitive Buttons`**: `[ ON ]` or `[ OFF ]`: the two touch keys below the display.
 - **`Touch Sensitivity`**: `[ LOW ]`, `[ NORMAL ]`, `[ HIGH ]`. Adjusts tap slop tolerances and swipe thresholds.
 - **`Physical Button Nav`**: `[ ON ]` or `[ OFF ]`: drive the screen with the physical keys (see "Physical Button Navigation").
+- **`Vibration`**: `[ OFF ]` (default), `[ 20 ms ]`, `[ 40 ms ]` or `[ 80 ms ]`; each tap on the row steps to the next length and gives one pulse of it. A pulse of the vibration motor when an on-screen button sends a command (an activity, a command of a device or of the running activity) and on the two capacitive keys below the display; menus, swipes and the hard keys give none. The remote has a TI DRV2605 driving an LRA motor: `remote_ui` writes the driver's timed command to `/dev/drv2605` (`03`, then the length in ms, little endian), which returns at once.
 
 ### 4. `POWER`
 - **`Tilt / Pickup Wake`**: `[ ON ]` or `[ OFF ]`. LIS3DH lift-to-wake while the screen is off. The

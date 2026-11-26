@@ -155,6 +155,13 @@ static const char *resolve_mock_path(const char *pathname, char *resolved, size_
         return resolved;
     }
 
+    /* 4a. The remote's haptic driver: each write is appended to a log */
+    if (strcmp(pathname, "/dev/drv2605") == 0) {
+        *out_special_type = 7;
+        snprintf(resolved, max_len, "%s/haptic.log", md);
+        return resolved;
+    }
+
     /* 4b. hub_btstack's key pipe: under the mock root when one is set, so a test reads what
      * hub_daemon hands over and no pipe of the host is touched */
     if (strcmp(pathname, "/tmp/bthid_input") == 0 && getenv("HARMONY_MOCK_DIR") != NULL) {
@@ -468,6 +475,10 @@ int open(const char *pathname, int flags, ...) {
 
     if (strstr(target, "/sysfs/") != NULL || special_type == 6) {
         flags |= O_CREAT;
+        mode = 0666;
+    }
+    if (special_type == 7) {
+        flags |= O_CREAT | O_APPEND;
         mode = 0666;
     }
 

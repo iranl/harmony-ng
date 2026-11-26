@@ -44,6 +44,7 @@ extern "C" {
 #define BTN_EVENT_DEV           "/dev/input/event0"
 #define GYRO_EVENT_DEV          "/dev/input/event1"
 #define TOUCH_EVENT_DEV         "/dev/input/event2"
+#define HAPTIC_DEV              "/dev/drv2605"   /* the TI DRV2605 haptic driver */
 #define GYRO_DATA_RATE_SYS      "/sys/devices/platform/i2c_davinci.1/i2c-1/1-0019/data_rate"
 #define GYRO_INT1_THRESHOLD_SYS "/sys/devices/platform/i2c_davinci.1/i2c-1/1-0019/int1_threshold"
 #define GYRO_INT1_DURATION_SYS  "/sys/devices/platform/i2c_davinci.1/i2c-1/1-0019/int1_duration"
@@ -292,6 +293,7 @@ extern int g_selected_pair_opt;
 extern bool g_touch_enabled;
 extern bool g_physical_nav_enabled;
 extern bool g_cap_buttons_enabled;
+extern int g_haptic_ms;
 extern int g_touch_sensitivity;
 extern uint64_t g_last_switch_completed_ms;
 extern char g_last_switch_target_id[16];
