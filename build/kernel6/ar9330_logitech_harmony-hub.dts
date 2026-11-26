@@ -31,6 +31,21 @@
 		device_type = "memory";
 		reg = <0x0 0x4000000>;
 	};
+
+	ahb {
+		apb {
+			/* ar9331.dtsi has no watchdog node; same block as on the AR9132 */
+			wdt: wdt@18060008 {
+				compatible = "qca,ar7130-wdt";
+				reg = <0x18060008 0x8>;
+
+				interrupts = <4>;
+
+				clocks = <&pll ATH79_CLK_AHB>;
+				clock-names = "wdt";
+			};
+		};
+	};
 };
 
 /* bootstrap register 0x180600ac reads 0x00021207 on a Hub: REF_CLK_40 set */
