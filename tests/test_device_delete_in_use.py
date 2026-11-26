@@ -7,9 +7,10 @@ Deleting a device that is still used is refused (as agreed in #220): POST /api/d
   (slot) and of the Bluetooth remote map ("activities/10/VolumeUp")
 - the map's own page for the device ("devices/<id>") does not count
 - a device nothing uses is deleted as before (200, ok true); an unknown device is not a 409
-- a device never becomes undeletable: bindings in a map section whose activity no longer exists
+- a device never becomes undeletable: key layers (no editor shows them yet) and bindings in a map section whose activity no longer exists
   and in the map of a slot with no paired remote (from hub_rf's status; without an answer, a slot
-  with a version file) do not count; deleting an activity removes its sections from the maps; a
+  with a version file) do not count; deleting an activity removes its sections and its own key layer
+  ("layers/<id>", with those of activities deleted before) from the maps, not named layers; a
   deleted device's own page is removed from the maps, so a new device with the same id starts clean
 - pages of devices that no longer exist do not count, and go with the next device delete
 - a slot counts when hub_rf reports it active, or, inactive, while its version file names a remote
@@ -65,6 +66,10 @@ def config_dir():
     m["activities"]["99"] = {"X": {"type": "command", "action": "device_cmd", "deviceId": "4", "command": "Menu"}}
     # the page of a device deleted before pages went with their device
     m["devices"]["98"] = {"Y": {"type": "command", "action": "device_cmd", "deviceId": "4", "command": "Menu"}}
+    # key layers (rf_keymap.h): activity 12's own, one left by activity 99, and a named one
+    m["layers"] = {"12": {"DirectionUp": {"action": "device_cmd", "deviceId": "3", "command": "DirectionUp"}},
+                   "99": {"DirectionUp": {"action": "device_cmd", "deviceId": "4", "command": "DirectionUp"}},
+                   "amp": {"DirectionUp": {"action": "device_cmd", "deviceId": "2", "command": "DirectionUp"}}}
     json.dump(m, open(os.path.join(d, "remote_slot1_map.json"), "w"))
     # an old slot 2 map: no remote paired there
     json.dump({"activities": {"10": {"B": {"type": "command", "action": "device_cmd", "deviceId": "4", "command": "Menu"}}},
@@ -145,14 +150,17 @@ def main():
             check(st == 409 and [u.get("id") for u in users_of(r, "activity")] == ["12"]
                   and users_of(r, "activity")[0].get("fields") == ["deviceIds"], "deviceIds counts (legacy route)",
                   "%s %s" % (st, r))
-            check([u.get("keys") for u in users_of(r, "remote_map")] == [["activities/12/A"]],
-                  "and the activity's key in slot 1", str(r))
+            check([sorted(u.get("keys")) for u in users_of(r, "remote_map")] == [["activities/12/A"]],
+                  "and the activity's key in slot 1, not its layer's (no editor shows layers)", str(r))
 
             print("[-] deleting the activity removes its map sections; then the device goes")
             st, r = hub.http_post("/api/activity-delete", {"id": "12"})
             check(st == 200 and r.get("ok") is True, "activity 12 deleted", "%s %s" % (st, r))
             check("12" not in map_file(hub, 1).get("activities", {}), "its section left the slot 1 map",
                   str(map_file(hub, 1).get("activities", {}).keys()))
+            check(sorted(map_file(hub, 1).get("layers", {})) == ["amp"],
+                  "its key layer and one of a gone activity went too, the named layer stayed",
+                  str(map_file(hub, 1).get("layers", {}).keys()))
             st, r = hub.http_post("/api/device-delete", {"deviceId": "3"})
             check(st == 200 and r.get("ok") is True, "device 3 deleted", "%s %s" % (st, r))
 

@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
+#include <stdio.h>
+#include <string.h>
 
 bool is_ota_busy(void) { return false; }
 bool is_slot_direct_mode(int slot) { (void)slot; return false; }
@@ -45,5 +47,24 @@ void *rf_ota_sender_worker(void *arg) { (void)arg; return NULL; }
 void rf_keymap_invalidate_devices_cache(void) {}
 void rf_keymap_invalidate_activities_cache(void) {}
 void rf_keymap_invalidate_map(uint8_t slot) { (void)slot; }
+/* the key layer API (GET/POST /api/rf/layer): no layer is on, unless a test gives slot 2 the
+ * activity its layer is on in */
+char g_stub_layer_act2[32];
+int rf_keymap_layer_active(uint8_t slot, char *act_out, size_t act_len, char *name_out, size_t name_len) {
+    const char *act = slot == 2 ? g_stub_layer_act2 : "";
+    if (act_out && act_len) snprintf(act_out, act_len, "%s", act);
+    if (name_out && name_len) name_out[0] = '\0';
+    return act[0] != '\0';
+}
+/* what the last call asked for; a name "refused" is refused, as the keymap would a bad one */
+int g_stub_layer_slot = -1, g_stub_layer_on = -1, g_stub_layer_calls = 0;
+char g_stub_layer_name[32];
+int rf_keymap_layer_set(uint8_t slot, int on, const char *name) {
+    g_stub_layer_slot = slot;
+    g_stub_layer_on = on;
+    g_stub_layer_calls++;
+    snprintf(g_stub_layer_name, sizeof(g_stub_layer_name), "%s", name ? name : "");
+    return (name && strcmp(name, "refused") == 0) ? -1 : 0;
+}
 
 #endif

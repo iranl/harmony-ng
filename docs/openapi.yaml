@@ -1799,7 +1799,8 @@ paths:
         - Activities
       summary: Delete activity
       description: >-
-        Also removes the activity's sections (activities/<id>) from remote_slot1_map.json to
+        Also removes the activity's sections (activities/<id>) and its own key layer (layers/<id>,
+        with those of activities deleted earlier; named layers stay) from remote_slot1_map.json to
         remote_slot6_map.json and bt_remote_map.json.
       requestBody:
         required: true
@@ -3370,6 +3371,71 @@ paths:
         '500':
           description: The settings were sent to the remote but could not be saved on the Hub
 
+  /api/rf/layer:
+    get:
+      tags:
+        - RF & Remote
+      summary: Read every remote slot's key layer
+      responses:
+        '200':
+          description: Each slot's key layer
+          content:
+            application/json:
+              example:
+                ok: true
+                slots:
+                  - slot: 1
+                    'on': false
+                    activity: ''
+                    name: ''
+    post:
+      tags:
+        - RF & Remote
+      summary: Turn a remote slot's key layer on or off, without sending a key
+      description: The parameters may come in a JSON body instead ({"slot":1,"on":1,"name":"amp"}, on also true/false); the query wins. With no activity running, or while one is being started or stopped, on=1 leaves the layer off (a Help re-send of the running activity is no start). on=0 with a name turns off that layer only (nothing changes when another layer is on), on=0 without one whatever layer is on.
+      parameters:
+        - name: slot
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 6
+        - name: 'on'
+          in: query
+          required: true
+          schema:
+            type: integer
+            enum: [0, 1]
+        - name: name
+          in: query
+          required: false
+          description: A named layer of the slot's mapping; left out, the running activity's own
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Each slot's key layer after the change
+          content:
+            application/json:
+              example:
+                ok: true
+                slots:
+                  - slot: 1
+                    'on': false
+                    activity: ''
+                    name: ''
+        '400':
+          description: No slot or one outside 1 to 6 (0 and all too), no 'on' or one other than 0 or 1, or a name with other characters than letters, digits, _ and -, of digits only, or not a layer of the slot's mapping. Nothing is changed; the body is each slot's key layer, with ok false.
+          content:
+            application/json:
+              example:
+                ok: false
+                slots:
+                  - slot: 1
+                    'on': false
+                    activity: ''
+                    name: ''
   /api/rf/push-config:
     get:
       tags:

@@ -41,6 +41,29 @@ void rf_keymap_invalidate_devices_cache(void);
 void rf_keymap_invalidate_activities_cache(void);
 void rf_keymap_invalidate_map(uint8_t slot);
 
+/* The key layer of a remote slot (1 to MAX_PAIRED_REMOTES), RAM only: while it is on, the keys of the map's
+ * "layers" -> <name> object come before the running activity's own, where the name is the
+ * activity's id for its own layer, or one set through rf_keymap_layer_set() (a device's menus,
+ * say). It belongs to the run of the activity it was turned on in, and is off once the Hub
+ * begins a switch (to another activity, to none, or to the same one again): the daemon counts
+ * its switches in /tmp/activity_switches (get_activity_switches()), and a layer is on only
+ * while that count is the one it was turned on at. A key bound as {"action": "layer_toggle", "on": {"deviceId", "command"},
+ * "off": {"deviceId", "command"}} turns any layer off and sends "off", or, with none on, the
+ * activity's own on and sends "on". active: 1 on (act_out = its activity, name_out = its name,
+ * "" for the activity's own). set: name NULL or "" for the activity's own, letters, digits,
+ * '_' and '-' otherwise, not digits only, and a layer the slot's map has; on only while an
+ * activity runs and none is being started or stopped (a layer_toggle key turns none on then
+ * either; a Help re-send is no start); off with a name turns off that layer only, and nothing
+ * when another is on; -1 for a bad slot or name. A key's holds and its release send the command
+ * its press sent, whatever the layer is by then, and nothing when the press sent none; a hold or
+ * a release that comes 2 s or more after the key's last frame is no longer that press's. Off
+ * (PowerOffActivity) stops the activity, once for a press, unless the layer that is on binds
+ * it; a touchscreen remote stops the activity itself and never sends Off as a key. */
+int rf_keymap_layer_active(uint8_t slot, char *act_out, size_t act_len, char *name_out, size_t name_len);
+int rf_keymap_layer_set(uint8_t slot, int on, const char *name);
+/* The activity switches the daemon has begun (orchestrator.c), 0 when it has written none */
+unsigned long get_activity_switches(void);
+
 #ifdef __cplusplus
 }
 #endif

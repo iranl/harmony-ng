@@ -91,6 +91,55 @@ static int req_slot(const char *buf) {
     return slot;
 }
 
+/* A parameter from the query, else from a JSON body (a string, a whole number, or true/false
+ * as "1"/"0"), as req_slot() reads the slot; 1 found, 0 not */
+static int req_param(const char *buf, const char *key, char *out, size_t out_sz) {
+    if (query_param(buf, key, out, out_sz)) return 1;
+    const char *body = strstr(buf, "\r\n\r\n");
+    cJSON *root = (body && body[4]) ? cJSON_Parse(body + 4) : NULL;
+    cJSON *j = cJSON_IsObject(root) ? cJSON_GetObjectItemCaseSensitive(root, key) : NULL;
+    int found = 1;
+    if (cJSON_IsString(j)) snprintf(out, out_sz, "%s", j->valuestring);
+    else if (cJSON_IsBool(j)) snprintf(out, out_sz, "%s", cJSON_IsTrue(j) ? "1" : "0");
+    else if (cJSON_IsNumber(j) && j->valuedouble == (double)j->valueint) snprintf(out, out_sz, "%d", j->valueint);
+    else found = 0;
+    cJSON_Delete(root);
+    return found;
+}
+
+int rf_api_layer_post(const char *buf) {
+    char ov[8] = "", nv[32] = "";
+    int slot = req_slot(buf);
+    int has_on = req_param(buf, "on", ov, sizeof(ov));
+    int has_name = req_param(buf, "name", nv, sizeof(nv));
+    if (slot < 1 || !has_on || (strcmp(ov, "0") != 0 && strcmp(ov, "1") != 0)) return 400;
+    if (has_name && strlen(nv) >= sizeof(nv) - 1) return 400; /* cut: longer than any layer name */
+    return rf_keymap_layer_set((uint8_t)slot, ov[0] == '1', nv) == 0 ? 0 : 400;
+}
+
+char *rf_api_layer_json(int ok) {
+    cJSON *root = cJSON_CreateObject();
+    if (root) cJSON_AddBoolToObject(root, "ok", ok ? 1 : 0);
+    cJSON *slots = root ? cJSON_AddArrayToObject(root, "slots") : NULL;
+    char *body = NULL;
+    if (slots) {
+        for (int ls = 1; ls <= MAX_PAIRED_REMOTES; ls++) {
+            char la[32], ln[24];
+            int lon = rf_keymap_layer_active((uint8_t)ls, la, sizeof(la), ln, sizeof(ln));
+            cJSON *o = cJSON_CreateObject();
+            if (!o) break;
+            cJSON_AddItemToArray(slots, o);
+            cJSON_AddNumberToObject(o, "slot", ls);
+            cJSON_AddBoolToObject(o, "on", lon ? 1 : 0);
+            cJSON_AddStringToObject(o, "activity", la);
+            cJSON_AddStringToObject(o, "name", ln);
+        }
+        body = cJSON_PrintUnformatted(root);
+    }
+    cJSON_Delete(root);
+    return body;
+}
+
 /* Routes for which slot 0 (or none) means every remote */
 static bool route_takes_all_slots(const char *buf) {
     return route_is(buf, "GET /api/rf/pair") || route_is(buf, "POST /api/rf/pair") ||
@@ -343,7 +392,9 @@ void *api_server_worker(void *arg) {
         if (n > 0) {
             buf[n] = '\0';
             int qslot = req_slot(buf);
-            if (qslot == REQ_SLOT_BAD || (qslot == 0 && !route_takes_all_slots(buf))) {
+            /* the key layer route checks its own slot, and answers a bad one with the layers' body */
+            int layer_route = route_is(buf, "GET /api/rf/layer") || route_is(buf, "POST /api/rf/layer");
+            if (!layer_route && (qslot == REQ_SLOT_BAD || (qslot == 0 && !route_takes_all_slots(buf)))) {
                 const char *res = "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n"
                                   "{\"error\":\"slot: 1 to 6 (0 or all for every remote where the route allows it)\",\"ok\":false}";
                 write(cli, res, strlen(res));
@@ -449,6 +500,22 @@ void *api_server_worker(void *arg) {
                 char res[128];
                 int rlen = snprintf(res, sizeof(res),
                     "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"log_level\":%d,\"ok\":true}", g_log_level);
+                write(cli, res, rlen);
+            } else if (layer_route) {
+                /* The key layers (rf_keymap.h): POST ?slot=N&on=0|1[&name=] turns one off, or on in
+                 * the running activity (the activity's own, or the named one), without sending
+                 * anything; both answer every slot's state. 400 for a POST without one slot
+                 * (1 to MAX_PAIRED_REMOTES), with an "on" other than 0 or 1, or a name that is
+                 * not allowed or not in the slot's map. */
+                int bad = route_is(buf, "POST /api/rf/layer") && rf_api_layer_post(buf) != 0;
+                char *body = rf_api_layer_json(!bad);
+                /* six slots, an activity id of 31 characters with each one escaped, a name of 23 */
+                char res[256 + MAX_PAIRED_REMOTES * 320];
+                int rlen = snprintf(res, sizeof(res),
+                    "HTTP/1.1 %s\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n%s",
+                    bad ? "400 Bad Request" : "200 OK", body ? body : "{\"ok\":false,\"slots\":[]}");
+                free(body);
+                if (rlen >= (int)sizeof(res)) rlen = (int)sizeof(res) - 1;
                 write(cli, res, rlen);
             } else if (strstr(buf, "GET /api/rf/send?hex=") == buf) {
                 if (is_ota_busy()) {

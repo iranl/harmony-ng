@@ -123,6 +123,28 @@ static void clear_activity_target(void) {
     unlink("/tmp/activity_target");
 }
 
+/* One more switch has begun: its number goes to /tmp/activity_switches, after the state file
+ * says "starting" or "stopping" and /tmp/activity_target names the activity. hub_rf keeps a
+ * remote's key layer (rf_keymap.h) only for the run of the activity it was turned on in, and
+ * the files above do not show it a switch that is over before it looks, or one that ends in the
+ * activity it began in. The count goes on from the file's, so it does not start again under a
+ * hub_rf that outlives this process. */
+static void note_activity_switch(void) {
+    static unsigned long s_switches;
+    static int s_loaded;
+    if (!s_loaded) {
+        FILE *f = fopen("/tmp/activity_switches", "r");
+        if (f) {
+            if (fscanf(f, "%lu", &s_switches) != 1) s_switches = 0;
+            fclose(f);
+        }
+        s_loaded = 1;
+    }
+    char line[24];
+    snprintf(line, sizeof(line), "%lu\n", ++s_switches);
+    (void)atomic_file_write_str("/tmp/activity_switches", line);
+}
+
 static void load_current_activity(void) {
     const char *path = PRIMARY_CURRENT_ACT_FILE;
     FILE *f = fopen(path, "r");
@@ -857,6 +879,10 @@ static int switch_activity_locked(const char *target_activity_id, int dry_run,
          * idle): the Logitech shim answers a runactivity on them. */
         int off = (strcmp(target_activity_id, ORCH_POWEROFF_ID) == 0);
         set_state(off ? ORCH_STATE_STOPPING : ORCH_STATE_STARTING);
+        write_activity_target(target_activity_id); /* a switch, as below: no Help re-send */
+        /* not counted as a switch: nothing changes, so a remote's key layer stays on when a
+         * client asks again for the activity that runs (an automation, a second tap) */
+        clear_activity_target();
         set_state(off ? ORCH_STATE_IDLE : ORCH_STATE_RUNNING);
         pthread_mutex_unlock(&g_act_lock);
         printf("[*] Orch: %s is the current activity, nothing to do\n", target_activity_id);
@@ -892,8 +918,10 @@ static int switch_activity_locked(const char *target_activity_id, int dry_run,
     strncpy(g_target_act, target_activity_id, sizeof(g_target_act) - 1);
     /* busy from here on; the event follows once the steps are queued */
     set_state_ex((strcmp(target_activity_id, ORCH_POWEROFF_ID) == 0) ? ORCH_STATE_STOPPING : ORCH_STATE_STARTING, 0);
-
+    /* the target before the count: hub_rf that sees the new count and a starting state with no
+     * target takes it for a Help re-send, and lets a layer come on (rf_keymap.c) */
     write_activity_target(target_activity_id);
+    note_activity_switch();
     if (strcmp(target_activity_id, ORCH_POWEROFF_ID) == 0) {
         hub_send_btstack_cmd("stop_reconnect\n");
     }

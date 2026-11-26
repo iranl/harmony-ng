@@ -167,6 +167,12 @@ int main(void) {
     const char *flat_two =
         "{\"10\":{\"VolumeUp\":" BTN("1", "VolUp") "},\"20\":{\"DirectionUp\":" BTN("2", "Up") "},\"devices\":{\"1\":{}}}";
     check("flat map, two activities: not sent", flat_two, "-1\n", "VolumeUp", NULL, NULL);
+    /* nor is "layers" (the key layers, rf_keymap.h) */
+    const char *flat_layers =
+        "{\"10\":{\"VolumeUp\":" BTN("1", "VolUp") "},\"devices\":{\"1\":{}},"
+        "\"layers\":{\"amp\":{\"DirectionUp\":" BTN("5", "Up") "}}}";
+    check("flat map, one activity next to \"devices\" and \"layers\": its mapping", flat_layers, "-1\n", "VolumeUp", "1", "VolUp");
+    check("and a key only a layer binds is not sent", flat_layers, "-1\n", "DirectionUp", NULL, NULL);
 
     /* A key mapped to Help (a remote without the Help screen sends the raw key) */
     write_file(s_map_path, "{\"activities\":{\"10\":{\"Info\":{\"type\":\"help\"}},\"20\":{}}}");
