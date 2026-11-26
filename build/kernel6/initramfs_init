@@ -6,6 +6,8 @@ mount -t proc proc /proc
 mount -t sysfs sys /sys
 mount -t devtmpfs dev /dev
 mount -t tmpfs tmp /tmp
+# the kernel loads modules on demand (e.g. gadget functions by name) through this path
+echo /bin/modprobe > /proc/sys/kernel/modprobe
 
 echo
 echo "=== Harmony Hub $(uname -r) test initramfs ==="
