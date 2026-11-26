@@ -181,6 +181,9 @@ def main():
 
             print("[-] steps that cannot be sent are reported")
             ws = hub.ws()
+            # the Hub takes the client in (and sends it the snapshot) on its next loop: an
+            # activity started before that sent its first steps' events to no one
+            ws.wait_for("snapshot", 5)
             hub.http_post("/api/activity", {"activity": "18"})
             m, frames = ws.wait_for("activity_progress", 10,
                                     lambda m: m.get("desc") == "Transition completed")
