@@ -10,6 +10,13 @@
 B=/cache/bin/busybox
 mkdir -p /tmp/bin
 $B --install -s /tmp/bin
+# On the first 6.18 boot every applet was "not found" after --install: link them one by one
+if [ ! -e /tmp/bin/ls ]; then
+    echo "rc.sh: busybox --install made no links, linking from --list"
+    for a in $($B --list); do
+        $B ln -sf $B /tmp/bin/$a
+    done
+fi
 export PATH=/tmp/bin:/data/harmony/bin
 exec > /dev/console 2>&1
 echo "rc.sh: $(uname -r)"
@@ -53,6 +60,6 @@ echo "rc.sh: done; console shell follows"
 # Only plain sh: the BusyBox on a Hub's /cache may lack setsid and cttyhack (a loop on a
 # missing applet spun forever). The sleep keeps any failure from spinning.
 while true; do
-    sh < /dev/console > /dev/console 2>&1
+    $B sh < /dev/console > /dev/console 2>&1
     sleep 1
 done
