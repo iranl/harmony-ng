@@ -2,8 +2,10 @@
 # Build a modern (kernel.org LTS) kernel for the Harmony Hub (AR9330). Run in WSL/Linux.
 #
 # Output in $OUT_DIR (default build/output/kernel6):
-#   harmony-hub-kernel.uImage     kernel + appended DTB, LZMA uImage for a flash partition.
-#                                 Reported against the 960 KB (0xF0000) kernel/kernel2 size.
+#   harmony-hub-flash.uImage      kernel + DTB + build/kernel6/init.c as /init, for the stock
+#                                 kernel+kernel2 partitions (0x10000-0x1F0000, 1.875 MB; the
+#                                 build fails when it does not fit). Written by
+#                                 hub_util flash-image; init then runs /cache/kernel6/rc.sh.
 #   harmony-hub-initramfs.uImage  same kernel with a BusyBox shell in RAM, for a serial test
 #                                 boot from U-Boot (loady/loadb to 0x81000000, bootm 0x81000000).
 #   modules.tar.gz, config, System.map
@@ -11,6 +13,7 @@
 #   KERNEL_TARBALL  kernel.org linux-$KVER.tar.xz (default ~/kbuild6/linux-$KVER.tar.xz)
 #   INITRAMFS_MODULES=1  put every module in the initramfs image too (about 1 MB more: each
 #                   1 MB costs about 9 minutes with tools/uboot_mm_load.py)
+#   INIT_CC         C compiler for init.c (default: the uClibc toolchain in build/toolchains)
 #   BUSYBOX         static MIPS BusyBox (default payload/bin/busybox from build/build_busybox.sh)
 #   HOST_TOOLS      optional prefix with flex, bison, m4 and mkimage (usr/bin, usr/share/bison)
 #                   for a build host without them installed (apt-get download + dpkg -x)
@@ -29,7 +32,8 @@ OUT_DIR="${OUT_DIR:-$REPO_ROOT/build/output/kernel6}"
 WORK="${WORK:-$HOME/kbuild6/work}"
 DTS=ar9330_logitech_harmony-hub
 LOADADDR=0x80060000
-PART_SIZE=$((0xF0000))
+SLOT_SIZE=$((0x1E0000))  # stock kernel + kernel2
+INIT_CC="${INIT_CC:-$REPO_ROOT/build/toolchains/mips32--uclibc--stable/bin/mips-buildroot-linux-uclibc-gcc}"
 
 if [ -n "${HOST_TOOLS:-}" ]; then
     export PATH="$HOST_TOOLS/usr/bin:$PATH"
@@ -38,7 +42,7 @@ fi
 for t in mips-linux-gnu-gcc flex bison bc xz mkimage; do
     command -v "$t" >/dev/null || { echo "Error: $t not found" >&2; exit 1; }
 done
-for f in "$KERNEL_TARBALL" "$BUSYBOX"; do
+for f in "$KERNEL_TARBALL" "$BUSYBOX" "$INIT_CC"; do
     [ -e "$f" ] || { echo "Error: $f not found" >&2; exit 1; }
 done
 [ "$KVER" != 6.18.65 ] || echo "$KSHA256  $KERNEL_TARBALL" | sha256sum -c --quiet - \
@@ -93,12 +97,34 @@ EOF
 
 echo "=== Building kernel, modules, DTB ==="
 "${MAKE[@]}" vmlinux.bin modules dtbs > build.log 2>&1 || { grep -n -m 20 -i "error" build.log >&2; exit 1; }
-make_uimage "$OUT_DIR/harmony-hub-kernel.uImage" "Linux-$KVER-harmony"
 cp .config "$OUT_DIR/config"
 cp System.map "$OUT_DIR/System.map"
 rm -rf modroot
 "${MAKE[@]}" INSTALL_MOD_PATH="$WORK/modroot" INSTALL_MOD_STRIP=1 DEPMOD=/sbin/depmod modules_install > /dev/null
 tar -czf "$OUT_DIR/modules.tar.gz" -C modroot lib
+
+# $1 initramfs list, $2 output, $3 image name
+build_with_initramfs() {
+    ./scripts/config --set-str INITRAMFS_SOURCE "$1" -e INITRAMFS_COMPRESSION_XZ
+    "${MAKE[@]}" olddefconfig > /dev/null
+    "${MAKE[@]}" vmlinux.bin > build-initramfs.log 2>&1 || { grep -n -m 20 -i "error" build-initramfs.log >&2; exit 1; }
+    make_uimage "$2" "$3"
+}
+
+echo "=== Building the flash image ==="
+"$INIT_CC" -Os -static -Wall -Wextra -o flash-init "$SRC/init.c"
+"${INIT_CC%gcc}strip" flash-init
+{
+    for d in /dev /proc /sys /tmp /cache /data; do echo "dir $d 755 0 0"; done
+    echo "nod /dev/console 600 0 0 c 5 1"
+    echo "file /init $WORK/flash-init 755 0 0"
+} > flash.list
+build_with_initramfs "$WORK/flash.list" "$OUT_DIR/harmony-hub-flash.uImage" "Linux-$KVER-harmony"
+size=$(stat -c %s "$OUT_DIR/harmony-hub-flash.uImage")
+if [ "$size" -gt "$SLOT_SIZE" ]; then
+    echo "Error: harmony-hub-flash.uImage is $size bytes, the slot holds $SLOT_SIZE" >&2
+    exit 1
+fi
 
 echo "=== Building the initramfs test image ==="
 KREL="$(cat include/config/kernel.release)"
@@ -114,17 +140,8 @@ KREL="$(cat include/config/kernel.release)"
     fi
 } > initramfs.list
 tr -d '\r' < "$SRC/initramfs_init" > initramfs-init
-./scripts/config --set-str INITRAMFS_SOURCE "$WORK/initramfs.list" -e INITRAMFS_COMPRESSION_XZ
-"${MAKE[@]}" olddefconfig > /dev/null
-"${MAKE[@]}" vmlinux.bin > build-initramfs.log 2>&1 || { grep -n -m 20 -i "error" build-initramfs.log >&2; exit 1; }
-make_uimage "$OUT_DIR/harmony-hub-initramfs.uImage" "Linux-$KVER-harmony-initramfs"
+build_with_initramfs "$WORK/initramfs.list" "$OUT_DIR/harmony-hub-initramfs.uImage" "Linux-$KVER-harmony-initramfs"
 
 echo "=== Result ==="
-size=$(stat -c %s "$OUT_DIR/harmony-hub-kernel.uImage")
-echo "harmony-hub-kernel.uImage: $size bytes (partition $PART_SIZE)"
-if [ "$size" -le "$PART_SIZE" ]; then
-    echo "Fits kernel/kernel2 with $((PART_SIZE - size)) bytes free"
-else
-    echo "Does NOT fit kernel/kernel2: $((size - PART_SIZE)) bytes too big"
-fi
+echo "harmony-hub-flash.uImage: $size bytes, $((SLOT_SIZE - size)) of the $SLOT_SIZE byte slot free"
 echo "harmony-hub-initramfs.uImage: $(stat -c %s "$OUT_DIR/harmony-hub-initramfs.uImage") bytes (RAM boot only)"

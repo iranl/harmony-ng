@@ -2,10 +2,11 @@
 /*
  * Logitech Harmony Hub (Atheros AR9330 "Hornet", 64 MB DDR, 16 MB SPI NOR).
  *
- * Phase 1 tree: only what the stock board code proves (UART, SPI flash with the stock
- * partition table, GPIO, watchdog, USB, Wi-Fi). Every partition is read-only, so a test
- * kernel cannot write the flash. GPIO users (LEDs, buttons, CC2544 IRQ, BT reset) are added
- * once their numbers are read from the stock kernel.
+ * Stock partition table. u-boot, root (the stock squashfs, needed to go back to the stock
+ * kernel) and mfg (calibration, MACs) are read-only; kernel/kernel2 are writable so the new
+ * system can put the stock kernel back, data/cache because the new system runs from them.
+ * GPIO users (LEDs, buttons, CC2544 IRQ, BT reset) are added once their numbers are read
+ * from the stock kernel.
  *
  * The CC2544 RF chip sits on SPI CS1 next to the flash (CS0). No device is declared on CS1:
  * nothing may talk to it until a driver that follows the AGENTS.md SPI rules exists.
@@ -93,13 +94,11 @@
 			partition@10000 {
 				label = "kernel";
 				reg = <0x010000 0x0f0000>;
-				read-only;
 			};
 
 			partition@100000 {
 				label = "kernel2";
 				reg = <0x100000 0x0f0000>;
-				read-only;
 			};
 
 			partition@1f0000 {
@@ -111,13 +110,11 @@
 			partition@5f0000 {
 				label = "data";
 				reg = <0x5f0000 0x500000>;
-				read-only;
 			};
 
 			partition@af0000 {
 				label = "cache";
 				reg = <0xaf0000 0x500000>;
-				read-only;
 			};
 
 			partition@ff0000 {
