@@ -535,6 +535,55 @@ wait_activity_switch() {
   return 0
 }
 
+# A release with the Linux 6.18 system image (kernel6/ in the manifest, scripts/publish_ota.py), on
+# a Hub that runs it: the root file system is staged in /cache/kernel6/rootfs.sqfs (the kernel's
+# init boots the fallback for it, which writes it: build/kernel6/init.c, rc.sh), then the kernel is
+# written. Staged first: a failure leaves the old kernel with the old root file system. Returns 0
+# when the system was updated and needs a reboot.
+apply_kernel6() {
+  uname -r | grep -q harmony || return 1
+  grep -q '"kernel6/harmony-hub-flash.uImage"' "$TMPDIR/manifest.json" 2>/dev/null || return 1
+  grep -q '"kernel6/harmony-hub-rootfs.sqfs"' "$TMPDIR/manifest.json" 2>/dev/null || return 1
+  echo "[*] Linux 6.18 system image in the release: kernel and root file system..."
+  for _f in harmony-hub-flash.uImage harmony-hub-rootfs.sqfs; do
+    if ! download_retry "${REPO}/kernel6/${_f}?_=${TIMESTAMP}" "$TMPDIR/$_f" 35 3 signed; then
+      echo "[-] kernel6/$_f not downloaded: the system image is not updated"
+      return 1
+    fi
+    if ! verify_files "kernel6/$_f=$TMPDIR/$_f"; then
+      echo "[-] kernel6/$_f does not match the signed manifest: the system image is not updated"
+      return 1
+    fi
+  done
+  # a root file system boot does not need the fallback boot's modules any more
+  grep -q '^overlay / overlay' /proc/mounts && rm -rf /cache/kernel6/modules 2>/dev/null
+  _need=$(( $(wc -c < "$TMPDIR/harmony-hub-rootfs.sqfs") / 1024 + 64 ))
+  _free=$(df -k /cache 2>/dev/null | awk 'NR == 2 { print $4 }')
+  if [ "${_free:-0}" -lt "$_need" ]; then
+    echo "[-] /cache has ${_free} KB free, the root file system needs ${_need} KB: the system image is not updated"
+    return 1
+  fi
+  mkdir -p /cache/kernel6
+  if ! { cp "$TMPDIR/harmony-hub-rootfs.sqfs" /cache/kernel6/rootfs.sqfs.new &&
+         mv -f /cache/kernel6/rootfs.sqfs.new /cache/kernel6/rootfs.sqfs; }; then
+    rm -f /cache/kernel6/rootfs.sqfs.new /cache/kernel6/rootfs.sqfs
+    echo "[-] The root file system could not be stored in /cache: the system image is not updated"
+    return 1
+  fi
+  # the CC2544 shares the SPI bus with the flash (hub_util refuses while hub_rf runs)
+  killall -9 hub_rf hub_btstack 2>/dev/null
+  sleep 1
+  _k=$(grep '"kernel"' /proc/mtd | cut -d: -f1)
+  _k2=$(grep '"kernel2"' /proc/mtd | cut -d: -f1)
+  if ! "$HUB_UTIL" flash-image "$TMPDIR/harmony-hub-flash.uImage" "/dev/$_k" "/dev/$_k2"; then
+    rm -f /cache/kernel6/rootfs.sqfs
+    echo "[-] The kernel could not be written: the system image is not updated"
+    return 1
+  fi
+  echo "[+] Linux 6.18 kernel written; the root file system is written at the next boot."
+  return 0
+}
+
 do_apply() {
   touch /tmp/hub_updating.flag 2>/dev/null || true
   set_update_state running
@@ -770,6 +819,10 @@ do_apply() {
   # image of the old version that hub_rf kept for a resume (sent unverified once its manifest is gone)
   rm -rf /tmp/www/assets/icons /tmp/remote_ui.ota.gz /tmp/remote_manifest.json /tmp/remote_manifest.json.sig 2>/dev/null || true
 
+  # 6b. The Linux 6.18 system image, on a Hub that runs it (needs a reboot)
+  K6_REBOOT=0
+  apply_kernel6 && K6_REBOOT=1
+
   # 7. Clean up temporary directory
   rm -rf "$TMPDIR" 2>/dev/null
 
@@ -781,7 +834,7 @@ do_apply() {
   # update has no kernel modules; a new rcS.local takes effect at the next boot). Detached, its
   # output to /dev/null: the services must not write into the apply log.
   set_update_state restarting "$NEW_VER"
-  if [ -x /data/harmony/init.sh ]; then
+  if [ -x /data/harmony/init.sh ] && [ "$K6_REBOOT" != 1 ]; then
     echo "[+] Update to v${NEW_VER} applied successfully. Restarting Hub services..."
     rm -f /tmp/harmony_stop 2>/dev/null || true
     /data/harmony/init.sh restart >/dev/null 2>&1 </dev/null &

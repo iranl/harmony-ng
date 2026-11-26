@@ -211,6 +211,22 @@ def package_ota(output_dir: Path, version: str):
     else:
         print("[-] Warning: No built WebUI bundle found with index.html")
 
+    # 4b. Linux 6.18 system (build/build_kernel6.sh, build/build_rootfs6.sh): kernel and root
+    # file system images, for Hubs that run it (update.sh writes the kernel and stages the root
+    # file system for the next boot). Optional: a release without them updates HarmonyNG only.
+    k6_src = REPO_ROOT / "build" / "output" / "kernel6"
+    k6_target = output_dir / "kernel6"
+    for k6name in ("harmony-hub-flash.uImage", "harmony-hub-rootfs.sqfs"):
+        src = k6_src / k6name
+        if not src.is_file():
+            print(f"[*] {k6name} not built: no Linux 6.18 system image in this release")
+            continue
+        k6_target.mkdir(parents=True, exist_ok=True)
+        dst = k6_target / k6name
+        shutil.copy2(src, dst)
+        md5, sha = get_file_hashes(dst)
+        manifest_files[f"kernel6/{k6name}"] = {"size": dst.stat().st_size, "md5": md5, "sha256": sha}
+
     # 5. Unified Hub OTA bundle (hub_ota.tar.gz)
     hub_tar = output_dir / "hub_ota.tar.gz"
     print(f"[*] Creating unified Hub OTA package {hub_tar.name}...")

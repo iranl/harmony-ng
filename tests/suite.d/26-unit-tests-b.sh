@@ -112,6 +112,7 @@ build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source/hub_btstack" -o "$BUIL
 python3 "$SCRIPT_DIR/test_safe_reboot.py"
 # update.sh apply in a host sandbox (a failed copy changes no installed file and no version)
 python3 "$SCRIPT_DIR/test_update_apply.py"
+python3 "$SCRIPT_DIR/test_update_kernel6.py"
 
 # 5. Run Hub & Remote Full Co-Simulation
 python3 "$SCRIPT_DIR/test_bt_connect_commands.py"
