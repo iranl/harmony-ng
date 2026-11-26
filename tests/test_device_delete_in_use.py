@@ -7,7 +7,7 @@ Deleting a device that is still used is refused (as agreed in #220): POST /api/d
   (slot) and of the Bluetooth remote map ("activities/10/VolumeUp")
 - the map's own page for the device ("devices/<id>") does not count
 - a device nothing uses is deleted as before (200, ok true); an unknown device is not a 409
-- a device never becomes undeletable: bindings in a map section (or a key layer) whose activity no longer exists
+- a device never becomes undeletable: key layers (no editor shows them yet) and bindings in a map section whose activity no longer exists
   and in the map of a slot with no paired remote (from hub_rf's status; without an answer, a slot
   with a version file) do not count; deleting an activity removes its sections and its own key layer
   ("layers/<id>", with those of activities deleted before) from the maps, not named layers; a
@@ -150,8 +150,8 @@ def main():
             check(st == 409 and [u.get("id") for u in users_of(r, "activity")] == ["12"]
                   and users_of(r, "activity")[0].get("fields") == ["deviceIds"], "deviceIds counts (legacy route)",
                   "%s %s" % (st, r))
-            check([sorted(u.get("keys")) for u in users_of(r, "remote_map")] == [["activities/12/A", "layers/12/DirectionUp"]],
-                  "and the activity's key and its layer's in slot 1", str(r))
+            check([sorted(u.get("keys")) for u in users_of(r, "remote_map")] == [["activities/12/A"]],
+                  "and the activity's key in slot 1, not its layer's (no editor shows layers)", str(r))
 
             print("[-] deleting the activity removes its map sections; then the device goes")
             st, r = hub.http_post("/api/activity-delete", {"id": "12"})

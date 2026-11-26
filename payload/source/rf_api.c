@@ -91,11 +91,27 @@ static int req_slot(const char *buf) {
     return slot;
 }
 
+/* A parameter from the query, else from a JSON body (a string, a whole number, or true/false
+ * as "1"/"0"), as req_slot() reads the slot; 1 found, 0 not */
+static int req_param(const char *buf, const char *key, char *out, size_t out_sz) {
+    if (query_param(buf, key, out, out_sz)) return 1;
+    const char *body = strstr(buf, "\r\n\r\n");
+    cJSON *root = (body && body[4]) ? cJSON_Parse(body + 4) : NULL;
+    cJSON *j = cJSON_IsObject(root) ? cJSON_GetObjectItemCaseSensitive(root, key) : NULL;
+    int found = 1;
+    if (cJSON_IsString(j)) snprintf(out, out_sz, "%s", j->valuestring);
+    else if (cJSON_IsBool(j)) snprintf(out, out_sz, "%s", cJSON_IsTrue(j) ? "1" : "0");
+    else if (cJSON_IsNumber(j) && j->valuedouble == (double)j->valueint) snprintf(out, out_sz, "%d", j->valueint);
+    else found = 0;
+    cJSON_Delete(root);
+    return found;
+}
+
 int rf_api_layer_post(const char *buf) {
     char ov[8] = "", nv[32] = "";
     int slot = req_slot(buf);
-    int has_on = query_param(buf, "on", ov, sizeof(ov));
-    int has_name = query_param(buf, "name", nv, sizeof(nv));
+    int has_on = req_param(buf, "on", ov, sizeof(ov));
+    int has_name = req_param(buf, "name", nv, sizeof(nv));
     if (slot < 1 || !has_on || (strcmp(ov, "0") != 0 && strcmp(ov, "1") != 0)) return 400;
     if (has_name && strlen(nv) >= sizeof(nv) - 1) return 400; /* cut: longer than any layer name */
     return rf_keymap_layer_set((uint8_t)slot, ov[0] == '1', nv) == 0 ? 0 : 400;

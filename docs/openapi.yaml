@@ -3388,7 +3388,7 @@ paths:
       tags:
         - RF & Remote
       summary: Turn a remote slot's key layer on or off, without sending a key
-      description: With no activity running, or while one is being started or stopped, on=1 leaves the layer off (a Help re-send of the running activity is no start). on=0 with a name turns off that layer only (nothing changes when another layer is on), on=0 without one whatever layer is on.
+      description: The parameters may come in a JSON body instead ({"slot":1,"on":1,"name":"amp"}, on also true/false); the query wins. With no activity running, or while one is being started or stopped, on=1 leaves the layer off (a Help re-send of the running activity is no start). on=0 with a name turns off that layer only (nothing changes when another layer is on), on=0 without one whatever layer is on.
       parameters:
         - name: slot
           in: query

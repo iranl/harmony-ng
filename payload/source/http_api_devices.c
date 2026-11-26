@@ -290,9 +290,9 @@ static int activity_layer_key(const char *key) {
     return 1;
 }
 
-/* A section of a remote map that no longer has its activity ("activities/<id>", or its own key
- * layer "layers/<id>") or its device ("devices/<id>", a page left from before deleted devices'
- * pages were removed): no editor shows it, so its bindings cannot be changed and must not hold a
+/* A section of a remote map that no longer has its activity ("activities/<id>") or its device
+ * ("devices/<id>", a page left from before deleted devices' pages were removed), or a key layer
+ * ("layers/<name>"): no editor shows it, so its bindings cannot be changed and must not hold a
  * device. "-1" and "default" are the fallback sections. */
 static int stale_section(const char *path, const cJSON *act_ids, const cJSON *dev_ids) {
     const char *id;
@@ -302,9 +302,7 @@ static int stale_section(const char *path, const cJSON *act_ids, const cJSON *de
         ids = act_ids;
         if (strcmp(id, "-1") == 0 || strcmp(id, "default") == 0) return 0;
     } else if (strncmp(path, "layers/", 7) == 0) {
-        id = path + 7;
-        ids = act_ids;
-        if (!activity_layer_key(id)) return 0;
+        return 1; /* no editor shows a key layer yet (ROADMAP 2.14): its bindings hold no device */
     } else if (strncmp(path, "devices/", 8) == 0) {
         id = path + 8;
         ids = dev_ids;

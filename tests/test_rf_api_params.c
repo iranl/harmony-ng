@@ -108,6 +108,13 @@ int main(void) {
         CHECK(st == 200 && strstr(body, "\"ok\":true") && strstr(body, "\"slots\":["),
               "GET layer (it takes no slot) answered %d with %s", st, body);
     }
+    /* the layer route takes all its parameters from a JSON body too, as the other rf routes do */
+    st = api("POST /api/rf/layer HTTP/1.1\r\nHost: x\r\nContent-Length: 17\r\n\r\n{\"slot\":1,\"on\":0}");
+    CHECK(st == 200, "layer with slot and on in a JSON body answered %d", st);
+    st = api("POST /api/rf/layer HTTP/1.1\r\nHost: x\r\nContent-Length: 21\r\n\r\n{\"slot\":1,\"on\":false}");
+    CHECK(st == 200, "layer with on false in a JSON body answered %d", st);
+    st = api("POST /api/rf/layer HTTP/1.1\r\nHost: x\r\nContent-Length: 17\r\n\r\n{\"slot\":1,\"on\":5}");
+    CHECK(st == 400, "layer with on 5 in a JSON body answered %d", st);
 
     /* restart after a restored slot table: asked for, then only once nothing runs */
     CHECK(!rf_restart_due(), "a restart was due before one was asked for");

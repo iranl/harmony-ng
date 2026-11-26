@@ -116,9 +116,12 @@ static void held_drop(uint8_t slot, const char *button) {
     pthread_mutex_unlock(&g_map_lock);
 }
 
-/* Every slot's layer off at once, for a stop this process asks for itself (the Off key): the
- * switch that follows would turn them off anyway, one request later */
-static void layers_off(void) {
+/* Asks hub_daemon to stop the activity. Once it took the stop, every slot's layer goes off at
+ * once (the switch that follows would turn them off anyway, one request later); a stop it did
+ * not take leaves them on, with the activity. */
+static void stop_activity(void) {
+    int st = http_post_local(DAEMON_PORT, "/api/poweroff", "{}");
+    if (st < 200 || st >= 300) return;
     pthread_mutex_lock(&g_map_lock);
     for (int s = 1; s <= MAX_PAIRED_REMOTES; s++) {
         if (s_layer_act[s][0]) printf("[*] RF key layer of slot %d off: the activity is stopped\n", s);
@@ -468,8 +471,7 @@ int rf_keymap_layer_set(uint8_t slot, int on, const char *name) {
 static void off_stops_activity(uint8_t slot, const char *button_name, uint64_t ts_ms) {
     printf("[*] RF Dispatch: PowerOffActivity -> Stopping activity\n");
     held_keep_nothing(slot, button_name, ts_ms);
-    layers_off();
-    http_post_local(DAEMON_PORT, "/api/poweroff", "{}");
+    stop_activity();
 }
 
 /* The activity object for a key the current activity does not map (or with no activity running):
@@ -662,6 +664,9 @@ static void run_remote_button(uint8_t slot, const char *button_name, const char 
         }
         pthread_mutex_unlock(&g_map_lock);
     }
+    /* A hold that gets here has no press: that one was lost, and this hold is taken for it (kept
+     * below), so the key acts once however long it is held */
+    int pressed = is_press;
 
     /* Standard Activity-Based mapping. The switch count is read first, as in rf_keymap_layer_set(). */
     unsigned long switches = get_activity_switches();
@@ -724,7 +729,7 @@ static void run_remote_button(uint8_t slot, const char *button_name, const char 
          * activity running there is no layer to turn on, and none comes on while an activity is
          * being started or stopped (as in rf_keymap_layer_set()): the key sends nothing. */
         int running = act_id[0] && strcmp(act_id, "-1") != 0;
-        if (first_press && layer_slot_ok(slot) && running && (layer_on || !switch_under_way())) {
+        if (pressed && layer_slot_ok(slot) && running && (layer_on || !switch_under_way())) {
             cJSON *send = cJSON_GetObjectItemCaseSensitive(btn_cfg, layer_on ? "off" : "on");
             cJSON *j_sdev = (send && cJSON_IsObject(send)) ? cJSON_GetObjectItemCaseSensitive(send, "deviceId") : NULL;
             cJSON *j_scmd = (send && cJSON_IsObject(send)) ? cJSON_GetObjectItemCaseSensitive(send, "command") : NULL;
@@ -762,7 +767,7 @@ static void run_remote_button(uint8_t slot, const char *button_name, const char 
                   (act_type_buf[0] == '\0' && dev_id_buf[0] && cmd_buf[0]));
     int sends = is_cmd && dev_id_buf[0] && cmd_buf[0];
     /* the press's command, for its holds and its release ("" when it sends none) */
-    if (first_press) held_keep_unlocked(slot, button_name, sends ? dev_id_buf : "", sends ? cmd_buf : "", ts_ms);
+    if (pressed) held_keep_unlocked(slot, button_name, sends ? dev_id_buf : "", sends ? cmd_buf : "", ts_ms);
     pthread_mutex_unlock(&g_map_lock);
 
     if (sends) {
@@ -777,7 +782,7 @@ static void run_remote_button(uint8_t slot, const char *button_name, const char 
     } else if (is_press && (strcmp(act_type_buf, "activity_stop") == 0 || strcmp(act_type_buf, "poweroff") == 0)) {
         printf("[*] RF Dispatch: Stop activity (PowerOff)\n");
         http_post_local(DAEMON_PORT, "/api/poweroff", "{}");
-    } else if (is_press && strcmp(action_state, "hold") != 0 && strcmp(act_type_buf, "help") == 0) {
+    } else if (is_press && strcmp(act_type_buf, "help") == 0) {
         /* A remote without the Help screen: re-send the running activity's commands */
         printf("[*] RF Dispatch: Help for the running activity\n");
         http_post_local(DAEMON_PORT, "/api/activity/help", "{}");
@@ -1183,8 +1188,7 @@ void *dispatch_worker(void *arg) {
 void dispatch_activity_to_daemon(const char *act_id) {
     if (strcmp(act_id, "-1") == 0) {
         printf("[*] RF Dispatching Activity Stop (PowerOff) to Hub\n");
-        layers_off();
-        http_post_local(DAEMON_PORT, "/api/poweroff", "{}");
+        stop_activity();
     } else {
         printf("[*] RF Dispatching Activity Start: %s to Hub\n", act_id);
         char body[160], e_act[128];

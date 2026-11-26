@@ -3,10 +3,9 @@
 The daemon counts the activity switches it begins in /tmp/activity_switches (orchestrator.c).
 
 hub_rf keeps a remote's key layer (rf_keymap.h) only while that count stands, so every switch
-must add one, also the two that the activity files do not show it:
-- the activity that already runs started again (nothing is sent, the state goes to "starting"
-  and back at once)
-- a power off while off
+must add one. Asking again for the activity that runs (a power off while off too) is no switch:
+nothing is sent, and a client that asks again (an automation, a second tap) must not turn a
+layer off.
 A daemon that starts goes on from the count in the file: hub_rf may outlive it, and a count
 that began again at 1 could come back to the one a layer was turned on at.
 The daemon runs with --dry-run.
@@ -60,18 +59,18 @@ def main():
         check(count() == 41, "a start: one more, on from the count in the file", str(count()))
         st, r = hub.http_post("/api/activity", {"activity": "10"})
         check(st == 200 and wait_idle(hub, "10"), "activity 10 started again", "%s %s" % (st, r))
-        check(count() == 42, "the same activity started again: one more", str(count()))
+        check(count() == 41, "the same activity started again: no switch", str(count()))
         st, r = hub.http_post("/api/poweroff", {})
         check(st == 200 and wait_idle(hub, "-1"), "power off", "%s %s" % (st, r))
-        check(count() == 43, "a power off: one more", str(count()))
+        check(count() == 42, "a power off: one more", str(count()))
         st, r = hub.http_post("/api/poweroff", {})
         check(st == 200 and wait_idle(hub, "-1"), "power off while off", "%s %s" % (st, r))
-        check(count() == 44, "a power off while off: one more", str(count()))
+        check(count() == 42, "a power off while off: no switch", str(count()))
     with HubHarness(port=PORT, log_path=os.path.join(log_dir, "hub2.log")) as hub:
         print("[-] a restarted daemon goes on from the file")
         st, r = hub.http_post("/api/activity", {"activity": "10"})
         check(st == 200 and wait_idle(hub, "10"), "activity 10 started", "%s %s" % (st, r))
-        check(count() == 45, "one more than the daemon before it left", str(count()))
+        check(count() == 43, "one more than the daemon before it left", str(count()))
         hub.http_post("/api/poweroff", {})
         wait_idle(hub, "-1")
 

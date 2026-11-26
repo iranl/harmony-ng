@@ -5,7 +5,7 @@
  * sends "off"; its release sends the release of that same command. While the layer is on, the
  * keys of map "layers" -> <activity> come before the activity's own. The layer belongs to the
  * activity it was turned on in: another activity, or none, turns it off, and so does every switch
- * the daemon counts, also one that ends in the same activity. The API functions set and read it
+ * the daemon counts, also one that ends in the activity it began in. The API functions set and read it
  * without sending anything.
  *
  * As in test_rf_keymap_fallback.c, fopen() is wrapped (-Wl,--wrap=fopen) for the map, the
@@ -67,6 +67,7 @@ FILE *__wrap_fopen(const char *path, const char *mode) {
 static char s_last_send[256];
 static int s_sends;
 static int s_poweroffs;
+static int s_poweroff_status = 200; /* what hub_daemon answers a stop */
 
 int http_post_local(int port, const char *path, const char *body) {
     (void)port;
@@ -74,7 +75,10 @@ int http_post_local(int port, const char *path, const char *body) {
         snprintf(s_last_send, sizeof(s_last_send), "%s", body);
         s_sends++;
     }
-    if (path && strcmp(path, "/api/poweroff") == 0) s_poweroffs++;
+    if (path && strcmp(path, "/api/poweroff") == 0) {
+        s_poweroffs++;
+        return s_poweroff_status;
+    }
     return 200;
 }
 
@@ -408,6 +412,23 @@ int main(void) {
     check_start("Red starts activity 2", "Red", "2");
     check("held, it starts nothing again", "Red", "hold", NULL, NULL);
     check("released", "Red", "release", NULL, NULL);
+    /* Its press lost: the first hold is taken for the press, and starts it once */
+    s_sends = 0;
+    s_last_send[0] = '\0';
+    dispatch_remote_button(2, "Red", "hold", NULL);
+    printf("[%s] a hold whose press was lost starts activity 2 (sends=%d %s)\n",
+           (s_sends == 1 && strcmp(s_last_send, "{\"activity\":\"2\"}") == 0) ? "+" : "-", s_sends, s_last_send);
+    if (s_sends != 1 || strcmp(s_last_send, "{\"activity\":\"2\"}") != 0) failures++;
+    check("the next hold starts nothing again", "Red", "hold", NULL, NULL);
+    check("released", "Red", "release", NULL, NULL);
+    /* A stop hub_daemon does not take leaves the layers on, with the activity */
+    rf_keymap_layer_set(2, 1, "amp");
+    s_poweroff_status = 503;
+    dispatch_activity_to_daemon("-1");
+    expect_layer_named("a stop not taken leaves the layer on", 1, "1", "amp");
+    s_poweroff_status = 200;
+    dispatch_activity_to_daemon("-1");
+    expect_layer("a stop taken turns it off", 0, "");
 
     /* While an activity is being started or stopped no layer comes on, also during a switch to
        the activity that already runs */
@@ -447,10 +468,10 @@ int main(void) {
     rf_keymap_layer_set(2, 0, NULL);
 
     /* A switch the daemon begins turns the layer off, also one that ends in the same activity
-       and is over before anything here looks (the same activity started again) */
+       and is over before anything here looks */
     rf_keymap_layer_set(2, 1, "amp");
     daemon_switch();
-    expect_layer("the same activity started again: the layer is off", 0, "");
+    expect_layer("a switch that ends in the same activity: the layer is off", 0, "");
     check("and the arrow is the activity's", "DirectionUp", "press", "2", "Up");
     check("released", "DirectionUp", "release", "2", "Up");
     check("Guide turns the activity's own layer on", "Guide", "press", "3", "Green");

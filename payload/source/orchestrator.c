@@ -880,7 +880,8 @@ static int switch_activity_locked(const char *target_activity_id, int dry_run,
         int off = (strcmp(target_activity_id, ORCH_POWEROFF_ID) == 0);
         set_state(off ? ORCH_STATE_STOPPING : ORCH_STATE_STARTING);
         write_activity_target(target_activity_id); /* a switch, as below: no Help re-send */
-        note_activity_switch(); /* started again: a switch, though nothing is sent */
+        /* not counted as a switch: nothing changes, so a remote's key layer stays on when a
+         * client asks again for the activity that runs (an automation, a second tap) */
         clear_activity_target();
         set_state(off ? ORCH_STATE_IDLE : ORCH_STATE_RUNNING);
         pthread_mutex_unlock(&g_act_lock);
