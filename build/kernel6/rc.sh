@@ -26,6 +26,9 @@ ifconfig lo 127.0.0.1 up
 
 # USB: device mode, RNDIS + CDC ECM to the PC. The Hub is 192.168.7.1 and gives the PC
 # 192.168.7.2 by DHCP.
+# No hotplug helper loads drivers for device tree nodes: the PHY first, then the controller.
+modprobe phy-ath79-usb
+modprobe ci_hdrc_usb2
 if modprobe g_ether && ifconfig usb0 192.168.7.1 netmask 255.255.255.0 up; then
     cat > /tmp/udhcpd.conf <<EOF
 start 192.168.7.2
