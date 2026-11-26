@@ -46,6 +46,34 @@ int uimage_check(const uint8_t *img, size_t len, char *err, size_t errlen) {
     return 0;
 }
 
+static uint32_t le32(const uint8_t *p) {
+    return (uint32_t)p[3] << 24 | (uint32_t)p[2] << 16 | (uint32_t)p[1] << 8 | p[0];
+}
+
+int squashfs_check(const uint8_t *img, size_t len, int comp, char *err, size_t errlen) {
+    if (len < 96 || memcmp(img, "hsqs", 4) != 0) {
+        snprintf(err, errlen, "not a squashfs image");
+        return -1;
+    }
+    unsigned int c = img[20] | img[21] << 8;
+    unsigned int major = img[28] | img[29] << 8;
+    if (major != 4) {
+        snprintf(err, errlen, "squashfs version %u, not 4", major);
+        return -1;
+    }
+    if (c != (unsigned int)comp) {
+        snprintf(err, errlen, "squashfs compression %u, not %d", c, comp);
+        return -1;
+    }
+    /* bytes_used, 64-bit little endian at 40: the image must not be cut */
+    if (le32(img + 44) != 0 || le32(img + 40) > len) {
+        snprintf(err, errlen, "squashfs is cut: %u bytes used, file has %u", le32(img + 40),
+                 (unsigned)len);
+        return -1;
+    }
+    return 0;
+}
+
 /* one erase block: content wanted at (part, off) */
 static int write_block(const struct flash_part *part, const struct flash_ops *ops, uint32_t off,
                        const uint8_t *want, uint8_t *buf, int *written, char *err, size_t errlen) {

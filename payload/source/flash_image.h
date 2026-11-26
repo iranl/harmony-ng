@@ -23,6 +23,12 @@ uint32_t flash_crc32(uint32_t crc, const uint8_t *p, size_t len);
 /* 0 when img is a complete uImage with valid header and data CRCs and len covers it. */
 int uimage_check(const uint8_t *img, size_t len, char *err, size_t errlen);
 
+#define SQUASHFS_XZ   4   /* the Linux 6.18 root file system (build/build_rootfs6.sh) */
+#define SQUASHFS_LZMA 2   /* the stock root */
+
+/* 0 when img is a squashfs 4 image with compression comp whose used size len covers. */
+int squashfs_check(const uint8_t *img, size_t len, int comp, char *err, size_t errlen);
+
 /* Writes img over the partitions, which must follow each other on the flash in the given
  * order. Every erase block is read first and skipped when it already holds the data; others
  * are erased, written and read back. The first block (the uImage header) is written last, so

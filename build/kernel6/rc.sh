@@ -1,58 +1,102 @@
 #!/bin/sh
-# /cache/kernel6/rc.sh: boot script of the Linux 6.18 kernel, started by its init (init.c) as
-# PID 1. It lives on /cache so it can be changed from the stock system without writing the
-# kernel.
+# Boot script of the Linux 6.18 Hub system, started by its init (build/kernel6/init.c) as PID 1:
+#   root file system boot  /etc/init.d/rcS of the overlay root (build/build_rootfs6.sh)
+#   fallback boot          /cache/kernel6/rc.sh (the root partition holds no root file system of
+#                          ours yet, or a new one is pending in /cache/kernel6/rootfs.sqfs)
 #
-# It plays the part of the stock /etc/init.d/rcS: it builds the environment the HarmonyNG
-# scripts were written for on the stock kernel (paths, tool names, the ath0 interface, ttyS0),
-# loads the drivers, and then sources /etc/init.d/rcS.local as rcS did. rcS.local starts
-# wpa_supplicant, Bluetooth and init.sh (network_manager.sh, hub_daemon, hub_rf, hub_btstack,
-# SSH). Without HarmonyNG installed it brings up Wi-Fi, USB network and SSH itself.
+# It plays the part of the stock /etc/init.d/rcS: it gives the HarmonyNG scripts written for the
+# stock kernel their environment (paths, tool names, the ath0 interface, ttyS0), loads the
+# drivers, and sources /etc/init.d/rcS.local as rcS did. rcS.local starts wpa_supplicant,
+# Bluetooth and init.sh (network_manager.sh, hub_daemon, hub_rf, hub_btstack, SSH). Without
+# HarmonyNG installed it brings up Wi-Fi, USB network and SSH itself.
 #
-# /cache/kernel6/modules/<release>  kernel modules          /mnt/data/kernel6/bin  tools
-# /mnt/data                         mtd:data, the writable layer of the stock union root
-# /cache/kernel6/serial-console     present: keep the serial console, no Bluetooth (shared UART)
+# /cache/kernel6/serial-console  present: keep the serial console, no Bluetooth (shared UART)
+# Pair button held at boot for 5 s: factory reset (data and cache erased by init at the reboot)
 
-B=/cache/bin/busybox
-K=/cache/kernel6
-W=/mnt/data/kernel6/bin
-# The RAM root has no /bin: the applets go there, so /bin/sh (the login shell in /etc/passwd)
-# and the default PATH work. (mkdir is not an ash builtin: use $B.)
-$B mkdir -p /bin /sbin /usr/bin /usr/sbin /usr/share/udhcpc /var/run /var/log /var/volatile/tmp /lib
-$B --install -s /bin
+if grep -q '^overlay / overlay' /proc/mounts; then
+    # root file system: everything at its place in the squashfs, the stock layout in the overlay
+    ROOTFS=1
+    B=/bin/busybox
+    K=/usr/lib/kernel6          # its scripts
+    T=/usr/lib/kernel6/bin      # its tools
+else
+    # fallback: a RAM root; the tools on the flash partitions. The data partition holds the
+    # stock layout at its top, or in upper/ once a root file system booted (init.c moved it).
+    ROOTFS=0
+    D=/mnt/data
+    [ -d /mnt/data/upper ] && D=/mnt/data/upper
+    B=/cache/bin/busybox
+    K=/cache/kernel6
+    T=$D/kernel6/bin
+    # The RAM root has no /bin: the applets go there, so /bin/sh (the login shell in /etc/passwd)
+    # and the default PATH work. (mkdir is not an ash builtin: use $B.)
+    $B mkdir -p /bin /sbin /usr/bin /usr/sbin /usr/share/udhcpc /var/run /var/log /var/volatile/tmp /lib
+    $B --install -s /bin
+fi
+F=/cache/kernel6               # flags and a pending root file system image
 export PATH=/data/harmony/bin:/cache/bin:/usr/sbin:/usr/bin:/sbin:/bin
 exec > /dev/console 2>&1
-echo "rc.sh: $(uname -r)"
+echo "rc.sh: $(uname -r), $([ $ROOTFS = 1 ] && echo 'root file system' || echo 'fallback') boot"
 SERIAL=0
-[ -f $K/serial-console ] && SERIAL=1
+[ -f $F/serial-console ] && SERIAL=1
 
 # --- the stock layout ---
-# The stock union root put the writable layer under /: its /data, /etc, /home (root's home is
-# /home/root), /root and /usr/local are the paths every script and tool uses.
-for d in data etc home root; do
-    [ -e /$d ] || ln -s /mnt/data/$d /$d
-done
-[ -e /lib/modules ] || ln -s $K/modules /lib/modules
-[ -e /lib/firmware ] || ln -s /mnt/data/kernel6/firmware /lib/firmware
+if [ $ROOTFS = 1 ]; then
+    mount -t tmpfs tmpfs /var/volatile
+    mkdir -p /var/volatile/run /var/volatile/log /var/volatile/lock /var/volatile/tmp
+else
+    # The stock union root put the writable layer under /: its /data, /etc, /home (root's home is
+    # /home/root) and /root are the paths every script and tool uses.
+    for d in data etc home root; do
+        [ -e /$d ] || ln -s $D/$d /$d
+    done
+    [ -e /lib/modules ] || ln -s $K/modules /lib/modules
+    [ -e /lib/firmware ] || ln -s $D/kernel6/firmware /lib/firmware
+fi
 ln -sf ttyATH0 /dev/ttyS0      # the stock name of the UART (Bluetooth)
 mount -t devpts devpts /dev/pts 2>/dev/null || { mkdir -p /dev/pts && mount -t devpts devpts /dev/pts; }
 hostname -F /etc/hostname 2>/dev/null || hostname HarmonyHub
 ifconfig lo 127.0.0.1 up
 
 # modprobe that follows modules.dep (BusyBox's small one loads by trial), also for the kernel
-cp $K/modprobe.sh /sbin/modprobe && chmod 755 /sbin/modprobe
+if [ $ROOTFS = 0 ]; then
+    cp $K/modprobe.sh /sbin/modprobe && chmod 755 /sbin/modprobe
+fi
 echo /sbin/modprobe > /proc/sys/kernel/modprobe
 
-# stock tool names: wpa_supplicant with the nl80211 driver (stock: athr), wlanconfig not needed
-# (ath0 is the renamed wlan0), the BlueZ tools, udhcpc's default script
-printf '#!/bin/sh\nexec %s -D nl80211 "$@"\n' "$W/wpa_supplicant" > /usr/sbin/wpa_supplicant
-printf '#!/bin/sh\nexit 0\n' > /sbin/wlanconfig
-chmod 755 /usr/sbin/wpa_supplicant /sbin/wlanconfig
-ln -sf $W/wpa_cli /usr/sbin/wpa_cli
-ln -sf $K/udhcpc.sh /usr/share/udhcpc/default.script
-if [ $SERIAL = 0 ]; then
-    for t in bccmd hciattach hciconfig; do ln -sf $W/$t /usr/sbin/$t; done
+# A new root file system waits in /cache (init booted the fallback for it): write it while
+# nothing uses the SPI bus (no RF driver yet), then boot it. Kept as .failed when it does not go.
+if [ $ROOTFS = 0 ] && [ -f $F/rootfs.sqfs ]; then
+    n=$(grep '"root"' /proc/mtd | cut -d: -f1)
+    echo "rc.sh: writing the root file system to /dev/$n"
+    if $T/hub_util flash-image $F/rootfs.sqfs /dev/$n; then
+        rm -f $F/rootfs.sqfs
+        sync
+        echo b > /proc/sysrq-trigger
+    fi
+    mv -f $F/rootfs.sqfs $F/rootfs.sqfs.failed
+    sync
 fi
+
+# stock tool names: wpa_supplicant with the nl80211 driver (stock: athr), wlanconfig not needed
+# (ath0 is the renamed wlan0), udhcpc's default script (in the root file system these exist)
+if [ $ROOTFS = 0 ]; then
+    printf '#!/bin/sh\nexec %s -D nl80211 "$@"\n' "$T/wpa_supplicant" > /usr/sbin/wpa_supplicant
+    printf '#!/bin/sh\nexit 0\n' > /sbin/wlanconfig
+    chmod 755 /usr/sbin/wpa_supplicant /sbin/wlanconfig
+    ln -sf $T/wpa_cli /usr/sbin/wpa_cli
+    ln -sf $K/udhcpc.sh /usr/share/udhcpc/default.script
+fi
+# The BlueZ tools under their stock names only without the serial console (rcS.local and
+# init.sh run them on ttyS0). In the root file system the links are in the overlay: changed
+# only when the mode changed.
+for t in bccmd hciattach hciconfig; do
+    if [ $SERIAL = 0 ]; then
+        [ -e /usr/sbin/$t ] || ln -s $T/$t /usr/sbin/$t
+    else
+        [ -e /usr/sbin/$t ] && rm -f /usr/sbin/$t
+    fi
+done
 
 # --- drivers ---
 # USB: device mode by default. The OTG ID pin is not wired and reads "host"; start_usb_eth.sh
@@ -78,11 +122,28 @@ for m in harmony_pimento harmony_cc2544 harmony_i2s; do
     modprobe $m || echo "rc.sh: $m did not load"
 done
 
+# Factory reset: the Pair button (GPIO 11, low when pressed; GPIO_IN 0x18040004) held from power
+# on until here and for 5 s more. The light flashes red fast, init erases data and cache at the
+# reboot.
+pressed() { [ $(( $(devmem 0x18040004 32) & 0x800 )) = 0 ]; }
+if pressed; then
+    i=0
+    while [ $i -lt 10 ] && pressed; do sleep 0.5; i=$((i + 1)); done
+    if [ $i = 10 ]; then
+        echo "rc.sh: Pair button held: factory reset"
+        echo 2 > /sys/class/input/input0/led
+        touch $F/factory-reset
+        sync
+        sleep 2
+        echo b > /proc/sysrq-trigger
+    fi
+fi
+
 # Hub Pro 2400 (skin 115) Ethernet: the AR9331 MACs and the internal switch (DSA). The stock
 # kernel showed the jack as eth1; here eth1 is a bridge of the switch ports and eth0, so it has
 # a link whichever port the jack is on, and network_manager.sh keeps using eth1.
 skin=$(cat /data/harmony/skin 2>/dev/null)
-[ -n "$skin" ] || skin=$($W/hub_util mfg skin 2>/dev/null)
+[ -n "$skin" ] || skin=$($T/hub_util mfg skin 2>/dev/null)
 if [ "$skin" = 115 ] && modprobe ag71xx && modprobe ar9331 && modprobe bridge; then
     for i in 1 2 3 4 5; do [ -e /sys/class/net/lan0 ] && break; sleep 1; done
     ip link set eth1 name ethsw && ip link set ethsw up
@@ -118,7 +179,7 @@ if sh $K/usb_gadget.sh up; then
         touch /tmp/udhcpd.leases
         udhcpd /tmp/udhcpd.conf
     fi
-    $W/hub_util usbhid > /tmp/usbhid.log 2>&1 &
+    $T/hub_util usbhid > /tmp/usbhid.log 2>&1 &
     echo $! > /var/run/usbhid.pid
 else
     echo "rc.sh: no USB device side"

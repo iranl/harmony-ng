@@ -14,7 +14,9 @@ DB_VERSION="2026.94"
 DB_SHA256="e098034a843699200c8c977a991fff73159735bf795d5f72ef672c41a6b1ae81"
 BUILD_DIR="$DB_DIR/dropbear-$DB_VERSION"
 
+mkdir -p "$DB_DIR"
 cd "$DB_DIR"
+[ -f "dropbear-$DB_VERSION.tar.bz2" ] || curl -fsSLO "https://matt.ucc.asn.au/dropbear/releases/dropbear-$DB_VERSION.tar.bz2"
 # the tarball is checked on every build, not only the first unpack
 echo "$DB_SHA256  dropbear-$DB_VERSION.tar.bz2" | sha256sum -c -
 if [ ! -d "$BUILD_DIR" ]; then
@@ -78,7 +80,10 @@ export AR="mips-buildroot-linux-uclibc-gcc-ar" RANLIB="mips-buildroot-linux-ucli
 # --disable-harden below drops PIE and relro (size); its other flags are kept here.
 # No -mno-abicalls: mixed with the PIC static libc, scp -t segfaults on the Hub (-13 KB only).
 CFLAGS="-D_FORTIFY_SOURCE=2 -fno-strict-overflow -Wno-pointer-sign -Os -flto -fno-unwind-tables -fno-asynchronous-unwind-tables -ffunction-sections -fdata-sections"
-LDFLAGS="-Os -flto -static -Wl,--gc-sections -Wl,-z,norelro -Wl,--build-id=none -Wl,--hash-style=sysv"
+# LINK=dynamic: shared uClibc-ng, for the Linux 6.18 root file system (build/build_rootfs6.sh)
+STATIC=-static
+[ "${LINK:-static}" = dynamic ] && STATIC=""
+LDFLAGS="-Os -flto $STATIC -Wl,--gc-sections -Wl,-z,norelro -Wl,--build-id=none -Wl,--hash-style=sysv"
 
 # syslog stays on (about 3 KB): the Hub runs syslogd, and a refused key or a missing host key
 # would otherwise leave no trace there
@@ -102,3 +107,7 @@ make -j"$(nproc)" PROGRAMS="dropbear dropbearkey scp" MULTI=1
 echo "=== RESULT DROPBEARMULTI ==="
 ls -l dropbearmulti
 mips-buildroot-linux-uclibc-size dropbearmulti
+if [ "${LINK:-static}" = dynamic ]; then
+    mkdir -p "$REPO_ROOT/build/output/kernel6/harmony/bin"
+    cp dropbearmulti "$REPO_ROOT/build/output/kernel6/harmony/bin/"
+fi

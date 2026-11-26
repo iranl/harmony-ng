@@ -7,6 +7,14 @@ REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 SRC="$REPO_ROOT/payload/source"
 BIN="$REPO_ROOT/payload/bin"
 OUT="$SCRIPT_DIR/output"
+# LINK=dynamic: the core binaries against the toolchain's shared uClibc-ng, for the Linux 6.18 root
+# file system (build/build_rootfs6.sh). They need that libc, so they get their own directories and
+# never go to payload/bin, whose static binaries run on the stock root and on 6.18 alike.
+if [ "${LINK:-static}" = dynamic ]; then
+    BIN="$SCRIPT_DIR/output/kernel6/harmony/bin"
+    OUT="$SCRIPT_DIR/output/kernel6/harmony/out"
+    mkdir -p "$BIN" "$OUT"
+fi
 for t in "$SCRIPT_DIR/toolchains"/mips32--uclibc--stable*; do
     if [ -d "$t/bin" ]; then
         export PATH="$t/bin:$PATH"
@@ -48,6 +56,7 @@ fi
 
 # Section GC: each function and object in its own section, the unreferenced ones dropped at link
 CFLAGS="-Wall -Os -flto -static -s -DNDEBUG -ffunction-sections -fdata-sections -Wl,--gc-sections"
+[ "${LINK:-static}" = dynamic ] && CFLAGS=$(echo "$CFLAGS" | sed "s/ -static//")
 # The commit the Hub reports (/api/status and the OTA status said "dev" for every release)
 GIT_COMMIT=$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo dev)
 CFLAGS="$CFLAGS -DHARMONY_COMMIT=\"$GIT_COMMIT\""

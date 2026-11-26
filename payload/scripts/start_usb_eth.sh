@@ -26,7 +26,10 @@ if [ "$KERNEL6" = 1 ]; then
   echo host > /tmp/harmony_usb_port_mode 2>/dev/null || true
   # the USB device side (rc.sh: HID + network gadget, udhcpd, hub_util usbhid) goes
   kill "$(cat /var/run/udhcpd.gadget0.pid 2>/dev/null)" "$(cat /var/run/usbhid.pid 2>/dev/null)" 2>/dev/null || true
-  sh /cache/kernel6/usb_gadget.sh down 2>/dev/null || true
+  # usb_gadget.sh: in the root file system, or on /cache for its fallback boot
+  for _g in /usr/lib/kernel6/usb_gadget.sh /cache/kernel6/usb_gadget.sh; do
+    [ -f "$_g" ] && { sh "$_g" down 2>/dev/null; break; }
+  done
   echo host > "$CI_ROLE" || echo "[USB_ETH] Error: cannot set the USB role to host" >&2
 else
 # Preload usbcore

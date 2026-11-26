@@ -16,6 +16,13 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TC="$REPO_ROOT/build/toolchains/mips32--uclibc--stable/bin/mips-buildroot-linux-uclibc-"
 WORK="${WORK:-$HOME/kbuild6/wpa}"
 OUT_DIR="${OUT_DIR:-$REPO_ROOT/build/output/kernel6/bin}"
+# LINK=dynamic: against the toolchain's shared uClibc-ng, for the Linux 6.18 root file system
+# (build/build_rootfs6.sh), into build/output/kernel6/harmony/bin
+STATIC=-static
+if [ "${LINK:-static}" = dynamic ]; then
+    STATIC=""
+    OUT_DIR="$REPO_ROOT/build/output/kernel6/harmony/bin"
+fi
 
 [ -x "${TC}gcc" ] || { echo "Error: ${TC}gcc not found" >&2; exit 1; }
 mkdir -p "$WORK" "$OUT_DIR"
@@ -51,7 +58,7 @@ CONFIG_IEEE80211W=y
 CONFIG_SMALL_PKG=y
 EOF
 make -j"$(nproc)" CC="${TC}gcc" EXTRA_CFLAGS="-Os -D_GNU_SOURCE -I$WORK/nl/include" \
-    LDFLAGS="-static -L$WORK/nl" wpa_supplicant wpa_cli > build.log 2>&1 \
+    LDFLAGS="$STATIC -L$WORK/nl" wpa_supplicant wpa_cli > build.log 2>&1 \
     || { grep -n -m 20 -i "error\|undefined" build.log >&2; exit 1; }
 "${TC}strip" wpa_supplicant wpa_cli
 cp wpa_supplicant wpa_cli "$OUT_DIR/"

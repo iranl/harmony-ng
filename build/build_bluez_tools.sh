@@ -17,6 +17,13 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TC="$REPO_ROOT/build/toolchains/mips32--uclibc--stable/bin/mips-buildroot-linux-uclibc-"
 WORK="${WORK:-$HOME/kbuild6/bluez}"
 OUT_DIR="${OUT_DIR:-$REPO_ROOT/build/output/kernel6/bin}"
+# LINK=dynamic: against the toolchain's shared uClibc-ng, for the Linux 6.18 root file system
+# (build/build_rootfs6.sh), into build/output/kernel6/harmony/bin
+STATIC=-static
+if [ "${LINK:-static}" = dynamic ]; then
+    STATIC=""
+    OUT_DIR="$REPO_ROOT/build/output/kernel6/harmony/bin"
+fi
 
 [ -x "${TC}gcc" ] || { echo "Error: ${TC}gcc not found" >&2; exit 1; }
 mkdir -p "$WORK" "$OUT_DIR"
@@ -35,7 +42,7 @@ LIB="lib/bluetooth.c lib/hci.c"
 cc() {
     local out=$1
     shift
-    "${TC}gcc" -Os -static -Wno-format-truncation -I. -Iinc -Ilib -include config.h \
+    "${TC}gcc" -Os $STATIC -Wno-format-truncation -I. -Iinc -Ilib -include config.h \
         -o "$out" "$@" $LIB
     "${TC}strip" "$out"
 }

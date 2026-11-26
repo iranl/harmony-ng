@@ -329,11 +329,32 @@ static int process_running(const char *want) {
     return 0;
 }
 
+/* the mtd partition is mounted (its mtdblock device is in /proc/mounts) */
+static int mtd_mounted(int num) {
+    char want[32], line[256];
+    int found = 0;
+    FILE *f = fopen("/proc/mounts", "r");
+    if (!f) return 0;
+    snprintf(want, sizeof(want), "/dev/mtdblock%d ", num);
+    while (fgets(line, sizeof(line), f))
+        if (strncmp(line, want, strlen(want)) == 0) found = 1;
+    fclose(f);
+    return found;
+}
+
+/* Kernel: a uImage over "kernel" (and "kernel2"). Root file system: an XZ squashfs (or, with
+ * --stock, the stock LZMA one, to go back) over "root", which may not be mounted (the Linux 6.18
+ * system writes a new root from its fallback boot: build/kernel6/init.c). */
 static int run_flash_image(int argc, char **argv) {
-    int dry = argc > 1 && strcmp(argv[1], "--dry-run") == 0;
-    int first = dry ? 2 : 1;
+    int dry = 0, stock = 0, first = 1;
+    for (; first < argc && argv[first][0] == '-'; first++) {
+        if (strcmp(argv[first], "--dry-run") == 0) dry = 1;
+        else if (strcmp(argv[first], "--stock") == 0) stock = 1;
+        else break;
+    }
     if (argc - first < 2 || argc - first > 3) {
-        fprintf(stderr, "usage: hub_util flash-image [--dry-run] <uImage> /dev/mtdN [/dev/mtdN+1]\n");
+        fprintf(stderr, "usage: hub_util flash-image [--dry-run] <uImage> /dev/mtdN [/dev/mtdN+1]\n"
+                        "       hub_util flash-image [--dry-run] [--stock] <squashfs> /dev/mtdN\n");
         return 2;
     }
     const char *image = argv[first];
@@ -357,8 +378,15 @@ static int run_flash_image(int argc, char **argv) {
         free(img);
         return 1;
     }
-    if (uimage_check(img, len, err, sizeof(err)) != 0) {
+    int root = memcmp(img, "hsqs", 4) == 0;
+    if (root ? squashfs_check(img, len, stock ? SQUASHFS_LZMA : SQUASHFS_XZ, err, sizeof(err))
+             : uimage_check(img, len, err, sizeof(err))) {
         fprintf(stderr, "flash-image: %s: %s\n", image, err);
+        free(img);
+        return 1;
+    }
+    if (root && nparts != 1) {
+        fprintf(stderr, "flash-image: a root file system goes to one partition\n");
         free(img);
         return 1;
     }
@@ -374,7 +402,16 @@ static int run_flash_image(int argc, char **argv) {
             fprintf(stderr, "flash-image: %s is not an mtd device\n", dev);
             goto out;
         }
-        if (strcmp(name, i == 0 ? "kernel" : "kernel2") != 0 || (prev >= 0 && num != prev + 1)) {
+        if (root) {
+            if (strcmp(name, "root") != 0) {
+                fprintf(stderr, "flash-image: %s is \"%s\"; a squashfs goes to \"root\" only\n", dev, name);
+                goto out;
+            }
+            if (mtd_mounted(num)) {
+                fprintf(stderr, "flash-image: %s is mounted (the running root file system)\n", dev);
+                goto out;
+            }
+        } else if (strcmp(name, i == 0 ? "kernel" : "kernel2") != 0 || (prev >= 0 && num != prev + 1)) {
             fprintf(stderr, "flash-image: %s is \"%s\"; only \"kernel\" then the next partition "
                     "\"kernel2\" may be written\n", dev, name);
             goto out;
@@ -395,8 +432,8 @@ static int run_flash_image(int argc, char **argv) {
     }
     uint64_t total = 0;
     for (int i = 0; i < nparts; i++) total += parts[i].size;
-    printf("%s: %u bytes, valid uImage; %d partition(s), %llu bytes\n", image, (unsigned)len,
-           nparts, (unsigned long long)total);
+    printf("%s: %u bytes, valid %s; %d partition(s), %llu bytes\n", image, (unsigned)len,
+           root ? "squashfs" : "uImage", nparts, (unsigned long long)total);
     if (len > total) {
         fprintf(stderr, "flash-image: image does not fit\n");
         goto out;

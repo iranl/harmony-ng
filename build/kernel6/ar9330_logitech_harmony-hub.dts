@@ -2,9 +2,9 @@
 /*
  * Logitech Harmony Hub (Atheros AR9330 "Hornet", 64 MB DDR, 16 MB SPI NOR).
  *
- * Stock partition table. u-boot, root (the stock squashfs, needed to go back to the stock
- * kernel) and mfg (calibration, MACs) are read-only; kernel/kernel2 are writable so the new
- * system can put the stock kernel back, data/cache because the new system runs from them.
+ * Stock partition table. u-boot and mfg (calibration, MACs) are read-only. kernel/kernel2 and
+ * root are writable: the system writes its kernel and its root file system (build/kernel6/init.c,
+ * hub_util flash-image), or the stock ones to go back; data/cache because it runs from them.
  * GPIO users (LEDs, buttons, CC2544 IRQ, BT reset) are added once their numbers are read
  * from the stock kernel.
  *
@@ -209,7 +209,6 @@
 			partition@1f0000 {
 				label = "root";
 				reg = <0x1f0000 0x400000>;
-				read-only;
 			};
 
 			partition@5f0000 {

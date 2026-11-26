@@ -96,6 +96,27 @@ int main(void) {
     CHECK(uimage_check(img, len, err, sizeof(err)) != 0 && strstr(err, "header CRC"), "header CRC");
     img[40] ^= 1;
 
+    printf("squashfs_check\n");
+    {
+        uint8_t sq[4096];
+        memset(sq, 0, sizeof(sq));
+        memcpy(sq, "hsqs", 4);
+        sq[20] = SQUASHFS_XZ;
+        sq[28] = 4;                     /* version 4 */
+        sq[40] = 0x00; sq[41] = 0x0c;   /* bytes_used 3072 */
+        CHECK(squashfs_check(sq, sizeof(sq), SQUASHFS_XZ, err, sizeof(err)) == 0, "XZ squashfs accepted");
+        CHECK(squashfs_check(sq, sizeof(sq), SQUASHFS_LZMA, err, sizeof(err)) != 0 && strstr(err, "compression"),
+              "XZ refused where the stock LZMA root is wanted");
+        CHECK(squashfs_check(sq, 2048, SQUASHFS_XZ, err, sizeof(err)) != 0 && strstr(err, "cut"), "cut squashfs refused");
+        sq[28] = 3;
+        CHECK(squashfs_check(sq, sizeof(sq), SQUASHFS_XZ, err, sizeof(err)) != 0 && strstr(err, "version"),
+              "squashfs 3 refused");
+        sq[28] = 4;
+        sq[20] = SQUASHFS_LZMA;
+        CHECK(squashfs_check(sq, sizeof(sq), SQUASHFS_LZMA, err, sizeof(err)) == 0, "stock LZMA root accepted with --stock");
+        CHECK(squashfs_check(img, len, SQUASHFS_XZ, err, sizeof(err)) != 0, "a uImage is not a squashfs");
+    }
+
     printf("flash_write_image\n");
     char p0[] = "/tmp/fi_kernelXXXXXX", p1[] = "/tmp/fi_kernel2XXXXXX";
     close(mkstemp(p0));
