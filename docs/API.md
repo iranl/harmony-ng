@@ -763,12 +763,13 @@ Deletes a device that nothing uses any more. References are not removed: while a
 `remote_slot6_map.json`, `bt_remote_map.json`) names the device, the delete is refused and nothing
 changes. Not counted, so a device never becomes impossible to delete: the map's own page for the
 device (`devices/<id>`, removed from the maps together with the device, so a new device given the
-same id starts without it), map sections of activities and pages of devices that no longer exist,
+same id starts without it), map sections and key layers (`layers/<id>`) of activities and pages of devices that no longer exist,
 and the map of a touchscreen slot that has no remote: a slot counts when `hub_rf` reports it active
 (`GET /api/rf/status`, asked for at most 1.5 s), or, not active, when its
 `remote_slot<N>_version.json` still names a remote (`remote_id` or `skin`; an unpair clears both);
 when `hub_rf` does not answer, when that file exists. Any other slot does not count. Deleting an activity
-(`POST /api/activity-delete`) removes its sections (`activities/<id>`) from the three maps; a device
+(`POST /api/activity-delete`) removes its sections (`activities/<id>`) and its own key layer (`layers/<id>`, with those of
+activities deleted earlier, so a new activity given the id starts without them; named layers stay) from the maps; a device
 delete removes its page and pages of devices deleted earlier. Both only once the configuration in
 memory no longer has the activity or device. The maps are written compact (as the editors save
 them, so a large map stays under the 200000 bytes `GET /api/rf-mapping` reads), to a temporary
@@ -2003,15 +2004,16 @@ not one of them, as `"devices"` is not.
   pressed and does not send the key, so a layer's Off binding never runs there.
 - **A key's holds and its release** send the command its press sent, also when the layer or the activity has changed
   in between, so no device is left with a key held. A key whose press sent no command sends none while it is held
-  or when it is released, and a key that starts an activity starts it once, however long it is held. A hold that
-  comes 2 s or more after the key's last press or hold is no longer that press's (its release was lost): it is looked
-  up as the key is bound then.
+  or when it is released, and a key that starts an activity starts it once, however long it is held. A hold or a
+  release that comes 2 s or more after the key's last press or hold is no longer that press's (its release was lost,
+  and the press of this frame too): it is looked up as the key is bound then.
 - A layer belongs to the run of the activity it was turned on in: every slot's layer goes off when the Hub begins a
   switch, to another activity, to none (a stop) or to the same activity again. The daemon counts the switches it
   begins in `/tmp/activity_switches`, and `hub_rf` checks that count at every key and every read, so a layer turned
   on after a switch stays on until the next one. While an activity is being started or stopped no layer comes on: a
-  `layer_toggle` key then sends nothing, unless a layer is still on, which it turns off. It is kept in memory only,
-  so it is off after `hub_rf` restarts.
+  `layer_toggle` key then sends nothing, unless a layer is still on, which it turns off. A Help re-send of the running
+  activity is no switch: a layer comes on during it, and one that is on stays. It is kept in memory only, so it is off
+  after `hub_rf` restarts.
 ```json
 {
   "activities": {
@@ -2034,9 +2036,9 @@ not one of them, as `"devices"` is not.
 #### `GET /api/rf/layer` or `POST /api/rf/layer?slot={1..6}&on={0|1}[&name={layer}]`
 Reads every slot's key layer, or sets one without sending any key. Open to the `user` role (11.5), as a key press is;
 `HEAD` is not routed.
-- **Query Parameters** (POST): `slot` (1 to 6), `on` (`1` on, `0` off), `name` (optional: a named layer; left out or
-  empty, the running activity's own). `on=1` with no activity running, or while one is being started or stopped,
-  leaves the layer off. `on=0` with a `name` turns off that layer only: when another layer is on, or none, nothing
+- **Query Parameters** (POST; `GET` takes none): `slot` (1 to 6), `on` (`1` on, `0` off), `name` (optional: a named
+  layer; left out or empty, the running activity's own). `on=1` with no activity running, or while one is being
+  started or stopped, leaves the layer off (a Help re-send of the running activity is no start). `on=0` with a `name` turns off that layer only: when another layer is on, or none, nothing
   changes (still `200`); `on=0` without a `name` turns off whatever layer is on. A `name` the slot's mapping lacks is
   a `400` with either.
 - **Response `200 OK`** (both methods): each slot's state; `activity` is the activity the layer was turned on in and
@@ -2046,7 +2048,7 @@ Reads every slot's key layer, or sets one without sending any key. Open to the `
                          {"slot": 2, "on": true, "activity": "1", "name": "amp"}]}
   ```
   The list has an entry for each of the 6 slots.
-- **Response `400`** (POST): no `slot` or one outside 1 to 6, no `on` or one other than `0` or `1`, or a name that has
+- **Response `400`** (POST): no `slot` or one outside 1 to 6 (`0` and `all` too), no `on` or one other than `0` or `1`, or a name that has
   other characters, is digits only, or is not a layer of the slot's mapping. Nothing is changed; the body is the same,
   with `"ok": false`.
 

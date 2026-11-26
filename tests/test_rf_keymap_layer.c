@@ -9,8 +9,8 @@
  * without sending anything.
  *
  * As in test_rf_keymap_fallback.c, fopen() is wrapped (-Wl,--wrap=fopen) for the map, the
- * current activity, the state of a switch and the count of switches, and the sends are recorded
- * from http_post_local(). The clock is the test's (s_now_ms).
+ * current activity, the state and the target of a switch and the count of switches, and the
+ * sends are recorded from http_post_local(). The clock is the test's (s_now_ms).
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,7 +32,15 @@ static char s_map_path[128];
 static char s_act_path[128];
 static char s_state_path[128];
 static char s_switches_path[128];
+static char s_target_path[128];
 static char s_sock_path[128];
+
+static int write_file_real(const char *path, const char *text);
+/* A switch begins right after hub_rf reads the count: that read sees the count from before it,
+ * the next ones the new count (another client starts an activity meanwhile) */
+static int s_switch_after_read;
+static unsigned long s_switches;
+static char s_count_seen[24];
 
 FILE *__real_fopen(const char *path, const char *mode);
 FILE *__wrap_fopen(const char *path, const char *mode) {
@@ -40,7 +48,18 @@ FILE *__wrap_fopen(const char *path, const char *mode) {
     if (path && (strcmp(path, "/tmp/current_activity") == 0 ||
                  strcmp(path, "/data/harmony/current_activity") == 0)) return __real_fopen(s_act_path, mode);
     if (path && strcmp(path, "/tmp/activity_state") == 0) return __real_fopen(s_state_path, mode);
-    if (path && strcmp(path, "/tmp/activity_switches") == 0) return __real_fopen(s_switches_path, mode);
+    if (path && strcmp(path, "/tmp/activity_target") == 0) return __real_fopen(s_target_path, mode);
+    if (path && strcmp(path, "/tmp/activity_switches") == 0) {
+        if (s_switch_after_read && strcmp(mode, "r") == 0) {
+            s_switch_after_read = 0;
+            snprintf(s_count_seen, sizeof(s_count_seen), "%lu\n", s_switches);
+            char line[24];
+            snprintf(line, sizeof(line), "%lu\n", ++s_switches);
+            write_file_real(s_switches_path, line);
+            return fmemopen(s_count_seen, strlen(s_count_seen), "r");
+        }
+        return __real_fopen(s_switches_path, mode);
+    }
     if (path && strncmp(path, "/data/", 6) == 0) return NULL;
     return __real_fopen(path, mode);
 }
@@ -59,17 +78,35 @@ int http_post_local(int port, const char *path, const char *body) {
     return 200;
 }
 
-static void write_file(const char *path, const char *text) {
+static int write_file_real(const char *path, const char *text) {
     FILE *f = __real_fopen(path, "w");
     if (!f) { perror(path); exit(1); }
     fputs(text, f);
     fclose(f);
+    return 0;
 }
+
+static void write_file(const char *path, const char *text) { write_file_real(path, text); }
 
 static int failures;
 
+/* The daemon's state of a switch (orchestrator.c): starting or stopping with the target written
+ * for a switch, starting with none for a Help re-send of the running activity, then running
+ * with the target gone */
+static void daemon_state(const char *state, const char *target) {
+    if (target) {
+        char line[40];
+        snprintf(line, sizeof(line), "%s\n", target);
+        write_file(s_target_path, line);
+    } else {
+        unlink(s_target_path);
+    }
+    char line[24];
+    snprintf(line, sizeof(line), "%s\n", state);
+    write_file(s_state_path, line);
+}
+
 /* The daemon begins a switch: one more in its count (orchestrator.c note_activity_switch()) */
-static unsigned long s_switches;
 static void daemon_switch(void) {
     char line[24];
     snprintf(line, sizeof(line), "%lu\n", ++s_switches);
@@ -132,6 +169,7 @@ int main(void) {
     snprintf(s_act_path, sizeof(s_act_path), "%s/current_activity", s_dir);
     snprintf(s_state_path, sizeof(s_state_path), "%s/activity_state", s_dir);
     snprintf(s_switches_path, sizeof(s_switches_path), "%s/activity_switches", s_dir);
+    snprintf(s_target_path, sizeof(s_target_path), "%s/activity_target", s_dir);
     snprintf(s_sock_path, sizeof(s_sock_path), "%s/no_key_channel.sock", s_dir);
     g_rf_key_sock_path = s_sock_path;
 
@@ -308,8 +346,17 @@ int main(void) {
     rf_keymap_layer_set(2, 1, "amp");
     check("arrow pressed with the amp's layer on", "DirectionUp", "press", "5", "DirectionUp");
     rf_keymap_layer_set(2, 0, NULL);
+    s_now_ms += 1500;
+    check("its release 1.5 s later goes to the amp", "DirectionUp", "release", "5", "DirectionUp");
+    /* The same for a release: one that comes 2 s after the key's last frame belongs to a press
+       that was lost, not to an old press whose release was lost */
+    rf_keymap_layer_set(2, 1, "amp");
+    check("arrow pressed with the amp's layer on, its release lost", "DirectionUp", "press", "5", "DirectionUp");
+    rf_keymap_layer_set(2, 0, NULL);
     s_now_ms += 60000;
-    check("its release a minute later still goes to the amp", "DirectionUp", "release", "5", "DirectionUp");
+    check("a release a minute later, its press lost, is the activity's", "DirectionUp", "release", "2", "Up");
+    check("the next press is the activity's", "DirectionUp", "press", "2", "Up");
+    check("released", "DirectionUp", "release", "2", "Up");
     rf_keymap_layer_set(2, 1, "quiet");
     s_poweroffs = 0;
     check("Off pressed, bound to nothing, never released", "PowerOffActivity", "press", NULL, NULL);
@@ -318,6 +365,30 @@ int main(void) {
     check("an Off hold 2 s later is a press of its own", "PowerOffActivity", "hold", NULL, NULL);
     check("released", "PowerOffActivity", "release", NULL, NULL);
     expect_poweroffs("and stops the activity", 1);
+
+    /* Presses whose release never came fill the table (4 a slot): a new press takes the place of
+       the oldest one, never that of a key still held */
+    for (int i = 1; i <= 4; i++) {
+        char key[8];
+        snprintf(key, sizeof(key), "Num%d", i);
+        s_now_ms += 10;
+        dispatch_remote_button(2, key, "press", NULL);
+    }
+    rf_keymap_layer_set(2, 1, "amp");
+    s_now_ms += 10;
+    check("with the table full of lost releases, the arrow pressed in the amp's layer", "DirectionUp", "press", "5", "DirectionUp");
+    s_now_ms += 10;
+    check("held", "DirectionUp", "hold", "5", "DirectionUp");
+    rf_keymap_layer_set(2, 0, NULL);
+    for (int i = 5; i <= 8; i++) {
+        char key[8];
+        snprintf(key, sizeof(key), "Num%d", i);
+        s_now_ms += 10;
+        check("another key pressed while the arrow is held, its release lost", key, "press", NULL, NULL);
+        s_now_ms += 10;
+        check("the arrow held on is still the amp's", "DirectionUp", "hold", "5", "DirectionUp");
+    }
+    check("and so is its release", "DirectionUp", "release", "5", "DirectionUp");
 
     /* A key whose press sent nothing: its holds and its release send nothing, whatever the layer
        or the activity binds by then */
@@ -340,7 +411,7 @@ int main(void) {
 
     /* While an activity is being started or stopped no layer comes on, also during a switch to
        the activity that already runs */
-    write_file(s_state_path, "starting\n");
+    daemon_state("starting", "1");
     check("during a switch Guide sends nothing", "Guide", "press", NULL, NULL);
     check("nor its release", "Guide", "release", NULL, NULL);
     expect_layer("and turns no layer on", 0, "");
@@ -348,17 +419,32 @@ int main(void) {
     printf("[%s] the API takes on=1 during a switch (rc=%d)\n", during == 0 ? "+" : "-", during);
     if (during != 0) failures++;
     expect_layer("and leaves the layer off", 0, "");
-    write_file(s_state_path, "stopping\n");
+    daemon_state("stopping", "-1");
     rf_keymap_layer_set(2, 1, NULL);
     expect_layer("the same while the activity stops", 0, "");
-    write_file(s_state_path, "running\n");
+    daemon_state("running", NULL);
     rf_keymap_layer_set(2, 1, "amp");
     expect_layer_named("after the switch the layer comes on", 1, "1", "amp");
-    write_file(s_state_path, "starting\n");
+    daemon_state("starting", "1");
     check("a layer still on during a switch: Guide turns it off", "Guide", "press", "3", "Blue");
     check("released", "Guide", "release", "3", "Blue");
     expect_layer("and it is off", 0, "");
-    write_file(s_state_path, "running\n");
+    daemon_state("running", NULL);
+
+    /* A Help re-send of the running activity says starting too, with no target and no switch
+       counted: a layer comes on during it, and one that is on stays */
+    daemon_state("starting", NULL);
+    check("during a Help re-send Guide turns the layer on", "Guide", "press", "3", "Green");
+    check("released", "Guide", "release", "3", "Green");
+    expect_layer("the layer is on", 1, "1");
+    daemon_state("running", NULL);
+    expect_layer("and stays on after it", 1, "1");
+    rf_keymap_layer_set(2, 0, NULL);
+    daemon_state("starting", NULL);
+    rf_keymap_layer_set(2, 1, "amp");
+    expect_layer_named("the API turns a layer on during a Help re-send", 1, "1", "amp");
+    daemon_state("running", NULL);
+    rf_keymap_layer_set(2, 0, NULL);
 
     /* A switch the daemon begins turns the layer off, also one that ends in the same activity
        and is over before anything here looks (the same activity started again) */
@@ -381,17 +467,33 @@ int main(void) {
     check("after a switch Off is no longer the amp's power", "PowerOffActivity", "press", NULL, NULL);
     check("released", "PowerOffActivity", "release", NULL, NULL);
     expect_poweroffs("it stops the activity", 1);
+    /* Off pressed as another client begins a switch: the press is the layer's binding or a stop,
+       decided with one look at the layer, never neither */
+    rf_keymap_layer_set(2, 1, "amp");
+    s_poweroffs = 0;
+    s_switch_after_read = 1;
+    check("Off as a switch begins, the amp's layer on: the amp's power", "PowerOffActivity", "press", "5", "PowerToggle");
+    printf("[%s] the count was read once for the press (%s)\n", s_switch_after_read == 0 ? "+" : "-",
+           s_switch_after_read == 0 ? "the switch began after it" : "never read");
+    if (s_switch_after_read != 0) failures++;
+    check("released", "PowerOffActivity", "release", "5", "PowerToggle");
+    expect_poweroffs("and did not stop the activity", 0);
+    expect_layer("the switch turned the layer off", 0, "");
+    s_switch_after_read = 1;
+    check("Off as a switch begins, no layer on, sends no key", "PowerOffActivity", "press", NULL, NULL);
+    check("released", "PowerOffActivity", "release", NULL, NULL);
+    expect_poweroffs("and stops the activity", 1);
     /* A layer turned on after a switch stays on, whenever the rest of hub_rf notices the switch:
        nothing but the next switch turns it off. Activity 1 to 2 and back, the layer turned on
        in between each. */
+    daemon_state("starting", "2");
     daemon_switch();
-    write_file(s_state_path, "starting\n");
     write_file(s_act_path, "2\n");
-    write_file(s_state_path, "running\n");
+    daemon_state("running", NULL);
+    daemon_state("starting", "1");
     daemon_switch();
-    write_file(s_state_path, "starting\n");
     write_file(s_act_path, "1\n");
-    write_file(s_state_path, "running\n");
+    daemon_state("running", NULL);
     check("after two switches Guide turns the layer on", "Guide", "press", "3", "Green");
     check("released", "Guide", "release", "3", "Green");
     expect_layer("the layer is on", 1, "1");
@@ -470,6 +572,7 @@ int main(void) {
     unlink(s_act_path);
     unlink(s_state_path);
     unlink(s_switches_path);
+    unlink(s_target_path);
     rmdir(s_dir);
     if (failures) {
         printf("[-] test_rf_keymap_layer: %d failure(s)\n", failures);

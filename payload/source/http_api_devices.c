@@ -280,10 +280,20 @@ static int tree_uses_device(const cJSON *j, const char *dev_id) {
     return 0;
 }
 
-/* A section of a remote map that no longer has its activity ("activities/<id>") or its device
- * ("devices/<id>", a page left from before deleted devices' pages were removed): no editor shows
- * it, so its bindings cannot be changed and must not hold a device. "-1" and "default" are the
- * fallback sections. */
+/* An activity's own key layer in a remote map, "layers" -> "<activity id>": digits only. The
+ * other layers are named, and belong to no activity (rf_keymap.h). */
+static int activity_layer_key(const char *key) {
+    if (!key || !key[0]) return 0;
+    for (const char *p = key; *p; p++) {
+        if (*p < '0' || *p > '9') return 0;
+    }
+    return 1;
+}
+
+/* A section of a remote map that no longer has its activity ("activities/<id>", or its own key
+ * layer "layers/<id>") or its device ("devices/<id>", a page left from before deleted devices'
+ * pages were removed): no editor shows it, so its bindings cannot be changed and must not hold a
+ * device. "-1" and "default" are the fallback sections. */
 static int stale_section(const char *path, const cJSON *act_ids, const cJSON *dev_ids) {
     const char *id;
     const cJSON *ids;
@@ -291,6 +301,10 @@ static int stale_section(const char *path, const cJSON *act_ids, const cJSON *de
         id = path + 11;
         ids = act_ids;
         if (strcmp(id, "-1") == 0 || strcmp(id, "default") == 0) return 0;
+    } else if (strncmp(path, "layers/", 7) == 0) {
+        id = path + 7;
+        ids = act_ids;
+        if (!activity_layer_key(id)) return 0;
     } else if (strncmp(path, "devices/", 8) == 0) {
         id = path + 8;
         ids = dev_ids;
@@ -614,6 +628,18 @@ int remote_maps_drop_section(const char *section, const char *id) {
                     /* this id, and (devices) the pages of devices deleted before pages went with them */
                     if (c->string && (strcmp(c->string, id) == 0 || (strcmp(section, "devices") == 0 && !id_listed(ids, c->string)))) {
                         cJSON_Delete(cJSON_DetachItemViaPointer(sec, c));
+                        removed++;
+                    }
+                }
+            }
+            /* an activity's own key layer goes with it, as do those of activities deleted before
+             * layers went with them: a new activity given the id would get the old bindings */
+            cJSON *lay = (map && strcmp(section, "activities") == 0) ? cJSON_GetObjectItemCaseSensitive(map, "layers") : NULL;
+            if (cJSON_IsObject(lay)) {
+                for (cJSON *c = lay->child, *next; c; c = next) {
+                    next = c->next;
+                    if (c->string && activity_layer_key(c->string) && (strcmp(c->string, id) == 0 || !id_listed(ids, c->string))) {
+                        cJSON_Delete(cJSON_DetachItemViaPointer(lay, c));
                         removed++;
                     }
                 }

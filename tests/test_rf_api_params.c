@@ -20,7 +20,9 @@
 static int s_failures;
 #define CHECK(cond, ...) do { if (!(cond)) { printf("  [FAIL] " __VA_ARGS__); printf("\n"); s_failures++; } } while (0)
 
-static int api(const char *req) {
+/* The status of the answer; its body goes to body (when given) */
+static int api_body(const char *req, char *body, size_t body_len) {
+    if (body && body_len) body[0] = '\0';
     int s = socket(AF_INET, SOCK_STREAM, 0);
     struct sockaddr_in sin = { .sin_family = AF_INET, .sin_port = htons(RF_API_PORT) };
     sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
@@ -35,8 +37,12 @@ static int api(const char *req) {
     close(s);
     if (n < 12) return -1;
     resp[n] = '\0';
+    const char *b = strstr(resp, "\r\n\r\n");
+    if (body && body_len && b) snprintf(body, body_len, "%s", b + 4);
     return atoi(resp + 9);
 }
+
+static int api(const char *req) { return api_body(req, NULL, 0); }
 
 static void pair_both(void) {
     for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {
@@ -86,6 +92,22 @@ int main(void) {
 
     st = api("POST /api/rf/push-icon?type=activity HTTP/1.1\r\nHost: x\r\nX-Note: id=abc\r\n\r\n");
     CHECK(st == 400, "push-icon took its id from a header (%d)", st);
+
+    /* the key layer route answers a bad slot itself, with the layers' state and ok false (API.md) */
+    static const char *const bad_layer[] = { "slot=7&on=1", "slot=0&on=1", "slot=all&on=1", "slot=x&on=0" };
+    for (size_t i = 0; i < sizeof(bad_layer) / sizeof(bad_layer[0]); i++) {
+        char req[160], body[2048];
+        snprintf(req, sizeof(req), "POST /api/rf/layer?%s HTTP/1.1\r\nHost: x\r\n\r\n", bad_layer[i]);
+        st = api_body(req, body, sizeof(body));
+        CHECK(st == 400 && strstr(body, "\"ok\":false") && strstr(body, "\"slots\":["),
+              "layer?%s answered %d with %s", bad_layer[i], st, body);
+    }
+    {
+        char body[2048];
+        st = api_body("GET /api/rf/layer?slot=7 HTTP/1.1\r\nHost: x\r\n\r\n", body, sizeof(body));
+        CHECK(st == 200 && strstr(body, "\"ok\":true") && strstr(body, "\"slots\":["),
+              "GET layer (it takes no slot) answered %d with %s", st, body);
+    }
 
     /* restart after a restored slot table: asked for, then only once nothing runs */
     CHECK(!rf_restart_due(), "a restart was due before one was asked for");

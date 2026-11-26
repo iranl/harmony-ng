@@ -376,7 +376,9 @@ void *api_server_worker(void *arg) {
         if (n > 0) {
             buf[n] = '\0';
             int qslot = req_slot(buf);
-            if (qslot == REQ_SLOT_BAD || (qslot == 0 && !route_takes_all_slots(buf))) {
+            /* the key layer route checks its own slot, and answers a bad one with the layers' body */
+            int layer_route = route_is(buf, "GET /api/rf/layer") || route_is(buf, "POST /api/rf/layer");
+            if (!layer_route && (qslot == REQ_SLOT_BAD || (qslot == 0 && !route_takes_all_slots(buf)))) {
                 const char *res = "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n"
                                   "{\"error\":\"slot: 1 to 6 (0 or all for every remote where the route allows it)\",\"ok\":false}";
                 write(cli, res, strlen(res));
@@ -483,7 +485,7 @@ void *api_server_worker(void *arg) {
                 int rlen = snprintf(res, sizeof(res),
                     "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"log_level\":%d,\"ok\":true}", g_log_level);
                 write(cli, res, rlen);
-            } else if (route_is(buf, "GET /api/rf/layer") || route_is(buf, "POST /api/rf/layer")) {
+            } else if (layer_route) {
                 /* The key layers (rf_keymap.h): POST ?slot=N&on=0|1[&name=] turns one off, or on in
                  * the running activity (the activity's own, or the named one), without sending
                  * anything; both answer every slot's state. 400 for a POST without one slot

@@ -1795,7 +1795,8 @@ paths:
         - Activities
       summary: Delete activity
       description: >-
-        Also removes the activity's sections (activities/<id>) from remote_slot1_map.json to
+        Also removes the activity's sections (activities/<id>) and its own key layer (layers/<id>,
+        with those of activities deleted earlier; named layers stay) from remote_slot1_map.json to
         remote_slot6_map.json and bt_remote_map.json.
       requestBody:
         required: true
@@ -3387,7 +3388,7 @@ paths:
       tags:
         - RF & Remote
       summary: Turn a remote slot's key layer on or off, without sending a key
-      description: With no activity running, or while one is being started or stopped, on=1 leaves the layer off. on=0 with a name turns off that layer only (nothing changes when another layer is on), on=0 without one whatever layer is on.
+      description: With no activity running, or while one is being started or stopped, on=1 leaves the layer off (a Help re-send of the running activity is no start). on=0 with a name turns off that layer only (nothing changes when another layer is on), on=0 without one whatever layer is on.
       parameters:
         - name: slot
           in: query
@@ -3421,7 +3422,16 @@ paths:
                     activity: ''
                     name: ''
         '400':
-          description: No slot or one outside 1 to 6, no 'on' or one other than 0 or 1, or a name with other characters than letters, digits, _ and -, of digits only, or not a layer of the slot's mapping
+          description: No slot or one outside 1 to 6 (0 and all too), no 'on' or one other than 0 or 1, or a name with other characters than letters, digits, _ and -, of digits only, or not a layer of the slot's mapping. Nothing is changed; the body is each slot's key layer, with ok false.
+          content:
+            application/json:
+              example:
+                ok: false
+                slots:
+                  - slot: 1
+                    'on': false
+                    activity: ''
+                    name: ''
   /api/rf/push-config:
     get:
       tags:
