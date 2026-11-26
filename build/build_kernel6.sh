@@ -106,7 +106,7 @@ KREL="$(cat include/config/kernel.release)"
     echo "slink /bin/sh busybox 777 0 0"
     echo "file /init $WORK/initramfs-init 755 0 0"
     if [ "${INITRAMFS_MODULES:-0}" = 1 ]; then
-        (cd modroot && find "lib/modules/$KREL" -mindepth 1 -type d | sort | sed 's|^|dir /|; s|$| 755 0 0|')
+        (cd modroot && find "lib/modules/$KREL" -type d | sort | sed 's|^|dir /|; s|$| 755 0 0|')
         (cd modroot && find "lib/modules/$KREL" -type f | sort | sed "s|.*|file /& $WORK/modroot/& 644 0 0|")
     fi
 } > initramfs.list
