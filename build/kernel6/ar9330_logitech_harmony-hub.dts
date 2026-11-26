@@ -68,6 +68,11 @@
 };
 
 &usb_phy {
+	/*
+	 * phy-ath79-usb asks for "usb-suspend-override"; ar9331.dtsi names it "suspend-override",
+	 * so the override was never set, the PHY stayed suspended and no host saw the gadget.
+	 */
+	reset-names = "phy", "usb-suspend-override";
 	status = "okay";
 };
 
