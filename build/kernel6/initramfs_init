@@ -12,6 +12,6 @@ echo "=== Harmony Hub $(uname -r) test initramfs ==="
 cat /proc/cpuinfo | grep -i 'system type\|cpu model\|BogoMIPS'
 grep MemTotal /proc/meminfo
 cat /proc/mtd
-echo "Modules: /lib/modules/$(uname -r). Power off by pulling power; 'reboot -f' restarts into the stock kernel."
+echo "Power off by pulling power; 'reboot -f' restarts into the stock kernel."
 
 exec setsid cttyhack /bin/sh

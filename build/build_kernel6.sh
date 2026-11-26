@@ -9,6 +9,8 @@
 #   modules.tar.gz, config, System.map
 #
 #   KERNEL_TARBALL  kernel.org linux-$KVER.tar.xz (default ~/kbuild6/linux-$KVER.tar.xz)
+#   INITRAMFS_MODULES=1  put every module in the initramfs image too (about 1 MB more: each
+#                   1 MB costs about 9 minutes with tools/uboot_mm_load.py)
 #   BUSYBOX         static MIPS BusyBox (default payload/bin/busybox from build/build_busybox.sh)
 #   HOST_TOOLS      optional prefix with flex, bison, m4 and mkimage (usr/bin, usr/share/bison)
 #                   for a build host without them installed (apt-get download + dpkg -x)
@@ -103,8 +105,10 @@ KREL="$(cat include/config/kernel.release)"
     echo "file /bin/busybox $BUSYBOX 755 0 0"
     echo "slink /bin/sh busybox 777 0 0"
     echo "file /init $WORK/initramfs-init 755 0 0"
-    (cd modroot && find "lib/modules/$KREL" -mindepth 1 -type d | sort | sed 's|^|dir /|; s|$| 755 0 0|')
-    (cd modroot && find "lib/modules/$KREL" -name '*.ko' | sort | sed "s|.*|file /& $WORK/modroot/& 644 0 0|")
+    if [ "${INITRAMFS_MODULES:-0}" = 1 ]; then
+        (cd modroot && find "lib/modules/$KREL" -mindepth 1 -type d | sort | sed 's|^|dir /|; s|$| 755 0 0|')
+        (cd modroot && find "lib/modules/$KREL" -name '*.ko' | sort | sed "s|.*|file /& $WORK/modroot/& 644 0 0|")
+    fi
 } > initramfs.list
 tr -d '\r' < "$SRC/initramfs_init" > initramfs-init
 ./scripts/config --set-str INITRAMFS_SOURCE "$WORK/initramfs.list" -e INITRAMFS_COMPRESSION_XZ
