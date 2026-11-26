@@ -8,12 +8,14 @@
  * GPIO users (LEDs, buttons, CC2544 IRQ, BT reset) are added once their numbers are read
  * from the stock kernel.
  *
- * The CC2544 RF chip sits on SPI CS1 next to the flash (CS0). No device is declared on CS1:
- * nothing may talk to it until a driver that follows the AGENTS.md SPI rules exists.
+ * The CC2544 RF chip shares the SPI bus with the flash (native CS0); its chip select is GPIO 8
+ * (build/kernel6/drivers/harmony_cc2544.c, as the stock cc2544.ko). The SPI core serialises
+ * flash and RF transfers, and Linux runs from RAM, not from the flash.
  */
 /dts-v1/;
 
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/interrupt-controller/irq.h>
 
 #include "ar9331.dtsi"
 
@@ -33,6 +35,18 @@
 	memory@0 {
 		device_type = "memory";
 		reg = <0x0 0x4000000>;
+	};
+
+	/*
+	 * Pair button and front light, stock "Pimento" interface (build/kernel6/drivers/
+	 * harmony_pimento.c). reg: GPIO_FUNCTION_1, for the JTAG disable bit.
+	 */
+	pimento {
+		compatible = "logitech,harmony-hub-pimento";
+		reg = <0x18040028 0x4>;
+		button-gpios = <&gpio 11 GPIO_ACTIVE_LOW>;
+		red-gpios = <&gpio 1 GPIO_ACTIVE_LOW>;
+		green-gpios = <&gpio 17 GPIO_ACTIVE_LOW>;
 	};
 
 	ahb {
@@ -77,8 +91,27 @@
 	status = "okay";
 };
 
+/*
+ * Device mode (USB network to a PC) by default, host mode for USB Ethernet adapters and USB
+ * sticks. The controller is OTG capable but its ID pin is not wired (reads 0, "host"), so the
+ * role is set from userland: echo gadget|host > /sys/bus/platform/devices/1b000000.usb/ci_hdrc.0/role
+ * (rc.sh sets gadget at boot).
+ */
 &usb {
-	dr_mode = "peripheral";
+	dr_mode = "otg";
+	status = "okay";
+};
+
+/*
+ * Ethernet of the Harmony Hub Pro 2400 (the plain Hub has no jack). Which switch port the RJ45
+ * uses is not known: both MACs and the internal switch (DSA, ports lan0-3) are enabled, all as
+ * modules, and userland uses the interface that has a link.
+ */
+&eth0 {
+	status = "okay";
+};
+
+&eth1 {
 	status = "okay";
 };
 
@@ -93,7 +126,18 @@
 
 &spi {
 	num-chipselects = <2>;
+	cs-gpios = <0>, <&gpio 8 GPIO_ACTIVE_LOW>;
 	status = "okay";
+
+	/* CC2544 RF transceiver of the Harmony remotes (/dev/rfspi) */
+	rf@1 {
+		compatible = "logitech,harmony-hub-cc2544";
+		reg = <1>;
+		spi-max-frequency = <2000000>;
+		ready-gpios = <&gpio 6 GPIO_ACTIVE_HIGH>;
+		interrupt-parent = <&gpio>;
+		interrupts = <14 IRQ_TYPE_LEVEL_HIGH>;
+	};
 
 	flash@0 {
 		compatible = "jedec,spi-nor";

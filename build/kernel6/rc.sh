@@ -45,6 +45,10 @@ ifconfig lo 127.0.0.1 up
 # No hotplug helper loads drivers for device tree nodes: the PHY first, then the controller.
 kmod phy-ath79-usb
 kmod ci_hdrc_usb2
+# the OTG ID pin is not wired and reads "host": start in device mode (the device tree comment)
+R=/sys/bus/platform/devices/1b000000.usb/ci_hdrc.0/role
+for i in 1 2 3 4 5; do [ -e $R ] && break; sleep 1; done
+echo gadget > $R 2>/dev/null || echo "rc.sh: cannot set the USB role"
 if kmod usb_f_ecm && kmod usb_f_ecm_subset && kmod g_ether && ifconfig usb0 192.168.7.1 netmask 255.255.255.0 up; then
     cat > /tmp/udhcpd.conf <<EOF
 start 192.168.7.2
@@ -80,10 +84,58 @@ else
     echo "rc.sh: no Wi-Fi"
 fi
 
-echo "rc.sh: done; console shell follows"
-# Only plain sh: the BusyBox on a Hub's /cache may lack setsid and cttyhack (a loop on a
-# missing applet spun forever). The sleep keeps any failure from spinning.
+# Hub Pro 2400 Ethernet (ag71xx MACs, AR9331 switch over DSA). On a plain Hub the MACs and the
+# switch exist too but nothing is plugged in; network_manager.sh picks an interface with a link.
+kmod ag71xx && kmod ar9331 || echo "rc.sh: no Ethernet drivers"
+
+# Hub hardware with the stock interfaces (build/kernel6/drivers): Pair button and light
+# (input0), RF (/dev/rfspi), IR (/dev/i2s). harmony_pimento first: it disables JTAG, whose pins
+# are the RF ready line and chip select and the Pair button.
+for m in harmony_pimento harmony_cc2544 harmony_i2s; do
+    kmod $m || echo "rc.sh: $m did not load"
+done
+
+# Bluetooth: the CSR8811 is on the only UART (ttyATH0), which is also the serial console. With
+# /cache/kernel6/serial-console present the console stays and Bluetooth is not started.
+# Otherwise as the stock rcS.local: PSKEYs (ROM patches, BT address from the Wi-Fi MAC) with
+# bccmd over BCSP, then hciattach and hci0 up.
+SERIAL=0
+[ -f /cache/kernel6/serial-console ] && SERIAL=1
+if [ $SERIAL = 0 ]; then
+    echo "rc.sh: Bluetooth takes the UART; console output from here on in /tmp/rc.log"
+    exec > /tmp/rc.log 2>&1
+    dmesg -n 1
+    F=/mnt/data/kernel6/firmware
+    kmod hci_uart
+    name=$($W/bccmd -t bcsp -d /dev/ttyATH0 -b 115200 buildname 2>/dev/null)
+    hw=$(sed -n '/hw_ver/{N N N N s/^[^0-9]*\([0-9][0-9]\)/\1/p}' /dev/$(grep mfg /proc/mtd | cut -d: -f1))
+    case "$name" in
+        *A06*) psr=csr8811-a06.psr ;;
+        *A08*) [ "$hw" = 00.40 ] && psr=csr8811-a08-pb1.psr || psr=csr8811-a08.psr ;;
+        *) psr="" ;;
+    esac
+    if [ -n "$psr" ] && [ -f $F/$psr ]; then
+        cat $F/$psr > /tmp/pskeys.psr
+        sed 's/\([0-9a-f][0-9a-f]\):\([0-9a-f][0-9a-f]\):\([0-9a-f][0-9a-f]\):\([0-9a-f][0-9a-f]\):\([0-9a-f][0-9a-f]\):\([0-9a-f][0-9a-f]\).*/\&0x0001 = 0x\4 0x\5\6 0x\3 0x\1\2/' \
+            /sys/class/net/wlan0/address >> /tmp/pskeys.psr
+        $W/bccmd -t bcsp -d /dev/ttyATH0 -b 115200 psload -r /tmp/pskeys.psr
+        sleep 1
+        $W/hciattach ttyATH0 bcsp 115200 && $W/hciconfig hci0 up || echo "rc.sh: hci0 not up"
+    else
+        echo "rc.sh: no CSR8811 answer (buildname '$name')"
+    fi
+fi
+
+echo "rc.sh: done"
+if [ $SERIAL = 1 ]; then
+    # Only plain sh: the BusyBox on a Hub's /cache may lack setsid and cttyhack (a loop on a
+    # missing applet spun forever). The sleep keeps any failure from spinning.
+    while true; do
+        $B sh < /dev/console > /dev/console 2>&1
+        sleep 1
+    done
+fi
+# PID 1 must not exit
 while true; do
-    $B sh < /dev/console > /dev/console 2>&1
-    sleep 1
+    sleep 3600
 done

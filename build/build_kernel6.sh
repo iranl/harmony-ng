@@ -9,6 +9,8 @@
 #   harmony-hub-initramfs.uImage  same kernel with a BusyBox shell in RAM, for a serial test
 #                                 boot from U-Boot (loady/loadb to 0x81000000, bootm 0x81000000).
 #   modules.tar.gz, config, System.map
+#   kernel6-modules.tgz           the modules the Hub gets (build/kernel6/modules.list + needs),
+#                                 for /cache/kernel6/modules (tools/deploy_kernel6.sh)
 #
 #   KERNEL_TARBALL  kernel.org linux-$KVER.tar.xz (default ~/kbuild6/linux-$KVER.tar.xz)
 #   INITRAMFS_MODULES=1  put every module in the initramfs image too (about 1 MB more: each
@@ -107,6 +109,23 @@ for f in "$SRC"/drivers/*.c "$SRC"/drivers/Makefile; do tr -d '\r' < "$f" > "har
 "${MAKE[@]}" M="$WORK/harmony_drivers" INSTALL_MOD_PATH="$WORK/modroot" INSTALL_MOD_STRIP=1 DEPMOD=true modules_install > /dev/null
 /sbin/depmod -b "$WORK/modroot" "$(cat include/config/kernel.release)"
 tar -czf "$OUT_DIR/modules.tar.gz" -C modroot lib
+
+# the Hub's subset (build/kernel6/modules.list and what those need), own modules.dep
+KREL_SET="$(cat include/config/kernel.release)"
+rm -rf modset && mkdir -p "modset/$KREL_SET"
+(cd "modroot/lib/modules/$KREL_SET" && \
+    tr -d '\r' < "$SRC/modules.list" | grep -v '^#' | grep . | while read -r m; do
+        [ -f "$m" ] || { echo "Error: $m not built" >&2; exit 1; }
+        echo "$m"
+        grep "^$m:" modules.dep | cut -d: -f2 | tr ' ' '\n' | grep . || true  # none for some
+    done | sort -u | while read -r m; do
+        mkdir -p "$WORK/modset/$KREL_SET/$(dirname "$m")" && cp "$m" "$WORK/modset/$KREL_SET/$m"
+    done)
+cp "modroot/lib/modules/$KREL_SET"/modules.builtin* "modset/$KREL_SET/"
+mkdir -p modset-root/lib/modules && rm -rf modset-root/lib/modules/* && cp -a "modset/$KREL_SET" modset-root/lib/modules/
+/sbin/depmod -b "$WORK/modset-root" "$KREL_SET"
+tar -czf "$OUT_DIR/kernel6-modules.tgz" -C modset-root/lib/modules "$KREL_SET"
+echo "kernel6-modules.tgz: $(find modset-root -name '*.ko' | wc -l) modules, $(du -sk modset-root | cut -f1) KB"
 
 # $1 initramfs list, $2 output, $3 image name
 build_with_initramfs() {
