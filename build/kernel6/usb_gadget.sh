@@ -6,7 +6,8 @@
 #                the stock identity), relayed to hub_util usbwifi by hub_util usbhid
 #   interface 1+ CDC NCM: network to the PC (gadget0, the Hub is 192.168.7.1; rc.sh)
 #
-# down unbinds it from the controller.
+# down unbinds it from the controller and removes it (up creates it again): an unbound NCM
+# function kept its network interface, so gadget0 stayed in host mode.
 #
 # start  the whole device side: USB role gadget, up, usb0 renamed gadget0 (network_manager.sh
 #        takes usb* for an Ethernet adapter) as 192.168.7.1 with a DHCP server giving the PC
@@ -86,7 +87,12 @@ up)
     echo $UDC > $G/UDC
     ;;
 down)
-    [ -d $G ] && echo "" > $G/UDC
+    [ -d $G ] || exit 0
+    echo "" > $G/UDC 2>/dev/null
+    # configfs: links, then configs, functions and strings, then the gadget
+    rm -f $G/configs/c.1/hid.wifi $G/configs/c.1/ncm.net
+    rmdir $G/configs/c.1/strings/0x409 $G/configs/c.1 $G/functions/hid.wifi $G/functions/ncm.net \
+        $G/strings/0x409 $G 2>/dev/null
     ;;
 *)
     echo "usage: $0 start|stop|up|down" >&2
