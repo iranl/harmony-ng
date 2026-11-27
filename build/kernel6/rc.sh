@@ -55,6 +55,9 @@ if [ $ROOTFS = 1 ]; then
     # (a static copy left from before is replaced by the link, freeing its flash)
     mkdir -p /cache/bin
     [ "$(readlink /cache/bin/busybox)" = /bin/busybox ] || ln -sf /bin/busybox /cache/bin/busybox
+    # /cache/bin comes first in PATH: an applet link of an older BusyBox named modprobe would
+    # hide /sbin/modprobe (modules.dep) and load the drivers without what they need
+    for a in modprobe depmod; do [ -L /cache/bin/$a ] && rm -f /cache/bin/$a; done
     if [ -d /data/harmony/bin ] && [ "$(readlink /data/harmony/bin/dropbearmulti)" != /usr/sbin/dropbearmulti ]; then
         ln -sf /usr/sbin/dropbearmulti /data/harmony/bin/dropbearmulti
     fi
@@ -195,7 +198,8 @@ if [ -f /etc/init.d/rcS.local ] && [ $RESCUE = 0 ]; then
     # PID 1 must not exit), then start /usr/sbin/dropbear, which rcS.local set up.
     load_modules() { :; }   # the stock rcS function: the drivers are loaded above
     ( . /etc/init.d/rcS.local )
-    [ -x /usr/sbin/dropbear ] && /usr/sbin/dropbear
+    # key logins only (-s -g): root has no password; a wrapper of rcS.local adds the same flags
+    [ -x /usr/sbin/dropbear ] && /usr/sbin/dropbear -s -g -K 300 -R
 else
     # no HarmonyNG: Wi-Fi with the stock configuration and SSH
     mkdir -p /var/run/wpa_supplicant

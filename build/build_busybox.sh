@@ -56,6 +56,9 @@ build_mips() {
     sed -i 's/CONFIG_TC=y/# CONFIG_TC is not set/' .config
     sed -i 's/CONFIG_FEATURE_TC_INGRESS=y/# CONFIG_FEATURE_TC_INGRESS is not set/' .config
     sed -i 's/CONFIG_SEEDRNG=y/# CONFIG_SEEDRNG is not set/' .config
+    # no modprobe or depmod applet: the system's /sbin/modprobe (build/kernel6/modprobe.sh) follows
+    # modules.dep, and HarmonyNG's "busybox --install -s /cache/bin" (first in PATH) must not hide it
+    sed -i 's/^CONFIG_MODPROBE=y/# CONFIG_MODPROBE is not set/; s/^CONFIG_DEPMOD=y/# CONFIG_DEPMOD is not set/' .config
 
     # Enable built-in TLS & HTTPS for wget
     sed -i 's/.*CONFIG_TLS.*/CONFIG_TLS=y/' .config

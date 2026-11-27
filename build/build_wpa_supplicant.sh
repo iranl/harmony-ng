@@ -42,6 +42,8 @@ cat > .config <<EOF
 CONFIG_DRIVER_NL80211=y
 CONFIG_LIBNL_TINY=y
 CONFIG_CTRL_IFACE=y
+# -s (log to syslog): HarmonyNG's network_manager.sh starts it so, as on the stock firmware
+CONFIG_DEBUG_SYSLOG=y
 CONFIG_BACKEND=file
 CONFIG_TLS=internal
 CONFIG_CRYPTO=internal

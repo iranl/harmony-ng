@@ -69,6 +69,8 @@ done < "$BB_BUILD/busybox.links"
 
 # dropbear: hub_sshd (HarmonyNG) finds it as /usr/sbin/dropbearmulti
 cp "$DYN/dropbearmulti" usr/sbin/
+# the stock root's names: older HarmonyNG rcS.local files expect /usr/sbin/dropbear (rc.sh starts it)
+for a in dropbear dropbearkey scp; do ln -s dropbearmulti usr/sbin/$a; done
 # tools of the system, under the stock names where the stock scripts call them. An applet link
 # of the same name goes first: writing through it would overwrite bin/busybox.
 rm -f usr/sbin/wpa_supplicant usr/sbin/wpa_cli sbin/wlanconfig sbin/modprobe

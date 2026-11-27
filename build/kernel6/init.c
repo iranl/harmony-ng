@@ -166,6 +166,56 @@ static void write_pending_root(void) {
 
 /* first boot of the root file system: the data partition still has the stock union layout
  * (data/, etc/, ... at its top): all of it goes to upper/ (renames, no copy) */
+/* name (absolute, or relative to dir) exists in the upper layer or in /rom */
+static int link_target_exists(const char *upper, const char *dir, const char *target) {
+    char p[512];
+    struct stat st;
+    if (target[0] == '/') {
+        snprintf(p, sizeof(p), "%s%s", upper, target);
+        if (stat(p, &st) == 0) return 1;
+        snprintf(p, sizeof(p), "/rom%s", target);
+    } else {
+        snprintf(p, sizeof(p), "%s/%s/%s", upper, dir, target);
+        if (stat(p, &st) == 0) return 1;
+        snprintf(p, sizeof(p), "/rom/%s/%s", dir, target);
+    }
+    return stat(p, &st) == 0;
+}
+
+/* The system directories belong to the root file system: in the upper layer (not mounted yet)
+ * an entry the root file system also has goes (stock-era copies, whiteouts that hide its
+ * programs), and so does a link that points nowhere (stock links to /data/dropbearmulti).
+ * What HarmonyNG adds there (its /usr/sbin/dropbear wrapper) stays. */
+static void clean_system_dirs(const char *upper) {
+    static const char *const dirs[] = { "bin", "sbin", "usr/bin", "usr/sbin" };
+    char path[512], low[512], target[256];
+    struct stat st;
+    for (int i = 0; i < 4; i++) {
+        snprintf(path, sizeof(path), "%s/%s", upper, dirs[i]);
+        DIR *d = opendir(path);
+        if (!d) continue;
+        struct dirent *e;
+        while ((e = readdir(d))) {
+            if (e->d_name[0] == '.' && (!e->d_name[1] || (e->d_name[1] == '.' && !e->d_name[2])))
+                continue;
+            snprintf(path, sizeof(path), "%s/%s/%s", upper, dirs[i], e->d_name);
+            snprintf(low, sizeof(low), "/rom/%s/%s", dirs[i], e->d_name);
+            if (lstat(path, &st) != 0 || S_ISDIR(st.st_mode)) continue;
+            int drop = lstat(low, &(struct stat){0}) == 0;
+            if (!drop && S_ISLNK(st.st_mode)) {
+                ssize_t n = readlink(path, target, sizeof(target) - 1);
+                if (n > 0) {
+                    target[n] = 0;
+                    drop = !link_target_exists(upper, dirs[i], target);
+                }
+            }
+            if (!drop && S_ISCHR(st.st_mode) && st.st_rdev == 0) drop = 1;   /* lone whiteout */
+            if (drop && unlink(path) == 0) msg("removed", path, 0);
+        }
+        closedir(d);
+    }
+}
+
 static void migrate_data(void) {
     DIR *d = opendir("/overlay");
     struct dirent *e;
@@ -247,6 +297,7 @@ static int root_boot(int root_mtd) {
     }
     if (usb == 0) {
         layers = "lowerdir=/rom,upperdir=/usb/data/upper,workdir=/usb/data/work";
+        clean_system_dirs("/usb/data/upper");
     } else {
         if (mnt("mtd:data", "/overlay", "jffs2", 0, NULL) != 0) {
             umount("/rom");
@@ -255,6 +306,7 @@ static int root_boot(int root_mtd) {
         if (stat("/overlay/upper", &st) != 0) migrate_data();
         mkdir("/overlay/upper", 0755);
         mkdir("/overlay/work", 0755);
+        clean_system_dirs("/overlay/upper");
     }
     if (mnt("overlay", "/newroot", "overlay", 0, layers) != 0) {
         /* the fallback boot mounts mtd:data itself */
@@ -317,7 +369,23 @@ int main(void) {
         mnt("mtd:cache", "/cache", "jffs2", 0, NULL);
     }
 
+#ifdef HARMONY_RECOVERY_SERIAL
+    /* recovery build (RAM boot over U-Boot): keep the serial console, Bluetooth stays off it */
+    {
+        int sfd = open("/cache/kernel6/serial-console", O_WRONLY | O_CREAT, 0644);
+        if (sfd >= 0) close(sfd);
+        sync();
+    }
+#endif
     write_pending_root();
+    /* HarmonyNG's /cache/bin (first in PATH) may hold applet links of a BusyBox named modprobe
+     * or depmod: they would hide the system's /sbin/modprobe, which follows modules.dep */
+    {
+        static const char *const shadow[] = { "/cache/bin/modprobe", "/cache/bin/depmod" };
+        struct stat ls;
+        for (int i = 0; i < 2; i++)
+            if (lstat(shadow[i], &ls) == 0 && S_ISLNK(ls.st_mode)) unlink(shadow[i]);
+    }
     root_mtd = mtd_num("root");
     if (root_mtd >= 0 && our_root(root_mtd) && root_boot(root_mtd) == 0)
         return 0;   /* not reached: rcS runs */
