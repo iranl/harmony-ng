@@ -121,6 +121,10 @@ else
 fi
 
 up "USB drivers"
+# The root file system's firmware first (regulatory.db for cfg80211, which loads it with ath9k);
+# /lib/firmware (the data partition: PSKEY files) stays the fallback
+[ -f /usr/lib/kernel6/firmware/regulatory.db ] &&
+    echo /usr/lib/kernel6/firmware > /sys/module/firmware_class/parameters/path
 # Wi-Fi: ath9k; its interface gets the stock name ath0
 if modprobe ath9k; then
     waitfor /sys/class/net/wlan0 50

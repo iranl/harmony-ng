@@ -95,6 +95,18 @@ ln -sf ../../lib/kernel6/udhcpc.sh usr/share/udhcpc/default.script
 tar -xzf "$OUT/kernel6-modules.tgz" -C lib/modules
 ln -s /kernel6/firmware lib/firmware
 
+# the wireless regulatory database (cfg80211; rc.sh adds this directory to the firmware path).
+# Without it cfg80211 stays on the restrictive world domain ("failed to load regulatory.db").
+REGDB=wireless-regdb-2026.09.03
+REGDB_SHA256=b22e0901227b820cd1c280abe681a15b773a5103a5e10dc442e94ebb34cbf58d
+REGDB_TAR="$HOME/kbuild6/$REGDB.tar.xz"
+[ -f "$REGDB_TAR" ] || curl -fsSL -o "$REGDB_TAR" \
+    "https://mirrors.edge.kernel.org/pub/software/network/wireless-regdb/$REGDB.tar.xz"
+echo "$REGDB_SHA256  $REGDB_TAR" | sha256sum -c --quiet - || { echo "Error: $REGDB_TAR is not the expected file" >&2; exit 1; }
+mkdir -p usr/lib/kernel6/firmware
+tar -xJf "$REGDB_TAR" -O "$REGDB/regulatory.db" > usr/lib/kernel6/firmware/regulatory.db
+tar -xJf "$REGDB_TAR" -O "$REGDB/regulatory.db.p7s" > usr/lib/kernel6/firmware/regulatory.db.p7s
+
 # base /etc (the data partition's /etc, the stock one, has the Hub's own files on top)
 echo 'root::0:0:root:/home/root:/bin/sh' > etc/passwd
 echo 'root:x:0:' > etc/group
