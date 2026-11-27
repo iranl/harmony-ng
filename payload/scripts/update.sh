@@ -582,8 +582,8 @@ wait_activity_switch() {
 # and after an update): the stock-era static tools and test leftovers, the fallback boot's old
 # modules, a refused root file system image, and the unionfs whiteout files (.wh.*) the stock
 # kernel left in the data partition (overlayfs ignores them). What HarmonyNG uses stays: the
-# rescue scripts in /cache/kernel6, the links in /cache/bin, the stock resources (backed up and
-# removed by build/deploy_hub.py --clean-stock-resources) and /data/stock_backup.
+# rescue scripts in /cache/kernel6, the links in /cache/bin, the stock resources (the stock
+# configuration import reads them) and /data/stock_backup.
 cleanup_stale() {
   uname -r | grep -q harmony || return 0
   rm -rf /cache/kernel6/modules /cache/kernel6/rootfs.sqfs.failed /cache/busybox /cache/codex_* \
@@ -736,9 +736,11 @@ do_apply() {
         [ -f "$TMPDIR/pkg/bin/$b" ] && rm -f "/cache/bin/$b" 2>/dev/null
       done
 
-      # D. Install extended BusyBox applets strictly to /cache/bin (/bin/sh is NEVER touched)
+      # D. Install extended BusyBox applets strictly to /cache/bin (/bin/sh is NEVER touched). Not
+      # on the Linux 6.18 system (/cache/bin/busybox is a link to its /bin/busybox, whose applets
+      # are in /bin, /sbin and /usr/bin already: init.sh removes the links in /cache/bin)
       rm -f /data/bin/sh /data/bin/ash /data/bin/busybox 2>/dev/null || true
-      if [ -x /cache/bin/busybox ]; then
+      if [ -x /cache/bin/busybox ] && [ ! -L /cache/bin/busybox ]; then
         # Links to busybox in /usr/bin (older deploys) and of removed applets in /cache/bin go
         _bb=/cache/bin/busybox
         for _l in /usr/bin/* /cache/bin/*; do

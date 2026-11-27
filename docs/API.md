@@ -74,7 +74,9 @@ Returns high-level hub status, firmware, identity, active activity, flash space,
     read from the Hub (`/etc/version`) is in `/api/system-info` and `/api/update-status`. `version`
     and `commit`: this firmware, as in `/api/system-info`.
   - `total_kb`, `free_kb`: size and free space of the `/data` flash partition, in KB (not memory);
-    `cache_total_kb`, `cache_free_kb`: the same for `/cache`.
+    `cache_total_kb`, `cache_free_kb`: the same for `/cache`, both `0` when `/cache` is on the data
+    file system (the Linux 6.18 system's one data partition, or a USB stick): its space is in `total_kb`
+    already (`GET /api/disk-space` adds `cache_shared: true`).
   - `updating`: `true` while a firmware update runs or the services restart after it, as in `GET /api/update-status` (2.1).
   - `auth_enabled`: whether authentication is on. `role` (`"admin"` or `"user"`) and `user` are the
     caller's own: the account name, `pat:<token name>` for a personal access token, `"admin"` when
@@ -123,6 +125,8 @@ Returns Linux system uptime, CPU load average, kernel version, RAM breakdown, an
     "mem_total_kb": 131072,
     "mem_free_kb": 49152,
     "mem_available_kb": 73728,
+    "swap_total_kb": 16384,
+    "swap_free_kb": 16384,
     "network_details": "=== Network Interfaces (/proc/net/dev) ===\n..."
   }
   ```
@@ -143,9 +147,7 @@ Returns the flash space of `/data` (of root `/` when `/data` cannot be read) and
     "cache_free_kb": 2048,
     "cache_used_kb": 6144,
     "cache_percent_free": 25,
-    "stock_resources_kb": 251,
-    "stock_resources_saved": true,
-    "can_empty_stock_resources": true
+    "cache_shared": false
   }
   ```
 
@@ -416,22 +418,6 @@ Answers of the actions below:
   or the services restart after it (`updating` of `GET /api/update-status`, 2.1).
 - `factory_reset`: `{"ok": true, "message": "Factory reset initiated. Reverting to stock firmware and rebooting."}`;
   `400` without `"confirm": "RESET"`.
-- `clean_stock_resources`: empties `/data/resources`, the stock Logitech files. Needs
-  `"confirm": "EMPTY"` (`400` without). `409` while `/data/harmony/config/devices.json` is missing or empty
-  (the stock import still needs the files), when `/data/resources` is a link, and while no saved copy of
-  the files as they are exists: `/data/harmony/stock_resources_saved` holds `<copy name> <count>:<hex>`,
-  written by `tools/backup_hub.py` once `backups/stock_resources_<hub>*.tar` holds exactly the files (every
-  `deploy_hub.py` run makes that backup). `<hex>` is the XOR of sha256(`"<size> <path>"`) over every
-  entry under `/data/resources` but directories (path relative to it, a link counts as size 0); the
-  route computes it again and refuses when it differs. `500` when a file could
-  not be removed or the directory not read. Answers
-  `{"ok": true, "freed_kb": 48, "stock_resources_kb": 0, "message": "..."}`: `freed_kb` is the free space
-  of `/data` gained. In `GET /api/disk-space`, `stock_resources_kb` is the files' own size; `/data` is
-  JFFS2, which compresses, so the flash space they take (and `freed_kb`) is smaller.
-  `stock_resources_saved` says whether the mark matches the files there now (false when there are
-  none), `can_empty_stock_resources` whether the action would run. The stock firmware needs these
-  files: `tools/restore_stock.py` puts the saved copy back on a stock restore whose archive holds none,
-  and refuses without it.
 - `mqtt_publish`: only `topic` and `payload` are read. `retain` is ignored: the message goes out
   with QoS 0 and is not retained. An empty `payload` is sent as `cmd`. The answer is
   `{"ok": true}` also when MQTT is off or `topic` is empty, so it does not tell whether anything

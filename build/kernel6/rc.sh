@@ -33,10 +33,15 @@ else
     $B mkdir -p /bin /sbin /usr/bin /usr/sbin /usr/share/udhcpc /var/run /var/log /var/volatile/tmp /lib
     $B --install -s /bin
 fi
+# boot stage times, also in the kernel log (dmesg): the console is not read on a normal Hub
+up() { echo "rc.sh: [$(cut -d' ' -f1 /proc/uptime) s] $*"; echo "rc.sh: $*" > /dev/kmsg 2>/dev/null; }
 F=/cache/kernel6               # flags
+# wait for a path, up to $2 tenths of a second (0.2 s steps: a driver's device shows up fast)
+waitfor() { _n=0; while [ ! -e "$1" ] && [ $_n -lt $2 ]; do sleep 0.2; _n=$((_n + 2)); done; }
 export PATH=/data/harmony/bin:/cache/bin:/usr/sbin:/usr/bin:/sbin:/bin
 exec > /dev/console 2>&1
 echo "rc.sh: $(uname -r), $([ $ROOTFS = 1 ] && echo 'root file system' || echo 'fallback') boot"
+up "start"
 SERIAL=0
 [ -f $F/serial-console ] && SERIAL=1
 # data and cache on a USB stick (usb_storage.sh): the port stays in host mode for it; with the
@@ -101,27 +106,30 @@ for t in bccmd hciattach hciconfig; do
     fi
 done
 
+up "layout done"
 # --- drivers ---
 # USB: device mode by default. The OTG ID pin is not wired and reads "host"; start_usb_eth.sh
 # switches to host mode for USB Ethernet and sticks.
 modprobe phy-ath79-usb
 modprobe ci_hdrc_usb2
 R=/sys/bus/platform/devices/1b000000.usb/ci_hdrc.0/role
-for i in 1 2 3 4 5; do [ -e $R ] && break; sleep 1; done
+waitfor $R 50
 if [ $USBDATA = 1 ]; then
     echo host > /tmp/harmony_usb_port_mode   # init.sh: no USB device side
 else
     echo gadget > $R 2>/dev/null || echo "rc.sh: cannot set the USB role"
 fi
 
+up "USB drivers"
 # Wi-Fi: ath9k; its interface gets the stock name ath0
 if modprobe ath9k; then
-    for i in 1 2 3 4 5; do [ -e /sys/class/net/wlan0 ] && break; sleep 1; done
+    waitfor /sys/class/net/wlan0 50
     ip link set wlan0 name ath0 || echo "rc.sh: cannot rename wlan0"
 else
     echo "rc.sh: no Wi-Fi driver"
 fi
 
+up "Wi-Fi driver"
 # Hub hardware with the stock interfaces (build/kernel6/drivers): Pair button and light
 # (input0), RF (/dev/rfspi), IR (/dev/i2s). harmony_pimento first: it disables JTAG, whose pins
 # are the RF ready line and chip select and the Pair button.
@@ -152,7 +160,7 @@ fi
 skin=$(cat /data/harmony/skin 2>/dev/null)
 [ -n "$skin" ] || skin=$($T/hub_util mfg skin 2>/dev/null)
 if [ "$skin" = 115 ] && modprobe ag71xx && modprobe ar9331 && modprobe bridge; then
-    for i in 1 2 3 4 5; do [ -e /sys/class/net/lan0 ] && break; sleep 1; done
+    waitfor /sys/class/net/lan0 50
     ip link set eth1 name ethsw && ip link set ethsw up
     brctl addbr eth1
     for p in eth0 lan0 lan1 lan2 lan3; do
@@ -162,6 +170,7 @@ if [ "$skin" = 115 ] && modprobe ag71xx && modprobe ar9331 && modprobe bridge; t
     ip link set eth1 address "$(cat /sys/class/net/eth0/address)"
 fi
 
+up "Hub drivers, factory reset check, Pro Ethernet"
 # Bluetooth: the CSR8811 is on the only UART, also the serial console. rcS.local/init.sh load
 # its PSKEYs and attach it (bccmd, hciattach on ttyS0); keep the kernel off the UART.
 if [ $SERIAL = 0 ]; then
@@ -197,7 +206,22 @@ if mount -t pstore pstore /sys/fs/pstore 2>/dev/null && [ -n "$(ls /sys/fs/pstor
     echo "rc.sh: crash records of the last reset saved as $C/$n-*.txt"
 fi
 echo 1 > /proc/sys/vm/overcommit_memory
+# zram swap: a quarter of the RAM (16 MB on a 64 MB Hub, 8 MB on a 32 MB one), LZ4. A safety
+# margin for peaks (icons, plugin unpacks in /tmp, Bluetooth with several plugins), not room to
+# run more: low swappiness, so pages go there only under memory pressure. GET /api/system-info
+# shows how much is in use (swap_total_kb, swap_free_kb).
+Z=/sys/block/zram0
+if [ -e $Z ] || modprobe zram 2>/dev/null; then
+    mem=$(sed -n 's/^MemTotal: *\([0-9]*\) kB/\1/p' /proc/meminfo)
+    echo lz4 > $Z/comp_algorithm 2>/dev/null
+    if echo "$((mem / 4))K" > $Z/disksize && mkswap /dev/zram0 > /dev/null && swapon -p 100 /dev/zram0; then
+        echo 20 > /proc/sys/vm/swappiness
+    else
+        echo "rc.sh: no zram swap"
+    fi
+fi
 
+up "syslog, watchdog, crash records, zram"
 # USB device side (usb_gadget.sh): the HID device of the stock USB Wi-Fi setup (046D:C129,
 # relayed to hub_util usbwifi by hub_util usbhid) and a network to the PC (CDC NCM): the Hub is
 # 192.168.7.1 and gives the PC 192.168.7.2. The network interface is renamed usb0 -> gadget0:
@@ -210,6 +234,7 @@ else
 fi
 
 [ $RESCUE = 1 ] && echo "rc.sh: the USB stick with the Hub's data is missing: rescue (no HarmonyNG)"
+up "USB device side"
 if [ -f /etc/init.d/rcS.local ] && [ $RESCUE = 0 ]; then
     # As the stock rcS: source rcS.local (in a subshell: its emergency branch ends in exit, and
     # PID 1 must not exit), then start /usr/sbin/dropbear, which rcS.local set up.
@@ -227,7 +252,7 @@ else
     done
 fi
 
-echo "rc.sh: done"
+up "done (rcS.local returned)"
 if [ $SERIAL = 1 ]; then
     # Only plain sh: the BusyBox on a Hub's /cache may lack setsid and cttyhack. The sleep keeps
     # any failure from spinning.

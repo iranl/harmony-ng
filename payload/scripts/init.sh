@@ -201,7 +201,17 @@ fi
 # 3. Shell Profile & Extended BusyBox (Installed strictly into /cache/bin; /bin/sh is NEVER touched)
 rm -f /data/bin/sh /data/bin/ash /data/bin/busybox 2>/dev/null || true
 mkdir -p /data/harmony/bin /data/harmony/config /data/harmony/plugins /tmp/plugins 2>/dev/null || true
-if [ -x /cache/bin/busybox ]; then
+if [ "$(readlink /cache/bin/busybox 2>/dev/null)" = /bin/busybox ]; then
+  # Linux 6.18 system: its root file system has every applet in /bin, /sbin, /usr/bin and
+  # /usr/sbin. The applet links an earlier install made in /cache/bin go; /cache/bin/busybox and
+  # /cache/bin/sync stay (scripts call them by path).
+  for _l in /cache/bin/*; do
+    [ -L "$_l" ] || continue
+    case "${_l##*/}" in busybox|sync) continue ;; esac
+    case "$(readlink "$_l")" in /bin/busybox|/cache/bin/busybox|busybox) rm -f "$_l" ;; esac
+  done
+  link_if_changed /cache/bin/busybox /data/harmony/bin/busybox 2>/dev/null || true
+elif [ -x /cache/bin/busybox ]; then
   /cache/bin/busybox --install -s /cache/bin 2>/dev/null || true
   link_if_changed /cache/bin/busybox /data/harmony/bin/busybox 2>/dev/null || true
 fi

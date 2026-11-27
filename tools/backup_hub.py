@@ -12,11 +12,6 @@ Features:
 - File names carry the Hub's id (its Wi-Fi MAC), so several Hubs can share one folder
 - Rotates each Hub's rolling backups: the newest 5, plus the newest of each of the
   8 weeks before them
-- Keeps a copy of the stock Logitech files (/data/resources) in stock_resources_<hub>.tar,
-  checked file by file against the Hub and never overwritten (files that changed since get a
-  new copy beside it), and marks the Hub (/data/harmony/stock_resources_saved) with the copy's
-  name and a fingerprint of the files: the stock resources delete needs both (the web UI checks
-  the fingerprint, tools/clean_stock_resources.py the copy itself)
 """
 
 from __future__ import annotations
@@ -24,7 +19,6 @@ from __future__ import annotations
 import argparse
 import datetime
 import glob
-import hashlib
 import os
 import pathlib
 import re
@@ -80,10 +74,8 @@ GOLDEN_PATHS = "/data/resources /etc/passwd /etc/network /etc/TZ /etc/wpa_suppli
 ROLLING_PATHS = ("/data/harmony /data/resources /data/stock_backup /etc/passwd /etc/network /etc/TZ "
                  "/etc/wpa_supplicant.conf /etc/dropbear")
 
-# The stock Logitech files: copies kept for good, and the mark on the Hub ("<copy name>
-# <fingerprint>") that says a copy of exactly the files there now exists
+# The stock Logitech files: a golden backup is made only while they are there (the stock state)
 STOCK_RES_DIR = "/data/resources"
-STOCK_RES_SAVED = "/data/harmony/stock_resources_saved"
 
 Run = Callable[[str], subprocess.CompletedProcess]
 # relative path -> (size, md5 hex; "link" for a link)
@@ -123,60 +115,6 @@ def hub_stock_files(run: Run) -> StockFiles:
         if path.startswith(STOCK_RES_DIR + "/"):
             files[path[len(STOCK_RES_DIR) + 1:]] = (int(size) if size.isdigit() else -1, digest)
     return files
-
-
-def archive_stock_files(path: pathlib.Path) -> StockFiles | None:
-    """The files under data/resources in a plain tar, as hub_stock_files() gives them; None when
-    path is no complete tar."""
-    if not path.is_file() or not tar_is_complete(path):
-        return None
-    files: StockFiles = {}
-    prefix = STOCK_RES_DIR.lstrip("/") + "/"
-    try:
-        with tarfile.open(path, "r:") as tf:
-            for m in tf:
-                name = m.name.lstrip("/")
-                if not name.startswith(prefix) or m.isdir():
-                    continue
-                if m.isfile():
-                    f = tf.extractfile(m)
-                    files[name[len(prefix):]] = (m.size, hashlib.md5(f.read() if f else b"").hexdigest())
-                else:
-                    files[name[len(prefix):]] = (0, "link")
-    except (tarfile.TarError, OSError, EOFError):
-        return None
-    return files
-
-
-def stock_fingerprint(files: StockFiles) -> str:
-    """"<count>:<hex>", the XOR of sha256("<size> <path>") over the files (any order). The Hub API
-    computes the same over /data/resources (http_api_system.c) and compares it with the mark."""
-    acc = bytearray(32)
-    for rel, (size, _) in files.items():
-        for i, b in enumerate(hashlib.sha256(f"{size} {rel}".encode()).digest()):
-            acc[i] ^= b
-    return f"{len(files)}:{acc.hex()}"
-
-
-def is_mac(tag: str | None) -> bool:
-    return bool(tag and re.fullmatch(r"[0-9a-f]{12}", tag))
-
-
-def stock_resources_file(backup_dir: pathlib.Path, tag: str) -> pathlib.Path:
-    return backup_dir / f"stock_resources_{tag}.tar"
-
-
-def stock_copies(backup_dir: pathlib.Path, tag: str) -> list[pathlib.Path]:
-    """The Hub's copies of its stock files, newest first."""
-    copies = [stock_resources_file(backup_dir, tag), *backup_dir.glob(f"stock_resources_{tag}_*.tar")]
-    return sorted((p for p in copies if p.is_file()), key=lambda p: p.stat().st_mtime, reverse=True)
-
-
-def matching_copy(backup_dir: pathlib.Path, tag: str | None, files: StockFiles) -> pathlib.Path | None:
-    """The local copy that holds exactly these files (same names, sizes and md5)."""
-    if not files or not is_mac(tag):
-        return None
-    return next((p for p in stock_copies(backup_dir, tag) if archive_stock_files(p) == files), None)
 
 
 def default_backup_dir(repo_root: pathlib.Path | None = None) -> pathlib.Path:
@@ -260,45 +198,6 @@ def save_archive(ssh_base: list[str], remote_cmd: str, dest: pathlib.Path) -> bo
         part.unlink(missing_ok=True)
         return False
     part.replace(dest)
-    return True
-
-
-def save_stock_resources(ssh_base: list[str], tar_cmd: str, backup_dir: pathlib.Path, tag: str,
-                         files: StockFiles, dry_run: bool = False) -> bool:
-    """Make sure a local copy holds exactly the Hub's stock files (files: what the Hub has now),
-    then mark the Hub with its name and their fingerprint. A copy is never rewritten: changed
-    files get a new one beside it. Returns False only when the Hub has files and none could be kept."""
-    if not files:
-        return True  # nothing to save (emptied before, or a Hub without stock files)
-    if not is_mac(tag):
-        # A copy named after the address could be taken for another Hub's at that address
-        print("[!] The Hub's MAC could not be read: its stock files are not saved and the Hub is not marked.")
-        return False
-    copy = matching_copy(backup_dir, tag, files)
-    if copy is None:
-        copy = stock_resources_file(backup_dir, tag)
-        if copy.exists():
-            copy = backup_dir / f"stock_resources_{tag}_{datetime.datetime.now():%Y%m%d_%H%M%S}.tar"
-        if dry_run:
-            print(f"    [dry-run] would save the stock files to {copy.name}")
-            return True
-        print(f"[*] Saving the stock Logitech files ({STOCK_RES_DIR}) to {copy.name}...")
-        # tar's exit code counts here: a file it could not read fails the copy
-        if not save_archive(ssh_base, f"{tar_cmd} -cf - {STOCK_RES_DIR}", copy):
-            return False
-        if archive_stock_files(copy) != files:
-            print(f"[!] {copy.name} does not hold the Hub's files as listed (changed while saved?); removed, "
-                  "the Hub is not marked as saved.")
-            copy.unlink(missing_ok=True)
-            return False
-        print(f"[+] Stock files saved: {copy.name} ({copy.stat().st_size // 1024} KB, kept for good)")
-    if dry_run:
-        return True
-    mark = subprocess.run(
-        ssh_base + [f"mkdir -p /data/harmony && echo '{copy.name} {stock_fingerprint(files)}' > {STOCK_RES_SAVED}"],
-        capture_output=True, text=True)
-    if mark.returncode != 0:
-        print(f"[!] Could not mark the Hub ({STOCK_RES_SAVED}): {mark.stderr.strip()}")
     return True
 
 
@@ -404,9 +303,7 @@ def backup_hub(
         elif not golden_file.is_file() and not stock_files:
             # The stock state has its files: a golden backup made now would hold none, under a
             # name that says it is the stock state
-            copies = ", ".join(p.name for p in stock_copies(backup_dir, tag)) if is_mac(tag) else ""
-            print(f"[!] No golden backup made: /data/resources holds no stock files. Saved copies here: "
-                  f"{copies or 'none (see the backups folder of the computer that saved them)'}.")
+            print("[!] No golden backup made: /data/resources holds no stock files (not the stock state).")
         elif not golden_file.is_file():
             print(f"[*] Creating the first (GOLDEN) backup of this Hub ({tag})...")
             if dry_run:
@@ -421,11 +318,7 @@ def backup_hub(
         else:
             print(f"[+] Golden backup already exists: {golden_file.name}")
 
-        # 2. The stock files, once per Hub (the way back after the stock resources delete)
-        if not save_stock_resources(ssh_base, tar_cmd, backup_dir, tag, stock_files, dry_run):
-            print("[!] The stock files could not be saved; the Hub is not marked as saved.")
-
-        # 3. Rolling backup
+        # 2. Rolling backup
         print("[*] Creating rolling backup...")
         if dry_run:
             print(f"    [dry-run] would save rolling backup to {rolling_file}")
@@ -438,7 +331,7 @@ def backup_hub(
                 print("[!] Rolling backup failed; older backups were kept.")
                 return False
 
-        # 4. Rotate this Hub's rolling backups (only archives that passed the check exist)
+        # 3. Rotate this Hub's rolling backups (only archives that passed the check exist)
         stale = backups_to_remove(list(backup_dir.glob(f"hub_backup_{tag}_*.tar")))
         if stale:
             print(f"[*] Rotating backups of {tag} (keeping the newest {KEEP_RECENT} and one per week "

@@ -21,7 +21,8 @@ case "$1" in
 start)
     echo gadget > $ROLE 2>/dev/null || echo "usb_gadget: cannot set the USB role to gadget" >&2
     sh "$0" up || exit 1
-    for i in 1 2 3; do [ -e /sys/class/net/usb0 ] || [ -e /sys/class/net/gadget0 ] && break; sleep 1; done
+    i=0
+    while [ ! -e /sys/class/net/usb0 ] && [ ! -e /sys/class/net/gadget0 ] && [ $i -lt 15 ]; do sleep 0.2; i=$((i + 1)); done
     [ -e /sys/class/net/usb0 ] && ip link set usb0 name gadget0
     ifconfig gadget0 192.168.7.1 netmask 255.255.255.0 up || exit 1
     printf 'start 192.168.7.2\nend 192.168.7.2\ninterface gadget0\nlease_file /tmp/udhcpd.leases\npidfile /var/run/udhcpd.gadget0.pid\noption subnet 255.255.255.0\n' > /tmp/udhcpd.conf

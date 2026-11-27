@@ -53,7 +53,8 @@ export function createSystemApi(client) {
         cacheUsedMb,
         totalCombinedFreeMb,
         totalCombinedMb,
-        output: `Data: ${freeMb}MB free (${totalMb}MB) | Cache: ${cacheFreeMb}MB free (${cacheTotalMb}MB)`
+        // one file system for data and cache (Linux 6.18 system): cache_* are 0
+        output: `Data: ${freeMb}MB free (${totalMb}MB)` + (data.cache_total_kb ? ` | Cache: ${cacheFreeMb}MB free (${cacheTotalMb}MB)` : '')
       };
     },
 

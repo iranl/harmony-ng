@@ -23,7 +23,6 @@ TOOLS = [
     "tools/factory_reset.py",
     "tools/set_wifi_usb.py",
     "tools/capture_remote_fb.py",
-    "tools/clean_stock_resources.py",
 ]
 RUN = (
     "import runpy, sys\n"

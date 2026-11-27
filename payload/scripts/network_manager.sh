@@ -693,6 +693,19 @@ do_boot() {
     log "Starting Ethernet (USB Host mode)..."
   fi
 
+  # Linux 6.18: probing for a USB Ethernet adapter (host mode) loads drivers from flash for
+  # several seconds, which starved the Wi-Fi handshake (connected at 97 s instead of about 40 s).
+  # With a Wi-Fi network configured, it connects first (up to 30 s).
+  if [ "$ETH_ENABLED" = "1" ] && ! is_onboard_eth && [ -e /sys/class/udc/ci_hdrc.0 ] &&
+     grep -q '^[[:space:]]*ssid=' /etc/wpa_supplicant.conf 2>/dev/null; then
+    _w=0
+    while [ "$_w" -lt 30 ] && ! ifconfig ath0 2>/dev/null | grep -q 'inet addr'; do
+      sleep 1
+      _w=$((_w + 1))
+    done
+    log "Wi-Fi first: $( [ "$_w" -lt 30 ] && echo "up after ${_w}s" || echo "not up after 30s" ), then Ethernet"
+  fi
+
   if [ "$ETH_ENABLED" != "1" ]; then
     # Ethernet turned off in the settings: the USB port stays in device mode
     log "Ethernet is disabled in the settings; not starting it."
