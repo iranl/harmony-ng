@@ -4,7 +4,10 @@
 /* The update source: where update.sh, the RF OTA and the Ethernet driver download come from.
  * The update_repo setting (settings.json) overrides it; update.sh keeps its own copy of the same
  * default (DEFAULT_OTA) because it runs without these binaries. */
-#define HARMONY_OTA_DEFAULT_URL "https://raw.githubusercontent.com/iranl/harmony-ng/ota"
+#define HARMONY_OTA_DEFAULT_URL "https://raw.githubusercontent.com/iranl/harmony-ng/ota4"
+/* The v3 (stock kernel) releases' source: its update_repo setting, carried over by a migration,
+ * means the official source, and here that is the v4 one */
+#define HARMONY_OTA_V3_URL "https://raw.githubusercontent.com/iranl/harmony-ng/ota"
 
 #include <ctype.h>
 #include <string.h>
@@ -27,12 +30,14 @@ static inline int ota_source_url_ok(const char *s) {
 }
 
 /* The form every consumer reads: no trailing slash and no old "/bin/mips" suffix (update.sh
- * strips both too), so hub_fetch and the API fallbacks build the same URLs. */
+ * strips both too), so hub_fetch and the API fallbacks build the same URLs; the v3 source
+ * becomes the v4 one (update.sh does the same). s holds at least 256 bytes. */
 static inline void ota_source_normalize(char *s) {
     size_t n = strlen(s);
     while (n && s[n - 1] == '/') s[--n] = '\0';
     if (n >= 9 && strcmp(s + n - 9, "/bin/mips") == 0) s[n -= 9] = '\0';
     while (n && s[n - 1] == '/') s[--n] = '\0';
+    if (strcmp(s, HARMONY_OTA_V3_URL) == 0) strcpy(s, HARMONY_OTA_DEFAULT_URL);
 }
 
 #endif

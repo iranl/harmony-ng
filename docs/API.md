@@ -348,7 +348,7 @@ Returns global hub settings from `/data/harmony/config/settings.json`.
     "mdns_enabled": true,
     "legacy_enabled": false,
     "update_repo": "",
-    "update_repo_default": "https://raw.githubusercontent.com/iranl/harmony-ng/ota"
+    "update_repo_default": "https://raw.githubusercontent.com/iranl/harmony-ng/ota4"
   }
   ```
   - `update_repo` (default empty, meaning `update_repo_default`): the update source. `update.sh`
@@ -589,7 +589,7 @@ Returns running version, commit hash, build date, architecture, and whether an u
 Checks for newer release bundles (also answered as `/api/update-check-state`).
 - **Request Body** (optional, all fields optional):
   ```json
-  {"repo": "https://raw.githubusercontent.com/iranl/harmony-ng/ota", "token": "ghp_example", "remote_version": "2.4.2"}
+  {"repo": "https://raw.githubusercontent.com/iranl/harmony-ng/ota4", "token": "ghp_example", "remote_version": "2.4.2"}
   ```
   - `repo`: the update source, the base URL under which `VERSION`, `manifest.json` and the bundle
     files are published. Default: the official `ota` branch. Only the characters `A-Z a-z 0-9 / . :

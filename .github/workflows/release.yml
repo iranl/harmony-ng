@@ -452,4 +452,4 @@ jobs:
           # scripts/publish_ota.py ships the system image from build/output/kernel6 (kernel6/ in the manifest)
           mkdir -p build/output/kernel6
           cp -f artifacts/kernel6-images/harmony-hub-flash.uImage artifacts/kernel6-images/harmony-hub-rootfs.sqfs build/output/kernel6/
-          python scripts/publish_ota.py --version "$VERSION" --require-signature --push --remote "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" --branch ota
+          python scripts/publish_ota.py --version "$VERSION" --require-signature --push --remote "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" --branch ota4 --v4-pointer-branch ota

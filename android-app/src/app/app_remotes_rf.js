@@ -604,7 +604,7 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
    * that cannot be read and the source is a GitHub repo. */
   async fetchOnlineHubVersion(token = '') {
     const base = otaSource();
-    for (const file of ['v2/VERSION', 'VERSION_V2']) {
+    for (const file of ['VERSION']) {
       try {
         const res = await fetch(`${base}/${file}?_=${Date.now()}`, { cache: 'no-cache' });
         const ver = res.ok ? (await res.text()).trim().replace(/^v/, '') : '';

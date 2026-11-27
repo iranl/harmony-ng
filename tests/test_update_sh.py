@@ -100,7 +100,7 @@ class UpdateScript(unittest.TestCase):
     def test_unsafe_setting_ignored(self):
         self.set_update_repo("https://example.invalid/x;reboot")
         self.run_update("check")
-        self.assertTrue(self.urls()[0].startswith("https://raw.githubusercontent.com/iranl/harmony-ng/ota/"))
+        self.assertTrue(self.urls()[0].startswith("https://raw.githubusercontent.com/iranl/harmony-ng/ota4/"))
 
     def test_releases_fallback_follows_github_source(self):
         self.set_update_repo("https://raw.githubusercontent.com/someone/fork/ota")

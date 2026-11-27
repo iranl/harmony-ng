@@ -2,7 +2,7 @@
  * The update source (the Hub's update_repo setting): where version checks and the icon
  * archive come from. Empty means the official OTA branch.
  */
-export const DEFAULT_OTA_URL = 'https://raw.githubusercontent.com/iranl/harmony-ng/ota';
+export const DEFAULT_OTA_URL = 'https://raw.githubusercontent.com/iranl/harmony-ng/ota4';
 
 let current = '';
 

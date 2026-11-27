@@ -1037,7 +1037,7 @@ paths:
                 mdns_enabled: true
                 legacy_enabled: false
                 update_repo: ""
-                update_repo_default: https://raw.githubusercontent.com/iranl/harmony-ng/ota
+                update_repo_default: https://raw.githubusercontent.com/iranl/harmony-ng/ota4
     post:
       tags:
         - System & Status
@@ -1085,7 +1085,7 @@ paths:
                 mdns_enabled: true
                 legacy_enabled: false
                 update_repo: ""
-                update_repo_default: https://raw.githubusercontent.com/iranl/harmony-ng/ota
+                update_repo_default: https://raw.githubusercontent.com/iranl/harmony-ng/ota4
         '400':
           description: "Unknown timezone (use a name from the list or a POSIX TZ string), or an update_repo that is not a usable URL (nothing is saved)"
         '500':
@@ -4058,7 +4058,7 @@ paths:
                   type: string
                   description: "A version the client already knows (also accepted as version): stored as the latest version, nothing is downloaded"
             example:
-              repo: "https://raw.githubusercontent.com/iranl/harmony-ng/ota"
+              repo: "https://raw.githubusercontent.com/iranl/harmony-ng/ota4"
       responses:
         '200':
           description: Check result

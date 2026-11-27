@@ -262,7 +262,7 @@ cJSON *ota_update_check(const cJSON *params) {
             const char *src = repo[0] && ota_source_url_ok(repo) ? repo :
                               hs.update_repo[0] ? hs.update_repo : HARMONY_OTA_DEFAULT_URL;
             snprintf(cmd, sizeof(cmd),
-                "LD_LIBRARY_PATH=/data/harmony/lib /data/harmony/bin/hub_fetch -T 6 -o /data/harmony/latest_version '%s/v2/VERSION' 2>/dev/null", src);
+                "LD_LIBRARY_PATH=/data/harmony/lib /data/harmony/bin/hub_fetch -T 6 -o /data/harmony/latest_version '%s/VERSION' 2>/dev/null", src);
         }
 #ifndef TEST_HARNESS
         system(cmd);

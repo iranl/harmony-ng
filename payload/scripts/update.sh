@@ -47,7 +47,7 @@ else
   TOKEN_ARG="${3:-}"
 fi
 
-DEFAULT_OTA="https://raw.githubusercontent.com/iranl/harmony-ng/ota"
+DEFAULT_OTA="https://raw.githubusercontent.com/iranl/harmony-ng/ota4"
 # A usable update source: http(s):// and URL characters only (it ends up in wget arguments).
 repo_ok() {
   case "$1" in
@@ -74,6 +74,8 @@ REPO="${REPO%/}"
 REPO="${REPO%/bin/mips}"
 REPO="${REPO%/}"
 [ -z "$REPO" ] && REPO="$DEFAULT_OTA"
+# the v3 releases' official source (a setting kept from before the migration): v4 is on ota4
+[ "$REPO" = "https://raw.githubusercontent.com/iranl/harmony-ng/ota" ] && REPO="$DEFAULT_OTA"
 
 
 TIMESTAMP=$(date +%s 2>/dev/null || echo 1)
@@ -428,10 +430,8 @@ do_check() {
   LOCAL_VER=$(get_local_version)
   REMOTE_VER=""
 
-  # 1. Try raw GitHub OTA VERSION file with retries (v2 checks v2/VERSION first)
-  if download_retry "${REPO}/v2/VERSION?_=${TIMESTAMP}" /tmp/ota_ver.$$ 8 2 || \
-     download_retry "${REPO}/VERSION_V2?_=${TIMESTAMP}" /tmp/ota_ver.$$ 8 2 || \
-     download_retry "${REPO}/VERSION?_=${TIMESTAMP}" /tmp/ota_ver.$$ 8 3; then
+  # 1. The source's VERSION file, with retries (v4 has its own branch, ota4: no v2/ files there)
+  if download_retry "${REPO}/VERSION?_=${TIMESTAMP}" /tmp/ota_ver.$$ 8 3; then
     REMOTE_VER=$(cat /tmp/ota_ver.$$ | tr -d '\r\n v')
   fi
 

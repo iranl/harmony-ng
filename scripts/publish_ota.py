@@ -89,12 +89,16 @@ def package_ota(output_dir: Path, version: str):
     # 1. Version file
     # For v2+ releases, keep root VERSION at 1.14.0 so existing 1.*.* hubs do not attempt 2.0 upgrade over the air.
     # Write v2/VERSION and VERSION_V2 for 2.0+ clients.
+    # v4 (Linux 6.18 system) has a branch of its own (ota4) with a plain VERSION: the ota branch keeps
+    # the last v3 release for v3 Hubs, which only get VERSION_V4 there (publish_v4_pointer).
     try:
         major = int(version.split(".")[0])
     except Exception:
         major = 1
 
-    if major >= 2:
+    if major >= 4:
+        (output_dir / "VERSION").write_text(version + "\n", encoding="utf-8")
+    elif major >= 2:
         (output_dir / "VERSION").write_text("1.14.0\n", encoding="utf-8")
         (output_dir / "VERSION_V2").write_text(version + "\n", encoding="utf-8")
         v2_dir = output_dir / "v2"
@@ -374,12 +378,35 @@ def push_to_ota_branch(staging_dir: Path, version: str, remote_url: str = None, 
             print(f"[+] Single-commit git repository created locally in staging for branch '{branch}'.")
             print("    To push to GitHub, run with --remote <url> or git push -f.")
 
+def publish_v4_pointer(version: str, remote_url: str, branch: str = "ota"):
+    """Write VERSION_V4 and v4/VERSION onto the v3 branch, keeping everything else on it: v3 Hubs
+    install only the v3 release there and show the v4 banner from these files."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp_git:
+        tmp_path = Path(tmp_git)
+        subprocess.run(["git", "clone", "--depth", "1", "--branch", branch, remote_url, str(tmp_path)], check=True)
+        (tmp_path / "VERSION_V4").write_text(version + "\n", encoding="utf-8")
+        (tmp_path / "v4").mkdir(exist_ok=True)
+        (tmp_path / "v4" / "VERSION").write_text(version + "\n", encoding="utf-8")
+        subprocess.run(["git", "add", "VERSION_V4", "v4/VERSION"], cwd=tmp_path, check=True)
+        if subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=tmp_path).returncode == 0:
+            print(f"[+] {branch} already points to v{version}.")
+            return
+        subprocess.run(["git", "-c", "user.name=github-actions[bot]",
+                        "-c", "user.email=github-actions[bot]@users.noreply.github.com",
+                        "commit", "-m", f"VERSION_V4: v{version}"], cwd=tmp_path, check=True)
+        subprocess.run(["git", "push", "origin", branch], cwd=tmp_path, check=True)
+        print(f"[+] {branch}: VERSION_V4 and v4/VERSION point to v{version}.")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Package and deploy Harmony OTA assets")
     parser.add_argument("--version", "-v", help="Release version (default: from VERSION file)")
     parser.add_argument("--push", "-p", action="store_true", help="Push to git remote OTA branch")
     parser.add_argument("--remote", "-r", default="", help="Remote git URL (e.g. git@github.com:iranl/harmony-ng.git)")
-    parser.add_argument("--branch", "-b", default="ota", help="Target branch (default: ota)")
+    parser.add_argument("--branch", "-b", default="ota", help="Target branch (default: ota; v4 releases: ota4)")
+    parser.add_argument("--v4-pointer-branch", default="",
+                        help="v4 release: also write VERSION_V4 and v4/VERSION onto this v3 branch (e.g. ota)")
     parser.add_argument("--require-signature", action="store_true",
                         help="Fail when OTA_SIGNING_KEY is not set (release workflow)")
     args = parser.parse_args()
@@ -391,6 +418,8 @@ def main():
 
     if args.push or args.remote:
         push_to_ota_branch(STAGING_DIR, ver, remote_url=args.remote or None, branch=args.branch)
+        if args.v4_pointer_branch and args.remote:
+            publish_v4_pointer(ver, args.remote, args.v4_pointer_branch)
 
 if __name__ == "__main__":
     main()
