@@ -183,11 +183,25 @@ out:
 	return ret;
 }
 
+/* gpio-ath79 runs its interrupts with handle_simple_irq, which does not mask a level interrupt
+ * while the thread runs (IRQF_ONESHOT masks only with handle_level_irq): the line, high until
+ * the frame is read, fired thousands of times per frame, each counted as unhandled, and the
+ * kernel disabled interrupt 14 ("nobody cared") within a minute of boot. The interrupt is
+ * masked here and unmasked once the thread has read the frame. */
+static irqreturn_t cc2544_irq(int irq, void *data)
+{
+	disable_irq_nosync(irq);
+	return IRQ_WAKE_THREAD;
+}
+
 static irqreturn_t cc2544_irq_thread(int irq, void *data)
 {
 	struct cc2544 *c = data;
 
-	cc2544_xfer(c, NULL, 0);
+	/* a resent interrupt (pending while masked) for a frame already read: line low */
+	if (gpiod_get_value_cansleep(c->dc))
+		cc2544_xfer(c, NULL, 0);
+	enable_irq(irq);
 	return IRQ_HANDLED;
 }
 
@@ -499,7 +513,7 @@ static void fw_end(struct cc2544 *c)
 	if (c->fw_write)
 		fw_program(c);
 	dbg_leave(c);
-	if (request_threaded_irq(c->spi->irq, NULL, cc2544_irq_thread, IRQF_ONESHOT, "cc2544", c))
+	if (request_threaded_irq(c->spi->irq, cc2544_irq, cc2544_irq_thread, 0, "cc2544", c))
 		dev_err(&c->spi->dev, "rffw: interrupt %d not requested again\n", c->spi->irq);
 	mutex_unlock(&c->xfer_lock);
 	vfree(c->fw_buf);
@@ -620,7 +634,7 @@ static int cc2544_probe(struct spi_device *spi)
 	if (!spi->irq)
 		return dev_err_probe(dev, -EINVAL, "no interrupt\n");
 	/* not devm: /dev/rffw frees it while it drives the line */
-	ret = request_threaded_irq(spi->irq, NULL, cc2544_irq_thread, IRQF_ONESHOT, "cc2544", c);
+	ret = request_threaded_irq(spi->irq, cc2544_irq, cc2544_irq_thread, 0, "cc2544", c);
 	if (ret)
 		return ret;
 

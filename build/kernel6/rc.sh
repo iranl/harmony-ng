@@ -176,7 +176,10 @@ up "Hub drivers, factory reset check, Pro Ethernet"
 if [ $SERIAL = 0 ]; then
     modprobe hci_uart
     echo "rc.sh: Bluetooth takes the UART; console output from here on in /tmp/rc.log"
-    exec > /tmp/rc.log 2>&1
+    # stdin too: PID 1 holding /dev/console (the UART) kept the tty open after hciattach ended,
+    # so its line discipline (N_HCI) stayed and every later bccmd (ps5-wake, the init.sh
+    # re-attach) talked to the kernel's BCSP instead of the chip ("Initialization timed out")
+    exec < /dev/null > /tmp/rc.log 2>&1
     dmesg -n 1
 fi
 
