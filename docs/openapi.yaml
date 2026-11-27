@@ -4031,6 +4031,43 @@ paths:
                   update_error:
                     type: string
                     description: First error line of update.sh, the cause (failed only, untranslated)
+                  ota_installable:
+                    type: boolean
+                    description: false when remote_version is shown but installed with the release bundle only (another major version, or published so; docs/API.md 2.1)
+                  release_url:
+                    type: string
+                    description: The release page of remote_version on GitHub
+                  channel:
+                    type: string
+                    enum: [stable, beta]
+                    description: The update channel (POST /api/update-channel)
+
+  /api/update-channel:
+    post:
+      tags:
+        - Updates & Maintenance
+      summary: Choose the update channel
+      description: stable (full releases, branch ota) or beta (also pre-releases and drafts, branch ota-beta). Admin only.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [channel]
+              properties:
+                channel:
+                  type: string
+                  enum: [stable, beta]
+      responses:
+        '200':
+          description: Channel set
+          content:
+            application/json:
+              example:
+                ok: true
+                channel: beta
+        '400':
+          description: Not stable or beta
 
   /api/update-check:
     get:

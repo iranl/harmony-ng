@@ -4560,6 +4560,19 @@ harmony_send_command:
                 data-i18n-placeholder="placeholder_optional_token">
             </div>
           </div>
+          <div class="row" style="margin-top: 8px;">
+            <div>
+              <label for="updateChannel" data-i18n="update_channel">Update channel</label>
+              <select id="updateChannel" class="form-control">
+                <option value="stable" data-i18n="update_channel_stable">Stable releases</option>
+                <option value="beta" data-i18n="update_channel_beta">Beta (pre-releases)</option>
+              </select>
+            </div>
+          </div>
+          <div id="updateBundleNotice" class="help" style="display: none; margin-top: 8px;">
+            <span id="updateBundleText"></span>
+            <a id="updateBundleLink" href="#" target="_blank" rel="noopener" data-i18n="update_open_release">Open the release page</a>
+          </div>
           <div class="actions" style="margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px;">
             <button id="updateCheck" type="button" class="btn btn-sm btn-secondary" data-i18n="check_updates">Check for
               Updates</button>

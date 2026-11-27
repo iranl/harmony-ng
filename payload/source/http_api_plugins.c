@@ -105,6 +105,15 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
         cJSON_AddBoolToObject(resp, "ok", 1);
         int force = (query && (strstr(query, "refresh=1") || strstr(query, "forceReload=1"))) ? 1 : 0;
         cJSON *cat = plugin_mgr_get_marketplace_catalog(force);
+        /* each entry: whether this HarmonyNG can run it (min_harmony_version), for the UIs */
+        cJSON *e = NULL;
+        cJSON_ArrayForEach(e, cat) {
+            char why[128];
+            int ok = plugin_mgr_version_ok(e, why, sizeof(why)) == 0;
+            cJSON_DeleteItemFromObjectCaseSensitive(e, "compatible");
+            cJSON_AddBoolToObject(e, "compatible", ok);
+            if (!ok) cJSON_AddStringToObject(e, "incompatible_reason", why);
+        }
         cJSON_AddItemToObject(resp, "marketplace", cat ? cat : cJSON_CreateArray());
         send_cjson_resp(client_fd, 200, resp);
         cJSON_Delete(resp);

@@ -362,7 +362,11 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
     document.getElementById('rfConfigSaveBtn')?.addEventListener('click', () => this.saveRfConfig());
     // The banner's "Update Hub" button installs the update (same confirm, overlay and restart
     // wait as Install Update on the System page), instead of only opening that page.
-    document.getElementById('btnHubUpdateBanner')?.addEventListener('click', () => this.installSoftwareUpdate());
+    // a release for the release bundle only (checkBanners sets bannerReleaseUrl): its page
+    document.getElementById('btnHubUpdateBanner')?.addEventListener('click', () => {
+      if (this.bannerReleaseUrl) window.open(this.bannerReleaseUrl, '_blank', 'noopener');
+      else this.installSoftwareUpdate();
+    });
     document.getElementById('btnPushConfigToRemote')?.addEventListener('click', () => this.pushConfigToRemote());
     document.getElementById('rfCopySlotMappingBtn')?.addEventListener('click', () => this.copySlotMappings());
 
@@ -519,6 +523,7 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
     });
     document.getElementById('updateCheck')?.addEventListener('click', () => this.checkSoftwareUpdate());
     document.getElementById('updateInstall')?.addEventListener('click', () => this.installSoftwareUpdate());
+    document.getElementById('updateChannel')?.addEventListener('change', (e) => this.changeUpdateChannel(e.target));
     document.getElementById('updateRefresh')?.addEventListener('click', () => this.showSoftwareVersions());
     if (this.isNative) {
       document.getElementById('btnSyncIconsHub')?.addEventListener('click', () => this.syncIconPack('hub'));

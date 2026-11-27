@@ -120,8 +120,14 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
         const curVer = stat.current_version || APP_VERSION;
         const targetVer = remoteVer || (stat.remote_version ? stat.remote_version.replace(/^v/, '') : (res.remote_version ? res.remote_version.replace(/^v/, '') : ''));
         const hasUpdate = Boolean(targetVer && curVer && this.isVersionOlder(curVer, targetVer));
+        const bundleUrl = hasUpdate ? this.bundleOnlyUrl(curVer, targetVer, { ...res, ...stat }) : '';
+        this.showBundleNotice(targetVer, bundleUrl);
         log.textContent = tf('update_check_result', { local: curVer, remote: displayRemote }) + '\n' +
-          tf('ver_status', { value: hasUpdate ? `⚠️ ${tf('update_available_install', { version: displayRemote })}` : `✓ ${t('hub_is_up_to_date')}` });
+          tf('ver_status', {
+            value: !hasUpdate ? `✓ ${t('hub_is_up_to_date')}`
+              : bundleUrl ? `⚠️ ${tf('update_bundle_only', { version: targetVer })} ${bundleUrl}`
+              : `⚠️ ${tf('update_available_install', { version: displayRemote })}`
+          });
       }
     } catch (err) {
       if (log) log.textContent = tf('update_check_failed_msg', { error: err.message });
@@ -132,6 +138,12 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
     const repo = document.getElementById('updateRepo')?.value.trim();
     const token = document.getElementById('updateToken')?.value.trim();
     const log = document.getElementById('updateLog');
+    // a release for the release bundle only: the page instead of an install the Hub would refuse
+    if (this.bannerReleaseUrl) {
+      if (log) log.textContent = `${t('update_open_release')}: ${this.bannerReleaseUrl}`;
+      window.open(this.bannerReleaseUrl, '_blank', 'noopener');
+      return;
+    }
     if (!await showConfirm(t('update_confirm', 'Download and apply update? Hub services will restart.'), { title: t('software_update'), okText: t('update_btn') })) return;
     const before = await this.client.getUpdateStatus().catch(() => ({}));
     try {

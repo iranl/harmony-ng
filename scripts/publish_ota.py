@@ -79,7 +79,7 @@ def get_file_hashes(path: Path):
             h_sha.update(chunk)
     return h_md5.hexdigest().lower(), h_sha.hexdigest().lower()
 
-def package_ota(output_dir: Path, version: str):
+def package_ota(output_dir: Path, version: str, ota_installable: bool = True, channel: str = "stable"):
     print(f"[*] Packaging OTA release v{version} to {output_dir}...")
     if output_dir.exists():
         import shutil
@@ -296,13 +296,54 @@ def package_ota(output_dir: Path, version: str):
         (output_dir / "v2" / "hub_ota.tar.gz.md5").write_text(f"{md5}  hub_ota.tar.gz\n", encoding="utf-8")
         (output_dir / "v2" / "hub_ota.md5").write_text(f"{md5}\n", encoding="utf-8")
 
-    # 6. Manifest.json
+    # 6. Manifest.json. ota_installable false: Hubs show the release but do not install it over
+    # the air (payload/scripts/update.sh apply refuses it; signed, so it cannot be turned on)
     manifest = {
         "version": version,
+        "ota_installable": ota_installable,
         "files": manifest_files
     }
     (output_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    write_release_info(output_dir, version, ota_installable, channel)
     print(f"[+] Packaged {len(manifest_files)} artifacts into {output_dir}")
+
+
+def release_url(version: str) -> str:
+    repo = os.environ.get("GITHUB_REPOSITORY", "iranl/harmony-ng")
+    return f"https://github.com/{repo}/releases/tag/v{version}"
+
+
+def write_release_info(output_dir: Path, version: str, ota_installable: bool, channel: str):
+    """release.json next to VERSION (and in v2/): what the update check and the web UI show.
+    Not signed and not in the manifest: it only words the notice; update.sh apply decides on the
+    signed manifest."""
+    info = {
+        "version": version,
+        "ota_installable": ota_installable,
+        "channel": channel,
+        "release_url": release_url(version),
+    }
+    text = json.dumps(info, indent=2) + "\n"
+    (output_dir / "release.json").write_text(text, encoding="utf-8")
+    if (output_dir / "v2").is_dir():
+        (output_dir / "v2" / "release.json").write_text(text, encoding="utf-8")
+
+
+def promote_staging(tarball: Path, output_dir: Path) -> str:
+    """A pre-release's OTA staging (release asset ota-staging-v<version>.tar.gz, signed) as the
+    stable release: unpacked, release.json set to the stable channel. The signed manifest is
+    unchanged. Returns the version."""
+    import shutil
+    import tarfile
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(parents=True)
+    with tarfile.open(tarball, "r:gz") as tar:
+        tar.extractall(output_dir, filter="data")
+    manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    version = manifest["version"]
+    write_release_info(output_dir, version, manifest.get("ota_installable", True) is not False, "stable")
+    return version
 
 
 def sign_manifest(output_dir: Path, require: bool) -> bool:
@@ -370,12 +411,31 @@ def main():
     parser.add_argument("--branch", "-b", default="ota", help="Target branch (default: ota)")
     parser.add_argument("--require-signature", action="store_true",
                         help="Fail when OTA_SIGNING_KEY is not set (release workflow)")
+    parser.add_argument("--channel", choices=("stable", "beta"), default="stable",
+                        help="stable (branch ota) or beta (pre-releases and drafts, branch ota-beta): "
+                             "written to release.json")
+    parser.add_argument("--install-tool-only", action="store_true",
+                        help="Hubs show this release but install it only with the release bundle "
+                             "(signed manifest ota_installable: false)")
+    parser.add_argument("--staging-tarball", type=Path,
+                        help="Also write the signed staging as this .tar.gz (release asset, for a later promotion)")
+    parser.add_argument("--promote", type=Path, metavar="TARBALL",
+                        help="Publish a pre-release's staging tarball as the stable release (no packaging, no signing)")
     args = parser.parse_args()
 
-    ver = args.version or (VERSION_FILE.read_text().strip() if VERSION_FILE.exists() else "1.3.0")
-    package_ota(STAGING_DIR, ver)
-    if not sign_manifest(STAGING_DIR, args.require_signature):
-        sys.exit(1)
+    if args.promote:
+        ver = promote_staging(args.promote, STAGING_DIR)
+    else:
+        ver = args.version or (VERSION_FILE.read_text().strip() if VERSION_FILE.exists() else "1.3.0")
+        package_ota(STAGING_DIR, ver, ota_installable=not args.install_tool_only, channel=args.channel)
+        if not sign_manifest(STAGING_DIR, args.require_signature):
+            sys.exit(1)
+        if args.staging_tarball:
+            import tarfile
+            with tarfile.open(args.staging_tarball, "w:gz") as tar:
+                for item in sorted(STAGING_DIR.iterdir()):
+                    tar.add(item, arcname=item.name)
+            print(f"[+] Signed staging written to {args.staging_tarball}")
 
     if args.push or args.remote:
         push_to_ota_branch(STAGING_DIR, ver, remote_url=args.remote or None, branch=args.branch)

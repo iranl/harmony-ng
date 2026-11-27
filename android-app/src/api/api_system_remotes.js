@@ -365,6 +365,10 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
     });
   }
 
+  async setUpdateChannel(channel) {
+    return this.postForm('/api/update-channel', { channel });
+  }
+
   async applyUpdate(token = '', repo = '') {
     return this.postForm('/api/update-apply', { token: token || '', repo: repo || '' });
   }

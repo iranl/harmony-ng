@@ -19,6 +19,21 @@ on:
           - patch
           - minor
           - major
+      prerelease:
+        description: 'Pre-release: published to the beta update channel (branch ota-beta), not offered to Hubs on the stable channel'
+        required: false
+        default: false
+        type: boolean
+      draft:
+        description: 'Draft release (also beta channel only). Publishing it later as a full release offers it to every Hub (release-promote.yml)'
+        required: false
+        default: false
+        type: boolean
+      install_tool_only:
+        description: 'Hubs show this release but do not install it online: the release bundle installs it'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -362,15 +377,9 @@ jobs:
           python scripts/generate_release_notes.py --version "$VERSION" --output release_notes.md
           cat release_notes.md
 
-      - name: Create GitHub Release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION="${{ needs.prepare-version.outputs.version }}"
-          gh release create "v${VERSION}" release_assets/* \
-            --title "HarmonyNG v${VERSION}" \
-            --notes-file release_notes.md
-
+      # A pre-release or a draft goes to the beta channel (branch ota-beta) only. Its signed OTA
+      # staging is a release asset: publishing it later as a full release puts that same staging
+      # on the stable channel (release-promote.yml), without a new build.
       - name: Publish to OTA Branch
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -380,4 +389,27 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           VERSION="${{ needs.prepare-version.outputs.version }}"
-          python scripts/publish_ota.py --version "$VERSION" --require-signature --push --remote "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" --branch ota
+          BRANCH=ota
+          CHANNEL=stable
+          if [ "${{ github.event.inputs.prerelease }}" = "true" ] || [ "${{ github.event.inputs.draft }}" = "true" ]; then
+            BRANCH=ota-beta
+            CHANNEL=beta
+          fi
+          EXTRA=""
+          [ "${{ github.event.inputs.install_tool_only }}" = "true" ] && EXTRA="--install-tool-only"
+          python scripts/publish_ota.py --version "$VERSION" --require-signature --channel "$CHANNEL" $EXTRA \
+            --staging-tarball "release_assets/ota-staging-v${VERSION}.tar.gz" \
+            --push --remote "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" --branch "$BRANCH"
+          (cd release_assets && sha256sum "ota-staging-v${VERSION}.tar.gz" >> sha256sums.txt)
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ needs.prepare-version.outputs.version }}"
+          FLAGS=""
+          [ "${{ github.event.inputs.prerelease }}" = "true" ] && FLAGS="$FLAGS --prerelease"
+          [ "${{ github.event.inputs.draft }}" = "true" ] && FLAGS="$FLAGS --draft"
+          gh release create "v${VERSION}" release_assets/* $FLAGS \
+            --title "HarmonyNG v${VERSION}" \
+            --notes-file release_notes.md

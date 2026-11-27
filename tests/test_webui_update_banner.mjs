@@ -31,10 +31,12 @@ function setup() {
   const calls = { install: 0, tabs: [] };
   const own = Object.create(HarmonyAppEventsActions.prototype);
   own.installSoftwareUpdate = async () => { calls.install++; };
+  own.bannerReleaseUrl = '';
   own.switchTab = (tab) => { calls.tabs.push(tab); };
   // The binder also sets up other panels through helpers of other mixins: those are no-ops here.
   const app = new Proxy(own, { get: (t, k) => (k in t ? t[k] : () => {}) });
   own.bindIrAndSettingsEvents.call(app);
+  btn.app = own;
   return { btn, calls, scrolled: () => scrolled };
 }
 
@@ -45,6 +47,22 @@ await check.check('banner button starts the install', async () => {
   assert.equal(calls.install, 1, 'installSoftwareUpdate called once');
   assert.deepEqual(calls.tabs, [], 'no tab switch');
   assert.equal(scrolled(), 0, 'no scroll to the update card');
+});
+
+await check.check('a release for the bundle only opens its page instead', async () => {
+  const { btn, calls } = setup();
+  const opened = [];
+  const prevOpen = globalThis.window.open;
+  globalThis.window.open = (url) => { opened.push(url); };
+  try {
+    btn.app.bannerReleaseUrl = 'https://github.com/iranl/harmony-ng/releases/tag/v4.0.0';
+    await btn.fire('click');
+    await tick(5);
+  } finally {
+    globalThis.window.open = prevOpen;
+  }
+  assert.equal(calls.install, 0, 'no install');
+  assert.deepEqual(opened, ['https://github.com/iranl/harmony-ng/releases/tag/v4.0.0'], 'release page opened');
 });
 
 check.finish();

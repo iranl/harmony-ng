@@ -6,6 +6,7 @@
 #include "cmd_ir_alt.h"
 #include "cJSON.h"
 #include "sha256.h"
+#include "harmony_version.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -1197,6 +1198,18 @@ cJSON *plugin_mgr_get_installed_json(void) {
     return arr;
 }
 
+/* The plugin's "min_harmony_version" (manifest or repository entry, optional): 0 when this
+ * HarmonyNG is that version or newer (or no minimum is set), else -1 with the reason */
+int plugin_mgr_version_ok(const cJSON *entry, char *err_msg, size_t err_msg_sz) {
+    const cJSON *mv = cJSON_GetObjectItemCaseSensitive(entry, "min_harmony_version");
+    if (!cJSON_IsString(mv) || !mv->valuestring[0]) return 0;
+    const char *want = (mv->valuestring[0] == 'v' || mv->valuestring[0] == 'V') ? mv->valuestring + 1 : mv->valuestring;
+    if (harmony_version_compare(HARMONY_VERSION, want) >= 0) return 0;
+    if (err_msg) snprintf(err_msg, err_msg_sz, "This plugin needs HarmonyNG %.20s or newer (this Hub runs %s)", want,
+                          HARMONY_VERSION);
+    return -1;
+}
+
 /* What the Hub needs from a manifest before it installs it */
 static int validate_manifest(const cJSON *m, const char *src_dir, char *err_msg, size_t err_msg_sz) {
     const cJSON *j_id = cJSON_GetObjectItemCaseSensitive(m, "id");
@@ -1209,6 +1222,7 @@ static int validate_manifest(const cJSON *m, const char *src_dir, char *err_msg,
         if (err_msg) snprintf(err_msg, err_msg_sz, "Manifest missing version");
         return -1;
     }
+    if (plugin_mgr_version_ok(m, err_msg, err_msg_sz) != 0) return -1;
     const cJSON *j_ep = cJSON_GetObjectItemCaseSensitive(m, "entrypoint");
     if (!cJSON_IsString(j_ep) || !is_safe_rel_path(j_ep->valuestring)) {
         if (err_msg) snprintf(err_msg, err_msg_sz, "Manifest missing a valid entrypoint (relative path)");

@@ -105,6 +105,10 @@ int plugin_mgr_remove_repository(const char *url);
    force_reload) */
 cJSON *plugin_mgr_get_marketplace_catalog(int force_reload);
 
+/* 0 when this HarmonyNG meets the entry's "min_harmony_version" (manifest or marketplace entry;
+ * none set: 0), else -1 with the reason in err_msg */
+int plugin_mgr_version_ok(const cJSON *entry, char *err_msg, size_t err_msg_sz);
+
 #ifdef __cplusplus
 }
 #endif

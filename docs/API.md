@@ -531,10 +531,20 @@ Returns running version, commit hash, build date, architecture, and whether an u
     "bt_version": "BTstack v1.5 (UART)",
     "arch": "mips (AR9344)",
     "update_available": false,
+    "ota_installable": true,
+    "release_url": "https://github.com/iranl/harmony-ng/releases/tag/v1.0.4",
+    "channel": "stable",
     "updating": false,
     "update_state": "idle"
   }
   ```
+  `ota_installable` is `false` when the release in `remote_version` is shown but not installed as
+  an online update: another major version (a new system: the release bundle installs it), or a
+  release published with `scripts/publish_ota.py --install-tool-only` (its `release.json` says so,
+  and its signed manifest has `"ota_installable": false`, which `update.sh apply` refuses).
+  `release_url` is the release's page on GitHub, for the notice. `channel` is the update channel
+  (`stable` or `beta`, `POST /api/update-channel`).
+
   `update_state` is the state of the last `POST /api/update-apply` since the Hub started:
   - `running`: `update.sh apply` downloads and installs (`/tmp/hub_updating.flag` exists and the
     run started less than 30 minutes ago, counted on the uptime clock, which SNTP does not step).
@@ -580,9 +590,22 @@ Checks for newer release bundles (also answered as `/api/update-check-state`).
     "remote_version": "1.0.4",
     "message": "Hub binaries and WebUI are up to date (v1.0.4).",
     "has_update": false,
-    "update_available": false
+    "update_available": false,
+    "ota_installable": true,
+    "release_url": "https://github.com/iranl/harmony-ng/releases/tag/v1.0.4",
+    "channel": "stable"
   }
   ```
+  For a release that is not installed online (`ota_installable` false, see 2.1), `message` says
+  so and names `release_url`.
+
+#### `POST /api/update-channel`
+Chooses the releases the update check and the online update follow (admin):
+`{"channel": "stable"}` (the default: full releases, branch `ota`) or `{"channel": "beta"}` (also
+the pre-releases and drafts, branch `ota-beta`; they are tested less). A change clears the stored
+latest version. Answers `{"ok": true, "channel": "beta"}`, or `400` for another value. A
+pre-release or draft published later as a full release goes to the stable channel unchanged
+(`.github/workflows/release-promote.yml`).
 
 ### 2.3 Apply Update
 #### `POST /api/update-apply`

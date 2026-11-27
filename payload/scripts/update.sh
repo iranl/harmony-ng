@@ -48,6 +48,11 @@ else
 fi
 
 DEFAULT_OTA="https://raw.githubusercontent.com/iranl/harmony-ng/ota"
+# Update channel (POST /api/update-channel): "beta" follows the pre-releases and drafts (branch
+# ota-beta, scripts/publish_ota.py --channel beta); anything else the stable releases
+UPDATE_CHANNEL=stable
+[ "$(tr -d ' \r\n' < /data/harmony/update_channel 2>/dev/null)" = beta ] && UPDATE_CHANNEL=beta
+[ "$UPDATE_CHANNEL" = beta ] && DEFAULT_OTA="https://raw.githubusercontent.com/iranl/harmony-ng/ota-beta"
 if [ "$CMD" = "remote" -o "$CMD" = "elite" -o "$CMD" = "fetch-remote" -o "$CMD" = "fetch-remote-ota" -o "$CMD" = "repair-tls" ] && [ -z "$REPO_ARG" ] && [ -f /data/harmony/update_state.conf ]; then
   CONF_REPO=$(grep '^source=' /data/harmony/update_state.conf 2>/dev/null | cut -d= -f2- | tr -d '\r\n ')
   [ -n "$CONF_REPO" ] && REPO_ARG="$CONF_REPO"
@@ -57,6 +62,9 @@ REPO="${REPO%/}"
 REPO="${REPO%/bin/mips}"
 REPO="${REPO%/}"
 [ -z "$REPO" ] && REPO="$DEFAULT_OTA"
+# the web UI passes the stable URL by default: on the beta channel that means the beta branch
+[ "$UPDATE_CHANNEL" = beta ] && [ "$REPO" = "https://raw.githubusercontent.com/iranl/harmony-ng/ota" ] && \
+  REPO="https://raw.githubusercontent.com/iranl/harmony-ng/ota-beta"
 
 
 TIMESTAMP=$(date +%s 2>/dev/null || echo 1)
@@ -412,7 +420,20 @@ do_check() {
     return 1
   fi
 
-  # Major version guard: 1.x cannot OTA-update to 2.x
+  # The release's notice (release.json, scripts/publish_ota.py): whether it installs over the
+  # air, and its page. Optional: an older source has none.
+  INSTALLABLE=1
+  RELEASE_URL="https://github.com/iranl/harmony-ng/releases/tag/v${REMOTE_VER}"
+  if download_retry "${REPO}/v2/release.json?_=${TIMESTAMP}" /tmp/ota_rel.$$ 8 1 || \
+     download_retry "${REPO}/release.json?_=${TIMESTAMP}" /tmp/ota_rel.$$ 8 1; then
+    grep -q '"ota_installable": *false' /tmp/ota_rel.$$ && INSTALLABLE=0
+    _url=$(sed -n 's/.*"release_url": *"\(https:\/\/[^"]*\)".*/\1/p' /tmp/ota_rel.$$ | sed -n 1p)
+    [ -n "$_url" ] && RELEASE_URL="$_url"
+  fi
+  rm -f /tmp/ota_rel.$$ 2>/dev/null
+
+  # Another major version (3.x to 4.x: another system) is shown, but installed with the release
+  # bundle only. 1.x Hubs with hub_daemon installed are 2.x (healed here).
   LOCAL_MAJOR=$(echo "$LOCAL_VER" | cut -d. -f1)
   REMOTE_MAJOR=$(echo "$REMOTE_VER" | cut -d. -f1)
   if [ -n "$LOCAL_MAJOR" ] && [ -n "$REMOTE_MAJOR" ] && [ "$LOCAL_MAJOR" != "$REMOTE_MAJOR" ]; then
@@ -420,10 +441,8 @@ do_check() {
       LOCAL_VER="2.0.0"
       LOCAL_MAJOR="2"
       echo "2.0.0" > /data/harmony/VERSION 2>/dev/null || true
-    else
-      echo "{\"ok\":false,\"error\":\"Major upgrade from v${LOCAL_VER} to v${REMOTE_VER} requires force deploy script\"}"
-      return 1
     fi
+    [ "$LOCAL_MAJOR" != "$REMOTE_MAJOR" ] && INSTALLABLE=0
   fi
 
   mkdir -p /data/harmony 2>/dev/null || true
@@ -443,9 +462,12 @@ available=${HAS_UPDATE}
 local_version=${LOCAL_VER}
 remote_version=${REMOTE_VER}
 source=${REPO}
+channel=${UPDATE_CHANNEL}
+ota_installable=${INSTALLABLE}
+release_url=${RELEASE_URL}
 EOF
 
-  echo "{\"ok\":true,\"local_version\":\"${LOCAL_VER}\",\"remote_version\":\"${REMOTE_VER}\",\"update_available\":$([ $HAS_UPDATE -eq 1 ] && echo true || echo false)}"
+  echo "{\"ok\":true,\"local_version\":\"${LOCAL_VER}\",\"remote_version\":\"${REMOTE_VER}\",\"update_available\":$([ $HAS_UPDATE -eq 1 ] && echo true || echo false),\"ota_installable\":$([ $INSTALLABLE -eq 1 ] && echo true || echo false),\"release_url\":\"${RELEASE_URL}\",\"channel\":\"${UPDATE_CHANNEL}\"}"
   return 0
 }
 
@@ -556,6 +578,12 @@ do_apply() {
   fi
   echo "[+] Release manifest v${NEW_VER} signed by a release key."
 
+  # A release made for the release bundle only (signed: scripts/publish_ota.py --install-tool-only)
+  if grep -q '"ota_installable": *false' "$TMPDIR/manifest.json" 2>/dev/null; then
+    echo "[-] v${NEW_VER} is not installed as an online update: install it with the release bundle (https://github.com/iranl/harmony-ng/releases/tag/v${NEW_VER}). Nothing was changed."
+    return 1
+  fi
+
   # Major version guard
   LOCAL_MAJOR=$(echo "$LOCAL_VER" | cut -d. -f1)
   NEW_MAJOR=$(echo "$NEW_VER" | cut -d. -f1)
@@ -565,7 +593,7 @@ do_apply() {
       LOCAL_MAJOR="2"
       echo "2.0.0" > /data/harmony/VERSION 2>/dev/null || true
     else
-      echo "[-] Major upgrade from v${LOCAL_VER} to v${NEW_VER} requires force deploy script. Aborting."
+      echo "[-] v${NEW_VER} is a new major version: install it with the release bundle (https://github.com/iranl/harmony-ng/releases/tag/v${NEW_VER}). Nothing was changed."
       return 1
     fi
   fi
