@@ -655,7 +655,13 @@
     "usb_storage_disable_btn",
     "usb_storage_disable_confirm",
     "usb_storage_busy",
-    "usb_storage_failed"
+    "usb_storage_failed",
+    "usb_wifi_adapter_lbl",
+    "usb_wifi_adapter_desc",
+    "usb_wifi_adapter_turned_on",
+    "usb_wifi_adapter_turned_off",
+    "usb_wifi_adapter_in_use",
+    "usb_wifi_adapter_not_found"
   ],
   "fr": [
     "map_action_help",
@@ -1312,7 +1318,13 @@
     "usb_storage_disable_btn",
     "usb_storage_disable_confirm",
     "usb_storage_busy",
-    "usb_storage_failed"
+    "usb_storage_failed",
+    "usb_wifi_adapter_lbl",
+    "usb_wifi_adapter_desc",
+    "usb_wifi_adapter_turned_on",
+    "usb_wifi_adapter_turned_off",
+    "usb_wifi_adapter_in_use",
+    "usb_wifi_adapter_not_found"
   ],
   "nl": [
     "map_action_help",
@@ -1969,7 +1981,13 @@
     "usb_storage_disable_btn",
     "usb_storage_disable_confirm",
     "usb_storage_busy",
-    "usb_storage_failed"
+    "usb_storage_failed",
+    "usb_wifi_adapter_lbl",
+    "usb_wifi_adapter_desc",
+    "usb_wifi_adapter_turned_on",
+    "usb_wifi_adapter_turned_off",
+    "usb_wifi_adapter_in_use",
+    "usb_wifi_adapter_not_found"
   ],
   "es": [
     "map_action_help",
@@ -2626,7 +2644,13 @@
     "usb_storage_disable_btn",
     "usb_storage_disable_confirm",
     "usb_storage_busy",
-    "usb_storage_failed"
+    "usb_storage_failed",
+    "usb_wifi_adapter_lbl",
+    "usb_wifi_adapter_desc",
+    "usb_wifi_adapter_turned_on",
+    "usb_wifi_adapter_turned_off",
+    "usb_wifi_adapter_in_use",
+    "usb_wifi_adapter_not_found"
   ],
   "it": [
     "map_action_help",
@@ -3283,6 +3307,12 @@
     "usb_storage_disable_btn",
     "usb_storage_disable_confirm",
     "usb_storage_busy",
-    "usb_storage_failed"
+    "usb_storage_failed",
+    "usb_wifi_adapter_lbl",
+    "usb_wifi_adapter_desc",
+    "usb_wifi_adapter_turned_on",
+    "usb_wifi_adapter_turned_off",
+    "usb_wifi_adapter_in_use",
+    "usb_wifi_adapter_not_found"
   ]
 }

@@ -296,6 +296,9 @@ int http_api_network_handle(int client_fd, const char *method, const char *clean
             fclose(cff);
         }
         cJSON_AddBoolToObject(cfg, "usb_wifi_setup", usb_wifi);
+        /* USB Wi-Fi adapter (build/kernel6/rc.sh): the switch, and whether one is in use */
+        cJSON_AddBoolToObject(cfg, "usb_wifi_adapter", wifi_usb_adapter_setting(config_store_path("ethernet.conf")));
+        cJSON_AddBoolToObject(st, "wifi_usb_adapter", access("/tmp/harmony_wifi_adapter", F_OK) == 0);
         cJSON_AddItemToObject(st, "config", cfg);
 
         char ifconfig_buf[8192] = {0};
@@ -572,6 +575,14 @@ int http_api_network_handle(int client_fd, const char *method, const char *clean
                 else if (cJSON_IsNumber(p_usb)) usb_wifi = (p_usb->valueint != 0);
                 else if (cJSON_IsString(p_usb)) usb_wifi = (strcmp(p_usb->valuestring, "0") != 0 && strcasecmp(p_usb->valuestring, "false") != 0);
             }
+            /* the USB Wi-Fi adapter switch: also kept when left out (it applies at the next boot) */
+            cJSON *p_adp = cJSON_GetObjectItemCaseSensitive(params, "usb_wifi_adapter");
+            int usb_adapter = wifi_usb_adapter_setting(config_store_path("ethernet.conf"));
+            if (p_adp) {
+                if (cJSON_IsBool(p_adp)) usb_adapter = cJSON_IsTrue(p_adp);
+                else if (cJSON_IsNumber(p_adp)) usb_adapter = (p_adp->valueint != 0);
+                else if (cJSON_IsString(p_adp)) usb_adapter = (strcmp(p_adp->valuestring, "0") != 0 && strcasecmp(p_adp->valuestring, "false") != 0);
+            }
 
             const char *mode_val = (p_mode && cJSON_IsString(p_mode) && strcasecmp(p_mode->valuestring, "static") == 0) ? "static" : "dhcp";
             const char *raw_ip = (p_ip && cJSON_IsString(p_ip)) ? p_ip->valuestring : "";
@@ -604,8 +615,9 @@ int http_api_network_handle(int client_fd, const char *method, const char *clean
                 "ETH_NETMASK=\"%s\"\n"
                 "ETH_GATEWAY=\"%s\"\n"
                 "ETH_DNS=\"%s\"\n"
-                "USB_WIFI_SETUP=%d\n",
-                eth_en, eth_fb, mode_val, valid_ip, valid_mask, valid_gw, valid_dns, usb_wifi);
+                "USB_WIFI_SETUP=%d\n"
+                "USB_WIFI_ADAPTER=%d\n",
+                eth_en, eth_fb, mode_val, valid_ip, valid_mask, valid_gw, valid_dns, usb_wifi, usb_adapter);
 
             if (write_file_content(config_store_path("ethernet.conf"), conf_buf) != 0) {
                 cJSON_Delete(params);

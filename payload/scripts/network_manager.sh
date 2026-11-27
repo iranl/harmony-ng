@@ -62,7 +62,12 @@ UDC_STATE=/sys/class/udc/ci_hdrc.0/state
 USB_GADGET_SH=/usr/lib/kernel6/usb_gadget.sh
 [ -f "$USB_GADGET_SH" ] || USB_GADGET_SH=/cache/kernel6/usb_gadget.sh
 
+# Linux 6.18: a USB Wi-Fi adapter plugged in at boot is the Hub's Wi-Fi (build/kernel6/rc.sh
+# writes its driver here): the port stays in host mode for the boot, never back to a USB device
+WIFI_ADAPTER_FILE=/tmp/harmony_wifi_adapter
+
 usb_computer_attached() {
+  [ -s "$WIFI_ADAPTER_FILE" ] && return 1
   if [ -e "$UDC_STATE" ]; then
     _wait=0
     while [ "$_wait" -lt "$USB_PC_WAIT_IRQ" ]; do
@@ -99,7 +104,9 @@ usb_computer_attached() {
 }
 
 set_usb_port_mode() {
-  echo "$1" > "$USB_MODE_FILE" 2>/dev/null || true
+  _mode="$1"
+  [ -s "$WIFI_ADAPTER_FILE" ] && _mode=host
+  echo "$_mode" > "$USB_MODE_FILE" 2>/dev/null || true
 }
 
 # Load configuration with safe defaults
@@ -289,6 +296,8 @@ start_eth() {
       # never while the USB stick holds data and cache (/usb): device mode cuts it off
       if grep -q ' /usb ' /proc/mounts 2>/dev/null; then
         log "USB port stays in host mode (USB stick with data and cache)"
+      elif [ -s "$WIFI_ADAPTER_FILE" ]; then
+        log "USB port stays in host mode (USB Wi-Fi adapter)"
       elif [ -f "$USB_GADGET_SH" ] && [ -e /sys/bus/platform/devices/1b000000.usb/ci_hdrc.0/role ]; then
         log "USB port back to device mode"
         sh "$USB_GADGET_SH" start >> "$LOG" 2>&1 || log "USB device mode did not start"

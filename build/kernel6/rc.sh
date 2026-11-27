@@ -114,19 +114,68 @@ modprobe phy-ath79-usb
 modprobe ci_hdrc_usb2
 R=/sys/bus/platform/devices/1b000000.usb/ci_hdrc.0/role
 waitfor $R 50
-if [ $USBDATA = 1 ]; then
-    echo host > /tmp/harmony_usb_port_mode   # init.sh: no USB device side
-else
+[ $USBDATA = 1 ] && echo host > /tmp/harmony_usb_port_mode   # init.sh: no USB device side
+# The root file system's firmware first (regulatory.db for cfg80211, which loads it with the
+# Wi-Fi driver; the USB Wi-Fi adapters' firmware); /lib/firmware (the data partition: PSKEY
+# files) stays the fallback
+[ -f /usr/lib/kernel6/firmware/regulatory.db ] &&
+    echo /usr/lib/kernel6/firmware > /sys/module/firmware_class/parameters/path
+
+# USB Wi-Fi adapter (MediaTek MT7610U, MT7612U: mt76x0u, mt76x2u), looked for only when turned on
+# in the web UI (USB_WIFI_ADAPTER=1 in ethernet.conf; off by default, then the boot does not
+# touch the USB port for it). One plugged in at boot is the Hub's Wi-Fi in place of the built-in
+# radio (ath9k not loaded), under the same name ath0. The port stays in host mode for the boot
+# then: no USB device side (Wi-Fi setup and network over USB), USB Ethernet and sticks through a
+# USB hub. /tmp/harmony_wifi_adapter names its driver
+# (network_manager.sh keeps host mode for it). Root file system boot only: the firmware is in
+# the squashfs, and the rescue keeps the built-in radio and the USB device side.
+usb_wifi_driver() {
+    for f in /sys/bus/usb/devices/*:*/modalias; do
+        [ -e "$f" ] || continue
+        m=$(cat "$f")
+        grep ' mt76x[02]u$' "/lib/modules/$(uname -r)/modules.alias" | while read -r a pat d; do
+            case "$m" in $pat) echo "$d"; break ;; esac
+        done | grep . && return 0
+    done
+    return 1
+}
+WIFI_DRV=""
+if [ $ROOTFS = 1 ] && [ $RESCUE = 0 ] &&
+   tr -d '\r"' < /data/harmony/ethernet.conf 2>/dev/null | grep -qx 'USB_WIFI_ADAPTER=1'; then
+    if [ $USBDATA = 1 ]; then
+        # host mode since init mounted the stick: the devices are there
+        WIFI_DRV=$(usb_wifi_driver)
+    else
+        echo host > $R 2>/dev/null
+        # a device shows up about 1 s after host mode, one behind a USB hub a little later;
+        # nothing on the port after 1.6 s: no adapter (a computer or a charger)
+        n=0
+        while [ $n -lt 15 ]; do
+            WIFI_DRV=$(usb_wifi_driver) && break
+            [ $n -ge 8 ] && ! ls -d /sys/bus/usb/devices/[0-9]-[0-9]* > /dev/null 2>&1 && break
+            sleep 0.2
+            n=$((n + 1))
+        done
+    fi
+    if [ -n "$WIFI_DRV" ] && modprobe "$WIFI_DRV"; then
+        waitfor /sys/class/net/wlan0 50   # after its firmware loaded
+    fi
+    if [ -n "$WIFI_DRV" ] && [ -e /sys/class/net/wlan0 ]; then
+        echo "$WIFI_DRV" > /tmp/harmony_wifi_adapter
+        echo host > /tmp/harmony_usb_port_mode
+        echo "rc.sh: USB Wi-Fi adapter ($WIFI_DRV): the Hub's Wi-Fi, USB port in host mode"
+    else
+        [ -n "$WIFI_DRV" ] && echo "rc.sh: USB Wi-Fi adapter ($WIFI_DRV) did not start: built-in Wi-Fi"
+        WIFI_DRV=""
+    fi
+fi
+if [ $USBDATA = 0 ] && [ -z "$WIFI_DRV" ]; then
     echo gadget > $R 2>/dev/null || echo "rc.sh: cannot set the USB role"
 fi
 
 up "USB drivers"
-# The root file system's firmware first (regulatory.db for cfg80211, which loads it with ath9k);
-# /lib/firmware (the data partition: PSKEY files) stays the fallback
-[ -f /usr/lib/kernel6/firmware/regulatory.db ] &&
-    echo /usr/lib/kernel6/firmware > /sys/module/firmware_class/parameters/path
-# Wi-Fi: ath9k; its interface gets the stock name ath0
-if modprobe ath9k; then
+# Wi-Fi: the USB adapter or ath9k; its interface gets the stock name ath0
+if [ -n "$WIFI_DRV" ] || modprobe ath9k; then
     waitfor /sys/class/net/wlan0 50
     ip link set wlan0 name ath0 || echo "rc.sh: cannot rename wlan0"
 else
@@ -234,7 +283,7 @@ up "syslog, watchdog, crash records, zram"
 # 192.168.7.1 and gives the PC 192.168.7.2. The network interface is renamed usb0 -> gadget0:
 # network_manager.sh takes usb* for a USB Ethernet adapter. start_usb_eth.sh takes all of it
 # down for host mode.
-if [ $USBDATA = 0 ] && HUB_UTIL=$T/hub_util sh $K/usb_gadget.sh start; then
+if [ $USBDATA = 0 ] && [ -z "$WIFI_DRV" ] && HUB_UTIL=$T/hub_util sh $K/usb_gadget.sh start; then
     :
 else
     echo "rc.sh: no USB device side"

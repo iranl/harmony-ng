@@ -81,6 +81,13 @@ printf '#!/bin/sh\nexec /usr/lib/kernel6/bin/wpa_supplicant -D nl80211 "$@"\n' >
 printf '#!/bin/sh\nexit 0\n' > sbin/wlanconfig
 ln -s ../lib/kernel6/bin/wpa_cli usr/sbin/wpa_cli
 chmod 755 usr/sbin/wpa_supplicant sbin/wlanconfig
+# WPA3: HarmonyNG writes key_mgmt=SAE only with this mark (wifi_config.h WIFI_SAE_MARK_PATH): a
+# wpa_supplicant without SAE refuses the whole file. The string comes from SAE's own code (sae.c).
+if grep -qa 'SAE: Derive PT' usr/lib/kernel6/bin/wpa_supplicant; then
+    touch usr/lib/kernel6/wpa_supplicant.sae
+else
+    echo "Warning: wpa_supplicant has no SAE (build/build_wpa_supplicant.sh): no WPA3" >&2
+fi
 
 # boot and helper scripts
 for f in rc.sh modprobe.sh udhcpc.sh usb_gadget.sh usb_storage.sh; do
@@ -106,6 +113,24 @@ echo "$REGDB_SHA256  $REGDB_TAR" | sha256sum -c --quiet - || { echo "Error: $REG
 mkdir -p usr/lib/kernel6/firmware
 tar -xJf "$REGDB_TAR" -O "$REGDB/regulatory.db" > usr/lib/kernel6/firmware/regulatory.db
 tar -xJf "$REGDB_TAR" -O "$REGDB/regulatory.db.p7s" > usr/lib/kernel6/firmware/regulatory.db.p7s
+
+# USB Wi-Fi 5 adapters' firmware (rc.sh), at the names the drivers ask for: MT7610U (mt76x0u)
+# mediatek/mt7610u.bin, MT7612U (mt76x2u) mt7662.bin and mt7662_rom_patch.bin. From a
+# linux-firmware release tag, each file checked (about 190 KB, 100 KB compressed).
+LINUX_FW_TAG=20250311
+FW_DIR="$HOME/kbuild6/linux-firmware-$LINUX_FW_TAG"
+mkdir -p "$FW_DIR" usr/lib/kernel6/firmware/mediatek
+while read -r sum src dst; do
+    f="$FW_DIR/$(basename "$src")"
+    [ -f "$f" ] || curl -fsSL -o "$f" \
+        "https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/plain/$src?h=$LINUX_FW_TAG"
+    echo "$sum  $f" | sha256sum -c --quiet - || { echo "Error: $f is not the expected file" >&2; exit 1; }
+    cp "$f" "usr/lib/kernel6/firmware/$dst"
+done <<'EOF'
+5a4268e9021bb587426ba624b425f1e660bfc82cd63b36ad3ce6fb9ce6751760 mediatek/mt7610u.bin mediatek/mt7610u.bin
+f7e52492f58088cae50e51a54cca68e4abc5b74f7d0b6b731dbb4c04465a94b6 mediatek/mt7662.bin mt7662.bin
+6f0e871268f6e4d99196d90d89bcc09fe493d010366260a2cfcaa5dd66095f8c mediatek/mt7662_rom_patch.bin mt7662_rom_patch.bin
+EOF
 
 # base /etc (the data partition's /etc, the stock one, has the Hub's own files on top)
 echo 'root::0:0:root:/home/root:/bin/sh' > etc/passwd

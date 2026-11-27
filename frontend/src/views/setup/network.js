@@ -58,7 +58,8 @@ export function createView() {
   // Ethernet file, so the stored Ethernet values the Hub reported are sent back unchanged. The
   // switch stays disabled until those values are loaded.
   let netConfig = null;
-  const usbToggle = h('input', { id: 'usb-wifi-setup-toggle', type: 'checkbox', onchange: () => saveUsbWifiSetup() });
+  const usbToggle = h('input', { id: 'usb-wifi-setup-toggle', type: 'checkbox', onchange: () => saveNetSwitch(usbToggle, 'usb_wifi_setup',
+    t('usb_wifi_setup_turned_on', 'Wi-Fi setup over USB turned on'), t('usb_wifi_setup_turned_off', 'Wi-Fi setup over USB turned off')) });
   usbToggle.disabled = true;
   const usbCard = h('div', { className: 'card' }, [
     h('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' } }, [
@@ -68,11 +69,27 @@ export function createView() {
     h('div', { className: 'text-dim', style: { fontSize: '12px', marginTop: '6px' }, text: t('usb_wifi_setup_desc', "A computer connected to the Hub's USB port can read the network name and set the Wi-Fi network (tools/set_wifi_usb.py). Turn this off if others can plug a cable into the Hub. It applies at once.") }),
   ]);
 
-  async function saveUsbWifiSetup() {
+  // USB Wi-Fi adapter (USB_WIFI_ADAPTER in ethernet.conf, Linux 6.18 system): looked for at boot
+  // only when on; one found is the Hub's Wi-Fi (2.4 and 5 GHz) instead of the built-in radio
+  const adapterToggle = h('input', { id: 'usb-wifi-adapter-toggle', type: 'checkbox', onchange: () => saveNetSwitch(adapterToggle, 'usb_wifi_adapter',
+    t('usb_wifi_adapter_turned_on', 'USB Wi-Fi adapter turned on: restart the Hub with the adapter plugged in'),
+    t('usb_wifi_adapter_turned_off', 'USB Wi-Fi adapter turned off: the built-in Wi-Fi after a restart')) });
+  adapterToggle.disabled = true;
+  const adapterState = h('div', { className: 'text-dim', style: { fontSize: '12px', marginTop: '6px' } });
+  const adapterCard = h('div', { className: 'card' }, [
+    h('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' } }, [
+      adapterToggle,
+      h('span', { style: { fontWeight: '600' }, text: t('usb_wifi_adapter_lbl', 'USB Wi-Fi adapter') }),
+    ]),
+    h('div', { className: 'text-dim', style: { fontSize: '12px', marginTop: '6px' }, text: t('usb_wifi_adapter_desc', "A USB Wi-Fi 5 adapter (MediaTek MT7610U or MT7612U) plugged in at boot becomes the Hub's Wi-Fi, with 5 GHz networks. The USB port then stays a USB host: no Wi-Fi setup or network over USB; Ethernet adapters and sticks need a USB hub. Applies at the next restart.") }),
+    adapterState,
+  ]);
+
+  async function saveNetSwitch(toggle, key, onMsg, offMsg) {
     if (!netConfig) return;
-    const on = usbToggle.checked;
+    const on = toggle.checked;
     const c = netConfig;
-    usbToggle.disabled = true;
+    toggle.disabled = true;
     try {
       await api.saveEthernet({
         apply: 'save',
@@ -83,17 +100,15 @@ export function createView() {
         eth_netmask: c.eth_netmask || '',
         eth_gateway: c.eth_gateway || '',
         eth_dns: c.eth_dns || '',
-        usb_wifi_setup: on ? 1 : 0,
+        [key]: on ? 1 : 0,
       });
-      netConfig = { ...c, usb_wifi_setup: on };
-      toast.success(on
-        ? t('usb_wifi_setup_turned_on', 'Wi-Fi setup over USB turned on')
-        : t('usb_wifi_setup_turned_off', 'Wi-Fi setup over USB turned off'));
+      netConfig = { ...c, [key]: on };
+      toast.success(on ? onMsg : offMsg);
     } catch (err) {
-      usbToggle.checked = !on;
+      toggle.checked = !on;
       toast.error(err.message);
     } finally {
-      usbToggle.disabled = false;
+      toggle.disabled = false;
     }
   }
 
@@ -107,6 +122,15 @@ export function createView() {
         netConfig = net.config;
         usbToggle.checked = net.config.usb_wifi_setup;
         usbToggle.disabled = false;
+      }
+      if (net.config && typeof net.config.usb_wifi_adapter === 'boolean') {
+        adapterToggle.checked = net.config.usb_wifi_adapter;
+        adapterToggle.disabled = false;
+        adapterState.textContent = net.wifi_usb_adapter
+          ? t('usb_wifi_adapter_in_use', 'In use: the Wi-Fi runs on the USB adapter.')
+          : net.config.usb_wifi_adapter
+            ? t('usb_wifi_adapter_not_found', 'No USB Wi-Fi adapter found at the last boot: the built-in Wi-Fi is used.')
+            : '';
       }
 
       const grid = h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '8px' } }, [
@@ -189,6 +213,7 @@ export function createView() {
   container.appendChild(statusCard);
   container.appendChild(wifiCard);
   container.appendChild(usbCard);
+  container.appendChild(adapterCard);
   loadNetStatus();
 
   return container;
