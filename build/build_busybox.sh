@@ -59,6 +59,9 @@ build_mips() {
     # no modprobe or depmod applet: the system's /sbin/modprobe (build/kernel6/modprobe.sh) follows
     # modules.dep, and HarmonyNG's "busybox --install -s /cache/bin" (first in PATH) must not hide it
     sed -i 's/^CONFIG_MODPROBE=y/# CONFIG_MODPROBE is not set/; s/^CONFIG_DEPMOD=y/# CONFIG_DEPMOD is not set/' .config
+    # IPv4 only: the Hub kernel has no IPv6, and every name lookup also asked for AAAA records
+    # (wget, ping, nslookup) and waited for an answer it could never use
+    sed -i 's/^CONFIG_FEATURE_IPV6=y/# CONFIG_FEATURE_IPV6 is not set/' .config
 
     # Enable built-in TLS & HTTPS for wget
     sed -i 's/.*CONFIG_TLS.*/CONFIG_TLS=y/' .config

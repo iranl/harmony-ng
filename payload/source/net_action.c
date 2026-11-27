@@ -623,7 +623,8 @@ static int resolve_checked(const net_job *j, char *out, size_t out_sz)
 {
     struct addrinfo hints, *res = NULL, *ai;
     memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_UNSPEC;
+    /* IPv4 only (no IPv6 in the Hub kernel): AF_UNSPEC waited for AAAA answers too */
+    hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
     out[0] = '\0';
     if (getaddrinfo(j->host, NULL, &hints, &res) != 0 || !res) return -1;
