@@ -11,6 +11,9 @@
 # HarmonyNG installed it brings up Wi-Fi, USB network and SSH itself.
 #
 # /cache/kernel6/serial-console  present: keep the serial console, no Bluetooth (shared UART)
+# harmony.serial=1 on the kernel command line: the same for this boot only, from U-Boot without
+#                                writing flash ("setenv bootargs console=ttyATH0,115200
+#                                harmony.serial=1" then "bootm 0x9f010000")
 # Pair button held at boot for 5 s: factory reset (data and cache erased by init at the reboot)
 
 if grep -q '^overlay / overlay' /proc/mounts; then
@@ -44,6 +47,7 @@ echo "rc.sh: $(uname -r), $([ $ROOTFS = 1 ] && echo 'root file system' || echo '
 up "start"
 SERIAL=0
 [ -f $F/serial-console ] && SERIAL=1
+grep -qw 'harmony.serial=1' /proc/cmdline && SERIAL=1
 # data and cache on a USB stick (usb_storage.sh): the port stays in host mode for it; with the
 # stick missing at boot (init: usb-missing) the rescue, no HarmonyNG on the flash's old data
 USBDATA=0

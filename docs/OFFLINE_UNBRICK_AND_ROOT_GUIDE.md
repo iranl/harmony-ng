@@ -176,6 +176,14 @@ When powered on, U-Boot listens on serial for ~1 second before booting the kerne
    /# 
    ```
 
+   **Linux 6.18 system:** its kernel ignores `init=` (its init always runs the boot script, and
+   Bluetooth then takes the serial port). Ask the boot script to keep the serial console for this
+   boot instead; the system starts as usual, with a root shell on the serial port and Bluetooth off:
+   ```text
+   setenv bootargs console=ttyATH0,115200 harmony.serial=1
+   bootm 0x9f010000
+   ```
+
 ---
 
 ## 4. Initializing Filesystems in Single-User Mode
