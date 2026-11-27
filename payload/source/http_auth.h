@@ -77,7 +77,7 @@ void http_auth_drop_all_sessions(void);
 void http_auth_add_switch_check(cJSON *reply, const struct user_account *users, int count, const char *owner);
 
 /* tokens.json is read, changed and written under one lock. http_tokens_lock() returns 0, or -1
- * when another request held it for 3 s (it never blocks in the kernel: the Hub has no futex). */
+ * when another request held it for 3 s. */
 int http_tokens_lock(void);
 void http_tokens_unlock(void);
 /* *root = the file as an object with a "tokens" array (an empty list when there is no file).

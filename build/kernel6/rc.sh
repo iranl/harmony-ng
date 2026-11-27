@@ -125,14 +125,14 @@ fi
 # Hub hardware with the stock interfaces (build/kernel6/drivers): Pair button and light
 # (input0), RF (/dev/rfspi), IR (/dev/i2s). harmony_pimento first: it disables JTAG, whose pins
 # are the RF ready line and chip select and the Pair button.
-for m in harmony_pimento harmony_cc2544 harmony_i2s; do
+for m in harmony_pimento evdev harmony_cc2544 harmony_i2s; do
     modprobe $m || echo "rc.sh: $m did not load"
 done
 
-# Factory reset: the Pair button (GPIO 11, low when pressed; GPIO_IN 0x18040004) held from power
-# on until here and for 5 s more. The light flashes red fast, init erases data and cache at the
+# Factory reset: the Pair button (harmony_pimento's button attribute) held from power on until
+# here and for 5 s more. The light flashes red fast, init erases the data partition at the
 # reboot.
-pressed() { [ $(( $(devmem 0x18040004 32) & 0x800 )) = 0 ]; }
+pressed() { [ "$(cat /sys/class/input/input0/button 2>/dev/null)" = 1 ]; }
 if pressed; then
     i=0
     while [ $i -lt 10 ] && pressed; do sleep 0.5; i=$((i + 1)); done
@@ -174,6 +174,28 @@ fi
 # --- the system ---
 syslogd -C256
 klogd
+# Hardware watchdog (ath79_wdt, at most about 21 s): the kernel restarts the Hub when nothing
+# feeds it for 15 s, after a hang that stops the scheduler. A panic restarts it after 5 s
+# (CONFIG_PANIC_TIMEOUT). Killed, the Hub restarts 15 s later: it runs as "busybox", because
+# HarmonyNG scripts before the 6.18 system (rcS.local, init.sh) "killall -9 watchdog" (the stock
+# one), which restarted the Hub over and over after an update of the system alone.
+[ -c /dev/watchdog ] && /bin/busybox watchdog -T 15 -t 5 /dev/watchdog
+# Crash records of the last warm reset (pstore/ramoops, DTS reserved-memory): the kernel log up
+# to the reset (console-ramoops-0) and oops/panic dumps (dmesg-ramoops-N) go to flash, the five
+# newest kept; then the RAM copies are cleared
+mkdir -p /sys/fs/pstore
+if mount -t pstore pstore /sys/fs/pstore 2>/dev/null && [ -n "$(ls /sys/fs/pstore 2>/dev/null)" ] &&
+   [ -d /data/harmony ]; then
+    C=/data/harmony/crashlogs
+    mkdir -p $C
+    n=$(($(cat $C/.next 2>/dev/null || echo 0) + 1))
+    for f in /sys/fs/pstore/*; do
+        cp "$f" "$C/$n-${f##*/}.txt" && rm -f "$f"
+    done
+    echo $n > $C/.next
+    rm -f $C/$((n - 5))-*.txt
+    echo "rc.sh: crash records of the last reset saved as $C/$n-*.txt"
+fi
 echo 1 > /proc/sys/vm/overcommit_memory
 
 # USB device side (usb_gadget.sh): the HID device of the stock USB Wi-Fi setup (046D:C129,
@@ -181,15 +203,8 @@ echo 1 > /proc/sys/vm/overcommit_memory
 # 192.168.7.1 and gives the PC 192.168.7.2. The network interface is renamed usb0 -> gadget0:
 # network_manager.sh takes usb* for a USB Ethernet adapter. start_usb_eth.sh takes all of it
 # down for host mode.
-if [ $USBDATA = 0 ] && sh $K/usb_gadget.sh up; then
-    for i in 1 2 3; do [ -e /sys/class/net/usb0 ] && break; sleep 1; done
-    if ip link set usb0 name gadget0 && ifconfig gadget0 192.168.7.1 netmask 255.255.255.0 up; then
-        printf 'start 192.168.7.2\nend 192.168.7.2\ninterface gadget0\nlease_file /tmp/udhcpd.leases\npidfile /var/run/udhcpd.gadget0.pid\noption subnet 255.255.255.0\n' > /tmp/udhcpd.conf
-        touch /tmp/udhcpd.leases
-        udhcpd /tmp/udhcpd.conf
-    fi
-    $T/hub_util usbhid > /tmp/usbhid.log 2>&1 &
-    echo $! > /var/run/usbhid.pid
+if [ $USBDATA = 0 ] && HUB_UTIL=$T/hub_util sh $K/usb_gadget.sh start; then
+    :
 else
     echo "rc.sh: no USB device side"
 fi

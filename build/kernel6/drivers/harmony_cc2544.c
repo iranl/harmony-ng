@@ -18,8 +18,10 @@
  *
  * /dev/rffw, the CC2544's own flash (stock cc2544_fw), over the TI 8051 debug interface: the
  * ready line (GPIO 6) is debug data, the interrupt line (GPIO 14) debug clock, GPIO 15 the
- * CC2544's reset (the stock module held it high; the CSR8811 Bluetooth needs it high too, so a
- * flash also restarts Bluetooth). As the stock driver:
+ * CC2544's reset (the stock module held it high). The line also resets the CSR8811 Bluetooth
+ * chip: after a /dev/rffw session (a read too) Bluetooth stays silent until the Hub restarts
+ * (seen on a Hub: bccmd gets no answer at any rate, hub_btstack never reaches WORKING).
+ * As the stock driver:
  *   open read-only   reads the 28 KB flash (28 pages of 1 KB) for read
  *   open write-only  write the image (at most 32 KB); at close every page is erased, then
  *                    written and read back, page 0 (the reset vector) last; an image that starts

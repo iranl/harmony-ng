@@ -62,7 +62,7 @@ case "$1" in
     killall -15 hub_daemon 2>/dev/null || true
     sleep 2
     # Terminate all daemon processes
-    killall -9 hub_rf hub_daemon hub_btstack hub_usbwifi hal luaworks luadraws lua 2>/dev/null || true
+    killall -9 hub_rf hub_daemon hub_btstack hub_usbwifi 2>/dev/null || true
     # Plugin processes still left (hub_daemon was hung or already gone, or a helper still runs
     # the EXIT trap of hub_daemon's SIGTERM): found by the HARMONY_SOCKET that hub_daemon puts
     # in their environment. A shell or a program started by hand in a plugin folder has none
@@ -150,11 +150,6 @@ echo "$$" > /tmp/harmony_watchdog.pid
   echo "$(date) Hub uptime > 5m achieved, reboot counter reset" >> /tmp/boot_stability.log
 ) &
 
-# 0. Neuter watchdog and crash reporting immediately
-[ -e /etc/nowatchdog ] || touch /etc/nowatchdog 2>/dev/null || true
-chmod -x /usr/bin/watchdog 2>/dev/null || true
-killall -9 watchdog 2>/dev/null || true
-
 export LD_PRELOAD=""
 
 # Set kernel printk loglevel according to debug logging config
@@ -202,15 +197,6 @@ if [ -f /cache/www/index.html ] && [ -d /cache/www/assets ]; then
     done
   fi
 fi
-
-# 2. Disable and kill unneeded stock Logitech runtime (frees ~12MB RAM)
-chmod -x /opt/luaworks/luaworks 2>/dev/null || true
-(
-  for i in 1 2 3 4 5; do
-    killall -9 luaworks luadraws lua netmonitor 2>/dev/null || true
-    sleep 1
-  done
-) &
 
 # 3. Shell Profile & Extended BusyBox (Installed strictly into /cache/bin; /bin/sh is NEVER touched)
 rm -f /data/bin/sh /data/bin/ash /data/bin/busybox 2>/dev/null || true
@@ -275,22 +261,26 @@ if [ -n "$_sshd_bin" ] && [ -x "$_sshd_bin" ]; then
   fi
 fi
 
-# 4. Disable and kill Logitech HAL & D-Bus (direct /dev/i2s IR active, saves ~4.5MB RAM)
-chmod -x /usr/bin/hal /usr/bin/dbus-daemon 2>/dev/null || true
-killall -9 hal dbus-daemon 2>/dev/null || true
-
 # 5. Network Time Sync (SNTP)
 _sntp_bin=""
 [ -x /data/harmony/bin/hub_sntp ] && _sntp_bin=/data/harmony/bin/hub_sntp
 if [ -n "$_sntp_bin" ]; then
   (
+    # no attempt before the network has a default route (each one would log a failure)
+    _w=0
+    while [ "$_w" -lt 120 ] && ! awk '$2 == "00000000" { f = 1 } END { exit !f }' /proc/net/route 2>/dev/null; do
+      sleep 2
+      _w=$((_w + 2))
+    done
+    _ok=0
     for i in 1 2 3 4 5 6 7 8 9 10; do
-      if "$_sntp_bin" pool.ntp.org --set >> "$LOG" 2>&1; then
-        echo "$(date) NTP time sync succeeded" >> "$LOG"
+      if "$_sntp_bin" pool.ntp.org --set >> "$LOG" 2>/dev/null; then
+        _ok=1
         break
       fi
       sleep 3
     done
+    [ "$_ok" = 1 ] || echo "$(date) SNTP sync failed after 10 tries (no time server answered)" >> "$LOG"
   ) &
 fi
 
@@ -385,9 +375,7 @@ fi
 ) &
 echo "$!" >> /tmp/harmony_supervisors.pid
 
-# 7. BTstack Bluetooth Engine (BlueZ 4 permanently disabled)
-chmod -x /usr/sbin/bluetoothd 2>/dev/null || true
-killall -9 bluetoothd 2>/dev/null || true
+# 7. BTstack Bluetooth Engine
 (
   _delay=5
   while true; do
@@ -489,6 +477,13 @@ killall -9 bluetoothd 2>/dev/null || true
     [ -x /data/harmony/bin/hub_btstack ] && _bt_bin=/data/harmony/bin/hub_btstack
     if [ -n "$_bt_bin" ]; then
       if ! pidof hub_btstack >/dev/null 2>&1; then
+        # the radio comes up in the background at boot (rcS.local): wait for hci0 here, up to
+        # 60 s, rather than let hub_btstack report its absence
+        _w=0
+        while [ "$_w" -lt 60 ] && ! hciconfig hci0 >/dev/null 2>&1; do
+          sleep 1
+          _w=$((_w + 1))
+        done
         echo "$(date) Starting BTstack backend..." >> "$LOG"
         _started=$(date +%s)
         "$_bt_bin" >> "$LOG" 2>&1

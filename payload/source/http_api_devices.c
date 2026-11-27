@@ -575,7 +575,8 @@ static int id_listed(const cJSON *ids, const char *id) {
     return 0;
 }
 
-static volatile int s_drop_busy; /* one rewrite of the maps at a time (they share a temp name) */
+/* one rewrite of the maps at a time (they share a temp name) */
+static pthread_mutex_t s_drop_lock = PTHREAD_MUTEX_INITIALIZER;
 
 int remote_maps_drop_section(const char *section, const char *id) {
     if (!section || !id || !id[0]) return 0;
@@ -585,16 +586,14 @@ int remote_maps_drop_section(const char *section, const char *id) {
         cJSON_Delete(ids);
         return 0;
     }
-    /* No futex on the Hub: wait for another delete's rewrite with a flag and short sleeps (5 s) */
-    int waited_ms = 0;
-    while (__sync_lock_test_and_set(&s_drop_busy, 1)) {
-        if (waited_ms >= 5000) {
-            printf("[-] Maps busy: %s/%s left in the remote maps\n", section, id);
-            cJSON_Delete(ids);
-            return 0;
-        }
-        usleep(2000);
-        waited_ms += 2;
+    /* another delete's rewrite: up to 5 s */
+    struct timespec deadline;
+    clock_gettime(CLOCK_REALTIME, &deadline);
+    deadline.tv_sec += 5;
+    if (pthread_mutex_timedlock(&s_drop_lock, &deadline) != 0) {
+        printf("[-] Maps busy: %s/%s left in the remote maps\n", section, id);
+        cJSON_Delete(ids);
+        return 0;
     }
     static const char *const files[] = { "remote_slot1_map.json", "remote_slot2_map.json", "remote_slot3_map.json",
                                          "remote_slot4_map.json", "remote_slot5_map.json", "remote_slot6_map.json",
@@ -670,7 +669,7 @@ int remote_maps_drop_section(const char *section, const char *id) {
         }
     }
     cJSON_Delete(ids);
-    __sync_lock_release(&s_drop_busy);
+    pthread_mutex_unlock(&s_drop_lock);
     return 1;
 }
 

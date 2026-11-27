@@ -8,6 +8,8 @@
  *       mode 0 off, 1 solid, 2 fast flash, 3 slow flash. Both flashing at one rate: out of phase
  *       (red and green alternate). Two different modes, neither off: fast is off, slow is solid.
  *   /sys/class/input/input0/tde: 0 (the stock factory test mode flag)
+ *   /sys/class/input/input0/button: 1 while the Pair button is pressed (build/kernel6/rc.sh,
+ *       factory reset at boot; not stock)
  *
  * GPIOs read from a stock Hub: button GPIO 11 (low when pressed), red GPIO 1 and green GPIO 17
  * (both lit when low).
@@ -123,9 +125,18 @@ static ssize_t tde_show(struct device *dev, struct device_attribute *attr, char 
 }
 static DEVICE_ATTR_RO(tde);
 
+static ssize_t button_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct pimento *p = input_get_drvdata(to_input_dev(dev));
+
+	return sysfs_emit(buf, "%d\n", gpiod_get_value_cansleep(p->button));
+}
+static DEVICE_ATTR_RO(button);
+
 static struct attribute *pimento_attrs[] = {
 	&dev_attr_led.attr,
 	&dev_attr_tde.attr,
+	&dev_attr_button.attr,
 	NULL
 };
 ATTRIBUTE_GROUPS(pimento);

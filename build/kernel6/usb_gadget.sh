@@ -6,11 +6,41 @@
 #                the stock identity), relayed to hub_util usbwifi by hub_util usbhid
 #   interface 1+ CDC NCM: network to the PC (gadget0, the Hub is 192.168.7.1; rc.sh)
 #
-# down unbinds it from the controller (start_usb_eth.sh, before host mode).
+# down unbinds it from the controller.
+#
+# start  the whole device side: USB role gadget, up, usb0 renamed gadget0 (network_manager.sh
+#        takes usb* for an Ethernet adapter) as 192.168.7.1 with a DHCP server giving the PC
+#        192.168.7.2, and hub_util usbhid (rc.sh at boot; network_manager.sh when host mode
+#        found no Ethernet adapter)
+# stop   all of it down (start_usb_eth.sh, before host mode)
 G=/sys/kernel/config/usb_gadget/hub
 UDC=ci_hdrc.0
+ROLE=/sys/bus/platform/devices/1b000000.usb/ci_hdrc.0/role
 
 case "$1" in
+start)
+    echo gadget > $ROLE 2>/dev/null || echo "usb_gadget: cannot set the USB role to gadget" >&2
+    sh "$0" up || exit 1
+    for i in 1 2 3; do [ -e /sys/class/net/usb0 ] || [ -e /sys/class/net/gadget0 ] && break; sleep 1; done
+    [ -e /sys/class/net/usb0 ] && ip link set usb0 name gadget0
+    ifconfig gadget0 192.168.7.1 netmask 255.255.255.0 up || exit 1
+    printf 'start 192.168.7.2\nend 192.168.7.2\ninterface gadget0\nlease_file /tmp/udhcpd.leases\npidfile /var/run/udhcpd.gadget0.pid\noption subnet 255.255.255.0\n' > /tmp/udhcpd.conf
+    touch /tmp/udhcpd.leases
+    kill "$(cat /var/run/udhcpd.gadget0.pid 2>/dev/null)" 2>/dev/null
+    udhcpd /tmp/udhcpd.conf
+    for u in ${HUB_UTIL:-} /usr/lib/kernel6/bin/hub_util /data/harmony/bin/hub_util; do
+        [ -x $u ] || continue
+        kill "$(cat /var/run/usbhid.pid 2>/dev/null)" 2>/dev/null
+        $u usbhid > /tmp/usbhid.log 2>&1 &
+        echo $! > /var/run/usbhid.pid
+        break
+    done
+    echo device > /tmp/harmony_usb_port_mode
+    ;;
+stop)
+    kill "$(cat /var/run/udhcpd.gadget0.pid 2>/dev/null)" "$(cat /var/run/usbhid.pid 2>/dev/null)" 2>/dev/null
+    sh "$0" down
+    ;;
 up)
     modprobe usb_f_hid && modprobe usb_f_ncm || exit 1
     grep -q ' /sys/kernel/config ' /proc/mounts || mount -t configfs none /sys/kernel/config || exit 1
@@ -58,7 +88,7 @@ down)
     [ -d $G ] && echo "" > $G/UDC
     ;;
 *)
-    echo "usage: $0 up|down" >&2
+    echo "usage: $0 start|stop|up|down" >&2
     exit 2
     ;;
 esac

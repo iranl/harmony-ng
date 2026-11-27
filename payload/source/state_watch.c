@@ -2,14 +2,14 @@
  * State watcher: turns Hub state changes into events on the bus (hub_events), which the
  * WebSocket sink pushes to the web UIs and the integration.
  *
- * Once a second, whether or not a client is connected (MQTT and other sinks need the events
- * too), it checks:
- *   - Bluetooth: hub_btstack's status file (same JSON as GET /api/bt-status)
+ * Whether or not a client is connected (MQTT and other sinks need the events too), it checks:
+ *   - Bluetooth: hub_btstack's status file (same JSON as GET /api/bt-status), when inotify
+ *     reports it written, and every 5 s (hub_btstack may die with the file unchanged)
  *       -> HUB_EV_BT_STATUS, payload = the /api/bt-status object
  *   - RF remotes: pushed by hub_rf to POST /api/rf/status-changed (state_watch_offer_rf_status),
  *     fetched once from GET /api/rf/status on 127.0.0.1:8092 at start as the baseline
  *       -> HUB_EV_RF_STATUS, payload = the /api/rf/status object
- *   - Configuration files (devices, activities, settings, remote button maps), by mtime/size
+ *   - Configuration files (devices, activities, settings, remote button maps), by inotify
  *       -> HUB_EV_CONFIG_CHANGED, payload = {"files":["devices", ...]}
  * Each event is emitted only when the content changed; fields that change on every report
  * (button counters, last-seen times, link counters, battery voltage) do not count as a change.
@@ -32,14 +32,18 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/inotify.h>
+#include <poll.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <time.h>
 #include <sys/time.h>
 
-#define BT_STATUS_FILE "/tmp/hub_btstack_status.json"
+#define BT_STATUS_DIR "/tmp"
+#define BT_STATUS_NAME "hub_btstack_status.json"
+#define BT_STATUS_FILE BT_STATUS_DIR "/" BT_STATUS_NAME
 #define RF_API_PORT 8092
-#define WATCH_INTERVAL_US 1000000
+#define WATCH_INTERVAL_US 1000000   /* without inotify: everything once a second */
+#define BT_RECHECK_MS 5000          /* with inotify: the status file again at least this often */
 
 static char *read_small_file(const char *path, size_t max_len) {
     FILE *f = fopen(path, "r");
@@ -262,17 +266,59 @@ static void *state_watch_thread(void *arg) {
     if (s_inotify_fd >= 0) {
         inotify_add_watch(s_inotify_fd, HARMONY_CONFIG_DIR, IN_CLOSE_WRITE | IN_MOVED_TO | IN_ATTRIB);
         inotify_add_watch(s_inotify_fd, HARMONY_DIR, IN_CLOSE_WRITE | IN_MOVED_TO | IN_ATTRIB);
+        inotify_add_watch(s_inotify_fd, BT_STATUS_DIR, IN_CLOSE_WRITE | IN_MOVED_TO);
     }
 
+    int bt_due = 1;
     for (;;) {
-        usleep(WATCH_INTERVAL_US);
+        if (s_inotify_fd >= 0) {
+            /* a write wakes it at once; the timeout is the recheck (and the RF baseline retry) */
+            struct pollfd pfd = { s_inotify_fd, POLLIN, 0 };
+            if (poll(&pfd, 1, rf_baseline ? BT_RECHECK_MS : 1000) == 0) bt_due = 1;
+        } else {
+            usleep(WATCH_INTERVAL_US);
+            bt_due = 1;
+        }
 
-        char *raw = read_small_file(BT_STATUS_FILE, 16384);
-        cJSON *bt = raw ? cJSON_Parse(raw) : NULL;
-        free(raw);
-        if (bt) {
-            bt_status_normalize(bt); /* also catches hub_btstack dying with the file unchanged */
-            emit_if_changed(bt, HUB_EV_BT_STATUS, &last_bt, bt_drop, NULL);
+        cJSON *changed = NULL;
+        if (s_inotify_fd >= 0) {
+            char ibuf[2048] __attribute__((aligned(__alignof__(struct inotify_event))));
+            ssize_t len;
+            while ((len = read(s_inotify_fd, ibuf, sizeof(ibuf))) > 0) {
+                for (char *ptr = ibuf; ptr < ibuf + len; ) {
+                    const struct inotify_event *ev = (const struct inotify_event *)ptr;
+                    if (ev->len > 0) {
+                        const char *name = NULL;
+                        if (strcmp(ev->name, BT_STATUS_NAME) == 0) bt_due = 1;
+                        else if (strcmp(ev->name, "devices.json") == 0) name = "devices";
+                        else if (strcmp(ev->name, "activities.json") == 0) name = "activities";
+                        else if (strcmp(ev->name, "settings.json") == 0) name = "settings";
+                        else if (strncmp(ev->name, "remote_slot", 11) == 0 && ev->name[11] >= '1' &&
+                                 ev->name[11] <= '6' && strcmp(ev->name + 12, "_map.json") == 0) name = "remote_map";
+                        if (name) {
+                            if (!changed) changed = cJSON_CreateArray();
+                            int dup = 0;
+                            cJSON *it = NULL;
+                            cJSON_ArrayForEach(it, changed) {
+                                if (cJSON_IsString(it) && strcmp(it->valuestring, name) == 0) dup = 1;
+                            }
+                            if (!dup) cJSON_AddItemToArray(changed, cJSON_CreateString(name));
+                        }
+                    }
+                    ptr += sizeof(struct inotify_event) + ev->len;
+                }
+            }
+        }
+
+        if (bt_due) {
+            bt_due = 0;
+            char *raw = read_small_file(BT_STATUS_FILE, 16384);
+            cJSON *bt = raw ? cJSON_Parse(raw) : NULL;
+            free(raw);
+            if (bt) {
+                bt_status_normalize(bt); /* also catches hub_btstack dying with the file unchanged */
+                emit_if_changed(bt, HUB_EV_BT_STATUS, &last_bt, bt_drop, NULL);
+            }
         }
 
         /* RF status: one fetch at start so the snapshot is complete before hub_rf's first push
@@ -292,38 +338,10 @@ static void *state_watch_thread(void *arg) {
             }
         }
 
-        if (s_inotify_fd >= 0) {
-            char ibuf[2048] __attribute__((aligned(__alignof__(struct inotify_event))));
-            ssize_t len;
-            cJSON *changed = NULL;
-            while ((len = read(s_inotify_fd, ibuf, sizeof(ibuf))) > 0) {
-                for (char *ptr = ibuf; ptr < ibuf + len; ) {
-                    const struct inotify_event *ev = (const struct inotify_event *)ptr;
-                    if (ev->len > 0) {
-                        const char *name = NULL;
-                        if (strcmp(ev->name, "devices.json") == 0) name = "devices";
-                        else if (strcmp(ev->name, "activities.json") == 0) name = "activities";
-                        else if (strcmp(ev->name, "settings.json") == 0) name = "settings";
-                        else if (strncmp(ev->name, "remote_slot", 11) == 0 && ev->name[11] >= '1' &&
-                                 ev->name[11] <= '6' && strcmp(ev->name + 12, "_map.json") == 0) name = "remote_map";
-                        if (name) {
-                            if (!changed) changed = cJSON_CreateArray();
-                            int dup = 0;
-                            cJSON *it = NULL;
-                            cJSON_ArrayForEach(it, changed) {
-                                if (cJSON_IsString(it) && strcmp(it->valuestring, name) == 0) dup = 1;
-                            }
-                            if (!dup) cJSON_AddItemToArray(changed, cJSON_CreateString(name));
-                        }
-                    }
-                    ptr += sizeof(struct inotify_event) + ev->len;
-                }
-            }
-            if (changed) {
-                cJSON *msg = cJSON_CreateObject();
-                cJSON_AddItemToObject(msg, "files", changed);
-                hub_events_emit(HUB_EV_CONFIG_CHANGED, msg);
-            }
+        if (changed) {
+            cJSON *msg = cJSON_CreateObject();
+            cJSON_AddItemToObject(msg, "files", changed);
+            hub_events_emit(HUB_EV_CONFIG_CHANGED, msg);
         }
     }
     return NULL;

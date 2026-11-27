@@ -450,8 +450,8 @@ uint8_t rf_slot_map_claim_pipe(uint8_t pipe, bool from_pipe_table) {
         }
     }
     pthread_mutex_unlock(&s_slot_map_lock);
-    /* the flash write after the unlock: every frame in and out takes this lock, and a waiter
-     * spins (no futex on the Hub) */
+    /* the flash write after the unlock: every frame in and out takes this lock, and a JFFS2
+     * write can take seconds */
     if (moved_to) {
         rf_slot_move_state(old_slot, moved_to);
         if (atomic_file_write_str(g_rf_slot_map_path, text) != 0)

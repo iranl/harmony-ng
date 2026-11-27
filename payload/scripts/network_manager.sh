@@ -56,7 +56,28 @@ usbwifi_requests() {
   sed -n 's/^requests=\([0-9][0-9]*\)$/\1/p' "$USBWIFI_STATE" 2>/dev/null | sed -n 1p
 }
 
+# Linux 6.18: the ChipIdea controller's device side (build/kernel6/usb_gadget.sh); its state is
+# "configured" once a computer set the device up
+UDC_STATE=/sys/class/udc/ci_hdrc.0/state
+USB_GADGET_SH=/usr/lib/kernel6/usb_gadget.sh
+[ -f "$USB_GADGET_SH" ] || USB_GADGET_SH=/cache/kernel6/usb_gadget.sh
+
 usb_computer_attached() {
+  if [ -e "$UDC_STATE" ]; then
+    _wait=0
+    while [ "$_wait" -lt "$USB_PC_WAIT_IRQ" ]; do
+      case "$(cat "$UDC_STATE" 2>/dev/null)" in
+        configured|addressed) return 0 ;;
+      esac
+      _req=$(usbwifi_requests)
+      [ -n "$_req" ] && [ "$_req" -ge 1 ] 2>/dev/null && return 0
+      # nothing on the cable after the short wait: no computer
+      [ "$_wait" -ge "$USB_PC_WAIT" ] && [ "$(cat "$UDC_STATE" 2>/dev/null)" = "not attached" ] && return 1
+      sleep 1
+      _wait=$(expr "$_wait" + 1)
+    done
+    return 1
+  fi
   # no device controller driver: the port is already a host (or not a USB device at all)
   [ -e "$UDC_PROC" ] || return 1
   _wait=0
@@ -264,6 +285,11 @@ start_eth() {
 
     if [ -z "$eth_if" ]; then
       log "No USB Ethernet adapter found on USB bus"
+      # Linux 6.18: the port goes back to a USB device (network and Wi-Fi setup for a computer)
+      if [ -f "$USB_GADGET_SH" ] && [ -e /sys/bus/platform/devices/1b000000.usb/ci_hdrc.0/role ]; then
+        log "USB port back to device mode"
+        sh "$USB_GADGET_SH" start >> "$LOG" 2>&1 || log "USB device mode did not start"
+      fi
       return 1
     fi
 

@@ -602,7 +602,7 @@ int main(int argc, char **argv) {
 
     /* The process must end now, also when a thread is stuck: the receive thread sits in the
      * CC2544 driver's read(), and exit() runs libc's clean-up, which takes stdio locks a stuck
-     * thread may hold (a contended lock spins on the Hub, its kernel has no futex). SIGALRM has
+     * thread may hold (a lock that is never released blocks it for good). SIGALRM has
      * no handler here (no thread blocks it, uClibc's sleep() and usleep() use nanosleep), so the
      * kernel ends the whole process after 5 s, also when this thread is stuck in rf_spi_close();
      * only a thread asleep uninterruptibly in a driver could delay it. init.sh starts hub_rf

@@ -39,6 +39,24 @@
 	};
 
 	/*
+	 * pstore/ramoops: the kernel log and oops/panic records kept in RAM across a warm reset
+	 * (watchdog, panic, reboot), saved by rc.sh to /data/harmony/crashlogs. 128 KB at 62 MB:
+	 * below U-Boot, which relocates itself to the top megabyte of RAM. A power cut loses them.
+	 */
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		ramoops@3e00000 {
+			compatible = "ramoops";
+			reg = <0x3e00000 0x20000>;
+			record-size = <0x8000>;
+			console-size = <0x10000>;
+		};
+	};
+
+	/*
 	 * Pair button and front light, stock "Pimento" interface (build/kernel6/drivers/
 	 * harmony_pimento.c). reg: GPIO_FUNCTION_1, for the JTAG disable bit.
 	 */

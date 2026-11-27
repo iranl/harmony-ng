@@ -4,11 +4,6 @@ sync_fs() {
 	/data/harmony/bin/hub_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || sync 2>/dev/null || true
 }
 
-# 0. Neuter watchdog and luaworks immediately
-touch /etc/nowatchdog 2>/dev/null || true
-chmod -x /usr/bin/watchdog /opt/luaworks/luaworks 2>/dev/null || true
-killall -9 watchdog 2>/dev/null || true
-
 # SSH: the stock boot script starts /usr/sbin/dropbear right after this file (the emergency mode
 # below starts it too). It becomes a copy of /data/harmony/hub_sshd (key logins only), written
 # only when it differs; a copy, not a link, so it does not depend on /data/harmony later. Only the

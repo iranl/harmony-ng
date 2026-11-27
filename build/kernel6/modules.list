@@ -27,7 +27,8 @@ kernel/drivers/bluetooth/hci_uart.ko
 kernel/drivers/net/ethernet/atheros/ag71xx.ko
 kernel/drivers/net/dsa/qca/ar9331.ko
 kernel/net/bridge/bridge.ko
-# Hub hardware (build/kernel6/drivers)
+# Hub hardware (build/kernel6/drivers); evdev: /dev/input/event0 of the Pair button (hub_rf)
+kernel/drivers/input/evdev.ko
 updates/harmony_pimento.ko
 updates/harmony_cc2544.ko
 updates/harmony_i2s.ko

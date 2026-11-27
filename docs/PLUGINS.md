@@ -494,9 +494,7 @@ Users can simply paste your repository URL into the **Repositories** tab in thei
 
 ## Reference Plugins
 
-Official reference implementations are hosted in the **harmony-ng-plugins** repository:
+The plugins the marketplace offers are in the **harmony-ng-plugins** repository, with a `template/` to start from:
 👉 [**https://github.com/iranl/harmony-ng-plugins**](https://github.com/iranl/harmony-ng-plugins)
 
-- **`roku-ecp`**: Wi-Fi External Control Protocol for Roku streaming sticks and Roku TVs.
-- **`ps5-wake`**: DualSense/DualShock Bluetooth wake packets for PlayStation 4 and PlayStation 5 consoles.
-- **`android-tv`**: Local network key and media controls for Android TV and Google TV devices.
+Two to read first: **`roku-ecp`**, the smallest one (plain HTTP to a Roku), and **`android-tv`**, which pairs (`pin_display`) and talks TLS with the shared BearSSL. The repository's README lists the others (TVs, consoles, Wake-on-LAN, ...).

@@ -19,8 +19,8 @@
  * - wifi_config_save(): writes both files (both or neither) and, with apply, reconfigures.
  *
  * One test or apply at a time across processes: a lock file in /tmp with the holder's pid (a
- * pthread mutex cannot be shared with another program, and the Hub kernel has no futex, so
- * nothing here waits for a lock: a second caller is refused at once).
+ * pthread mutex cannot be shared with another program; a second caller is refused at once:
+ * a test takes seconds and its caller is waiting on an HTTP request).
  */
 
 #include <stddef.h>
