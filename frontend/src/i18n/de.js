@@ -601,7 +601,7 @@ export default {
     "usb_wifi_setup_turned_on": "WLAN-Einrichtung über USB eingeschaltet",
     "usb_wifi_setup_turned_off": "WLAN-Einrichtung über USB ausgeschaltet",
     "usb_wifi_adapter_lbl": "USB-WLAN-Adapter",
-    "usb_wifi_adapter_desc": "Ein USB-WLAN-5-Adapter (MediaTek MT7610U oder MT7612U), der beim Start eingesteckt ist, wird das WLAN des Hubs, mit 5-GHz-Netzen. Der USB-Anschluss bleibt dann ein USB-Host: keine WLAN-Einrichtung und kein Netzwerk über USB; Ethernet-Adapter und Sticks brauchen einen USB-Hub. Gilt nach dem nächsten Neustart.",
+    "usb_wifi_adapter_desc": "Ein USB-WLAN-5-Adapter (MediaTek MT7610U, MT7612U; Realtek RTL8811AU, RTL8812AU, RTL8821AU, RTL8811CU, RTL8821CU, RTL8812BU, RTL8822BU), der beim Start eingesteckt ist, wird das WLAN des Hubs, mit 5-GHz-Netzen. Der USB-Anschluss bleibt dann ein USB-Host: keine WLAN-Einrichtung und kein Netzwerk über USB; Ethernet-Adapter und Sticks brauchen einen USB-Hub. Gilt nach dem nächsten Neustart.",
     "usb_wifi_adapter_turned_on": "USB-WLAN-Adapter eingeschaltet: Hub mit eingestecktem Adapter neu starten",
     "usb_wifi_adapter_turned_off": "USB-WLAN-Adapter ausgeschaltet: nach einem Neustart das eingebaute WLAN",
     "usb_wifi_adapter_in_use": "In Betrieb: das WLAN läuft über den USB-Adapter.",

@@ -121,24 +121,32 @@ waitfor $R 50
 [ -f /usr/lib/kernel6/firmware/regulatory.db ] &&
     echo /usr/lib/kernel6/firmware > /sys/module/firmware_class/parameters/path
 
-# USB Wi-Fi adapter (MediaTek MT7610U, MT7612U: mt76x0u, mt76x2u), looked for only when turned on
-# in the web UI (USB_WIFI_ADAPTER=1 in ethernet.conf; off by default, then the boot does not
-# touch the USB port for it). One plugged in at boot is the Hub's Wi-Fi in place of the built-in
-# radio (ath9k not loaded), under the same name ath0. The port stays in host mode for the boot
-# then: no USB device side (Wi-Fi setup and network over USB), USB Ethernet and sticks through a
-# USB hub. /tmp/harmony_wifi_adapter names its driver
-# (network_manager.sh keeps host mode for it). Root file system boot only: the firmware is in
-# the squashfs, and the rescue keeps the built-in radio and the USB device side.
+# USB Wi-Fi adapter (MediaTek MT7610U, MT7612U: mt76x0u, mt76x2u; Realtek RTL8821CU/8811CU,
+# RTL8821AU/8811AU, RTL8812AU, RTL8812BU/8822BU: rtw88_8821cu, rtw88_8821au, rtw88_8812au,
+# rtw88_8822bu), looked for only when turned on in the web UI (USB_WIFI_ADAPTER=1 in
+# ethernet.conf; off by default, then the boot does not touch the USB port for it). One plugged
+# in at boot is the Hub's Wi-Fi in place of the built-in radio (ath9k not loaded), under the same
+# name ath0. The port stays in host mode for the boot then: no USB device side (Wi-Fi setup and
+# network over USB), USB Ethernet and sticks through a USB hub. /tmp/harmony_wifi_adapter names
+# its driver (network_manager.sh keeps host mode for it). Root file system boot only: the firmware is in the squashfs, and the rescue keeps
+# the built-in radio and the USB device side.
+# The driver for a plugged-in adapter: the interfaces' modaliases against these drivers' aliases.
+# Only the aliases of the same vendor and product id go through the glob match (theirs all name
+# both): all of them took 0.8 s per pass on the Hub, these 0.3 s.
 usb_wifi_driver() {
-    for f in /sys/bus/usb/devices/*:*/modalias; do
+    for f in /sys/bus/usb/devices/*-[1-9]*:*/modalias; do
         [ -e "$f" ] || continue
         m=$(cat "$f")
-        grep ' mt76x[02]u$' "/lib/modules/$(uname -r)/modules.alias" | while read -r a pat d; do
-            case "$m" in $pat) echo "$d"; break ;; esac
-        done | grep . && return 0
+        grep "^alias ${m%%d*}" "/lib/modules/$(uname -r)/modules.alias" |
+            grep -e ' mt76x[02]u$' -e ' rtw88_88[0-9][0-9][abc]u$' | while read -r a pat d; do
+                case "$m" in $pat) echo "$d"; break ;; esac
+            done | grep . && return 0
     done
     return 1
 }
+# USB interfaces of plugged-in devices (the root hub's 1-0:1.0 not counted)
+usb_interfaces() { ls -d /sys/bus/usb/devices/*-[1-9]*:* 2>/dev/null | wc -l; }
+uptime_ds() { sed 's/^\([0-9]*\)\.\([0-9]\).*/\1\2/' /proc/uptime; }
 WIFI_DRV=""
 if [ $ROOTFS = 1 ] && [ $RESCUE = 0 ] &&
    tr -d '\r"' < /data/harmony/ethernet.conf 2>/dev/null | grep -qx 'USB_WIFI_ADAPTER=1'; then
@@ -147,25 +155,40 @@ if [ $ROOTFS = 1 ] && [ $RESCUE = 0 ] &&
         WIFI_DRV=$(usb_wifi_driver)
     else
         echo host > $R 2>/dev/null
-        # a device shows up about 1 s after host mode, one behind a USB hub a little later;
-        # nothing on the port after 1.6 s: no adapter (a computer or a charger)
-        n=0
-        while [ $n -lt 15 ]; do
+        # A device shows up about 0.3 s after host mode, the ones behind a USB hub within 1.5 s
+        # (seen on a Hub). The search ends at the adapter; with nothing on the port after 1.6 s
+        # (a computer, a charger); when no new interface came for 1 s; at 6 s at the latest.
+        t0=$(uptime_ds)
+        last=0
+        seen=$t0
+        while :; do
             WIFI_DRV=$(usb_wifi_driver) && break
-            [ $n -ge 8 ] && ! ls -d /sys/bus/usb/devices/[0-9]-[0-9]* > /dev/null 2>&1 && break
+            now=$(uptime_ds)
+            cnt=$(usb_interfaces)
+            [ "$cnt" != "$last" ] && { last=$cnt; seen=$now; }
+            [ "$cnt" = 0 ] && [ $((now - t0)) -ge 16 ] && break
+            [ "$cnt" != 0 ] && [ $((now - seen)) -ge 10 ] && break
+            [ $((now - t0)) -ge 60 ] && break
             sleep 0.2
-            n=$((n + 1))
         done
+        up "USB Wi-Fi adapter search: ${WIFI_DRV:-none} ($(( $(uptime_ds) - t0 ))00 ms, $(usb_interfaces) USB interfaces)"
     fi
     if [ -n "$WIFI_DRV" ] && modprobe "$WIFI_DRV"; then
         waitfor /sys/class/net/wlan0 50   # after its firmware loaded
     fi
     if [ -n "$WIFI_DRV" ] && [ -e /sys/class/net/wlan0 ]; then
+        # the built-in radio's MAC (mfg partition 0x1002, as the DTS gives it to ath9k): the Hub
+        # keeps its DHCP address and reservation with the adapter
+        n=$(sed -n 's/^mtd\([0-9]*\):.*"mfg"$/\1/p' /proc/mtd)
+        mac=$(od -An -tx1 -j 4098 -N6 /dev/mtdblock$n 2>/dev/null | tr -s ' \n' '::' | sed 's/^://; s/:$//')
+        case "$mac" in
+            ??:??:??:??:??:??) ip link set wlan0 address "$mac" || echo "rc.sh: cannot set the adapter's MAC" ;;
+        esac
         echo "$WIFI_DRV" > /tmp/harmony_wifi_adapter
         echo host > /tmp/harmony_usb_port_mode
-        echo "rc.sh: USB Wi-Fi adapter ($WIFI_DRV): the Hub's Wi-Fi, USB port in host mode"
+        up "USB Wi-Fi adapter ($WIFI_DRV): the Hub's Wi-Fi, USB port in host mode"
     else
-        [ -n "$WIFI_DRV" ] && echo "rc.sh: USB Wi-Fi adapter ($WIFI_DRV) did not start: built-in Wi-Fi"
+        [ -n "$WIFI_DRV" ] && up "USB Wi-Fi adapter ($WIFI_DRV) did not start: built-in Wi-Fi"
         WIFI_DRV=""
     fi
 fi

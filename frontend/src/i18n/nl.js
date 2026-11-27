@@ -601,7 +601,7 @@ export default {
     "usb_wifi_setup_turned_on": "Wi-Fi-instelling via USB ingeschakeld",
     "usb_wifi_setup_turned_off": "Wi-Fi-instelling via USB uitgeschakeld",
     "usb_wifi_adapter_lbl": "USB-wifi-adapter",
-    "usb_wifi_adapter_desc": "Een USB-wifi 5-adapter (MediaTek MT7610U of MT7612U) die bij het opstarten is aangesloten, wordt de wifi van de Hub, met 5 GHz-netwerken. De USB-poort blijft dan een USB-host: geen wifi-instelling of netwerk via USB; Ethernet-adapters en sticks hebben een USB-hub nodig. Geldt na de volgende herstart.",
+    "usb_wifi_adapter_desc": "Een USB-wifi 5-adapter (MediaTek MT7610U, MT7612U; Realtek RTL8811AU, RTL8812AU, RTL8821AU, RTL8811CU, RTL8821CU, RTL8812BU, RTL8822BU) die bij het opstarten is aangesloten, wordt de wifi van de Hub, met 5 GHz-netwerken. De USB-poort blijft dan een USB-host: geen wifi-instelling of netwerk via USB; Ethernet-adapters en sticks hebben een USB-hub nodig. Geldt na de volgende herstart.",
     "usb_wifi_adapter_turned_on": "USB-wifi-adapter ingeschakeld: herstart de Hub met de adapter aangesloten",
     "usb_wifi_adapter_turned_off": "USB-wifi-adapter uitgeschakeld: na een herstart de ingebouwde wifi",
     "usb_wifi_adapter_in_use": "In gebruik: de wifi loopt via de USB-adapter.",

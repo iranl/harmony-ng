@@ -601,7 +601,7 @@ export default {
     "usb_wifi_setup_turned_on": "Configurazione Wi-Fi via USB attivata",
     "usb_wifi_setup_turned_off": "Configurazione Wi-Fi via USB disattivata",
     "usb_wifi_adapter_lbl": "Adattatore Wi-Fi USB",
-    "usb_wifi_adapter_desc": "Un adattatore Wi-Fi 5 USB (MediaTek MT7610U o MT7612U) collegato all'avvio diventa il Wi-Fi dell'Hub, con le reti a 5 GHz. La porta USB resta allora un host USB: niente configurazione Wi-Fi né rete via USB; adattatori Ethernet e chiavette richiedono un hub USB. Vale dal prossimo riavvio.",
+    "usb_wifi_adapter_desc": "Un adattatore Wi-Fi 5 USB (MediaTek MT7610U, MT7612U; Realtek RTL8811AU, RTL8812AU, RTL8821AU, RTL8811CU, RTL8821CU, RTL8812BU, RTL8822BU) collegato all'avvio diventa il Wi-Fi dell'Hub, con le reti a 5 GHz. La porta USB resta allora un host USB: niente configurazione Wi-Fi né rete via USB; adattatori Ethernet e chiavette richiedono un hub USB. Vale dal prossimo riavvio.",
     "usb_wifi_adapter_turned_on": "Adattatore Wi-Fi USB attivato: riavvia l'Hub con l'adattatore collegato",
     "usb_wifi_adapter_turned_off": "Adattatore Wi-Fi USB disattivato: il Wi-Fi integrato dopo un riavvio",
     "usb_wifi_adapter_in_use": "In uso: il Wi-Fi funziona tramite l'adattatore USB.",

@@ -24,6 +24,10 @@ kernel/drivers/net/wireless/ath/ath9k/ath9k.ko
 # USB Wi-Fi 5 adapters (host mode, rc.sh)
 kernel/drivers/net/wireless/mediatek/mt76/mt76x0/mt76x0u.ko
 kernel/drivers/net/wireless/mediatek/mt76/mt76x2/mt76x2u.ko
+kernel/drivers/net/wireless/realtek/rtw88/rtw88_8821cu.ko
+kernel/drivers/net/wireless/realtek/rtw88/rtw88_8821au.ko
+kernel/drivers/net/wireless/realtek/rtw88/rtw88_8812au.ko
+kernel/drivers/net/wireless/realtek/rtw88/rtw88_8822bu.ko
 # Bluetooth (CSR8811 over BCSP)
 kernel/drivers/bluetooth/hci_uart.ko
 # Hub Pro 2400 Ethernet

@@ -115,11 +115,12 @@ tar -xJf "$REGDB_TAR" -O "$REGDB/regulatory.db" > usr/lib/kernel6/firmware/regul
 tar -xJf "$REGDB_TAR" -O "$REGDB/regulatory.db.p7s" > usr/lib/kernel6/firmware/regulatory.db.p7s
 
 # USB Wi-Fi 5 adapters' firmware (rc.sh), at the names the drivers ask for: MT7610U (mt76x0u)
-# mediatek/mt7610u.bin, MT7612U (mt76x2u) mt7662.bin and mt7662_rom_patch.bin. From a
-# linux-firmware release tag, each file checked (about 190 KB, 100 KB compressed).
+# mediatek/mt7610u.bin, MT7612U (mt76x2u) mt7662.bin and mt7662_rom_patch.bin, the Realtek ones
+# (rtw88) rtw88/rtw8821c_fw.bin, rtw8821a_fw.bin, rtw8812a_fw.bin, rtw8822b_fw.bin. From a
+# linux-firmware release tag, each file checked (about 540 KB, 250 KB compressed).
 LINUX_FW_TAG=20250311
 FW_DIR="$HOME/kbuild6/linux-firmware-$LINUX_FW_TAG"
-mkdir -p "$FW_DIR" usr/lib/kernel6/firmware/mediatek
+mkdir -p "$FW_DIR" usr/lib/kernel6/firmware/mediatek usr/lib/kernel6/firmware/rtw88
 while read -r sum src dst; do
     f="$FW_DIR/$(basename "$src")"
     [ -f "$f" ] || curl -fsSL -o "$f" \
@@ -130,6 +131,10 @@ done <<'EOF'
 5a4268e9021bb587426ba624b425f1e660bfc82cd63b36ad3ce6fb9ce6751760 mediatek/mt7610u.bin mediatek/mt7610u.bin
 f7e52492f58088cae50e51a54cca68e4abc5b74f7d0b6b731dbb4c04465a94b6 mediatek/mt7662.bin mt7662.bin
 6f0e871268f6e4d99196d90d89bcc09fe493d010366260a2cfcaa5dd66095f8c mediatek/mt7662_rom_patch.bin mt7662_rom_patch.bin
+2ef409bc418549fcf294061dd0cae1fc22fd9da79b60524950b25de18732f3f0 rtw88/rtw8821c_fw.bin rtw88/rtw8821c_fw.bin
+4693ece655044d96f81bd3f3e8db14dc352b493219c4fd0a75788a6fbd9eac3c rtw88/rtw8821a_fw.bin rtw88/rtw8821a_fw.bin
+abdcca4e8bf76ebfba23d433de310ffefebd0ff9d01990639d4cd9602b32b71a rtw88/rtw8812a_fw.bin rtw88/rtw8812a_fw.bin
+378ff7b43ae7da18a0311175abc351a1758d25ce553b44f3c5694758efbea84c rtw88/rtw8822b_fw.bin rtw88/rtw8822b_fw.bin
 EOF
 
 # base /etc (the data partition's /etc, the stock one, has the Hub's own files on top)
