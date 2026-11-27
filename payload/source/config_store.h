@@ -25,7 +25,7 @@ struct activity_step {
     char device_id[32];
     char command[80];
     int delay_ms;
-    int hold_ms; /* a Command step: how long the key is held (0 = a tap), at most ORCH_HOLD_MAX_MS */
+    int hold_ms; /* a Command step: how long the key is held (0 = a tap), at most HW_HOLD_MAX_MS */
     int order;
 };
 

@@ -9,10 +9,10 @@
 #include <string.h>
 #include <strings.h>
 
-/* A step's hold, at most ORCH_HOLD_MAX_MS */
+/* A step's hold, at most HW_HOLD_MAX_MS */
 static uint32_t step_hold_ms(const struct activity_step *st) {
     if (st->hold_ms <= 0) return 0;
-    return st->hold_ms > ORCH_HOLD_MAX_MS ? ORCH_HOLD_MAX_MS : (uint32_t)st->hold_ms;
+    return st->hold_ms > HW_HOLD_MAX_MS ? HW_HOLD_MAX_MS : (uint32_t)st->hold_ms;
 }
 
 void append_orch_step(orch_step_t *steps, size_t *count, const struct activity_step *st, const char *prefix) {

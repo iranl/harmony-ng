@@ -1136,8 +1136,13 @@ Saves activity configuration with start and stop sequence steps.
     (`hold` optional).
   - A `Command` step with a `hold` presses its key, keeps it down (a hold every 300 ms, so a held
     infrared key keeps repeating) and releases it when the hold is up; its `delay` runs from the
-    release, and the next step comes after it. A cancel, or a new transition, releases a key that
-    is still held. A `BTCommand` step (a raw `HID:` or `BT:` code) keeps no `hold`: hold the
+    release, and the next step comes after it. Each device holds one key at a time: a step that
+    holds a key of a device releases the key that device still holds, while a step after
+    `Switched` (sent in the background) can hold a key of another device at the same time. A
+    cancel, or a new transition, releases every key that is still held. Infrared has one
+    transmitter: a held infrared key ends when another infrared command goes out (a background
+    step to another infrared device, for example), and it is not started again for the rest of its
+    hold. The timing is the one of MQTT `send_command` with `hold_secs`. A `BTCommand` step (a raw `HID:` or `BT:` code) keeps no `hold`: hold the
     device's command instead (a `Command` step of a Bluetooth device). The steps of a device's
     `powerOnSequence` and `powerOffSequence` (3.2) take `hold` the same way.
 - **Response `200 OK`**: `{"ok": true, "message": "Activity saved successfully"}`

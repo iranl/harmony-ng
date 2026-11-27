@@ -741,21 +741,13 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
                     cJSON *jcmd = cJSON_GetObjectItemCaseSensitive(st, "command");
                     const char *cmd = (jcmd && cJSON_IsString(jcmd)) ? jcmd->valuestring : "";
 
-                    /* A Command step with a hold keeps its key down that long, as the orchestrator
-                     * does: press, a hold every 300 ms (a held IR key repeats only while they
-                     * come), release */
+                    /* A Command step with a hold keeps its key down that long, with the timing
+                     * of the orchestrator (hw_hold.c) */
                     cJSON *jhold = cJSON_GetObjectItemCaseSensitive(st, "hold");
-                    int hold_ms = (jhold && cJSON_IsNumber(jhold)) ? (int)jhold->valuedouble : 0;
-                    if (hold_ms > STEP_HOLD_MAX_MS) hold_ms = STEP_HOLD_MAX_MS;
+                    uint32_t hold_ms = (jhold && cJSON_IsNumber(jhold)) ? hw_hold_clamp_ms((long)jhold->valuedouble) : 0;
 
                     if (dev_buf[0] && cmd[0] && hold_ms > 0 && strcasecmp(type, "BTCommand") != 0) {
-                        hw_device_command_send_action(dev_buf, 1, cmd, HW_BTN_ACTION_PRESS);
-                        for (int held = 0; held < hold_ms; held += 300) {
-                            int slice = (hold_ms - held) < 300 ? (hold_ms - held) : 300;
-                            usleep((useconds_t)slice * 1000);
-                            if (held + slice < hold_ms) hw_device_command_send_action(dev_buf, 1, cmd, HW_BTN_ACTION_REPEAT);
-                        }
-                        hw_device_command_send_action(dev_buf, 1, cmd, HW_BTN_ACTION_RELEASE);
+                        hw_hold_run(dev_buf, 1, cmd, hold_ms);
                         executed++;
                     } else if (dev_buf[0] && cmd[0]) {
                         hw_device_command_send(dev_buf, cmd);

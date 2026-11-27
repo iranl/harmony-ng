@@ -2,6 +2,7 @@
 #include "config_sanitize.h"
 #include "config_store.h"
 #include "cJSON.h"
+#include "hw_action.h"
 #include "bt_common.h"
 #include "json_number.h"
 #include "plugin_mgr.h"
@@ -643,13 +644,13 @@ void sanitize_activity_steps(cJSON *steps) {
         }
         if (delay_val > STEP_DELAY_MAX_MS) delay_val = STEP_DELAY_MAX_MS;
 
-        /* How long a Command step holds its key (orchestrator.c), 0 to STEP_HOLD_MAX_MS */
+        /* How long a Command step holds its key (orchestrator.c), 0 to HW_HOLD_MAX_MS */
         cJSON *hold_item = cJSON_GetObjectItemCaseSensitive(s, "hold");
         int hold_val = 0;
-        if (cJSON_IsNumber(hold_item)) hold_val = json_number_int(hold_item, 0, STEP_HOLD_MAX_MS, 0);
+        if (cJSON_IsNumber(hold_item)) hold_val = json_number_int(hold_item, 0, HW_HOLD_MAX_MS, 0);
         else if (cJSON_IsString(hold_item) && hold_item->valuestring) hold_val = atoi(hold_item->valuestring);
         if (hold_val < 0) hold_val = 0;
-        if (hold_val > STEP_HOLD_MAX_MS) hold_val = STEP_HOLD_MAX_MS;
+        if (hold_val > HW_HOLD_MAX_MS) hold_val = HW_HOLD_MAX_MS;
 
         /* Check for Switched pseudo-step */
         if (strcasecmp(tstr, "Switched") == 0 || strcasecmp(cmd, "Switched") == 0) {

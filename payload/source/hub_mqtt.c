@@ -546,11 +546,10 @@ typedef struct {
     int cur_repeat;
     int cur_cmd;
     int btn_action;
-    int state; /* 0: ready, 1: holding (press active, awaiting release) */
     uint32_t hold_ms;
     uint32_t delay_ms;
     uint64_t next_exec_ms;
-    uint64_t release_ms; /* state 1: when the held command is released */
+    hw_hold_t hold; /* the held command (hold_ms > 0) until its release */
 } mqtt_cmd_seq_t;
 
 static mqtt_cmd_seq_t g_mqtt_queue[MQTT_SEQ_QUEUE_MAX];
@@ -567,9 +566,6 @@ static uint64_t mono_ms(void) {
     return (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL;
 }
 
-/* How often a hold job repeats the hold while its command is held */
-#define SEQ_HOLD_BEAT_MS 300
-
 static void seq_send(const mqtt_cmd_seq_t *q, const char *cmd, int action) {
     if (!q || !cmd || !cmd[0]) return;
     hw_device_command_send_action(q->dev, q->dev_is_id ? 1 : 0, cmd, action);
@@ -584,33 +580,26 @@ static void seq_tick(void) {
     const char *cmd = q->cmd_list[q->cur_cmd];
 
     if (q->hold_ms > 0) {
-        if (q->state == 0) {
+        /* press, a hold every HW_HOLD_BEAT_MS, release (hw_hold.c) */
+        if (!q->hold.active) {
             printf("[*] MQTT seq [%d/%d] (repeat %d/%d): dev='%s' (%s) cmd='%s' [PRESS]\n",
                    q->cur_cmd + 1, q->cmd_count,
                    q->cur_repeat + 1, q->num_repeats,
                    q->dev, q->dev_is_id ? "by ID" : "by Name",
                    cmd);
-            seq_send(q, cmd, HW_BTN_ACTION_PRESS);
-            q->state = 1;
-            q->release_ms = mono_ms() + q->hold_ms;
-            q->next_exec_ms = q->release_ms;
-            if (q->hold_ms > SEQ_HOLD_BEAT_MS) q->next_exec_ms = mono_ms() + SEQ_HOLD_BEAT_MS;
+            if (hw_hold_press(&q->hold, q->dev, q->dev_is_id ? 1 : 0, cmd, q->hold_ms, now) == 0) {
+                q->next_exec_ms = hw_hold_next_ms(&q->hold);
+                return;
+            }
+        } else if (hw_hold_tick(&q->hold, now)) {
+            q->next_exec_ms = hw_hold_next_ms(&q->hold);
             return;
-        } else if (q->state == 1 && now < q->release_ms) {
-            /* still held: the hold a remote sends while a key is down. A held IR command
-             * repeats only as long as these arrive (HW_IR_HOLD_DEADLINE_MS). */
-            seq_send(q, cmd, HW_BTN_ACTION_REPEAT);
-            q->next_exec_ms = q->release_ms;
-            if (q->release_ms - now > SEQ_HOLD_BEAT_MS) q->next_exec_ms = mono_ms() + SEQ_HOLD_BEAT_MS;
-            return;
-        } else if (q->state == 1) {
+        } else {
             printf("[*] MQTT seq [%d/%d] (repeat %d/%d): dev='%s' (%s) cmd='%s' [RELEASE]\n",
                    q->cur_cmd + 1, q->cmd_count,
                    q->cur_repeat + 1, q->num_repeats,
                    q->dev, q->dev_is_id ? "by ID" : "by Name",
                    cmd);
-            seq_send(q, cmd, HW_BTN_ACTION_RELEASE);
-            q->state = 0;
         }
     } else {
         int action = q->btn_action;
@@ -647,7 +636,7 @@ int hub_mqtt_queue_clear(void) {
     if (dropped > 0) {
         mqtt_cmd_seq_t *q = &g_mqtt_queue[g_mqtt_q_head];
         /* a held command is released, so no key stays down */
-        if (q->hold_ms > 0 && q->state == 1) seq_send(q, q->cmd_list[q->cur_cmd], HW_BTN_ACTION_RELEASE);
+        hw_hold_release(&q->hold);
         printf("[*] MQTT send_command: %d queued job(s) cancelled\n", dropped);
     }
     g_mqtt_q_head = 0;
@@ -689,7 +678,7 @@ int hub_mqtt_queue_commands(const char *dev, int is_id, const char cmd_list[32][
     }
     if (delay_secs < 0) delay_secs = is_multi ? 0.25 : 0.0;
     if (delay_secs > 60.0) delay_secs = 60.0;
-    if (hold_secs > 10.0) hold_secs = 10.0;
+    if (hold_secs > HW_HOLD_MAX_MS / 1000.0) hold_secs = HW_HOLD_MAX_MS / 1000.0;
     if (hold_secs < 0.0) hold_secs = 0.0;
     /* Each factor alone was capped, not the whole job: 32 commands, 50 repeats and 60 s apart
      * held the sequencer for more than a day, and every later command waited behind it */
@@ -711,7 +700,6 @@ int hub_mqtt_queue_commands(const char *dev, int is_id, const char cmd_list[32][
     q->cur_repeat = 0;
     q->cur_cmd = 0;
     q->btn_action = btn_action;
-    q->state = 0;
     q->hold_ms = (uint32_t)(hold_secs * 1000.0);
     q->delay_ms = (uint32_t)(delay_secs * 1000.0);
     q->next_exec_ms = 0;

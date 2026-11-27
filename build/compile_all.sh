@@ -172,6 +172,7 @@ build_daemon() {
         payload/source/ir_encoder.c \
         payload/source/ir_i2s.c \
         payload/source/hw_action.c \
+        payload/source/hw_hold.c \
         payload/source/ws_server.c \
         payload/source/state_watch.c \
         payload/source/hub_events.c \

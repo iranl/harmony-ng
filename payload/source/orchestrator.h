@@ -36,9 +36,6 @@ typedef struct {
     char description[128];
 } orch_step_t;
 
-/* The longest hold of a step, as for an MQTT send_command */
-#define ORCH_HOLD_MAX_MS 10000
-
 typedef struct {
     orch_step_t step;
     uint64_t target_time_ms;
