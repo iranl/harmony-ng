@@ -89,6 +89,15 @@
 
 &gpio {
 	status = "okay";
+
+	/* CSR8811 Bluetooth enable: the stock kernel drives GPIO 15 high; low keeps the chip off
+	 * (bccmd: "Initialization timed out") */
+	bt-enable-hog {
+		gpio-hog;
+		gpios = <15 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "bt-enable";
+	};
 };
 
 /*
