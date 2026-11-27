@@ -575,13 +575,17 @@ int http_api_network_handle(int client_fd, const char *method, const char *clean
                 else if (cJSON_IsNumber(p_usb)) usb_wifi = (p_usb->valueint != 0);
                 else if (cJSON_IsString(p_usb)) usb_wifi = (strcmp(p_usb->valuestring, "0") != 0 && strcasecmp(p_usb->valuestring, "false") != 0);
             }
-            /* the USB Wi-Fi adapter switch: also kept when left out (it applies at the next boot) */
+            /* the USB Wi-Fi adapter switch: also kept when left out (it applies at the next boot).
+             * Held back for now (open issues: no fallback network when the adapter is gone, a
+             * Wi-Fi test across networks reported as failed): it can be turned off, not on. */
             cJSON *p_adp = cJSON_GetObjectItemCaseSensitive(params, "usb_wifi_adapter");
             int usb_adapter = wifi_usb_adapter_setting(config_store_path("ethernet.conf"));
             if (p_adp) {
-                if (cJSON_IsBool(p_adp)) usb_adapter = cJSON_IsTrue(p_adp);
-                else if (cJSON_IsNumber(p_adp)) usb_adapter = (p_adp->valueint != 0);
-                else if (cJSON_IsString(p_adp)) usb_adapter = (strcmp(p_adp->valuestring, "0") != 0 && strcasecmp(p_adp->valuestring, "false") != 0);
+                int want = usb_adapter;
+                if (cJSON_IsBool(p_adp)) want = cJSON_IsTrue(p_adp);
+                else if (cJSON_IsNumber(p_adp)) want = (p_adp->valueint != 0);
+                else if (cJSON_IsString(p_adp)) want = (strcmp(p_adp->valuestring, "0") != 0 && strcasecmp(p_adp->valuestring, "false") != 0);
+                if (!want) usb_adapter = 0;
             }
 
             const char *mode_val = (p_mode && cJSON_IsString(p_mode) && strcasecmp(p_mode->valuestring, "static") == 0) ? "static" : "dhcp";
