@@ -285,8 +285,11 @@ start_eth() {
 
     if [ -z "$eth_if" ]; then
       log "No USB Ethernet adapter found on USB bus"
-      # Linux 6.18: the port goes back to a USB device (network and Wi-Fi setup for a computer)
-      if [ -f "$USB_GADGET_SH" ] && [ -e /sys/bus/platform/devices/1b000000.usb/ci_hdrc.0/role ]; then
+      # Linux 6.18: the port goes back to a USB device (network and Wi-Fi setup for a computer),
+      # never while the USB stick holds data and cache (/usb): device mode cuts it off
+      if grep -q ' /usb ' /proc/mounts 2>/dev/null; then
+        log "USB port stays in host mode (USB stick with data and cache)"
+      elif [ -f "$USB_GADGET_SH" ] && [ -e /sys/bus/platform/devices/1b000000.usb/ci_hdrc.0/role ]; then
         log "USB port back to device mode"
         sh "$USB_GADGET_SH" start >> "$LOG" 2>&1 || log "USB device mode did not start"
       fi

@@ -66,6 +66,25 @@ class StartUsbEthKernel6(unittest.TestCase):
         self.assertFalse(any(c.startswith("insmod") for c in calls), calls)
         self.assertEqual((self.root / "tmp/harmony_usb_port_mode").read_text().strip(), "host")
 
+    def test_adapter_behind_a_usb_hub_next_to_a_stick(self):
+        # 1-1 is a USB 2.0 hub (class 09); the stick (1-1.1, storage only) comes first, the adapter is 1-1.2
+        devs = self.root / "sys/bus/usb/devices"
+        for name, vid, pid, cls, ifcls in (("1-1", "05e3", "0608", "09", "09"),
+                                           ("1-1.1", "0781", "5567", "00", "08"),
+                                           ("1-1.2", "0b95", "1790", "00", "ff")):
+            d = devs / name
+            d.mkdir(parents=True, exist_ok=True)
+            (d / "idVendor").write_text(vid + "\n")
+            (d / "idProduct").write_text(pid + "\n")
+            (d / "speed").write_text("480\n")
+            (d / "bDeviceClass").write_text(cls + "\n")
+            (d / f"{name}:1.0").mkdir(exist_ok=True)
+            (d / f"{name}:1.0" / "bInterfaceClass").write_text(ifcls + "\n")
+        subprocess.run(["sh", str(self.script)], env=self.env, capture_output=True, text=True, timeout=120)
+        calls = self.log.read_text().splitlines()
+        self.assertIn("modprobe ax88179_178a", calls)
+        self.assertNotIn("modprobe cdc_ether", calls)
+
 
 if __name__ == "__main__":
     unittest.main()
