@@ -1,4 +1,4 @@
-# HarmonyNG
+# Harmony-NG
 
 Independent, open-source local control firmware and companion suite for the **Logitech Harmony Hub**, the **Harmony touchscreen remotes** (Elite, Ultimate, Ultimate One, Ultimate Home, 950, Touch), **Harmony Companion**, and **Harmony Smart Control** remotes. Restores full universal remote and smart home functionality with zero cloud dependency after Logitech's end-of-life (EOL).
 
