@@ -1173,9 +1173,12 @@ Executes a test sequence immediately without modifying activity state.
   }
   ```
 - **Response `200 OK`**: `{"ok": true, "executed": 2}`. The steps run before the answer is sent.
-  `sequence` is accepted for `steps`, also as text lines (4.6). Each delay is cut to 3000 ms. A
-  command step that also has a `delay` counts twice in `executed`. A `Command` step with a `hold`
-  (4.6) holds its key that long (at most 10000 ms) before the next step.
+  `sequence` is accepted for `steps`, also as text: JSON text of the steps (what the web UIs send,
+  `JSON.stringify` of the list) when it starts with `[`, else text lines (4.6). Each delay is cut
+  to 3000 ms. A command step that also has a `delay` counts twice in `executed`. A `Command` step
+  with a `hold` (4.6) holds its key that long (at most 10000 ms) before the next step, so the
+  answer comes after every delay and hold: the web UIs wait 12 s plus the delays and holds of the
+  steps.
 - **Error `400`**: more than 64 steps (`"Too many steps (limit 64)"`); nothing is run.
 
 ### 4.9 Activity Progress Webhook

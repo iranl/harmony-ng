@@ -133,6 +133,8 @@ python3 "$SCRIPT_DIR/test_activity_test_sequence.py"
 python3 "$SCRIPT_DIR/test_bt_power_link.py"
 # A sequence step that holds its key ("hold"), released before the next step
 python3 "$SCRIPT_DIR/test_step_hold.py"
+# Test Live from both web UIs: the steps as JSON text, holds kept, a timeout for the whole sequence
+if command -v node >/dev/null 2>&1; then node "$SCRIPT_DIR/test_test_live_client.mjs"; else echo "    (node not found, test_test_live_client.mjs skipped)"; fi
 # Legacy web UI modules import the functions they call (no build step reports a missing import)
 python3 "$SCRIPT_DIR/test_ui_imports.py"
 python3 "$SCRIPT_DIR/test_activity_queue.py"

@@ -4,10 +4,11 @@ POST /api/activity-test-sequence runs its steps on the request's thread (each st
 at most 3 s), so the number of steps is limited to what a saved sequence can hold (64):
 - 64 steps run and are answered 200 with the executed count
 - 65 steps are refused with 400 at once, nothing is run
-- the same for a sequence sent as a string (what the web UIs send)
+- the same for a sequence sent as text lines, and as JSON text (what the web UIs send)
 The daemon runs with --dry-run.
 """
 
+import json
 import os
 import sys
 import time
@@ -40,9 +41,18 @@ def main():
               "65 steps: 400 naming the limit", "%s %s" % (st, r))
         check(took < 2.0, "refused at once, no step run", "%.1f s" % took)
 
-        text = "\n".join(["Delay|||3000"] * 65)  # "type|device|command|delay" lines, as the web UIs send
+        text = "\n".join(["Delay|||3000"] * 65)  # "type|device|command|delay" lines
         st, r = hub.http_post("/api/activity-test-sequence", {"steps": text}, timeout=5)
         check(st == 400, "65 steps sent as text lines: 400", "%s %s" % (st, r))
+
+        # the web UIs send JSON.stringify(steps): read as JSON, not as one text line
+        text = json.dumps([{"type": "Delay", "delay": 1} for _ in range(3)])
+        st, r = hub.http_post("/api/activity-test-sequence", {"steps": text}, timeout=10)
+        check(st == 200 and isinstance(r, dict) and r.get("executed") == 3, "3 steps sent as JSON text: all executed",
+              "%s %s" % (st, r))
+        text = json.dumps([{"type": "Delay", "delay": 3000} for _ in range(65)])
+        st, r = hub.http_post("/api/activity-test-sequence", {"steps": text}, timeout=5)
+        check(st == 400, "65 steps sent as JSON text: 400", "%s %s" % (st, r))
 
         st, _ = hub.http_get("/health")
         check(st == 200, "the daemon still answers")

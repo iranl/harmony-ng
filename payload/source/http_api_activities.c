@@ -698,7 +698,21 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
             if (!p_steps) p_steps = cJSON_GetObjectItemCaseSensitive(params, "sequence");
             cJSON *step_arr = NULL;
             if (p_steps && cJSON_IsArray(p_steps)) step_arr = p_steps;
-            else if (p_steps && cJSON_IsString(p_steps)) step_arr = build_activity_steps_cjson(p_steps->valuestring);
+            else if (p_steps && cJSON_IsString(p_steps) && p_steps->valuestring) {
+                /* The web UIs send the sequence as a JSON text (JSON.stringify of the steps), the
+                 * older form is "type|device|command|delay|hold" lines */
+                const char *sv = p_steps->valuestring;
+                while (*sv == ' ' || *sv == '\t' || *sv == '\r' || *sv == '\n') sv++;
+                if (*sv == '[') {
+                    step_arr = cJSON_Parse(sv);
+                    if (step_arr && !cJSON_IsArray(step_arr)) {
+                        cJSON_Delete(step_arr);
+                        step_arr = NULL;
+                    }
+                } else {
+                    step_arr = build_activity_steps_cjson(sv);
+                }
+            }
 
             /* The steps run on this request's thread, up to 3 s each: without a limit one request
              * held an HTTP worker for steps x 3 s. A sequence can hold no more steps than the
