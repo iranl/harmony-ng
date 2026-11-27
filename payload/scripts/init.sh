@@ -504,6 +504,8 @@ echo "$!" >> /tmp/harmony_supervisors.pid
         # few restarts every restart took 80 s.
         _ran=$(expr "$(date +%s)" - "$_started" 2>/dev/null || echo 0)
         [ "$_ran" -ge 60 ] 2>/dev/null && _delay=5
+        # stopped by a radio task (ps5-wake holds the lock while it kills it): no crash either
+        [ -f /tmp/hub_btstack.lock ] && _delay=5
         echo "$(date) BTstack exited, retry in ${_delay}s" >> "$LOG"
         sleep "$_delay"
         [ "$_delay" -lt 60 ] && _delay=$(expr "$_delay" + "$_delay")
