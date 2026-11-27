@@ -1842,7 +1842,7 @@ export default {
     "backup_opt_bt_devices": "Appareils Bluetooth",
     "mdns_discovery_lbl": "Découverte mDNS (Home Assistant trouve le Hub sans adresse) :",
     "legacy_protocol_compat_lbl": "Compatibilité avec le protocole Logitech (port 8088, sans authentification : le protocole d'origine n'en a pas ; pour l'intégration Harmony native de Home Assistant et les autres clients d'origine)",
-    "svc_rf_desc": "Contrôle le service RF et l'émetteur-récepteur CC2544. Remarque : l'Atheros AR9344 partage son bus SPI avec la mémoire flash.",
+    "svc_rf_desc": "Contrôle le service RF et l'émetteur-récepteur CC2544. Remarque : l'Atheros AR9330 partage son bus SPI avec la mémoire flash.",
     "svc_bt_desc": "Contrôle le service Bluetooth, le clavier virtuel BLE et le récepteur de la télécommande Homatics B25.",
     "opt_network_manager": "Gestionnaire réseau",
     "require_auth_help": "Prend effet avec « Enregistrer compte administrateur ». Définissez d'abord le mot de passe administrateur : sans mot de passe, le Hub refuse d'exiger l'authentification.",

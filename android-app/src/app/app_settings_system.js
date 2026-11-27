@@ -1107,7 +1107,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
           const mem = kb => (kb ? `${Math.round(kb / 1024)} MB (${kb} kB)` : 'N/A');
           const rows = [
             [t('sysinfo_kernel'), sys.kernel || 'Linux'],
-            [t('firmware'), sys.firmware || '4.15.600'],
+            [t('firmware'), sys.firmware || t('unknown')],
             [t('uptime'), sys.uptime || t('unknown')],
             [t('sysinfo_load_average'), sys.loadavg || 'N/A'],
             [t('sysinfo_memory_total'), mem(sys.mem_total_kb)],

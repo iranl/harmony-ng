@@ -229,7 +229,9 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
         struct hub_settings cs;
         config_store_get_settings(&cs);
         cJSON_AddStringToObject(st, "hub_name", cs.hub_name[0] ? cs.hub_name : "Harmony Hub");
-        cJSON_AddStringToObject(st, "firmware", "4.15.600");
+        char fw_now[128];
+        hub_info_firmware(fw_now, sizeof(fw_now));
+        cJSON_AddStringToObject(st, "firmware", fw_now);
         hub_info_add_status_fields(st, &cs);
         cJSON_AddStringToObject(st, "activity", orch_get_current_activity());
         cJSON_AddNumberToObject(st, "state", (int)orch_get_state());
@@ -404,7 +406,7 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
             fclose(lf);
         }
 
-        char kernel_str[256] = "Linux mips (Atheros AR9344)";
+        char kernel_str[256] = "Linux";
         FILE *kf = fopen("/proc/version", "r");
         if (kf) {
             if (fgets(kernel_str, sizeof(kernel_str), kf)) {
@@ -448,15 +450,8 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
             fclose(nrf);
         }
 
-        char fw_str[128] = "4.15.600";
-        FILE *vf = fopen("/etc/version", "r");
-        if (vf) {
-            if (fgets(fw_str, sizeof(fw_str), vf)) {
-                char *nl = strchr(fw_str, '\n'); if (nl) *nl = '\0';
-                nl = strchr(fw_str, '\r'); if (nl) *nl = '\0';
-            }
-            fclose(vf);
-        }
+        char fw_str[128];
+        hub_info_firmware(fw_str, sizeof(fw_str));
 
         cJSON *st = cJSON_CreateObject();
         cJSON_AddBoolToObject(st, "ok", 1);

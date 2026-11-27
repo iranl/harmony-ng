@@ -5,7 +5,7 @@ info:
   description: |
     REST and WebSocket API for the open-source **Harmony Hub** firmware and **Harmony remote** RF daemon.
     
-    Runs natively on port `8089` on Atheros AR9344 MIPS hardware. Transparently proxies `/api/rf/*` calls to the `hub_rf` daemon on port `8092`.
+    Runs natively on port `8089` on Atheros AR9330 MIPS hardware. Transparently proxies `/api/rf/*` calls to the `hub_rf` daemon on port `8092`.
     
     ### Testing Locally
     Use the **Servers** dropdown or "Try it out" to send requests directly to your Harmony Hub.
@@ -279,7 +279,7 @@ paths:
                 hub_name: Living Room Hub
                 uptime: "1d 4h 12m (101520s)"
                 loadavg: "0.12 0.08 0.05"
-                kernel: "Linux version 3.3.8 (mips Atheros AR9344)"
+                kernel: "Linux version 6.18.65-harmony (gcc 14) #1 Thu Nov 26 2026"
                 firmware: "4.15.600"
                 version: "2.4.2"
                 commit: abc1234
@@ -3996,7 +3996,7 @@ paths:
                 firmware: 4.15.600
                 rf_version: "0x20 CC2544"
                 bt_version: "BTstack v1.5 (UART)"
-                arch: "mips (AR9344)"
+                arch: "mips (AR9330)"
                 update_available: false
                 updating: false
                 update_state: idle

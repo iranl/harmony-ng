@@ -14,9 +14,9 @@
 # as on the stock kernel, and HarmonyNG installs and updates there as before. This image holds the
 # system: shared uClibc-ng, BusyBox, dropbear, wpa_supplicant, the BlueZ tools, the kernel modules
 # and the boot scripts. Not in it: the CSR8811 PSKEY files (stock firmware; /lib/firmware points
-# to /kernel6/firmware in the data partition, put there by tools/deploy_kernel6.sh).
+# to /kernel6/firmware in the data partition, put there by tools/install_kernel6.py).
 #
-# Output: $OUT/harmony-hub-rootfs.sqfs (fails over 4 MB). Installed by tools/deploy_kernel6.sh
+# Output: $OUT/harmony-hub-rootfs.sqfs (fails over 4 MB). Installed by tools/install_kernel6.py
 # --rootfs (the fallback boot writes it: build/kernel6/rc.sh).
 set -euo pipefail
 
@@ -99,6 +99,8 @@ ln -s /kernel6/firmware lib/firmware
 echo 'root::0:0:root:/home/root:/bin/sh' > etc/passwd
 echo 'root:x:0:' > etc/group
 echo HarmonyHub > etc/hostname
+# the system version the web UI shows as "Firmware" (hub_info_firmware): kernel release + build day
+echo "$(ls lib/modules | sed -n 1p) ($(date -u +%Y-%m-%d))" > etc/version
 echo '127.0.0.1 localhost' > etc/hosts
 echo /bin/sh > etc/shells
 printf 'export PATH=/data/harmony/bin:/cache/bin:/usr/sbin:/usr/bin:/sbin:/bin\nexport PS1="\\h:\\w\\$ "\n' > etc/profile

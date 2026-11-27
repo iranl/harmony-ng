@@ -9,8 +9,8 @@ BIN="$REPO_ROOT/payload/bin"
 OUT="$SCRIPT_DIR/output"
 # The binaries link the toolchain's shared uClibc-ng 1.0.24, the C library of the Linux 6.18 Hub
 # root file system (build/build_rootfs6.sh); the stock kernel and its uClibc 0.9.30 are not
-# supported. LINK=static only for the rescue hub_util (target util): tools/migrate_to_kernel6.sh
-# runs it on the stock system and tools/rollback_kernel6.sh while it overwrites the root file
+# supported. LINK=static only for the rescue hub_util (target util): tools/install_kernel6.py
+# runs it on the stock system and tools/rollback_kernel6.py while it overwrites the root file
 # system, where no uClibc-ng is usable. It goes to build/output/kernel6/static.
 if [ "${LINK:-dynamic}" = static ]; then
     BIN="$SCRIPT_DIR/output/kernel6/static"

@@ -111,6 +111,15 @@ echo "rc=$?"
         self.assertIn("rc=1", out)
         self.assertFalse(self.staged().exists())
 
+    def test_old_flash_layout_is_left_to_the_install_tool(self):
+        mtd = self.root / "proc/mtd"
+        mtd.write_text(mtd.read_text() + 'mtd4: 00500000 00010000 "data"\nmtd5: 00500000 00010000 "cache"\n')
+        out = self.run_it()
+        self.assertIn("rc=1", out)
+        self.assertIn("install_kernel6.py", out)
+        self.assertFalse(self.staged().exists())
+        self.assertEqual(self.calls(), [])
+
     def test_release_without_system_image(self):
         (self.root / "tmpdir/manifest.json").write_text('{"files": {}}')
         out = self.run_it()

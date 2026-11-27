@@ -18,7 +18,7 @@ This guide documents the complete hardware and software procedure for recovering
 ## 0. Overview & Architecture
 
 ### The Hardware
-- **SoC**: Atheros AR9344 (MIPS 74Kc big-endian, ~533 MHz).
+- **SoC**: Atheros AR9330 "Hornet" (MIPS 24Kc big-endian, 400 MHz; 64 MB RAM, 16 MB SPI NOR).
 - **RAM**: 64 MB DDR.
 - **Flash**: 16 MB SPI Flash.
   - `mtd0`: U-Boot bootloader (`ar7240`).

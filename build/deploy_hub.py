@@ -759,6 +759,9 @@ class HubDeployer:
                 for sc in self.scripts_dir.iterdir():
                     if sc.is_file():
                         self.deploy_file_if_changed(sc, f"/data/harmony/{sc.name}", "755")
+                # What the Linux 6.18 system no longer uses (a no-op on the stock kernel)
+                if not self.dry_run:
+                    self.run_ssh("sh /data/harmony/update.sh cleanup >/dev/null 2>&1 || true")
 
             # Deploy VERSION
             ver_file = self.version_file

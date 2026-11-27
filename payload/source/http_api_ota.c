@@ -3,6 +3,7 @@
 #include "config_store.h"
 #include "ota_source.h"
 #include "harmony_version.h"
+#include "hub_info.h"
 #include "orchestrator.h"
 #include "cJSON.h"
 
@@ -160,15 +161,8 @@ static void write_running_state(void) {
 
 /* GET /api/update-status object */
 cJSON *ota_update_status(void) {
-    char fw_str[128] = "4.15.600";
-    FILE *vf = fopen("/etc/version", "r");
-    if (vf) {
-        if (fgets(fw_str, sizeof(fw_str), vf)) {
-            char *nl = strchr(fw_str, '\n'); if (nl) *nl = '\0';
-            nl = strchr(fw_str, '\r'); if (nl) *nl = '\0';
-        }
-        fclose(vf);
-    }
+    char fw_str[128];
+    hub_info_firmware(fw_str, sizeof(fw_str));
     char remote_ver[64] = "v" HARMONY_VERSION;
     int has_update = (access("/data/harmony/update_available.flag", F_OK) == 0);
     FILE *rf = fopen(config_store_path("latest_version"), "r");
@@ -206,7 +200,7 @@ cJSON *ota_update_status(void) {
     cJSON_AddStringToObject(st, "firmware", fw_str);
     cJSON_AddStringToObject(st, "rf_version", "0x20 CC2544");
     cJSON_AddStringToObject(st, "bt_version", "BTstack v1.5 (UART)");
-    cJSON_AddStringToObject(st, "arch", "mips (AR9344)");
+    cJSON_AddStringToObject(st, "arch", "mips (AR9330)");
     cJSON_AddBoolToObject(st, "update_available", has_update);
 
     char target[64], last[256], err[256];

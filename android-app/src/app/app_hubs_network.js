@@ -90,7 +90,7 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
       }
 
       if (log) {
-        log.textContent = tf('ver_hub_firmware', { value: sys.firmware || stat.fw_version || '4.15.600' }) + '\n' +
+        log.textContent = tf('ver_hub_firmware', { value: sys.firmware || stat.fw_version || t('unknown_lc') }) + '\n' +
           tf('ver_hub_webui', { value: this.appVersion || APP_VERSION }) + '\n' +
           tf('ver_hub_daemon', { value: sys.version || stat.current_version || APP_VERSION }) + '\n' +
           tf('ver_commit', { value: stat.commit || sys.commit || 'dev' }) + '\n' +

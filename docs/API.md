@@ -114,7 +114,7 @@ Returns Linux system uptime, CPU load average, kernel version, RAM breakdown, an
     "hub_name": "Living Room Hub",
     "uptime": "1d 4h 12m (101520s)",
     "loadavg": "0.12 0.08 0.05",
-    "kernel": "Linux version 3.3.8 (mips Atheros AR9344)",
+    "kernel": "Linux version 6.18.65-harmony (gcc 14) #1 Thu Nov 26 2026",
     "firmware": "4.15.600",
     "version": "2.4.2",
     "commit": "abc1234",
@@ -569,7 +569,7 @@ Returns running version, commit hash, build date, architecture, and whether an u
     "firmware": "4.15.600",
     "rf_version": "0x20 CC2544",
     "bt_version": "BTstack v1.5 (UART)",
-    "arch": "mips (AR9344)",
+    "arch": "mips (AR9330)",
     "update_available": false,
     "updating": false,
     "update_state": "idle"

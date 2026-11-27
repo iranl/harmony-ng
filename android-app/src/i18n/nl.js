@@ -1842,7 +1842,7 @@ export default {
     "backup_opt_bt_devices": "Bluetooth-apparaten",
     "mdns_discovery_lbl": "mDNS-detectie (Home Assistant vindt de Hub zonder adres):",
     "legacy_protocol_compat_lbl": "Compatibiliteit met het Logitech-protocol (poort 8088, zonder authenticatie: het originele protocol heeft die niet; voor de standaard Harmony-integratie van Home Assistant en andere originele clients)",
-    "svc_rf_desc": "Beheert de RF-daemon en de CC2544-transceiver. Let op: de Atheros AR9344 deelt zijn SPI-bus met het flashgeheugen.",
+    "svc_rf_desc": "Beheert de RF-daemon en de CC2544-transceiver. Let op: de Atheros AR9330 deelt zijn SPI-bus met het flashgeheugen.",
     "svc_bt_desc": "Beheert de Bluetooth-daemon, het virtuele BLE-toetsenbord en de ontvanger voor de Homatics B25-afstandsbediening.",
     "opt_network_manager": "Netwerkbeheer",
     "require_auth_help": "Wordt actief met “Beheerdersaccount opslaan”. Stel eerst het beheerderswachtwoord in: zonder wachtwoord weigert de Hub authenticatie te vereisen.",

@@ -578,6 +578,22 @@ wait_activity_switch() {
   return 0
 }
 
+# What the Linux 6.18 system no longer uses (update.sh cleanup; also run by build/deploy_hub.py
+# and after an update): the stock-era static tools and test leftovers, the fallback boot's old
+# modules, a refused root file system image, and the unionfs whiteout files (.wh.*) the stock
+# kernel left in the data partition (overlayfs ignores them). What HarmonyNG uses stays: the
+# rescue scripts in /cache/kernel6, the links in /cache/bin, the stock resources (backed up and
+# removed by build/deploy_hub.py --clean-stock-resources) and /data/stock_backup.
+cleanup_stale() {
+  uname -r | grep -q harmony || return 0
+  rm -rf /cache/kernel6/modules /cache/kernel6/rootfs.sqfs.failed /cache/busybox /cache/codex_* \
+         /data/codex /data/codex_p /data/codex_rf /data/hub_rf /data/dropbearmulti \
+         /data/test_hub_tx /data/rf_pair_test /data/remote_ui.ota.gz 2>/dev/null
+  # through the overlay root (not its upper directory, which may not change while mounted)
+  grep -q '^overlay / overlay' /proc/mounts && find / -xdev -name '.wh.*' -exec rm -rf {} + 2>/dev/null
+  return 0
+}
+
 # A release with the Linux 6.18 system image (kernel6/ in the manifest, scripts/publish_ota.py), on
 # a Hub that runs it: the root file system is staged in /cache/kernel6/rootfs.sqfs (the kernel's
 # init writes it at the next boot, before it mounts it: build/kernel6/init.c), then the kernel is
@@ -587,6 +603,13 @@ apply_kernel6() {
   uname -r | grep -q harmony || return 1
   grep -q '"kernel6/harmony-hub-flash.uImage"' "$TMPDIR/manifest.json" 2>/dev/null || return 1
   grep -q '"kernel6/harmony-hub-rootfs.sqfs"' "$TMPDIR/manifest.json" 2>/dev/null || return 1
+  # The switch to the one data partition (stock data + cache, build/kernel6/init.c) is done by
+  # the install tool only (tools/install_kernel6.py), never by an update
+  if grep -q '"cache"' /proc/mtd; then
+    echo "[-] This Hub still has the old flash layout (separate cache partition): the system image is not updated."
+    echo "    Run the install tool from a PC: python tools/install_kernel6.py <hub-ip>"
+    return 1
+  fi
   echo "[*] Linux 6.18 system image in the release: kernel and root file system..."
   for _f in harmony-hub-flash.uImage harmony-hub-rootfs.sqfs; do
     if ! download_retry "${REPO}/kernel6/${_f}?_=${TIMESTAMP}" "$TMPDIR/$_f" 35 3 signed; then
@@ -870,6 +893,7 @@ do_apply() {
   # 6b. The Linux 6.18 system image, on a Hub that runs it (needs a reboot)
   K6_REBOOT=0
   apply_kernel6 && K6_REBOOT=1
+  cleanup_stale
 
   # 7. Clean up temporary directory
   rm -rf "$TMPDIR" 2>/dev/null
@@ -1112,6 +1136,9 @@ case "$CMD" in
     ;;
   elite|remote)
     do_remote_ota "$SLOT_ARG"
+    ;;
+  cleanup)
+    cleanup_stale
     ;;
   status)
     if [ -f /data/harmony/update_state.conf ]; then

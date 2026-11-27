@@ -10,7 +10,7 @@
 #                                 boot from U-Boot (loady/loadb to 0x81000000, bootm 0x81000000).
 #   modules.tar.gz, config, System.map
 #   kernel6-modules.tgz           the modules the Hub gets (build/kernel6/modules.list + needs),
-#                                 for /cache/kernel6/modules (tools/deploy_kernel6.sh)
+#                                 for the root file system (build/build_rootfs6.sh)
 #
 #   KERNEL_TARBALL  kernel.org linux-$KVER.tar.xz (default ~/kbuild6/linux-$KVER.tar.xz)
 #   INITRAMFS_MODULES=1  put every module in the initramfs image too (about 1 MB more: each

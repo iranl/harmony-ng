@@ -8,7 +8,7 @@
    - Before launching ANY binary or script that touches `/dev/rfspi`, `/dev/input/*`, I2C, or serial, YOU MUST KILL OLD / DUPLICATE PROCESSES FIRST.
 
 2. **SINGLE PROCESS ON `/dev/rfspi`**:
-   - The Atheros AR9344 SoC on the Hub shares SPI between CC2544 and NOR flash.
+   - The Atheros AR9330 SoC on the Hub shares SPI between CC2544 and NOR flash.
    - Concurrent access corrupts the SPI arbiter and freezes the CPU.
    - NEVER run two processes opening `/dev/rfspi` simultaneously.
    - Always verify and kill background instances before starting a test process.

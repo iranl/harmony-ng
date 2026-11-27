@@ -51,7 +51,7 @@ Setting up HarmonyNG takes just a few minutes. Pre-built release bundles contain
                                         | HTTP REST & WebSockets
                                         v
 +---------------------------------------+---------------------------------------+
-|  Harmony Hub (Atheros AR9344 SoC - MIPS32 Linux)                              |
+|  Harmony Hub (Atheros AR9330 SoC - MIPS32 Linux)                              |
 |                                                                               |
 |  [hub_daemon] (Lean Native C Micro-Daemon)                                    |
 |   ├── Non-blocking select() event loop (CPU < 2%, RAM < 8MB)                  |

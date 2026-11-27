@@ -410,7 +410,7 @@ int main(int argc, char **argv) {
     setvbuf(stdout, NULL, _IONBF, 0);
     setvbuf(stderr, NULL, _IONBF, 0);
 
-    /* Enforce single instance across the entire OS to protect AR9344 SPI arbiter */
+    /* Enforce single instance across the entire OS to protect AR9330 SPI arbiter */
     int lock_fd = open("/var/run/hub_rf.lock", O_CREAT | O_RDWR, 0644);
     /* close-on-exec: a helper still running after hub_rf died kept the lock, and the next hub_rf
      * refused to start */

@@ -215,6 +215,73 @@ jobs:
           name: hub-btstack-dev
           path: build/output/btstack_dev_asset/
 
+  build-kernel6:
+    name: Build Linux 6.18 Hub System (kernel + root file system)
+    needs: prepare-version
+    runs-on: ubuntu-latest
+    env:
+      KVER: '6.18.65'
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - name: Sync Version
+        run: python scripts/bump_version.py --version ${{ needs.prepare-version.outputs.version }}
+      - name: Cache Bootlin MIPS Toolchain
+        id: cache-mips-toolchain
+        uses: actions/cache@v5
+        with:
+          path: build/toolchains
+          key: bootlin-mips32-uclibc-2017.05-a75aeb0f82ea
+      - name: Install Bootlin MIPS uClibc Toolchain
+        if: steps.cache-mips-toolchain.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p build/toolchains
+          curl -fsSL -o "$RUNNER_TEMP/toolchain.tar.bz2" "https://toolchains.bootlin.com/downloads/releases/toolchains/mips32/tarballs/mips32--uclibc--stable-2017.05-toolchains-1-1.tar.bz2"
+          echo "a75aeb0f82eaeaf1989a7dfdf80219486b5ed1470c29c6f253fbcf824922c29f  $RUNNER_TEMP/toolchain.tar.bz2" | sha256sum -c -
+          tar -xjf "$RUNNER_TEMP/toolchain.tar.bz2" -C build/toolchains/
+      - name: Install kernel build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mips-linux-gnu flex bison bc xz-utils u-boot-tools squashfs-tools pkg-config
+      - name: Cache kernel source
+        id: cache-kernel-src
+        uses: actions/cache@v5
+        with:
+          path: ~/kbuild6/linux-${{ env.KVER }}.tar.xz
+          key: linux-${{ env.KVER }}
+      - name: Download kernel source
+        if: steps.cache-kernel-src.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/kbuild6
+          # build/build_kernel6.sh checks its SHA-256
+          curl -fsSL -o ~/kbuild6/linux-$KVER.tar.xz "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-$KVER.tar.xz"
+      - name: Build the system tools, kernel and root file system
+        run: |
+          chmod +x build/*.sh
+          ./build/compile_all.sh util
+          LINK=static ./build/compile_all.sh util
+          ./build/build_busybox.sh mips
+          ./build/build_minimal_dropbear.sh
+          ./build/build_wpa_supplicant.sh
+          ./build/build_bluez_tools.sh
+          ./build/build_e2fsprogs.sh
+          WORK="$RUNNER_TEMP/kwork" ./build/build_kernel6.sh
+          STAGE="$RUNNER_TEMP/rootfs" ./build/build_rootfs6.sh
+          # what tools/install_kernel6.py needs, in the layout of the release bundle (kernel6/)
+          mkdir -p build/output/kernel6_asset/static
+          cp -f build/output/kernel6/harmony-hub-flash.uImage build/output/kernel6/harmony-hub-rootfs.sqfs build/output/kernel6_asset/
+          cp -f build/output/kernel6/static/hub_util build/output/kernel6_asset/static/
+          for s in rc.sh udhcpc.sh modprobe.sh usb_gadget.sh; do tr -d '\r' < build/kernel6/$s > build/output/kernel6_asset/$s; done
+          ls -lR build/output/kernel6_asset
+      - name: Archive Linux 6.18 System
+        uses: actions/upload-artifact@v7
+        with:
+          name: kernel6-images
+          path: build/output/kernel6_asset/
+
   build-android:
     name: Build Android APK
     needs: [prepare-version, build-webui]
@@ -278,7 +345,7 @@ jobs:
 
   publish-release:
     name: Package and Publish GitHub Release
-    needs: [prepare-version, build-webui, build-remote, build-hub, build-android]
+    needs: [prepare-version, build-webui, build-remote, build-hub, build-kernel6, build-android]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -307,7 +374,13 @@ jobs:
             fi
             cp -f build/deploy_hub.py staging_hub/
             printf '%s\n' "$VERSION" > staging_hub/VERSION
-            cp -f tools/root_hub_usb.py tools/harmony_hid.py tools/harmony_firmware.py tools/migrate_hub_configs.py tools/backup_hub.py tools/restore_stock.py tools/factory_reset.py tools/clean_stock_resources.py tools/ssh_hostkeys.py tools/icon_pack.py staging_hub/tools/
+            cp -f tools/root_hub_usb.py tools/harmony_hid.py tools/harmony_firmware.py tools/migrate_hub_configs.py tools/backup_hub.py tools/restore_stock.py tools/factory_reset.py tools/clean_stock_resources.py tools/ssh_hostkeys.py tools/icon_pack.py tools/install_kernel6.py tools/rollback_kernel6.py staging_hub/tools/
+            # the Linux 6.18 system for tools/install_kernel6.py (bundle layout: kernel6/)
+            if [ -d artifacts/kernel6-images ]; then
+              mkdir -p staging_hub/kernel6
+              cp -rf artifacts/kernel6-images/* staging_hub/kernel6/
+              chmod 755 staging_hub/kernel6/static/hub_util staging_hub/kernel6/*.sh
+            fi
             if [ -d payload/config ]; then
               mkdir -p staging_hub/config
               cp -rf payload/config/* staging_hub/config/
@@ -376,4 +449,7 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           VERSION="${{ needs.prepare-version.outputs.version }}"
+          # scripts/publish_ota.py ships the system image from build/output/kernel6 (kernel6/ in the manifest)
+          mkdir -p build/output/kernel6
+          cp -f artifacts/kernel6-images/harmony-hub-flash.uImage artifacts/kernel6-images/harmony-hub-rootfs.sqfs build/output/kernel6/
           python scripts/publish_ota.py --version "$VERSION" --require-signature --push --remote "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" --branch ota

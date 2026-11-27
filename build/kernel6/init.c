@@ -3,7 +3,8 @@
  *
  * Root file system boot (mtd "root" holds an XZ squashfs, build/build_rootfs6.sh):
  *   /rom      the squashfs, read-only (lower layer)
- *   /overlay  mtd:data, JFFS2 (upper layer: /overlay/upper, work dir /overlay/work)
+ *   /overlay  mtd:data, JFFS2 (upper layer: /overlay/upper, work dir /overlay/work; /cache is
+ *             its cache/ directory, bound there)
  *   /         overlayfs of the two, as the stock kernel's unionfs did (dirs=/mnt/data=rw:/mnt/root=ro)
  *   then      /bin/sh /etc/init.d/rcS (build/kernel6/rc.sh) as PID 1
  * The first boot moves what the data partition holds (the stock union's writable layer) into
@@ -24,8 +25,16 @@
  * over /cache/kernel6: the boot state stays on flash. Without the stick: the flash data and
  * /cache/kernel6/usb-missing, for which rc.sh starts no HarmonyNG (rescue).
  *
+ * Flash layout: the stock data and cache partitions are one JFFS2 partition, "data" (10 MB less
+ * the 64 KB "state" block at its end). A JFFS2 mount reads the whole partition, so the stock
+ * cache file system in its second half must go before the first mount: while "state" does not
+ * hold STATE_MAGIC, init erases that half and "state" once, then writes the magic. The install
+ * tool (tools/install_kernel6.py) puts what must survive in cache-import/ at the data partition's
+ * top (on a stock Hub: /cache-import of the union root); init moves it into cache/ (renames on
+ * the same file system), the staged root file system included.
+ *
  * Factory reset: with /cache/kernel6/factory-reset present (rc.sh sets it when the Pair button is
- * held at boot) the data and cache partitions are erased before anything is mounted from them.
+ * held at boot) the data partition is erased before anything is mounted from it.
  */
 #include <dirent.h>
 #include <errno.h>
@@ -46,8 +55,13 @@
 #define RC "/cache/kernel6/rc.sh"
 #define RESET_FLAG "/cache/kernel6/factory-reset"
 #define PENDING_ROOT "/cache/kernel6/rootfs.sqfs"
+/* what tools/install_kernel6.py puts for /cache while the cache partition is still separate (a
+ * stock Hub, or one on the old layout): moved into cache/ at the next boot */
+#define CACHE_IMPORT "/overlay/cache-import"
 #define USB_FLAG "/cache/kernel6/usb-storage"
 #define USB_MISSING "/cache/kernel6/usb-missing"
+#define STATE_MAGIC "HarmonyNG data+cache 1"
+#define OLD_DATA_SIZE 0x500000   /* the stock data partition: the merged one's first half */
 
 static void msg(const char *what, const char *arg, int err) {
     dprintf(2, "init: %s %s%s%s\n", what, arg, err ? ": " : "", err ? strerror(err) : "");
@@ -77,25 +91,90 @@ static int mtd_num(const char *name) {
     return found;
 }
 
-/* erase a whole partition (empty JFFS2: the next mount starts fresh) */
-static void erase_mtd(const char *name) {
+/* erase a partition from offset from to its end (empty JFFS2 there: the next mount starts
+ * fresh). 0 when every block was erased. */
+static int erase_mtd(const char *name, unsigned int from) {
     char dev[32];
     struct mtd_info_user mi;
-    int n = mtd_num(name), fd;
-    if (n < 0) return;
+    int n = mtd_num(name), fd, rc = 0;
+    if (n < 0) return -1;
     snprintf(dev, sizeof(dev), "/dev/mtd%d", n);
     fd = open(dev, O_RDWR);
     if (fd < 0 || ioctl(fd, MEMGETINFO, &mi) != 0) {
         msg("cannot open", dev, errno);
         if (fd >= 0) close(fd);
-        return;
+        return -1;
     }
-    for (unsigned int off = 0; off < mi.size; off += mi.erasesize) {
+    for (unsigned int off = from; off < mi.size; off += mi.erasesize) {
         struct erase_info_user ei = { .start = off, .length = mi.erasesize };
-        if (ioctl(fd, MEMERASE, &ei) != 0) msg("erase failed:", dev, errno);
+        if (ioctl(fd, MEMERASE, &ei) != 0) {
+            msg("erase failed:", dev, errno);
+            rc = -1;
+        }
     }
     close(fd);
     msg("erased", name, 0);
+    return rc;
+}
+
+/* The stock cache file system in the second half of "data" goes once (see the header). Without
+ * a "state" partition (an older device tree) nothing is done. */
+static void merge_cache_partition(void) {
+    char dev[32], buf[sizeof(STATE_MAGIC) - 1];
+    int n = mtd_num("state"), fd;
+    if (n < 0 || mtd_num("data") < 0) return;
+    snprintf(dev, sizeof(dev), "/dev/mtd%d", n);
+    fd = open(dev, O_RDONLY);
+    if (fd < 0) return;
+    if (read(fd, buf, sizeof(buf)) == (ssize_t)sizeof(buf) && memcmp(buf, STATE_MAGIC, sizeof(buf)) == 0) {
+        close(fd);
+        return;
+    }
+    close(fd);
+    msg("flash layout:", "erasing the stock cache file system (data and cache become one)", 0);
+    if (erase_mtd("data", OLD_DATA_SIZE) != 0 || erase_mtd("state", 0) != 0) return;
+    fd = open(dev, O_WRONLY);
+    if (fd < 0 || write(fd, STATE_MAGIC, sizeof(buf)) != (ssize_t)sizeof(buf))
+        msg("cannot write", dev, errno);
+    if (fd >= 0) close(fd);
+    sync();
+}
+
+/* moves from/ into to/ entry by entry (renames: one file system); an entry both have is
+ * replaced, a directory both have is merged */
+static void merge_into(const char *from, const char *to) {
+    char a[256], b[256];
+    struct stat sa, sb;
+    struct dirent *e;
+    DIR *d = opendir(from);
+    if (!d) return;
+    mkdir(to, 0755);
+    while ((e = readdir(d))) {
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        snprintf(a, sizeof(a), "%s/%s", from, e->d_name);
+        snprintf(b, sizeof(b), "%s/%s", to, e->d_name);
+        if (lstat(b, &sb) == 0) {
+            if (lstat(a, &sa) == 0 && S_ISDIR(sa.st_mode) && S_ISDIR(sb.st_mode)) {
+                merge_into(a, b);
+                continue;
+            }
+            if (S_ISDIR(sb.st_mode)) {
+                msg("not replaced (a directory):", b, 0);
+                continue;
+            }
+            unlink(b);
+        }
+        if (rename(a, b) != 0) msg("cannot move", a, errno);
+    }
+    closedir(d);
+    if (rmdir(from) != 0) msg("left behind:", from, errno);
+}
+
+/* the data partition on /overlay, its cache/ bound on /cache */
+static int mount_flash(void) {
+    if (mnt("mtd:data", "/overlay", "jffs2", 0, NULL) != 0) return -1;
+    mkdir("/overlay/cache", 0755);
+    return mnt("/overlay/cache", "/cache", NULL, MS_BIND, NULL);
 }
 
 /* the root partition holds a squashfs with XZ compression (ours, not the stock LZMA root) */
@@ -125,8 +204,9 @@ static long mtd_pwrite(int fd, const void *buf, uint32_t len, uint32_t off) {
     return pwrite(fd, buf, len, off);
 }
 
-/* writes PENDING_ROOT (an XZ squashfs that fits) to mtd "root", block by block with read-back */
-static void write_pending_root(void) {
+/* writes a staged root file system (an XZ squashfs that fits) to mtd "root", block by block with
+ * read-back */
+static void write_pending_root(const char *pending) {
     static const struct flash_ops ops = { mtd_erase, mtd_pread, mtd_pwrite };
     char dev[32], err[128] = "";
     struct mtd_info_user mi;
@@ -135,14 +215,14 @@ static void write_pending_root(void) {
     uint8_t *img = NULL;
     int n = mtd_num("root"), fd = -1, mfd = -1, written = 0, ok = 0;
 
-    if (stat(PENDING_ROOT, &st) != 0) return;
-    msg("writing", PENDING_ROOT, 0);
+    if (stat(pending, &st) != 0) return;
+    msg("writing", pending, 0);
     snprintf(dev, sizeof(dev), "/dev/mtd%d", n);
     if (n < 0 || (mfd = open(dev, O_RDWR)) < 0 || ioctl(mfd, MEMGETINFO, &mi) != 0) {
         snprintf(err, sizeof(err), "no root partition");
     } else if ((uint32_t)st.st_size > mi.size) {
         snprintf(err, sizeof(err), "larger than the root partition");
-    } else if (!(img = malloc(st.st_size)) || (fd = open(PENDING_ROOT, O_RDONLY)) < 0 ||
+    } else if (!(img = malloc(st.st_size)) || (fd = open(pending, O_RDONLY)) < 0 ||
                read(fd, img, st.st_size) != st.st_size) {
         snprintf(err, sizeof(err), "cannot read it");
     } else if (squashfs_check(img, st.st_size, SQUASHFS_XZ, err, sizeof(err)) == 0) {
@@ -155,10 +235,12 @@ static void write_pending_root(void) {
     if (mfd >= 0) close(mfd);
     free(img);
     if (ok) {
-        unlink(PENDING_ROOT);
+        unlink(pending);
         dprintf(2, "init: root file system written (%d blocks)\n", written);
     } else {
-        rename(PENDING_ROOT, PENDING_ROOT ".failed");
+        char failed[96];
+        snprintf(failed, sizeof(failed), "%s.failed", pending);
+        rename(pending, failed);
         msg("root file system not written:", err, 0);
     }
     sync();
@@ -224,7 +306,7 @@ static void migrate_data(void) {
     mkdir("/overlay/upper", 0755);
     while ((e = readdir(d))) {
         if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..") || !strcmp(e->d_name, "upper") ||
-            !strcmp(e->d_name, "work"))
+            !strcmp(e->d_name, "work") || !strcmp(e->d_name, "cache"))
             continue;
         snprintf(from, sizeof(from), "/overlay/%s", e->d_name);
         snprintf(to, sizeof(to), "/overlay/upper/%s", e->d_name);
@@ -299,31 +381,28 @@ static int root_boot(int root_mtd) {
         layers = "lowerdir=/rom,upperdir=/usb/data/upper,workdir=/usb/data/work";
         clean_system_dirs("/usb/data/upper");
     } else {
-        if (mnt("mtd:data", "/overlay", "jffs2", 0, NULL) != 0) {
-            umount("/rom");
-            return -1;
-        }
         if (stat("/overlay/upper", &st) != 0) migrate_data();
         mkdir("/overlay/upper", 0755);
         mkdir("/overlay/work", 0755);
         clean_system_dirs("/overlay/upper");
     }
     if (mnt("overlay", "/newroot", "overlay", 0, layers) != 0) {
-        /* the fallback boot mounts mtd:data itself */
+        /* the fallback boot keeps /overlay and /cache */
         if (usb == 0) umount("/usb");
-        else umount("/overlay");
         umount("/rom");
         return -1;
     }
     if (usb == 0) {
-        /* the stick's cache/ is /cache, the flash's boot state stays at /cache/kernel6 */
-        move_mount("/cache", "/flash");
+        /* the stick's cache/ is /cache, the flash's boot state stays at /cache/kernel6; the
+         * flash data partition is /flash */
+        umount("/cache");
         mkdir("/usb/cache/kernel6", 0755);
+        mkdir("/overlay/cache/kernel6", 0755);
         if (mount("/usb/cache", "/cache", NULL, MS_BIND, NULL) != 0 ||
-            mount("/flash/kernel6", "/cache/kernel6", NULL, MS_BIND, NULL) != 0)
+            mount("/overlay/cache/kernel6", "/cache/kernel6", NULL, MS_BIND, NULL) != 0)
             msg("cannot bind", "/cache", errno);
         move_mount("/usb", "/newroot/usb");
-        move_mount("/flash", "/newroot/flash");
+        move_mount("/overlay", "/newroot/flash");
     } else {
         move_mount("/overlay", "/newroot/overlay");
     }
@@ -360,13 +439,18 @@ int main(void) {
         if (fd > 2) close(fd);
     }
 
-    mnt("mtd:cache", "/cache", "jffs2", 0, NULL);
+    merge_cache_partition();
+    mount_flash();
+    if (access(CACHE_IMPORT, F_OK) == 0) {
+        merge_into(CACHE_IMPORT, "/overlay/cache");
+        sync();
+    }
     if (access(RESET_FLAG, F_OK) == 0) {
-        msg("factory reset:", "erasing data and cache", 0);
+        msg("factory reset:", "erasing the data partition", 0);
         umount("/cache");
-        erase_mtd("data");
-        erase_mtd("cache");
-        mnt("mtd:cache", "/cache", "jffs2", 0, NULL);
+        umount("/overlay");
+        erase_mtd("data", 0);
+        mount_flash();
     }
 
 #ifdef HARMONY_RECOVERY_SERIAL
@@ -377,7 +461,7 @@ int main(void) {
         sync();
     }
 #endif
-    write_pending_root();
+    write_pending_root(PENDING_ROOT);
     /* HarmonyNG's /cache/bin (first in PATH) may hold applet links of a BusyBox named modprobe
      * or depmod: they would hide the system's /sbin/modprobe, which follows modules.dep */
     {
@@ -390,9 +474,9 @@ int main(void) {
     if (root_mtd >= 0 && our_root(root_mtd) && root_boot(root_mtd) == 0)
         return 0;   /* not reached: rcS runs */
 
-    /* fallback boot */
+    /* fallback boot: the data partition at /mnt/data (/cache stays its cache/) */
     mkdir("/mnt", 0755);
-    mnt("mtd:data", "/mnt/data", "jffs2", 0, NULL);
+    move_mount("/overlay", "/mnt/data");
     fd = open("/proc/sys/kernel/modprobe", O_WRONLY);
     if (fd >= 0) {
         if (write(fd, "/bin/modprobe\n", 14) < 0) msg("cannot set", "modprobe path", errno);

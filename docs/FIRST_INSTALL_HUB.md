@@ -252,6 +252,23 @@ In Windows PowerShell, which has no `<`, the append is `Get-Content $env:USERPRO
 
 The line must start with `ssh-ed25519 ` and the whole key, or with one options field the server knows (for example `no-pty`; it refuses a line with an option it does not know, such as OpenSSH's `from=`), one blank and then the key. The checks answer no for a key with blanks in front but no options, a cut key, an Ed25519 key written as the comment of an RSA key, and two keys joined on one line: the server would not let that key in either.
 
+### The Linux 6.18 Hub system
+
+HarmonyNG 4 runs on its own Linux 6.18 system (kernel, root file system, one data partition) instead of the stock 2.6.31 firmware. Only the install tool switches a Hub to it; an online update never does (it only updates a Hub that already runs it).
+
+```bash
+# Cross-platform (Windows, Linux, macOS), from the repository root or the release bundle:
+python tools/install_kernel6.py <YOUR_HUB_IP>
+```
+
+On a stock Hub the tool first backs up the kernel, root, data, cache and mfg partitions to `backups/<hub>-<date>/`, removes the stock-era HarmonyNG binaries (and, if the data partition is still short of room, the web UI and icons), stages the new system, writes the kernel and restarts. On a Hub with an older 6.18 install it merges the data and cache partitions into one (everything in `/cache` except the boot flags goes). On a Hub that already has one data partition it updates the kernel and root file system. In every case the Hub writes its root file system at the first boot (a few minutes, **do not cut the power**). The tool then waits for it and runs `deploy_hub.py`.
+
+Back to the stock firmware, as it was at the switch:
+
+```bash
+python tools/rollback_kernel6.py <YOUR_HUB_IP> backups/<hub>-<date>
+```
+
 ---
 
 ## 5. Accessing the Web Console & Android App

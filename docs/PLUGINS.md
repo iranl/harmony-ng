@@ -33,7 +33,7 @@ Official plugin repository: [**https://github.com/iranl/harmony-ng-plugins**](ht
 ## Architecture & Design Principles
 
 ### 1. Minimal Flash Space & Low Overhead
-The Harmony Hub (Atheros AR9344 SoC, MIPS 24Kc) operates with limited flash and RAM. To prevent memory exhaustion and binary bloat:
+The Harmony Hub (Atheros AR9330 SoC, MIPS 24Kc) operates with limited flash and RAM. To prevent memory exhaustion and binary bloat:
 - Core `hub_daemon` remains a micro-daemon (< 650 KB).
 - Plugins run as independent, standalone processes (lightweight shell scripts, micro-daemons in C/C++, or small interpreters).
 - No statically linked runtimes (Python, Node.js, or heavy frameworks).

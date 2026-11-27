@@ -1842,7 +1842,7 @@ export default {
     "backup_opt_bt_devices": "Dispositivos Bluetooth",
     "mdns_discovery_lbl": "Descubrimiento mDNS (Home Assistant encuentra el Hub sin dirección):",
     "legacy_protocol_compat_lbl": "Compatibilidad con el protocolo de Logitech (puerto 8088, sin autenticación: el protocolo original no la tiene; para la integración Harmony nativa de Home Assistant y otros clientes originales)",
-    "svc_rf_desc": "Controla el servicio RF y el transceptor CC2544. Nota: el Atheros AR9344 comparte su bus SPI con la memoria flash.",
+    "svc_rf_desc": "Controla el servicio RF y el transceptor CC2544. Nota: el Atheros AR9330 comparte su bus SPI con la memoria flash.",
     "svc_bt_desc": "Controla el servicio Bluetooth, el teclado virtual BLE y el receptor del mando Homatics B25.",
     "opt_network_manager": "Gestor de red",
     "require_auth_help": "Se aplica con «Guardar cuenta de administrador». Establezca primero la contraseña de administrador: sin ella, el Hub no exige autenticación.",

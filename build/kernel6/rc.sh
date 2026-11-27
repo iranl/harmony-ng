@@ -158,6 +158,8 @@ if [ "$skin" = 115 ] && modprobe ag71xx && modprobe ar9331 && modprobe bridge; t
     for p in eth0 lan0 lan1 lan2 lan3; do
         [ -e /sys/class/net/$p ] && brctl addif eth1 $p && ip link set $p up
     done
+    # the bridge keeps eth0's fixed MAC (DTS: Wi-Fi MAC + 1), whichever port joined first
+    ip link set eth1 address "$(cat /sys/class/net/eth0/address)"
 fi
 
 # Bluetooth: the CSR8811 is on the only UART, also the serial console. rcS.local/init.sh load

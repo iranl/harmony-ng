@@ -1842,7 +1842,7 @@ export default {
     "backup_opt_bt_devices": "Bluetooth devices",
     "mdns_discovery_lbl": "mDNS discovery (Home Assistant finds the Hub without an address):",
     "legacy_protocol_compat_lbl": "Logitech protocol compatibility (port 8088, no authentication: the stock protocol has none; for Home Assistant's core Harmony integration and other stock clients)",
-    "svc_rf_desc": "Controls the RF daemon and the CC2544 transceiver. Note: the Atheros AR9344 shares its SPI bus with the flash memory.",
+    "svc_rf_desc": "Controls the RF daemon and the CC2544 transceiver. Note: the Atheros AR9330 shares its SPI bus with the flash memory.",
     "svc_bt_desc": "Controls the Bluetooth daemon, the BLE virtual keyboard and the receiver for the Homatics B25 remote.",
     "opt_network_manager": "Network Manager",
     "require_auth_help": "Takes effect with Save Admin Account. Set the admin password first: the Hub refuses to require authentication without one.",
