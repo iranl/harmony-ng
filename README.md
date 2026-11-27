@@ -23,7 +23,7 @@ Independent, open-source local control firmware and companion suite for the **Lo
 
 ## 🚀 Quick Start & Installation
 
-Setting up HarmonyNG takes just a few minutes. Pre-built release bundles containing all binaries, modules, scripts, and deployment tools are ready on the [**Releases Page**](https://github.com/iranl/harmony-ng/releases) — **no compilation required**.
+Setting up Harmony-NG takes just a few minutes. Pre-built release bundles containing all binaries, modules, scripts, and deployment tools are ready on the [**Releases Page**](https://github.com/iranl/harmony-ng/releases) — **no compilation required**.
 
 | Target | Installation Guide | Requirements |
 | :--- | :--- | :--- |
@@ -76,13 +76,13 @@ Setting up HarmonyNG takes just a few minutes. Pre-built release bundles contain
 
 ---
 
-## Subsystem & Feature Comparison (HarmonyNG vs. Stock Logitech Software)
+## Subsystem & Feature Comparison (Harmony-NG vs. Stock Logitech Software)
 
-The table below details every major functional component for both the **Harmony Hub** and the **Harmony touchscreen remotes**, comparing HarmonyNG with the original factory software stack:
+The table below details every major functional component for both the **Harmony Hub** and the **Harmony touchscreen remotes**, comparing Harmony-NG with the original factory software stack:
 
 ### Harmony Hub
 
-| Dimension | Stock Logitech Firmware | HarmonyNG Custom Firmware |
+| Dimension | Stock Logitech Firmware | Harmony-NG Custom Firmware |
 | :--- | :--- | :--- |
 | **Cloud Dependency** | **100% Mandatory**: Requires Logitech AWS cloud servers for account authentication, provisioning, configuration sync, and unbricking. Bricked once servers go offline. | **0% Zero Cloud**: Fully autonomous local operation. No external servers, telemetry, or account sign-in required. Runs permanently offline. |
 | **Core Architecture** | **Monolithic Lua Runtime**: `luaworks` and Lua 5.1/LuaJIT consuming 12–16 MB RAM and 15–30% CPU, guarded by an aggressive watchdog (`/usr/bin/watchdog`). | **Native C Micro-Daemon**: `hub_daemon` compiled for MIPS32 big-endian (static binary under 1 MB, < 2% CPU, < 8 MB RAM). Non-blocking `select()` event loop. |
@@ -98,7 +98,7 @@ The table below details every major functional component for both the **Harmony 
 
 ### Harmony Touchscreen Remotes
 
-| Dimension | Stock Logitech Firmware | HarmonyNG Custom Firmware |
+| Dimension | Stock Logitech Firmware | Harmony-NG Custom Firmware |
 | :--- | :--- | :--- |
 | **GUI & Display Engine** | **Monolithic Lua GUI**: `luadraws` + `luaworks` taking 30+ seconds to boot, heavy memory footprint, closed stock assets. | **Native Framebuffer GUI**: `remote_ui.c` rendering directly to `/dev/fb0` (240x320 16-bit RGB565) in under 2 seconds. Anti-aliased bitmap fonts (built in, or per theme as `.faa` files converted from TTF on the build host) and selectable themes. |
 | **Touch & Physical Controls** | **Vendor Input Handlers**: Custom event pipes dependent on stock daemons. | **Direct Linux Input Multiplexing**: Linux `/dev/input/event0` (physical buttons), `/dev/input/event1` (motion sensor) and `/dev/input/event2` (touch digitizer), with hold events sent while a key stays down. |
@@ -110,7 +110,7 @@ The table below details every major functional component for both the **Harmony 
 
 ## Supported Remote Hardware
 
-HarmonyNG supports all major Logitech Harmony physical remotes:
+Harmony-NG supports all major Logitech Harmony physical remotes:
 
 1. **Harmony touchscreen remotes: Elite 950, Pro 2400, Ultimate family (Handheld Remotes with Screen)**:
    - Full native framebuffer UI (`remote_ui.c`) at 240x320 RGB565.
@@ -147,11 +147,11 @@ HarmonyNG supports all major Logitech Harmony physical remotes:
 
 ## Known Differences (Compared to Stock Logitech Software)
 
-While HarmonyNG restores complete local independence and dramatically reduces memory and CPU usage, note the following architectural difference from stock Logitech firmware:
+While Harmony-NG restores complete local independence and dramatically reduces memory and CPU usage, note the following architectural difference from stock Logitech firmware:
 
 1. **No Direct Local Network / IP Control (e.g. Roku ECP, Hue Direct, Sony IP)**:
-   - **Community Plugins & Add-ons**: HarmonyNG includes a dedicated **Plugin Architecture & Community Marketplace** for direct local control of IP and Bluetooth devices without cloud mediation. Lightweight community micro-daemons (e.g. **Roku ECP**, **PlayStation 5 BT Wake**, **Android TV**) run directly on the Hub with zero flash wear. See [Plugin Architecture & Guide](docs/PLUGINS.md) and the [harmony-ng-plugins repository](https://github.com/iranl/harmony-ng-plugins).
-   - **Home Assistant & MQTT Integration**: For thousands of other smart home devices (Hue, Sonos, custom lights), connect HarmonyNG to **Home Assistant via the built-in bidirectional MQTT bridge**.
+   - **Community Plugins & Add-ons**: Harmony-NG includes a dedicated **Plugin Architecture & Community Marketplace** for direct local control of IP and Bluetooth devices without cloud mediation. Lightweight community micro-daemons (e.g. **Roku ECP**, **PlayStation 5 BT Wake**, **Android TV**) run directly on the Hub with zero flash wear. See [Plugin Architecture & Guide](docs/PLUGINS.md) and the [harmony-ng-plugins repository](https://github.com/iranl/harmony-ng-plugins).
+   - **Home Assistant & MQTT Integration**: For thousands of other smart home devices (Hue, Sonos, custom lights), connect Harmony-NG to **Home Assistant via the built-in bidirectional MQTT bridge**.
 
 ---
 
@@ -337,7 +337,7 @@ All Hub partition backups and stock configuration restores (`tools/root_hub_usb.
 
 ## API Documentation & OpenAPI Specification
 
-HarmonyNG exposes an extensive local REST and WebSocket API running on port `8089`.
+Harmony-NG exposes an extensive local REST and WebSocket API running on port `8089`.
 
 - **Interactive Swagger UI (GitHub Pages)**: [https://iranl.github.io/harmony-ng/](https://iranl.github.io/harmony-ng/)
   - Features real-time **"Try it out"** testing against your local Harmony Hub (e.g. `http://<hub-ip>:8089` or `http://harmony-ng-<hub_id>.local:8089`).
