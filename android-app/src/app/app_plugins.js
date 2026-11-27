@@ -395,7 +395,6 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
               ${isUpToDate
                 ? `<span class="badge" style="color: var(--success); border: 1px solid var(--success); background: transparent;">${t('plg_installed_check')}</span>`
                 : item.compatible === false
-                  // min_harmony_version above this Hub's (the Hub refuses the install too)
                   ? `<span class="badge" style="color: var(--warning); border: 1px solid var(--warning); background: transparent;" title="${escapeHtml(item.incompatible_reason || '')}">${tfHtml('plg_needs_version', { version: String(item.min_harmony_version || '').replace(/^v/, '') })}</span>`
                 : (isUpdateAvailable
                   ? `<button type="button" class="btn btn-xs btn-primary btn-install-plugin" data-url="${escapeHtml(item.download_url || '')}" data-sha="${escapeHtml(item.sha256 || '')}" data-id="${escapeHtml(item.id)}">${tfHtml('plg_update_to', { version: item.version })}</button>`
