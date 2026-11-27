@@ -25,24 +25,26 @@ name=$1
 shift
 say() { [ $q = 1 ] || echo "modprobe: $*" >&2; }
 
-# module file for a name (dashes and underscores are the same)
+# module file for a name (dashes and underscores are the same). One awk pass: the loop with tr
+# and basename per line took 2.3 s for a name not there, and the kernel asks for those on
+# every socket() of a family it lacks (net-pf-10, IPv6): each Wi-Fi key wpa_supplicant set
+# waited for it, 20 s from association to the connection.
 modpath() {
-    n=$(echo "$1" | tr - _)
-    while read -r l; do
-        f=${l%%:*}
-        b=$(basename "$f" .ko | tr - _)
-        [ "$b" = "$n" ] && { echo "$l"; return 0; }
-    done < "$D/modules.dep"
-    return 1
+    awk -v n="$1" 'BEGIN { gsub("-", "_", n) }
+        { f = $1; sub(":.*", "", f); sub(".*/", "", f); sub("\\.ko$", "", f); gsub("-", "_", f)
+          if (f == n) { print; found = 1; exit } }
+        END { exit !found }' "$D/modules.dep"
 }
 
 line=$(modpath "$name")
 if [ -z "$line" ]; then
-    # alias: modules.alias lines are "alias <glob> <module>"
-    while read -r a pat mod; do
-        [ "$a" = alias ] || continue
-        case "$name" in $pat) line=$(modpath "$mod") && break ;; esac
-    done < "$D/modules.alias"
+    # alias: modules.alias lines are "alias <glob> <module>". Only the lines starting with the
+    # name's leading word (net, tty, usb, ...) go through the glob match: all ~700 took 0.5 s.
+    pre=${name%%[!A-Za-z0-9_]*}
+    mod=$(grep "^alias $pre" "$D/modules.alias" | while read -r a pat m; do
+        case "$name" in $pat) echo "$m"; break ;; esac
+    done)
+    [ -n "$mod" ] && line=$(modpath "$mod")
 fi
 [ -n "$line" ] || { say "module '$name' not found"; exit 1; }
 
