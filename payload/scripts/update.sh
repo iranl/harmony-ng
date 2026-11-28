@@ -600,7 +600,8 @@ cleanup_stale() {
 # a Hub that runs it: the root file system is staged in /cache/kernel6/rootfs.sqfs (the kernel's
 # init writes it at the next boot, before it mounts it: build/kernel6/init.c), then the kernel is
 # written. Staged first: a failure leaves the old kernel with the old root file system. Returns 0
-# when the system was updated and needs a reboot.
+# when the system was updated and needs a reboot, 1 when it was not updated (the old system
+# stays), 2 when the kernel write failed and left the kernel partition incomplete.
 apply_kernel6() {
   uname -r | grep -q harmony || return 1
   grep -q '"kernel6/harmony-hub-flash.uImage"' "$TMPDIR/manifest.json" 2>/dev/null || return 1
@@ -640,7 +641,9 @@ apply_kernel6() {
     echo "[-] The root file system could not be stored in /cache: the system image is not updated"
     return 1
   fi
-  # the CC2544 shares the SPI bus with the flash (hub_util refuses while hub_rf runs)
+  # the CC2544 shares the SPI bus with the flash (hub_util refuses while hub_rf runs); the stop
+  # flag keeps init.sh's supervisor from starting them again during the write and its retry
+  touch /tmp/harmony_stop
   killall -9 hub_rf hub_btstack 2>/dev/null
   sleep 1
   _k=$(grep '"kernel"' /proc/mtd | cut -d: -f1)
@@ -648,14 +651,15 @@ apply_kernel6() {
   if ! "$HUB_UTIL" flash-image "$TMPDIR/harmony-hub-flash.uImage" "/dev/$_k" "/dev/$_k2"; then
     # blocks that already match are skipped: a second try is cheap and may finish the write
     echo "[!] The kernel write failed: trying once more..."
+    killall -9 hub_rf hub_btstack 2>/dev/null
     sleep 2
     if ! "$HUB_UTIL" flash-image "$TMPDIR/harmony-hub-flash.uImage" "/dev/$_k" "/dev/$_k2"; then
       # never a new root under an old kernel
       rm -f /cache/kernel6/rootfs.sqfs
-      # the header block was erased first: the kernel partition holds no bootable kernel now
-      echo "[-] The kernel could not be written: the kernel partition is incomplete. Do not restart"
-      echo "    the Hub; run the install tool from a PC: python tools/install_kernel6.py <hub-ip>"
-      return 1
+      # the header block was erased first: the kernel partition holds no bootable kernel now. One
+      # line: the first "[-]" line is the update's error in the web UI. 2 fails the update.
+      echo "[-] The kernel could not be written and the kernel partition is incomplete: do not restart the Hub. Run the update again, or the install tool from a PC (tools/install_kernel6.py)."
+      return 2
     fi
   fi
   echo "[+] Linux 6.18 kernel written; the root file system is written at the next boot."
@@ -887,7 +891,22 @@ do_apply() {
     return 1
   fi
 
-  # 6. Record new version (Hub and remote version metadata), only after a complete install
+  # 6. The Linux 6.18 system image, on a Hub that runs it (needs a reboot). Before the version
+  # is recorded: a failed kernel write fails the update, and running it again retries.
+  K6_REBOOT=0
+  apply_kernel6
+  case $? in
+    0) K6_REBOOT=1 ;;
+    2)
+      rm -rf "$TMPDIR" 2>/dev/null
+      # the services again (no reboot!): the web UI shows the error
+      rm -f /tmp/harmony_stop 2>/dev/null
+      [ -x /data/harmony/init.sh ] && /data/harmony/init.sh restart >/dev/null 2>&1 </dev/null &
+      return 1
+      ;;
+  esac
+
+  # 6b. Record new version (Hub and remote version metadata), only after a complete install
   if ! { echo "$NEW_VER" > /data/harmony/VERSION.new && mv -f /data/harmony/VERSION.new /data/harmony/VERSION; }; then
     rm -f /data/harmony/VERSION.new 2>/dev/null
     echo "[-] Could not record version v${NEW_VER} in /data/harmony/VERSION."
@@ -902,9 +921,6 @@ do_apply() {
   # image of the old version that hub_rf kept for a resume (sent unverified once its manifest is gone)
   rm -rf /tmp/www/assets/icons /tmp/remote_ui.ota.gz /tmp/remote_manifest.json /tmp/remote_manifest.json.sig 2>/dev/null || true
 
-  # 6b. The Linux 6.18 system image, on a Hub that runs it (needs a reboot)
-  K6_REBOOT=0
-  apply_kernel6 && K6_REBOOT=1
   cleanup_stale
 
   # 7. Clean up temporary directory

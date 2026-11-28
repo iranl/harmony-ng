@@ -95,7 +95,8 @@ const struct flash_ops flash_mtd_ops = { mtd_erase, mtd_pread, mtd_pwrite };
 
 /* one erase block: content wanted at (part, off) */
 static int write_block(const struct flash_part *part, const struct flash_ops *ops, uint32_t off,
-                       const uint8_t *want, uint8_t *buf, int *written, char *err, size_t errlen) {
+                       const uint8_t *want, uint8_t *buf, int pre_erased, int *written, char *err,
+                       size_t errlen) {
     uint32_t bs = part->erasesize;
     if (ops->pread(part->fd, buf, bs, off) != (long)bs) {
         snprintf(err, errlen, "read failed at 0x%x", (unsigned)off);
@@ -103,10 +104,12 @@ static int write_block(const struct flash_part *part, const struct flash_ops *op
     }
     if (memcmp(buf, want, bs) == 0)
         return 0;
-    /* erased already (block 0 is erased first, see flash_write_image) */
+    /* block 0, erased by this very call (flash_write_image): not again. Any other block that
+     * reads blank is erased anyway: a cut erase can read 0xFF and still be partly erased */
     size_t i = 0;
-    while (i < bs && buf[i] == 0xFF) i++;
-    if (i < bs && ops->erase(part->fd, off, bs) != 0) {
+    if (pre_erased)
+        while (i < bs && buf[i] == 0xFF) i++;
+    if ((!pre_erased || i < bs) && ops->erase(part->fd, off, bs) != 0) {
         snprintf(err, errlen, "erase failed at 0x%x", (unsigned)off);
         return -1;
     }
@@ -147,7 +150,7 @@ int flash_write_image(const struct flash_part *parts, int nparts, const struct f
         snprintf(err, errlen, "out of memory");
         return -1;
     }
-    int rc = 0;
+    int rc = 0, b0_erased = 0;
     size_t nblocks = (len + bs - 1) / bs;
     /* Block 0 (the uImage header, the squashfs superblock) is erased first when it changes and
      * written last: a write cut short leaves no header and no magic, so U-Boot does not boot a
@@ -160,9 +163,13 @@ int flash_write_image(const struct flash_part *parts, int nparts, const struct f
         if (ops->pread(parts[0].fd, buf, bs, 0) != (long)bs) {
             snprintf(err, errlen, "read failed at 0x0");
             rc = -1;
-        } else if (memcmp(buf, want, bs) != 0 && ops->erase(parts[0].fd, 0, bs) != 0) {
-            snprintf(err, errlen, "erase failed at 0x0");
-            rc = -1;
+        } else if (memcmp(buf, want, bs) != 0) {
+            if (ops->erase(parts[0].fd, 0, bs) != 0) {
+                snprintf(err, errlen, "erase failed at 0x0");
+                rc = -1;
+            } else {
+                b0_erased = 1;
+            }
         }
     }
     for (size_t step = 1; step <= nblocks && rc == 0; step++) {
@@ -177,7 +184,8 @@ int flash_write_image(const struct flash_part *parts, int nparts, const struct f
             start += parts[p].size;
             p++;
         }
-        rc = write_block(&parts[p], ops, (uint32_t)(pos - start), want, buf, written, err, errlen);
+        rc = write_block(&parts[p], ops, (uint32_t)(pos - start), want, buf, b == 0 && b0_erased, written,
+                         err, errlen);
     }
     free(want);
     free(buf);

@@ -28,7 +28,10 @@ else
     ROOTFS=0
     D=/mnt/data
     [ -d /mnt/data/upper ] && D=/mnt/data/upper
-    B=/cache/bin/busybox
+    # the static rescue copy (init.c started this script with it): /cache/bin/busybox links to
+    # the root file system's dynamic one after a root file system boot, and that is not here
+    B=/cache/kernel6/busybox
+    [ -x $B ] || B=/cache/bin/busybox
     K=/cache/kernel6
     T=$D/kernel6/bin
     # The RAM root has no /bin: the applets go there, so /bin/sh (the login shell in /etc/passwd)
