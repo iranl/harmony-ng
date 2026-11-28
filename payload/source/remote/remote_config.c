@@ -1007,6 +1007,7 @@ void load_settings_conf(void) {
             if (strcmp(key, "touch") == 0) g_touch_enabled = (val != 0);
             else if (strcmp(key, "physical_nav") == 0 || strcmp(key, "screen_nav_mode") == 0) g_physical_nav_enabled = (val != 0);
             else if (strcmp(key, "cap_buttons") == 0 || strcmp(key, "capacitive_buttons") == 0) g_cap_buttons_enabled = (val != 0);
+            else if (strcmp(key, "haptic") == 0) g_haptic_ms = (val == 20 || val == 40 || val == 80) ? val : 0;
             else if (strcmp(key, "touch_sens") == 0) g_touch_sensitivity = (val >= 1 && val <= 3) ? val : 2;
             else if (strcmp(key, "gyro") == 0) g_gyro_enabled = (val != 0);
             else if (strcmp(key, "deep_standby") == 0 || strcmp(key, "deep_standby_min") == 0) {
@@ -1072,6 +1073,7 @@ void save_settings_conf(void) {
         "touch=%d\n"
         "physical_nav=%d\n"
         "cap_buttons=%d\n"
+        "haptic=%d\n"
         "touch_sens=%d\n"
         "gyro=%d\n"
         "deep_standby=%d\n"
@@ -1097,6 +1099,7 @@ void save_settings_conf(void) {
         g_touch_enabled ? 1 : 0,
         g_physical_nav_enabled ? 1 : 0,
         g_cap_buttons_enabled ? 1 : 0,
+        g_haptic_ms,
         g_touch_sensitivity,
         g_gyro_enabled ? 1 : 0,
         g_deep_standby_min,

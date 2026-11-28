@@ -17,6 +17,9 @@ extern pthread_cond_t g_repeat_cond;
 
 int find_touchscreen_fd(void);
 void handle_screen_touch_tap(int x, int y);
+/* A pulse of g_haptic_ms (the Vibration setting; none at 0): on-screen
+   buttons that send a command and the capacitive keys */
+void remote_haptic_tap(void);
 uint16_t linux_to_harmony_rf_key(int code);
 void handle_navigation_key(int code, int value);
 void *key_repeat_thread(void *arg);

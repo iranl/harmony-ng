@@ -207,6 +207,25 @@ int find_touchscreen_fd(void) {
     return open(TOUCH_EVENT_DEV, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
 }
 
+/* The Vibration setting gives a pulse where a press has no feel of its own: an on-screen button
+ * that sends a command (an activity, a device or activity command) and the two capacitive keys
+ * below the display. Menus, swipes and the hard keys give none.
+ *
+ * The DRV2605 driver takes a command byte: 3 drives the motor for the next two bytes in ms
+ * (little endian, real-time playback at full scale), which the driver stops with a timer, so
+ * the write returns at once. Its effect library commands (1, 2) do not move this remote's
+ * LRA motor. */
+#define HAPTIC_CMD_TIMED 3
+
+void remote_haptic_tap(void) {
+    if (g_haptic_ms <= 0) return;
+    int fd = open(HAPTIC_DEV, O_WRONLY | O_CLOEXEC);
+    if (fd < 0) return;
+    const uint8_t cmd[3] = { HAPTIC_CMD_TIMED, (uint8_t)(g_haptic_ms & 0xFF), (uint8_t)((g_haptic_ms >> 8) & 0xFF) };
+    if (write(fd, cmd, sizeof(cmd)) != (ssize_t)sizeof(cmd)) { /* no motor: nothing to do */ }
+    close(fd);
+}
+
 void handle_screen_touch_tap(int x, int y) {
     reset_idle_timer();
     if (!g_screen_on) {
@@ -307,8 +326,12 @@ void handle_screen_touch_tap(int x, int y) {
         return;
     }
 
-    /* Capacitive Activities and Devices keys below the display, on remotes that report them as touch */
+    /* Capacitive Activities and Devices keys below the display, on remotes that report them as touch.
+     * With the capacitive keys off they do nothing, no pulse either, as on the key device
+     * (handle_navigation_key()) */
     if (y >= FB_HEIGHT) {
+        if (!g_cap_buttons_enabled) return;
+        remote_haptic_tap();
         g_confirm_pending_rf_code = 0;
         if (!is_remote_paired()) {
             show_notice("Remote not paired - pair first", 2500);
@@ -339,6 +362,7 @@ void handle_screen_touch_tap(int x, int y) {
         if (idx >= 0) {
             g_selected_activity = idx;
             printf("[*] Touch selected Activity: %s (id=%s)\n", g_activities[idx].name, g_activities[idx].id);
+            remote_haptic_tap();
             request_activity_switch_with_confirm(idx);
             return;
         }
@@ -353,6 +377,7 @@ void handle_screen_touch_tap(int x, int y) {
         int row = list_row_at(y);
         if (row >= 0) {
             g_selected_device_cmd = row;
+            remote_haptic_tap();
             execute_active_dev_cmd(row);
             render_screen();
         } else if (get_active_dev_cmd_count() <= 0) {
@@ -397,6 +422,7 @@ void handle_screen_touch_tap(int x, int y) {
 }
 
 void handle_navigation_key(int code, int value) {
+    if (value == 1 && g_cap_buttons_enabled && (code == 102 || code == 364)) remote_haptic_tap();
     if (value == 1) ui_help_close(); /* the Activities and Devices keys leave Help */
     if (code == 364 && value == 0) {
         bool short_press = g_act_key_down_ms > 0 && !g_act_key_long_fired;

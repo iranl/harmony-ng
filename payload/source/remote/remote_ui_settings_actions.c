@@ -1,4 +1,5 @@
 #include "remote_ui.h"
+#include "remote_input.h"
 #include "remote_fb.h"
 #include "remote_power.h"
 #include "remote_config.h"
@@ -197,6 +198,12 @@ void execute_settings_action(int idx) {
                     home_select_running();
                 }
                 save_settings_conf();
+                break;
+            case 4:
+                /* OFF, 20, 40, 80 ms: each step gives one pulse of its length */
+                g_haptic_ms = g_haptic_ms == 0 ? 20 : g_haptic_ms == 20 ? 40 : g_haptic_ms == 40 ? 80 : 0;
+                save_settings_conf();
+                remote_haptic_tap();
                 break;
             default: break;
         }

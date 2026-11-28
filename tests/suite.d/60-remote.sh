@@ -55,6 +55,13 @@ build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/
     "$SCRIPT_DIR/test_remote_theme_font.c" "${THEME_FONT_SRCS[@]}" -lpthread -lm
 "$BUILD_DIR/test_remote_theme_font"
 
+# The Vibration setting: a pulse on the capacitive keys and command buttons, none on menus, swipes and hard keys
+build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/remote" -o "$BUILD_DIR/test_remote_haptic" \
+    "$SCRIPT_DIR/test_remote_haptic.c" "${REMOTE_TEST_SRCS[@]}" -lpthread -lm
+HAPTIC_DIR="$(mktemp -d /tmp/hng_haptic.XXXXXX)"
+HARMONY_MOCK_DIR="$HAPTIC_DIR" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_remote_haptic"
+rm -rf "$HAPTIC_DIR"
+
 # Settings pages: texts fit beside values and badges in every language, taps hit the drawn rows,
 # leaving the Suspend page returns to its own Power item
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/remote" -o "$BUILD_DIR/test_remote_settings_screens" \
