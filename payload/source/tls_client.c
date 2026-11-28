@@ -401,7 +401,9 @@ static int tcp_connect(const char *host, const char *addrs, int port, int timeou
     struct addrinfo hints, *res = NULL;
     char ps[8];
     memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_UNSPEC;
+    /* IPv4 only: the Hub kernel has no IPv6, and AF_UNSPEC also asked the resolver for AAAA
+     * records and waited for them (a plugin manifest fetch took 10 s, 0.2 s by address) */
+    hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
     snprintf(ps, sizeof ps, "%d", port);
     int fd = -1;

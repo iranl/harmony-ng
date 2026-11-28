@@ -4,11 +4,6 @@ sync_fs() {
 	/data/harmony/bin/hub_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || sync 2>/dev/null || true
 }
 
-# 0. Neuter watchdog and luaworks immediately
-touch /etc/nowatchdog 2>/dev/null || true
-chmod -x /usr/bin/watchdog /opt/luaworks/luaworks 2>/dev/null || true
-killall -9 watchdog 2>/dev/null || true
-
 # SSH: the stock boot script starts /usr/sbin/dropbear right after this file (the emergency mode
 # below starts it too). It becomes a copy of /data/harmony/hub_sshd (key logins only), written
 # only when it differs; a copy, not a link, so it does not depend on /data/harmony later. Only the
@@ -68,7 +63,8 @@ if [ "$COUNT" -gt 5 ]; then
 
 	# Ensure pristine stock SquashFS /bin/sh and /bin/busybox are NEVER shadowed on unionfs
 	rm -f /data/bin/sh /data/bin/ash /data/bin/busybox 2>/dev/null || true
-	if [ -x /cache/bin/busybox ]; then
+	# a static BusyBox copy only (stock kernel); on the Linux 6.18 system it is a link to /bin/busybox
+	if [ -x /cache/bin/busybox ] && [ ! -L /cache/bin/busybox ]; then
 		/cache/bin/busybox --install -s /cache/bin 2>/dev/null || true
 	fi
 	mkdir -p /etc/profile.d 2>/dev/null || true

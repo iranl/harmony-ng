@@ -29,7 +29,7 @@
  * on the port may use it without a login (as stock); USB_WIFI_SETUP=0 in ethernet.conf
  * (POST /api/ethernet-save usb_wifi_setup) turns it off: every request is refused at once.
  *
- * Single-threaded with poll(): the Hub kernel has no futex, so no threads and no lock waits.
+ * Single-threaded with poll(): one connection at a time, nothing to share.
  * A new connection from usbhid (it connects again each time a computer configures the device)
  * replaces the old one; the count of connections is in /tmp/harmony_usbwifi.state for
  * network_manager.sh, which keeps the USB port in device mode while a computer uses it.

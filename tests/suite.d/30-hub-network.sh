@@ -5,6 +5,7 @@ build_test -Wall -O2 -pthread -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_
     "$REPO_ROOT/payload/source/hub_network_util.c" "$REPO_ROOT/payload/source/wifi_config.c" "$REPO_ROOT/payload/source/cJSON.c" -ldl -lm && "$BUILD_DIR/test_wpa_conf"
 # Wi-Fi and static Ethernet settings the Hub cannot use get 400 (daemon on a private mock root, port 9143)
 python3 "$SCRIPT_DIR/test_network_settings_api.py"
+python3 "$SCRIPT_DIR/test_usb_storage.py"
 # network_manager.sh: Ethernet settings read, DNS list, wpa_supplicant configuration file
 python3 "$SCRIPT_DIR/test_network_manager_sh.py"
 # mDNS and SSDP answer unicast queries only from senders on the Hub's own links
@@ -20,5 +21,9 @@ python3 "$SCRIPT_DIR/test_factory_reset_sh.py"
 python3 "$SCRIPT_DIR/test_init_flash_writes.py"
 # start_usb_eth.sh: the EHCI device is registered at most once per boot
 python3 "$SCRIPT_DIR/test_start_usb_eth_once.py"
+python3 "$SCRIPT_DIR/test_start_usb_eth_kernel6.py"
+# the 6.18 system's modprobe (also the kernel's on-demand loader: a slow miss stalled Wi-Fi)
+python3 "$SCRIPT_DIR/test_modprobe_sh.py"
+python3 "$SCRIPT_DIR/test_usb_hid_relay.py"
 # hub_util mknod refuses a bad type, eth_fix reports failed offload changes
 python3 "$SCRIPT_DIR/test_hub_util_cli.py"

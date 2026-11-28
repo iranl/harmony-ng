@@ -9,7 +9,7 @@ python3 "$SCRIPT_DIR/test_rf_key_channel.py"
 python3 "$SCRIPT_DIR/test_ir_hold.py"
 # An infrared press sends start + the device's pressMinRepeats repeat parts, as a stock Hub does
 python3 "$SCRIPT_DIR/test_ir_press_frames.py"
-# The held-key player sleeps while idle also where futex waits never sleep (the Hub's kernel)
+# The held-key player sleeps while idle
 python3 "$SCRIPT_DIR/test_ir_hold_idle_cpu.py"
 # New web UI Wi-Fi form against a stubbed fetch (Node, no Hub)
 if command -v node >/dev/null 2>&1; then node "$SCRIPT_DIR/test_frontend_wifi_save.mjs"; else echo "    (node not found, test_frontend_wifi_save.mjs skipped)"; fi

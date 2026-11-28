@@ -1,0 +1,19 @@
+#!/bin/sh
+# Phase 2 test init: RAM only. Mounts nothing from flash and never writes it (all mtd
+# partitions are read-only in the device tree). Gives a shell on the serial console.
+/bin/busybox --install -s /bin
+mount -t proc proc /proc
+mount -t sysfs sys /sys
+mount -t devtmpfs dev /dev
+mount -t tmpfs tmp /tmp
+# the kernel loads modules on demand (e.g. gadget functions by name) through this path
+echo /bin/modprobe > /proc/sys/kernel/modprobe
+
+echo
+echo "=== Harmony Hub $(uname -r) test initramfs ==="
+cat /proc/cpuinfo | grep -i 'system type\|cpu model\|BogoMIPS'
+grep MemTotal /proc/meminfo
+cat /proc/mtd
+echo "Power off by pulling power; 'reboot -f' restarts into the stock kernel."
+
+exec setsid cttyhack /bin/sh

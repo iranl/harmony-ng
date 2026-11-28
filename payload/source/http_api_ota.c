@@ -1,7 +1,9 @@
 #include "http_api_ota.h"
 #include "http_util.h"
 #include "config_store.h"
+#include "ota_source.h"
 #include "harmony_version.h"
+#include "hub_info.h"
 #include "orchestrator.h"
 #include "cJSON.h"
 
@@ -159,15 +161,8 @@ static void write_running_state(void) {
 
 /* GET /api/update-status object */
 cJSON *ota_update_status(void) {
-    char fw_str[128] = "4.15.600";
-    FILE *vf = fopen("/etc/version", "r");
-    if (vf) {
-        if (fgets(fw_str, sizeof(fw_str), vf)) {
-            char *nl = strchr(fw_str, '\n'); if (nl) *nl = '\0';
-            nl = strchr(fw_str, '\r'); if (nl) *nl = '\0';
-        }
-        fclose(vf);
-    }
+    char fw_str[128];
+    hub_info_firmware(fw_str, sizeof(fw_str));
     char remote_ver[64] = "v" HARMONY_VERSION;
     int has_update = (access("/data/harmony/update_available.flag", F_OK) == 0);
     FILE *rf = fopen(config_store_path("latest_version"), "r");
@@ -205,7 +200,7 @@ cJSON *ota_update_status(void) {
     cJSON_AddStringToObject(st, "firmware", fw_str);
     cJSON_AddStringToObject(st, "rf_version", "0x20 CC2544");
     cJSON_AddStringToObject(st, "bt_version", "BTstack v1.5 (UART)");
-    cJSON_AddStringToObject(st, "arch", "mips (AR9344)");
+    cJSON_AddStringToObject(st, "arch", "mips (AR9330)");
     cJSON_AddBoolToObject(st, "update_available", has_update);
 
     char target[64], last[256], err[256];
@@ -261,8 +256,13 @@ cJSON *ota_update_check(const cJSON *params) {
         if (access("/data/harmony/update.sh", X_OK) == 0) {
             snprintf(cmd, sizeof(cmd), "/data/harmony/update.sh check '%s' '%s' >/tmp/update_check.log 2>&1", repo, token);
         } else {
+            /* no update.sh: the request's source, else the update_repo setting, else the default */
+            struct hub_settings hs;
+            config_store_get_settings(&hs);
+            const char *src = repo[0] && ota_source_url_ok(repo) ? repo :
+                              hs.update_repo[0] ? hs.update_repo : HARMONY_OTA_DEFAULT_URL;
             snprintf(cmd, sizeof(cmd),
-                "LD_LIBRARY_PATH=/data/harmony/lib /data/harmony/bin/hub_fetch -T 6 -o /data/harmony/latest_version 'https://raw.githubusercontent.com/iranl/harmony-ng/ota/v2/VERSION' 2>/dev/null");
+                "LD_LIBRARY_PATH=/data/harmony/lib /data/harmony/bin/hub_fetch -T 6 -o /data/harmony/latest_version '%s/VERSION' 2>/dev/null", src);
         }
 #ifndef TEST_HARNESS
         system(cmd);

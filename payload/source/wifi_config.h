@@ -19,8 +19,8 @@
  * - wifi_config_save(): writes both files (both or neither) and, with apply, reconfigures.
  *
  * One test or apply at a time across processes: a lock file in /tmp with the holder's pid (a
- * pthread mutex cannot be shared with another program, and the Hub kernel has no futex, so
- * nothing here waits for a lock: a second caller is refused at once).
+ * pthread mutex cannot be shared with another program; a second caller is refused at once:
+ * a test takes seconds and its caller is waiting on an HTTP request).
  */
 
 #include <stddef.h>
@@ -41,6 +41,13 @@ extern "C" {
 #define WIFI_BACKUP_CONF_PATH "/etc/wpa_supplicant.conf.pretest"
 #define WIFI_BACKUP_ATH0_PATH "/etc/wpa_supplicant.ath0.conf.pretest"
 #define WIFI_TEST_MARK_PATH "/etc/wpa_supplicant.pretest"
+
+/* present (build/build_rootfs6.sh): the system's wpa_supplicant has SAE (WPA3-Personal). An
+ * older one rejects a file with key_mgmt=SAE altogether, so SAE is written only with it. */
+#define WIFI_SAE_MARK_PATH "/usr/lib/kernel6/wpa_supplicant.sae"
+
+/* 1 when the system's wpa_supplicant has SAE (WIFI_SAE_MARK_PATH) */
+int wifi_config_has_sae(void);
 
 /* 0, or -1 when buf is too small */
 int wifi_config_text(char *buf, size_t len, const char *ssid, const char *psk, int is_open, int hidden);
@@ -77,6 +84,10 @@ int wifi_config_recover(void);
  * (quotes and blanks allowed), 1 otherwise, also when the file or the key is missing (on by
  * default, as stock) */
 int wifi_usb_setup_setting(const char *conf_path);
+
+/* The USB Wi-Fi adapter switch in ethernet.conf: 1 only with USB_WIFI_ADAPTER=1 (off by
+ * default). On, build/kernel6/rc.sh looks for a USB Wi-Fi adapter at boot and uses it. */
+int wifi_usb_adapter_setting(const char *conf_path);
 
 /* A path of the list above; test builds (TEST_HARNESS) put it under $HARMONY_WIFI_ROOT */
 const char *wifi_config_path(const char *path, char *buf, size_t len);

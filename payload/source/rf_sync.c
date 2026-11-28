@@ -614,24 +614,12 @@ static int icon_push_file_unlocked(int target_slot, const char *file_path, const
 }
 
 /* One icon transfer at a time: the remote keeps one icon receiver, and the config push and the
- * RF API both send icons. A transfer takes seconds, so the next one waits in 20 ms sleeps on this
- * flag (taken under a short lock): on the Hub, whose kernel has no futex, a thread blocked on a
- * held mutex spins. */
+ * RF API both send icons. A transfer takes seconds; the next one waits on the lock. */
 static pthread_mutex_t s_icon_tx_lock = PTHREAD_MUTEX_INITIALIZER;
-static bool s_icon_tx_busy;
 
 int rf_push_custom_icon_file(int target_slot, const char *file_path, const char *id_str) {
-    for (;;) {
-        pthread_mutex_lock(&s_icon_tx_lock);
-        bool mine = !s_icon_tx_busy;
-        if (mine) s_icon_tx_busy = true;
-        pthread_mutex_unlock(&s_icon_tx_lock);
-        if (mine) break;
-        usleep(20000);
-    }
-    int rc = icon_push_file_unlocked(target_slot, file_path, id_str);
     pthread_mutex_lock(&s_icon_tx_lock);
-    s_icon_tx_busy = false;
+    int rc = icon_push_file_unlocked(target_slot, file_path, id_str);
     pthread_mutex_unlock(&s_icon_tx_lock);
     return rc;
 }

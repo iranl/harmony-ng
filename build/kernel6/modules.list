@@ -1,0 +1,41 @@
+# Modules installed on the Hub (/cache/kernel6/modules); build_kernel6.sh adds what they need.
+# USB device mode (configfs gadget: HID for the USB Wi-Fi setup, NCM network to a PC)
+kernel/drivers/phy/qualcomm/phy-ath79-usb.ko
+kernel/drivers/usb/chipidea/ci_hdrc_usb2.ko
+kernel/drivers/usb/gadget/function/usb_f_hid.ko
+kernel/drivers/usb/gadget/function/usb_f_ncm.ko
+# USB host mode: Ethernet adapters, sticks
+kernel/drivers/net/usb/r8152.ko
+kernel/drivers/net/usb/asix.ko
+kernel/drivers/net/usb/ax88179_178a.ko
+kernel/drivers/net/usb/cdc_ether.ko
+kernel/drivers/net/usb/cdc_ncm.ko
+kernel/drivers/net/usb/smsc95xx.ko
+kernel/drivers/net/usb/dm9601.ko
+kernel/drivers/net/usb/rtl8150.ko
+kernel/drivers/usb/storage/usb-storage.ko
+kernel/drivers/scsi/sd_mod.ko
+kernel/fs/fat/vfat.ko
+kernel/fs/ext4/ext4.ko
+kernel/fs/nls/nls_cp437.ko
+kernel/fs/nls/nls_iso8859-1.ko
+# Wi-Fi
+kernel/drivers/net/wireless/ath/ath9k/ath9k.ko
+# USB Wi-Fi 5 adapters (host mode, rc.sh)
+kernel/drivers/net/wireless/mediatek/mt76/mt76x0/mt76x0u.ko
+kernel/drivers/net/wireless/mediatek/mt76/mt76x2/mt76x2u.ko
+kernel/drivers/net/wireless/realtek/rtw88/rtw88_8821cu.ko
+kernel/drivers/net/wireless/realtek/rtw88/rtw88_8821au.ko
+kernel/drivers/net/wireless/realtek/rtw88/rtw88_8812au.ko
+kernel/drivers/net/wireless/realtek/rtw88/rtw88_8822bu.ko
+# Bluetooth (CSR8811 over BCSP)
+kernel/drivers/bluetooth/hci_uart.ko
+# Hub Pro 2400 Ethernet
+kernel/drivers/net/ethernet/atheros/ag71xx.ko
+kernel/drivers/net/dsa/qca/ar9331.ko
+kernel/net/bridge/bridge.ko
+# Hub hardware (build/kernel6/drivers); evdev: /dev/input/event0 of the Pair button (hub_rf)
+kernel/drivers/input/evdev.ko
+updates/harmony_pimento.ko
+updates/harmony_cc2544.ko
+updates/harmony_i2s.ko

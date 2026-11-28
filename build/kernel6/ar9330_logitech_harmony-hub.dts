@@ -1,0 +1,291 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * Logitech Harmony Hub (Atheros AR9330 "Hornet", 64 MB DDR, 16 MB SPI NOR).
+ *
+ * Stock partition table up to root; the stock data and cache partitions are one (data + state,
+ * below). u-boot and mfg (calibration) are read-only. kernel/kernel2 and root are writable: the
+ * system writes its kernel and its root file system (build/kernel6/init.c, hub_util
+ * flash-image), or the stock ones to go back (hub_util restore).
+ * GPIO users (LEDs, buttons, CC2544 IRQ, BT reset) are added once their numbers are read
+ * from the stock kernel.
+ *
+ * The CC2544 RF chip shares the SPI bus with the flash (native CS0); its chip select is GPIO 8
+ * (build/kernel6/drivers/harmony_cc2544.c, as the stock cc2544.ko). The SPI core serialises
+ * flash and RF transfers, and Linux runs from RAM, not from the flash.
+ */
+/dts-v1/;
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+
+#include "ar9331.dtsi"
+
+/ {
+	model = "Logitech Harmony Hub";
+	compatible = "logitech,harmony-hub", "qca,ar9330";
+
+	aliases {
+		serial0 = &uart;
+	};
+
+	chosen {
+		/* the stock U-Boot passes console=none: its UART is also the CSR8811 BCSP link */
+		bootargs = "console=ttyATH0,115200";
+	};
+
+	memory@0 {
+		device_type = "memory";
+		reg = <0x0 0x4000000>;
+	};
+
+	/*
+	 * pstore/ramoops: the kernel log and oops/panic records kept in RAM across a warm reset
+	 * (watchdog, panic, reboot), saved by rc.sh to /data/harmony/crashlogs. 128 KB at 62 MB:
+	 * below U-Boot, which relocates itself to the top megabyte of RAM. A power cut loses them.
+	 */
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		ramoops@3e00000 {
+			compatible = "ramoops";
+			reg = <0x3e00000 0x20000>;
+			record-size = <0x8000>;
+			console-size = <0x10000>;
+		};
+	};
+
+	/*
+	 * Pair button and front light, stock "Pimento" interface (build/kernel6/drivers/
+	 * harmony_pimento.c). reg: GPIO_FUNCTION_1, for the JTAG disable bit.
+	 */
+	pimento {
+		compatible = "logitech,harmony-hub-pimento";
+		reg = <0x18040028 0x4>;
+		button-gpios = <&gpio 11 GPIO_ACTIVE_LOW>;
+		red-gpios = <&gpio 1 GPIO_ACTIVE_LOW>;
+		green-gpios = <&gpio 17 GPIO_ACTIVE_LOW>;
+	};
+
+	ahb {
+		apb {
+			/* ar9331.dtsi has no watchdog node; same block as on the AR9132 */
+			wdt: wdt@18060008 {
+				compatible = "qca,ar7130-wdt";
+				reg = <0x18060008 0x8>;
+
+				interrupts = <4>;
+
+				clocks = <&pll ATH79_CLK_AHB>;
+				clock-names = "wdt";
+			};
+
+			/*
+			 * IR blaster and receiver (build/kernel6/drivers/harmony_i2s.c): MBOX DMA, stereo
+			 * block, GPIO_FUNCTION_1. The three IR outputs are enabled by active-low GPIOs.
+			 */
+			i2s: i2s@180b0000 {
+				compatible = "logitech,harmony-hub-i2s";
+				reg = <0x180a0000 0x100>, <0x180b0000 0x40>, <0x18040028 0x4>;
+				interrupts = <7>;
+				resets = <&rst 0>;
+				ir-gpios = <&gpio 16 GPIO_ACTIVE_LOW>, <&gpio 28 GPIO_ACTIVE_LOW>,
+					   <&gpio 13 GPIO_ACTIVE_LOW>;
+			};
+		};
+	};
+};
+
+/* bootstrap register 0x180600ac reads 0x00021207 on a Hub: REF_CLK_40 set */
+&ref {
+	clock-frequency = <40000000>;
+};
+
+&uart {
+	status = "okay";
+};
+
+&gpio {
+	status = "okay";
+};
+
+/*
+ * Device mode (USB network to a PC) by default, host mode for USB Ethernet adapters and USB
+ * sticks. The controller is OTG capable but its ID pin is not wired (reads 0, "host"), so the
+ * role is set from userland: echo gadget|host > /sys/bus/platform/devices/1b000000.usb/ci_hdrc.0/role
+ * (rc.sh sets gadget at boot).
+ */
+&usb {
+	dr_mode = "otg";
+	status = "okay";
+};
+
+/*
+ * Ethernet of the Harmony Hub Pro 2400 (the plain Hub has no jack). Which switch port the RJ45
+ * uses is not known: both MACs and the internal switch (DSA, ports lan0-3) are enabled, all as
+ * modules, and userland uses the interface that has a link.
+ */
+&eth0 {
+	nvmem-cells = <&macaddr_mfg_1002 1>;
+	nvmem-cell-names = "mac-address";
+	status = "okay";
+};
+
+&eth1 {
+	nvmem-cells = <&macaddr_mfg_1002 2>;
+	nvmem-cell-names = "mac-address";
+	status = "okay";
+};
+
+&switch_port1 {
+	label = "lan0";
+	status = "okay";
+};
+
+&switch_port2 {
+	label = "lan1";
+	status = "okay";
+};
+
+&switch_port3 {
+	label = "lan2";
+	status = "okay";
+};
+
+&switch_port4 {
+	label = "lan3";
+	status = "okay";
+};
+
+&phy_port0 {
+	status = "okay";
+};
+
+&phy_port1 {
+	status = "okay";
+};
+
+&phy_port2 {
+	status = "okay";
+};
+
+&phy_port3 {
+	status = "okay";
+};
+
+&phy_port4 {
+	status = "okay";
+};
+
+
+&usb_phy {
+	/*
+	 * phy-ath79-usb asks for "usb-suspend-override"; ar9331.dtsi names it "suspend-override",
+	 * so the override was never set, the PHY stayed suspended and no host saw the gadget.
+	 */
+	reset-names = "phy", "usb-suspend-override";
+	status = "okay";
+};
+
+&spi {
+	num-chipselects = <2>;
+	cs-gpios = <0>, <&gpio 8 GPIO_ACTIVE_LOW>;
+	status = "okay";
+
+	/* CC2544 RF transceiver of the Harmony remotes (/dev/rfspi) */
+	rf@1 {
+		compatible = "logitech,harmony-hub-cc2544";
+		reg = <1>;
+		spi-max-frequency = <2000000>;
+		ready-gpios = <&gpio 6 GPIO_ACTIVE_HIGH>;
+		interrupt-parent = <&gpio>;
+		interrupts = <14 IRQ_TYPE_LEVEL_HIGH>;
+		/* /dev/rffw (the CC2544's flash, 8051 debug interface): debug data is the ready
+		 * line, debug clock the interrupt line. GPIO 15 resets the CC2544; the stock module
+		 * held it high, and the CSR8811 Bluetooth needs it high too ("Initialization timed
+		 * out" from bccmd otherwise): the driver drives it high at probe. */
+		dc-gpios = <&gpio 14 GPIO_ACTIVE_HIGH>;
+		reset-gpios = <&gpio 15 GPIO_ACTIVE_LOW>;
+	};
+
+	flash@0 {
+		compatible = "jedec,spi-nor";
+		reg = <0>;
+		spi-max-frequency = <25000000>;
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			partition@0 {
+				label = "u-boot";
+				reg = <0x000000 0x010000>;
+				read-only;
+			};
+
+			partition@10000 {
+				label = "kernel";
+				reg = <0x010000 0x0f0000>;
+			};
+
+			partition@100000 {
+				label = "kernel2";
+				reg = <0x100000 0x0f0000>;
+			};
+
+			partition@1f0000 {
+				label = "root";
+				reg = <0x1f0000 0x400000>;
+			};
+
+			/*
+			 * The stock data and cache partitions as one JFFS2 file system (overlay upper
+			 * layer and /cache), less the last 64 KB: "state", raw, whose marker says the
+			 * stock cache file system in the second half was erased (build/kernel6/init.c).
+			 */
+			partition@5f0000 {
+				label = "data";
+				reg = <0x5f0000 0x9f0000>;
+			};
+
+			partition@fe0000 {
+				label = "state";
+				reg = <0xfe0000 0x010000>;
+			};
+
+			partition@ff0000 {
+				label = "mfg";
+				reg = <0xff0000 0x010000>;
+				read-only;
+
+				nvmem-layout {
+					compatible = "fixed-layout";
+					#address-cells = <1>;
+					#size-cells = <1>;
+
+					/* Atheros ART calibration; Logitech data (hw_ver) is at 0x9000 */
+					cal_mfg_1000: calibration@1000 {
+						reg = <0x1000 0x440>;
+					};
+
+					/* Wi-Fi MAC (inside the calibration data). The mfg partition holds no
+					 * Ethernet MAC (0x0 and 0x6 are erased): the Pro 2400's MACs are this
+					 * one + 1 (eth0) and + 2 (eth1), fixed instead of random at each boot. */
+					macaddr_mfg_1002: macaddr@1002 {
+						compatible = "mac-base";
+						reg = <0x1002 0x6>;
+						#nvmem-cell-cells = <1>;
+					};
+				};
+			};
+		};
+	};
+};
+
+&wifi {
+	nvmem-cells = <&cal_mfg_1000>;
+	nvmem-cell-names = "calibration";
+	status = "okay";
+};

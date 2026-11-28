@@ -1,4 +1,5 @@
 #include "http_api_system.h"
+#include "ota_source.h"
 #include "hub_info.h"
 #include "hub_mdns.h"
 #include "http_util.h"
@@ -15,7 +16,6 @@
 #include "harmony_version.h"
 #include "resource_cache.h"
 #include "cJSON.h"
-#include "sha256.h"
 #include "timezone_db.h"
 #include "hub_led.h"
 #include "http_api_ota.h"
@@ -50,136 +50,24 @@ static void get_disk_space_kb(uint64_t *total_kb, uint64_t *free_kb) {
     }
 }
 
+/* /cache on the file system of /data (the Linux 6.18 system's one data partition, or both on a
+ * USB stick): the same blocks, counted once (as data) */
+static int cache_shares_data(void) {
+    struct statvfs d, c;
+    if (statvfs("/data", &d) != 0 || statvfs("/cache", &c) != 0) return 0;
+    return d.f_frsize == c.f_frsize && d.f_blocks == c.f_blocks && d.f_bfree == c.f_bfree;
+}
+
+/* 0 and 0 when /cache shares the data file system (cache_shares_data) */
 static void get_cache_space_kb(uint64_t *total_kb, uint64_t *free_kb) {
     struct statvfs sv;
     *total_kb = 0;
     *free_kb = 0;
+    if (cache_shares_data()) return;
     if (statvfs("/cache", &sv) == 0 && sv.f_frsize > 0) {
         *total_kb = ((uint64_t)sv.f_blocks * sv.f_frsize) / 1024;
         *free_kb = ((uint64_t)sv.f_bavail * sv.f_frsize) / 1024;
     }
-}
-
-static uint64_t get_directory_size_bytes(const char *path) {
-    DIR *d = opendir(path);
-    if (!d) return 0;
-    uint64_t total = 0;
-    struct dirent *de;
-    char subpath[512];
-    while ((de = readdir(d)) != NULL) {
-        if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0) continue;
-        int n = snprintf(subpath, sizeof(subpath), "%s/%s", path, de->d_name);
-        if (n < 0 || (size_t)n >= sizeof(subpath)) continue;
-        struct stat st;
-        if (lstat(subpath, &st) == 0) {
-            if (S_ISDIR(st.st_mode)) {
-                total += get_directory_size_bytes(subpath);
-            } else {
-                total += (uint64_t)st.st_size;
-            }
-        }
-    }
-    closedir(d);
-    return total;
-}
-
-#define STOCK_RES_DIR "/data/resources"
-/* Written by tools/backup_hub.py once a local archive holds exactly the stock files there, as
- * "<archive name> <fingerprint>": the only way back after the delete, so the route refuses
- * unless the fingerprint matches the files now in /data/resources */
-#define STOCK_RES_SAVED "/data/harmony/stock_resources_saved"
-
-/* Apparent size (st_size). /data is JFFS2 (compressed), so the flash space they take is smaller. */
-static uint64_t get_stock_resources_kb(void) {
-    struct stat st;
-    if (lstat(STOCK_RES_DIR, &st) != 0 || !S_ISDIR(st.st_mode)) return 0;
-    uint64_t bytes = get_directory_size_bytes(STOCK_RES_DIR);
-    return (bytes > 0) ? ((bytes + 1023) / 1024) : 0;
-}
-
-/* XOR of sha256("<size> <path below /data/resources>") over every entry but directories (a link
- * counts as size 0), so the walk order does not matter: tools/backup_hub.py stock_fingerprint().
- * Returns -1 when a directory cannot be read or a path is too long. */
-static int stock_fingerprint_walk(const char *path, const char *rel, uint8_t acc[32], int *count) {
-    DIR *d = opendir(path);
-    if (!d) return -1;
-    int rc = 0;
-    struct dirent *de;
-    char subpath[512], subrel[512], line[560];
-    while (rc == 0 && (de = readdir(d)) != NULL) {
-        if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0) continue;
-        int n = snprintf(subpath, sizeof(subpath), "%s/%s", path, de->d_name);
-        int m = rel[0] ? snprintf(subrel, sizeof(subrel), "%s/%s", rel, de->d_name)
-                       : snprintf(subrel, sizeof(subrel), "%s", de->d_name);
-        struct stat st;
-        if (n < 0 || (size_t)n >= sizeof(subpath) || m < 0 || (size_t)m >= sizeof(subrel) ||
-            lstat(subpath, &st) != 0) {
-            rc = -1;
-        } else if (S_ISDIR(st.st_mode)) {
-            rc = stock_fingerprint_walk(subpath, subrel, acc, count);
-        } else {
-            int len = snprintf(line, sizeof(line), "%llu %s",
-                               S_ISLNK(st.st_mode) ? 0ULL : (unsigned long long)st.st_size, subrel);
-            uint8_t digest[32];
-            sha256_hash((const uint8_t *)line, (size_t)len, digest);
-            for (int i = 0; i < 32; i++) acc[i] ^= digest[i];
-            (*count)++;
-        }
-    }
-    closedir(d);
-    return rc;
-}
-
-/* "<count>:<64 hex>" of /data/resources into out (at least 80 bytes); -1 on a read error */
-static int stock_fingerprint(char *out, size_t out_len) {
-    uint8_t acc[32] = {0};
-    int count = 0;
-    if (stock_fingerprint_walk(STOCK_RES_DIR, "", acc, &count) != 0) return -1;
-    int n = snprintf(out, out_len, "%d:", count);
-    for (int i = 0; i < 32 && n > 0 && (size_t)n + 2 < out_len; i++) n += snprintf(out + n, out_len - (size_t)n, "%02x", acc[i]);
-    return 0;
-}
-
-/* The mark is "<copy name> <fingerprint>": a copy of exactly the files there now was saved */
-static int stock_resources_saved(void) {
-    size_t len = 0;
-    char *mark = read_file_text_alloc(STOCK_RES_SAVED, 1024, &len);
-    if (!mark) return 0;
-    while (len > 0 && (mark[len - 1] == '\n' || mark[len - 1] == '\r' || mark[len - 1] == ' ')) mark[--len] = '\0';
-    const char *sp = strrchr(mark, ' ');
-    char fp[80];
-    int ok = sp && sp != mark && stock_fingerprint(fp, sizeof(fp)) == 0 && strcmp(sp + 1, fp) == 0;
-    free(mark);
-    return ok;
-}
-
-static int stock_import_done(void) {
-    struct stat st;
-    return stat("/data/harmony/config/devices.json", &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0;
-}
-
-/* Returns the number of entries that could not be removed (-1: path not opened) */
-static int empty_directory_contents(const char *path) {
-    DIR *d = opendir(path);
-    if (!d) return -1;
-    int failed = 0;
-    struct dirent *de;
-    char subpath[512];
-    while ((de = readdir(d)) != NULL) {
-        if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0) continue;
-        int n = snprintf(subpath, sizeof(subpath), "%s/%s", path, de->d_name);
-        if (n < 0 || (size_t)n >= sizeof(subpath)) { failed++; continue; }
-        struct stat st;
-        if (lstat(subpath, &st) != 0) { failed++; continue; }
-        if (S_ISDIR(st.st_mode)) {
-            int sub = empty_directory_contents(subpath);
-            if (sub != 0 || rmdir(subpath) != 0) failed += (sub > 0) ? sub : 1;
-        } else if (unlink(subpath) != 0) {
-            failed++;
-        }
-    }
-    closedir(d);
-    return failed;
 }
 
 /* /etc is on flash: rewrite only when the content changes (every start applies the settings) */
@@ -228,7 +116,9 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
         struct hub_settings cs;
         config_store_get_settings(&cs);
         cJSON_AddStringToObject(st, "hub_name", cs.hub_name[0] ? cs.hub_name : "Harmony Hub");
-        cJSON_AddStringToObject(st, "firmware", "4.15.600");
+        char fw_now[128];
+        hub_info_firmware(fw_now, sizeof(fw_now));
+        cJSON_AddStringToObject(st, "firmware", fw_now);
         hub_info_add_status_fields(st, &cs);
         cJSON_AddStringToObject(st, "activity", orch_get_current_activity());
         cJSON_AddNumberToObject(st, "state", (int)orch_get_state());
@@ -403,7 +293,7 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
             fclose(lf);
         }
 
-        char kernel_str[256] = "Linux mips (Atheros AR9344)";
+        char kernel_str[256] = "Linux";
         FILE *kf = fopen("/proc/version", "r");
         if (kf) {
             if (fgets(kernel_str, sizeof(kernel_str), kf)) {
@@ -412,7 +302,7 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
             fclose(kf);
         }
 
-        long total = 0, free_mem = 0, buffers = 0, cached = 0;
+        long total = 0, free_mem = 0, buffers = 0, cached = 0, swap_total = 0, swap_free = 0;
         FILE *mf = fopen("/proc/meminfo", "r");
         if (mf) {
             char line[128];
@@ -422,6 +312,8 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                 else if (sscanf(line, "MemFree: %ld kB", &val) == 1) free_mem = val;
                 else if (sscanf(line, "Buffers: %ld kB", &val) == 1) buffers = val;
                 else if (sscanf(line, "Cached: %ld kB", &val) == 1) cached = val;
+                else if (sscanf(line, "SwapTotal: %ld kB", &val) == 1) swap_total = val;
+                else if (sscanf(line, "SwapFree: %ld kB", &val) == 1) swap_free = val;
             }
             fclose(mf);
         }
@@ -447,15 +339,8 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
             fclose(nrf);
         }
 
-        char fw_str[128] = "4.15.600";
-        FILE *vf = fopen("/etc/version", "r");
-        if (vf) {
-            if (fgets(fw_str, sizeof(fw_str), vf)) {
-                char *nl = strchr(fw_str, '\n'); if (nl) *nl = '\0';
-                nl = strchr(fw_str, '\r'); if (nl) *nl = '\0';
-            }
-            fclose(vf);
-        }
+        char fw_str[128];
+        hub_info_firmware(fw_str, sizeof(fw_str));
 
         cJSON *st = cJSON_CreateObject();
         cJSON_AddBoolToObject(st, "ok", 1);
@@ -473,6 +358,9 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
         cJSON_AddNumberToObject(st, "mem_total_kb", total);
         cJSON_AddNumberToObject(st, "mem_free_kb", free_mem);
         cJSON_AddNumberToObject(st, "mem_available_kb", avail);
+        /* the zram swap of the Linux 6.18 system (build/kernel6/rc.sh): in use = total - free */
+        cJSON_AddNumberToObject(st, "swap_total_kb", swap_total);
+        cJSON_AddNumberToObject(st, "swap_free_kb", swap_free);
         cJSON_AddStringToObject(st, "network_details", net_details);
 
         send_cjson_resp(client_fd, 200, st);
@@ -498,13 +386,8 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
         cJSON_AddNumberToObject(st, "cache_free_kb", (double)cache_free_kb);
         cJSON_AddNumberToObject(st, "cache_used_kb", (double)(cache_total_kb > cache_free_kb ? cache_total_kb - cache_free_kb : 0));
         cJSON_AddNumberToObject(st, "cache_percent_free", cache_total_kb ? (double)(cache_free_kb * 100 / cache_total_kb) : 0);
-
-        uint64_t stock_res_kb = get_stock_resources_kb();
-        int stock_saved = stock_res_kb > 0 && stock_resources_saved();
-        cJSON_AddNumberToObject(st, "stock_resources_kb", (double)stock_res_kb);
-        cJSON_AddBoolToObject(st, "stock_resources_saved", stock_saved);
-        cJSON_AddBoolToObject(st, "can_empty_stock_resources",
-                              stock_res_kb > 0 && stock_saved && stock_import_done());
+        /* true: /cache is on the data file system, the cache_* figures are 0 (total_kb has it) */
+        cJSON_AddBoolToObject(st, "cache_shared", cache_shares_data());
 
         send_cjson_resp(client_fd, 200, st);
         cJSON_Delete(st);
@@ -691,67 +574,6 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                     close(client_fd);
                     return 1;
                 }
-            } else if (p_act && cJSON_IsString(p_act) && strcmp(p_act->valuestring, "clean_stock_resources") == 0) {
-                /* The delete cannot be undone: same kind of confirmation as factory_reset */
-                cJSON *p_conf = cJSON_GetObjectItemCaseSensitive(params, "confirm");
-                int confirmed = p_conf && cJSON_IsString(p_conf) && strcmp(p_conf->valuestring, "EMPTY") == 0;
-                cJSON_Delete(params);
-                if (!confirmed) {
-                    send_json_error(client_fd, 400, "Confirmation required: send \"confirm\": \"EMPTY\"");
-                    close(client_fd);
-                    return 1;
-                }
-                /* Only after the stock import: the files are its source */
-                if (!stock_import_done()) {
-                    send_json_error(client_fd, 409, "The stock configuration is not imported yet: /data/resources kept");
-                    close(client_fd);
-                    return 1;
-                }
-                struct stat rst;
-                int present = lstat(STOCK_RES_DIR, &rst) == 0;
-                if (!present) {
-                    if (errno != ENOENT) {
-                        send_json_error(client_fd, 500, "/data/resources cannot be read");
-                        close(client_fd);
-                        return 1;
-                    }
-                } else if (!S_ISDIR(rst.st_mode)) {
-                    /* A link would empty its target; the host tools remove only the link */
-                    send_json_error(client_fd, 409, "/data/resources is not a directory: nothing removed");
-                    close(client_fd);
-                    return 1;
-                } else if (get_stock_resources_kb() > 0 && !stock_resources_saved()) {
-                    /* Checked after the link test: the fingerprint walk would follow a link */
-                    send_json_error(client_fd, 409, "No saved copy of the stock files as they are now: run "
-                                                    "tools/backup_hub.py (build/deploy_hub.py runs it) first; "
-                                                    "/data/resources kept");
-                    close(client_fd);
-                    return 1;
-                }
-                uint64_t total_kb = 0, free_before_kb = 0, free_after_kb = 0;
-                get_disk_space_kb(&total_kb, &free_before_kb);
-                /* -1: the directory could not be opened, also an error */
-                int failed = present ? empty_directory_contents(STOCK_RES_DIR) : 0;
-                sync();
-                uint64_t after_kb = get_stock_resources_kb();
-                if (failed != 0 || after_kb > 0) {
-                    send_json_error(client_fd, 500, "Some files in /data/resources could not be removed");
-                    close(client_fd);
-                    return 1;
-                }
-                /* What the flash really got back (compressed), not the files' apparent size */
-                get_disk_space_kb(&total_kb, &free_after_kb);
-                uint64_t freed_kb = free_after_kb > free_before_kb ? free_after_kb - free_before_kb : 0;
-
-                cJSON *resp = cJSON_CreateObject();
-                cJSON_AddBoolToObject(resp, "ok", 1);
-                cJSON_AddNumberToObject(resp, "freed_kb", (double)freed_kb);
-                cJSON_AddNumberToObject(resp, "stock_resources_kb", (double)after_kb);
-                cJSON_AddStringToObject(resp, "message", "Stock resources emptied successfully");
-                send_cjson_resp(client_fd, 200, resp);
-                cJSON_Delete(resp);
-                close(client_fd);
-                return 1;
             } else if (p_act && cJSON_IsString(p_act) && strcmp(p_act->valuestring, "mqtt_publish") == 0) {
                 cJSON *j_top = cJSON_GetObjectItemCaseSensitive(params, "topic");
                 cJSON *j_pay = cJSON_GetObjectItemCaseSensitive(params, "payload");
@@ -924,6 +746,8 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
         cJSON_AddStringToObject(resp, "led_mode", s.led_mode[0] ? s.led_mode : HUB_LED_DEFAULT_MODE);
         cJSON_AddBoolToObject(resp, "mdns_enabled", s.mdns_enabled ? 1 : 0);
         cJSON_AddBoolToObject(resp, "legacy_enabled", s.legacy_enabled ? 1 : 0);
+        cJSON_AddStringToObject(resp, "update_repo", s.update_repo);
+        cJSON_AddStringToObject(resp, "update_repo_default", HARMONY_OTA_DEFAULT_URL);
         send_cjson_resp(client_fd, 200, resp);
         cJSON_Delete(resp);
         close(client_fd);
@@ -979,6 +803,21 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                 if (cJSON_IsBool(item)) s.legacy_enabled = cJSON_IsTrue(item) ? 1 : 0;
                 else if (cJSON_IsNumber(item)) s.legacy_enabled = item->valueint ? 1 : 0;
             }
+            item = cJSON_GetObjectItemCaseSensitive(p, "update_repo");
+            if (item && cJSON_IsString(item) && item->valuestring) {
+                /* empty: back to the default source */
+                char repo[sizeof(s.update_repo)];
+                snprintf(repo, sizeof(repo), "%s", item->valuestring);
+                /* stored without a trailing slash or /bin/mips, as every consumer expects */
+                ota_source_normalize(repo);
+                if (item->valuestring[0] && (!ota_source_url_ok(item->valuestring) || !ota_source_url_ok(repo))) {
+                    cJSON_Delete(p);
+                    send_json_error(client_fd, 400, "Update source must be an http(s):// URL with a host, without spaces or quotes");
+                    close(client_fd);
+                    return 1;
+                }
+                snprintf(s.update_repo, sizeof(s.update_repo), "%s", repo);
+            }
             int save_rc = config_store_save_settings(&s);
             cJSON_Delete(p);
             if (save_rc != 0) {
@@ -997,6 +836,8 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
         cJSON_AddStringToObject(resp, "led_mode", s.led_mode[0] ? s.led_mode : HUB_LED_DEFAULT_MODE);
         cJSON_AddBoolToObject(resp, "mdns_enabled", s.mdns_enabled ? 1 : 0);
         cJSON_AddBoolToObject(resp, "legacy_enabled", s.legacy_enabled ? 1 : 0);
+        cJSON_AddStringToObject(resp, "update_repo", s.update_repo);
+        cJSON_AddStringToObject(resp, "update_repo_default", HARMONY_OTA_DEFAULT_URL);
         send_cjson_resp(client_fd, 200, resp);
         cJSON_Delete(resp);
         close(client_fd);

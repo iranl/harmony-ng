@@ -287,9 +287,8 @@ int __xstat(int ver, const char *pathname, struct stat *st) {
     return mock_stat_impl(pathname, st, ver);
 }
 
-/* lstat() of virtualized /data or /cache paths: the real lstat, so a link is seen as a link (the
- * stock resources delete refuses a link at /data/resources). glibc >= 2.33 exports lstat as a
- * real symbol; older ones use __lxstat. */
+/* lstat() of virtualized /data or /cache paths: the real lstat, so a link is seen as a link.
+ * glibc >= 2.33 exports lstat as a real symbol; older ones use __lxstat. */
 static int mock_lstat_impl(const char *pathname, struct stat *st, int ver) {
     static int (*real_lstat)(const char *, struct stat *) = NULL;
     static int (*real_lxstat)(int, const char *, struct stat *) = NULL;

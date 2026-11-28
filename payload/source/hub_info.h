@@ -27,6 +27,10 @@ void hub_info_add_status_fields(cJSON *obj, const struct hub_settings *settings)
  * Part of the status fields: /api/status, the snapshot's hub object and MQTT <base>/hub. */
 void hub_info_add_ir_capture(cJSON *obj);
 
+/* The system's version for the "firmware" fields: the first line of /etc/version (the root
+ * file system writes it, build/build_rootfs6.sh), else the kernel release (uname -r) */
+void hub_info_firmware(char *buf, size_t len);
+
 /* Seconds since boot (/proc/uptime) */
 long hub_info_uptime_sec(void);
 /* The boot time as a Unix epoch, 0 while the clock is not set (the Hub starts at 1970 and

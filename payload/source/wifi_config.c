@@ -39,6 +39,11 @@ const char *wifi_config_path(const char *path, char *buf, size_t len) {
     return path;
 }
 
+int wifi_config_has_sae(void) {
+    char buf[256];
+    return access(wifi_config_path(WIFI_SAE_MARK_PATH, buf, sizeof(buf)), F_OK) == 0;
+}
+
 int wifi_config_text(char *buf, size_t len, const char *ssid, const char *psk, int is_open, int hidden) {
     if (!buf || !len || !ssid) return -1;
     int n;
@@ -55,15 +60,26 @@ int wifi_config_text(char *buf, size_t len, const char *ssid, const char *psk, i
             ssid, hidden ? "\tscan_ssid=1\n" : "");
     } else {
         const char *p = psk ? psk : "";
+        /* WPA3-Personal (SAE) next to WPA2 when wpa_supplicant has it: it picks what the network
+         * offers. SAE needs the pass phrase (a 64-hex PSK stays WPA2); PMF optional (WPA3 needs
+         * it, WPA2 networks without it still connect); sae_pwe=2: hunting-and-pecking and
+         * hash-to-element (WPA3-only networks may require the latter). A wpa_supplicant without
+         * SAE refuses the whole file for key_mgmt=SAE, hence the check. */
+        int sae = wpa_psk_quote(p)[0] && wifi_config_has_sae();
         n = snprintf(buf, len,
             "ctrl_interface=/var/run/wpa_supplicant\n"
-            "update_config=1\n\n"
+            "update_config=1\n"
+            "%s\n"
             "network={\n"
             "\tssid=\"%s\"\n"
             "\tpsk=%s%s%s\n"
             "%s"
+            "%s"
             "}\n",
-            ssid, wpa_psk_quote(p), p, wpa_psk_quote(p), hidden ? "\tscan_ssid=1\n" : "");
+            sae ? "sae_pwe=2\n" : "",
+            ssid, wpa_psk_quote(p), p, wpa_psk_quote(p),
+            sae ? "\tkey_mgmt=WPA-PSK WPA-PSK-SHA256 SAE\n\tieee80211w=1\n" : "",
+            hidden ? "\tscan_ssid=1\n" : "");
     }
     return (n < 0 || (size_t)n >= len) ? -1 : 0;
 }
@@ -363,7 +379,13 @@ static int wifi_test_run(const char *ssid, const char *psk, int is_open, int hid
     if (wrong_key) connected = 0;
     if (!connected && err_msg && err_len && !err_msg[0]) {
         if (wrong_key) snprintf(err_msg, err_len, "Incorrect Wi-Fi password");
-        else if (!saw_assoc) snprintf(err_msg, err_len, "Wi-Fi network not found (check the name; 2.4 GHz networks only)");
+        else if (!saw_assoc) {
+            /* a USB Wi-Fi adapter (build/kernel6/rc.sh) has 5 GHz too */
+            char abuf[256];
+            int usb = access(wifi_config_path("/tmp/harmony_wifi_adapter", abuf, sizeof(abuf)), F_OK) == 0;
+            snprintf(err_msg, err_len, "Wi-Fi network not found (check the name%s)",
+                     usb ? "" : "; 2.4 GHz networks only");
+        }
     }
 
     if (!connected) {
@@ -490,11 +512,13 @@ void wifi_config_status(struct wifi_status *st) {
     if (strcmp(st->ip, "0.0.0.0") == 0) st->ip[0] = '\0';
 }
 
-int wifi_usb_setup_setting(const char *conf_path) {
+/* a 0/1 switch in ethernet.conf: dflt when the file or the key is missing; a default-on switch
+ * is off only at 0, a default-off one on only at 1 */
+static int conf_switch(const char *conf_path, const char *name, int dflt) {
     char line[128];
     FILE *f = conf_path ? fopen(conf_path, "r") : NULL;
-    if (!f) return 1;
-    int on = 1;
+    if (!f) return dflt;
+    int on = dflt;
     while (fgets(line, sizeof(line), f)) {
         char key[32], val[32];
         size_t k = 0, v = 0;
@@ -503,12 +527,20 @@ int wifi_usb_setup_setting(const char *conf_path) {
         while (*s && *s != '=' && *s != ' ' && *s != '\t' && k + 1 < sizeof(key)) key[k++] = *s++;
         key[k] = '\0';
         while (*s == ' ' || *s == '\t') s++;
-        if (*s != '=' || strcmp(key, "USB_WIFI_SETUP") != 0) continue;
+        if (*s != '=' || strcmp(key, name) != 0) continue;
         for (s++; *s && v + 1 < sizeof(val); s++)
             if (*s != ' ' && *s != '\t' && *s != '"' && *s != '\r' && *s != '\n') val[v++] = *s;
         val[v] = '\0';
-        on = strcmp(val, "0") != 0;
+        on = dflt ? strcmp(val, "0") != 0 : strcmp(val, "1") == 0;
     }
     fclose(f);
     return on;
+}
+
+int wifi_usb_setup_setting(const char *conf_path) {
+    return conf_switch(conf_path, "USB_WIFI_SETUP", 1);
+}
+
+int wifi_usb_adapter_setting(const char *conf_path) {
+    return conf_switch(conf_path, "USB_WIFI_ADAPTER", 0);
 }

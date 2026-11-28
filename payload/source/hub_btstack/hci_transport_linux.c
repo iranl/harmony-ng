@@ -156,8 +156,10 @@ static int hci_transport_linux_open(void) {
             break;
         }
 
-        fprintf(stderr, "[hci_transport_linux] Waiting for hci%u to appear (%d/15): %s\n",
-                addr.hci_dev, retry + 1, strerror(errno));
+        /* the radio is still being set up at boot (rcS.local): one line, not one per second */
+        if (retry == 0)
+            fprintf(stderr, "[hci_transport_linux] Waiting up to 15 s for hci%u (%s)\n", addr.hci_dev,
+                    strerror(errno));
         close(hci_socket);
         hci_socket = -1;
         if (retry < 14) sleep(1);
@@ -170,9 +172,11 @@ static int hci_transport_linux_open(void) {
     }
     fprintf(stderr, "[hci_transport_linux] Bound socket to hci%u (RAW channel)\n", addr.hci_dev);
 
-    // Disable kernel L2CAP/ACL processing so kernel doesn't interfere or disconnect links
+    // Disable kernel L2CAP/ACL processing so kernel doesn't interfere or disconnect links. Linux
+    // dropped HCISETRAW (3.x and later answer EOPNOTSUPP): only another error is worth a line.
     if (ioctl(hci_socket, HCISETRAW, 1) < 0) {
-        fprintf(stderr, "[hci_transport_linux] Note: ioctl HCISETRAW returned: %s (errno=%d)\n", strerror(errno), errno);
+        if (errno != EOPNOTSUPP && errno != ENOTSUP && errno != ENOTTY && errno != EINVAL)
+            fprintf(stderr, "[hci_transport_linux] ioctl HCISETRAW failed: %s\n", strerror(errno));
     } else {
         fprintf(stderr, "[hci_transport_linux] HCISETRAW enabled: kernel Bluetooth processing disabled\n");
         log_msg("[hci_transport_linux] HCISETRAW enabled: kernel Bluetooth processing disabled");

@@ -105,6 +105,7 @@ struct hub_settings {
     char led_mode[32];              /* "green", "amber", "red", "off" (default: "green"); see hub_led.h */
     int mdns_enabled;               /* mDNS responder for _harmony-ng._tcp (default: 1) */
     int legacy_enabled;             /* Logitech protocol shim on port 8088 + SSDP (default: 0) */
+    char update_repo[256];          /* Update source URL (default: empty = HARMONY_OTA_DEFAULT_URL) */
 };
 
 #ifdef __cplusplus

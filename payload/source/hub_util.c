@@ -10,6 +10,9 @@
  *   - eth_fix / hub_eth_fix
  *   - hub_sntp / sntp
  *   - hub_usbwifi / usbwifi (USB Wi-Fi setup, usb_wifi.c)
+ *   - flash-image (kernel uImage to the kernel partitions, flash_image.c)
+ *   - mfg skin (the factory skin number: 115 = Hub Pro 2400; mfg_id.c)
+ *   - usbhid (USB Wi-Fi setup transport on the Linux 6.18 system; usb_hid_relay.c)
  */
 
 #include <stdio.h>
@@ -26,10 +29,18 @@
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/ioctl.h>
+#include <sys/mman.h>
+#include <sys/mount.h>
+#include <sys/reboot.h>
 #include <sys/syscall.h>
 #include <linux/if.h>
 #include <linux/sockios.h>
 #include <linux/ethtool.h>
+#include <mtd/mtd-user.h>
+
+#include "flash_image.h"
+#include "mfg_id.h"
+#include "usb_hid_relay.h"
 
 #include "hub_ntp.h"
 #include "usb_wifi.h"
@@ -263,6 +274,370 @@ static int run_ota_verify(int argc, char **argv) {
     return 0;
 }
 
+/* =========================================================================
+ * Subcommand: flash-image [--dry-run] <uImage> /dev/mtdN [/dev/mtdN+1]
+ * Writes a kernel uImage over the kernel partitions (only those named "kernel" and "kernel2",
+ * in flash order), block by block with read-back (flash_image.c).
+ * ========================================================================= */
+static int mtd_erase(int fd, uint32_t off, uint32_t len) {
+    struct erase_info_user ei = { .start = off, .length = len };
+    return ioctl(fd, MEMERASE, &ei);
+}
+
+static long mtd_pread(int fd, void *buf, uint32_t len, uint32_t off) {
+    return pread(fd, buf, len, off);
+}
+
+static long mtd_pwrite(int fd, const void *buf, uint32_t len, uint32_t off) {
+    return pwrite(fd, buf, len, off);
+}
+
+/* partition name of /dev/mtdN from /proc/mtd ("mtdN: size erasesize \"name\"") */
+static int mtd_name(int num, char *name, size_t len) {
+    FILE *f = fopen("/proc/mtd", "r");
+    if (!f) return -1;
+    char line[128];
+    int rc = -1;
+    while (fgets(line, sizeof(line), f)) {
+        int n;
+        char *q = strchr(line, '"');
+        if (sscanf(line, "mtd%d:", &n) == 1 && n == num && q) {
+            char *e = strchr(q + 1, '"');
+            if (e) {
+                snprintf(name, len, "%.*s", (int)(e - q - 1), q + 1);
+                rc = 0;
+            }
+            break;
+        }
+    }
+    fclose(f);
+    return rc;
+}
+
+/* a process with this name runs (/proc/PID/stat; the stock 2.6.31 kernel has no comm file) */
+static int process_running(const char *want) {
+    char path[64], buf[128];
+    for (int pid = 2; pid < 32768; pid++) {
+        snprintf(path, sizeof(path), "/proc/%d/stat", pid);
+        int fd = open(path, O_RDONLY);
+        if (fd < 0) continue;
+        ssize_t n = read(fd, buf, sizeof(buf) - 1);
+        close(fd);
+        if (n <= 0) continue;
+        buf[n] = '\0';
+        char *a = strchr(buf, '('), *b = strrchr(buf, ')');
+        if (a && b && (size_t)(b - a - 1) == strlen(want) && strncmp(a + 1, want, b - a - 1) == 0)
+            return 1;
+    }
+    return 0;
+}
+
+/* the mtd partition is mounted (its mtdblock device is in /proc/mounts) */
+static int mtd_mounted(int num) {
+    char want[32], line[256];
+    int found = 0;
+    FILE *f = fopen("/proc/mounts", "r");
+    if (!f) return 0;
+    snprintf(want, sizeof(want), "/dev/mtdblock%d ", num);
+    while (fgets(line, sizeof(line), f))
+        if (strncmp(line, want, strlen(want)) == 0) found = 1;
+    fclose(f);
+    return found;
+}
+
+/* Kernel: a uImage over "kernel" (and "kernel2"). Root file system: an XZ squashfs over "root",
+ * which may not be mounted (the Linux 6.18 system writes a new root from its fallback boot:
+ * build/kernel6/init.c). Back to the stock system: hub_util restore. */
+static int run_flash_image(int argc, char **argv) {
+    int dry = 0, first = 1;
+    for (; first < argc && argv[first][0] == '-'; first++) {
+        if (strcmp(argv[first], "--dry-run") == 0) dry = 1;
+        else break;
+    }
+    if (argc - first < 2 || argc - first > 3) {
+        fprintf(stderr, "usage: hub_util flash-image [--dry-run] <uImage> /dev/mtdN [/dev/mtdN+1]\n"
+                        "       hub_util flash-image [--dry-run] <squashfs> /dev/mtdN\n");
+        return 2;
+    }
+    const char *image = argv[first];
+    int nparts = argc - first - 1;
+
+    /* the CC2544 shares the SPI bus with the flash (AGENTS.md) */
+    if (!dry && (process_running("hub_rf") || process_running("hub_btstack"))) {
+        fprintf(stderr, "flash-image: stop hub_rf and hub_btstack first (killall -9)\n");
+        return 1;
+    }
+
+    FILE *f = fopen(image, "rb");
+    if (!f) { perror(image); return 1; }
+    uint8_t *img = malloc(4u << 20);
+    size_t len = img ? fread(img, 1, 4u << 20, f) : 0;
+    int more = fgetc(f) != EOF;
+    fclose(f);
+    char err[160];
+    if (!img || len == 0 || more) {
+        fprintf(stderr, "flash-image: %s is empty or over 4 MB\n", image);
+        free(img);
+        return 1;
+    }
+    int root = memcmp(img, "hsqs", 4) == 0;
+    if (root ? squashfs_check(img, len, SQUASHFS_XZ, err, sizeof(err))
+             : uimage_check(img, len, err, sizeof(err))) {
+        fprintf(stderr, "flash-image: %s: %s\n", image, err);
+        free(img);
+        return 1;
+    }
+    if (root && nparts != 1) {
+        fprintf(stderr, "flash-image: a root file system goes to one partition\n");
+        free(img);
+        return 1;
+    }
+
+    struct flash_part parts[2];
+    int prev = -1, rc = 1;
+    for (int i = 0; i < nparts; i++) parts[i].fd = -1;
+    for (int i = 0; i < nparts; i++) {
+        const char *dev = argv[first + 1 + i];
+        int num;
+        char name[32];
+        if (sscanf(dev, "/dev/mtd%d", &num) != 1 || mtd_name(num, name, sizeof(name)) != 0) {
+            fprintf(stderr, "flash-image: %s is not an mtd device\n", dev);
+            goto out;
+        }
+        if (root) {
+            if (strcmp(name, "root") != 0) {
+                fprintf(stderr, "flash-image: %s is \"%s\"; a squashfs goes to \"root\" only\n", dev, name);
+                goto out;
+            }
+            if (mtd_mounted(num)) {
+                fprintf(stderr, "flash-image: %s is mounted (the running root file system)\n", dev);
+                goto out;
+            }
+        } else if (strcmp(name, i == 0 ? "kernel" : "kernel2") != 0 || (prev >= 0 && num != prev + 1)) {
+            fprintf(stderr, "flash-image: %s is \"%s\"; only \"kernel\" then the next partition "
+                    "\"kernel2\" may be written\n", dev, name);
+            goto out;
+        }
+        prev = num;
+        parts[i].fd = open(dev, dry ? O_RDONLY : O_RDWR);
+        struct mtd_info_user mi;
+        if (parts[i].fd < 0 || ioctl(parts[i].fd, MEMGETINFO, &mi) != 0) {
+            perror(dev);
+            goto out;
+        }
+        if (!dry && !(mi.flags & MTD_WRITEABLE)) {
+            fprintf(stderr, "flash-image: %s is read-only\n", dev);
+            goto out;
+        }
+        parts[i].size = mi.size;
+        parts[i].erasesize = mi.erasesize;
+    }
+    uint64_t total = 0;
+    for (int i = 0; i < nparts; i++) total += parts[i].size;
+    printf("%s: %u bytes, valid %s; %d partition(s), %llu bytes\n", image, (unsigned)len,
+           root ? "squashfs" : "uImage", nparts, (unsigned long long)total);
+    if (len > total) {
+        fprintf(stderr, "flash-image: image does not fit\n");
+        goto out;
+    }
+    if (dry) {
+        rc = 0;
+        goto out;
+    }
+    static const struct flash_ops ops = { mtd_erase, mtd_pread, mtd_pwrite };
+    int written;
+    if (flash_write_image(parts, nparts, &ops, img, len, &written, err, sizeof(err)) != 0) {
+        fprintf(stderr, "flash-image: %s (%d blocks were rewritten)\n", err, written);
+        goto out;
+    }
+    sync();
+    printf("flash-image: done, %d blocks rewritten and verified\n", written);
+    rc = 0;
+out:
+    for (int i = 0; i < nparts; i++)
+        if (parts[i].fd >= 0) close(parts[i].fd);
+    free(img);
+    return rc;
+}
+
+
+/* =========================================================================
+ * Subcommand: restore [--dry-run] <kernels.bin> <root.bin> <datacache.bin>
+ * Back to the stock system (tools/rollback_kernel6.py): the backup tools/install_kernel6.py made
+ * at the migration, written from RAM. kernels.bin (stock kernel + kernel2, a uImage first) goes
+ * over "kernel" + "kernel2", root.bin (the stock LZMA squashfs) over "root", datacache.bin (the
+ * raw stock data then cache partitions, 10 MB) over "data" and the partition after it ("state"
+ * on the merged layout, "cache" on the stock one). Run a static hub_util from /tmp: the files
+ * are mapped, not copied (tmpfs pages), every JFFS2 mount is made read-only first (no garbage
+ * collection writes into the restored data), and the Hub restarts right after.
+ * ========================================================================= */
+#define STOCK_PART 0x500000u   /* the stock data and cache partitions */
+
+struct restore_file {
+    const char *path;
+    const uint8_t *data;
+    size_t len;
+};
+
+static int restore_map(struct restore_file *f) {
+    struct stat st;
+    int fd = open(f->path, O_RDONLY);
+    if (fd < 0 || fstat(fd, &st) != 0 || st.st_size == 0) {
+        perror(f->path);
+        if (fd >= 0) close(fd);
+        return -1;
+    }
+    f->len = (size_t)st.st_size;
+    f->data = mmap(NULL, f->len, PROT_READ, MAP_PRIVATE, fd, 0);
+    close(fd);
+    if (f->data == MAP_FAILED) {
+        perror(f->path);
+        return -1;
+    }
+    return 0;
+}
+
+/* opens /dev/mtdN of the partition named name; fills part and *num_out */
+static int restore_part(const char *name, struct flash_part *part, int dry, int *num_out) {
+    char dev[32], have[32];
+    struct mtd_info_user mi;
+    for (int n = 0; n < 16; n++) {
+        if (mtd_name(n, have, sizeof(have)) != 0 || strcmp(have, name) != 0) continue;
+        snprintf(dev, sizeof(dev), "/dev/mtd%d", n);
+        part->fd = open(dev, dry ? O_RDONLY : O_RDWR);
+        if (part->fd < 0 || ioctl(part->fd, MEMGETINFO, &mi) != 0) {
+            perror(dev);
+            return -1;
+        }
+        if (!dry && !(mi.flags & MTD_WRITEABLE)) {
+            fprintf(stderr, "restore: %s is read-only\n", dev);
+            return -1;
+        }
+        part->size = mi.size;
+        part->erasesize = mi.erasesize;
+        if (num_out) *num_out = n;
+        return 0;
+    }
+    fprintf(stderr, "restore: no partition \"%s\"\n", name);
+    return -1;
+}
+
+/* every JFFS2 mount read-only; 0 when all of them are */
+static int restore_remount_ro(void) {
+    char line[256], src[96], dir[128], type[32];
+    int rc = 0;
+    FILE *f = fopen("/proc/mounts", "r");
+    if (!f) return -1;
+    while (fgets(line, sizeof(line), f)) {
+        if (sscanf(line, "%95s %127s %31s", src, dir, type) != 3 || strcmp(type, "jffs2") != 0) continue;
+        if (mount(NULL, dir, NULL, MS_REMOUNT | MS_RDONLY, NULL) != 0) {
+            fprintf(stderr, "restore: cannot make %s read-only: %s\n", dir, strerror(errno));
+            rc = -1;
+        }
+    }
+    fclose(f);
+    return rc;
+}
+
+static int run_restore(int argc, char **argv) {
+    static const struct flash_ops ops = { mtd_erase, mtd_pread, mtd_pwrite };
+    struct restore_file f[3];
+    struct flash_part kparts[2], dparts[2], rpart;
+    char err[160], next[32];
+    int dry = 0, first = 1, rc = 1, written, dnum = -1;
+
+    if (argc > 1 && strcmp(argv[1], "--dry-run") == 0) {
+        dry = 1;
+        first = 2;
+    }
+    if (argc - first != 3) {
+        fprintf(stderr, "usage: hub_util restore [--dry-run] <kernels.bin> <root.bin> <datacache.bin>\n");
+        return 2;
+    }
+    for (int i = 0; i < 3; i++) {
+        f[i].path = argv[first + i];
+        if (restore_map(&f[i]) != 0) return 1;
+    }
+    if (uimage_check(f[0].data, f[0].len, err, sizeof(err)) != 0) {
+        fprintf(stderr, "restore: %s: %s\n", f[0].path, err);
+        return 1;
+    }
+    if (squashfs_check(f[1].data, f[1].len, SQUASHFS_LZMA, err, sizeof(err)) != 0) {
+        fprintf(stderr, "restore: %s: %s\n", f[1].path, err);
+        return 1;
+    }
+    if (f[2].len != 2 * STOCK_PART) {
+        fprintf(stderr, "restore: the data + cache backup must be %u bytes\n", 2 * STOCK_PART);
+        return 1;
+    }
+    kparts[0].fd = kparts[1].fd = dparts[0].fd = dparts[1].fd = rpart.fd = -1;
+    if (restore_part("kernel", &kparts[0], dry, NULL) || restore_part("kernel2", &kparts[1], dry, NULL) ||
+        restore_part("root", &rpart, dry, NULL) || restore_part("data", &dparts[0], dry, &dnum))
+        goto out;
+    /* the partition after "data": "state" (merged layout) or "cache" (stock layout) */
+    if (mtd_name(dnum + 1, next, sizeof(next)) != 0 ||
+        (strcmp(next, "state") != 0 && strcmp(next, "cache") != 0) ||
+        restore_part(next, &dparts[1], dry, NULL)) {
+        fprintf(stderr, "restore: no \"state\" or \"cache\" partition after \"data\"\n");
+        goto out;
+    }
+    if (f[0].len > kparts[0].size + kparts[1].size || f[1].len > rpart.size ||
+        dparts[0].size + dparts[1].size != f[2].len) {
+        fprintf(stderr, "restore: the images do not match the partitions\n");
+        goto out;
+    }
+    printf("restore: kernels %u, root %u, data + cache %u bytes: valid\n", (unsigned)f[0].len,
+           (unsigned)f[1].len, (unsigned)f[2].len);
+    if (dry) {
+        rc = 0;
+        goto out;
+    }
+    if (process_running("hub_rf") || process_running("hub_btstack")) {
+        fprintf(stderr, "restore: stop hub_rf and hub_btstack first (killall -9)\n");
+        goto out;
+    }
+    sync();
+    if (restore_remount_ro() != 0) {
+        fprintf(stderr, "restore: nothing written\n");
+        goto out;
+    }
+    /* from here the flash changes: on a failure carry on, stopping halfway helps nothing */
+    if (flash_write_image(kparts, 2, &ops, f[0].data, f[0].len, &written, err, sizeof(err)) != 0)
+        fprintf(stderr, "restore: kernels: %s\n", err);
+    if (flash_write_image(&rpart, 1, &ops, f[1].data, f[1].len, &written, err, sizeof(err)) != 0)
+        fprintf(stderr, "restore: root: %s\n", err);
+    if (flash_write_image(dparts, 2, &ops, f[2].data, f[2].len, &written, err, sizeof(err)) != 0)
+        fprintf(stderr, "restore: data + cache: %s\n", err);
+    sync();
+    printf("restore: written, restarting\n");
+    fflush(stdout);
+    reboot(RB_AUTOBOOT);
+    rc = 0;
+out:
+    for (int i = 0; i < 2; i++) {
+        if (kparts[i].fd >= 0) close(kparts[i].fd);
+        if (dparts[i].fd >= 0) close(dparts[i].fd);
+    }
+    if (rpart.fd >= 0) close(rpart.fd);
+    return rc;
+}
+
+/* hub_util mfg skin: prints the factory skin number (115 = Harmony Hub Pro 2400). The Linux 6.18
+ * boot script (build/kernel6/rc.sh) reads it before hub_daemon has written /data/harmony/skin. */
+static int run_mfg(int argc, char **argv) {
+    uint8_t skin;
+    if (argc != 2 || strcmp(argv[1], "skin") != 0) {
+        fprintf(stderr, "usage: hub_util mfg skin\n");
+        return 2;
+    }
+    if (mfg_read_skin(NULL, &skin) != 0) {
+        fprintf(stderr, "mfg: no skin record\n");
+        return 1;
+    }
+    printf("%u\n", skin);
+    return 0;
+}
+
 int main(int argc, char **argv) {
     const char *name = get_progname(argv[0]);
 
@@ -295,6 +670,14 @@ int main(int argc, char **argv) {
             return run_sntp(argc - 1, argv + 1);
         if (strcmp(cmd, "ota-verify") == 0)
             return run_ota_verify(argc - 1, argv + 1);
+        if (strcmp(cmd, "flash-image") == 0)
+            return run_flash_image(argc - 1, argv + 1);
+        if (strcmp(cmd, "restore") == 0)
+            return run_restore(argc - 1, argv + 1);
+        if (strcmp(cmd, "mfg") == 0)
+            return run_mfg(argc - 1, argv + 1);
+        if (strcmp(cmd, "usbhid") == 0)
+            return usbhid_relay_main(argc - 1, argv + 1);
         if (strcmp(cmd, "usbwifi") == 0 || strcmp(cmd, "hub_usbwifi") == 0)
             return usbwifi_main(argc - 1, argv + 1);
     }
@@ -304,10 +687,14 @@ int main(int argc, char **argv) {
     fprintf(stderr, "Available commands:\n");
     fprintf(stderr, "  sync          Flush filesystem buffers\n");
     fprintf(stderr, "  mknod         Create block/character special devices\n");
-    fprintf(stderr, "  register_ehci Register EHCI host controller on Atheros AR9344\n");
+    fprintf(stderr, "  register_ehci Register EHCI host controller on Atheros AR9330\n");
     fprintf(stderr, "  eth_fix       Disable offloads for USB Ethernet\n");
     fprintf(stderr, "  sntp          SNTP time synchronization client\n");
     fprintf(stderr, "  ota-verify    Check a signed OTA manifest and files against it\n");
+    fprintf(stderr, "  flash-image   Write a kernel uImage to the kernel partitions\n");
+    fprintf(stderr, "  restore       Write the stock system back from a migration backup (Linux 6.18)\n");
+    fprintf(stderr, "  mfg skin      Print the factory skin number (115 = Hub Pro 2400)\n");
+    fprintf(stderr, "  usbhid        Relay the USB HID gadget to hub_util usbwifi (Linux 6.18)\n");
     fprintf(stderr, "  usbwifi       USB Wi-Fi setup: answers the stock usbhid on 127.0.0.1:16716\n");
     return 1;
 }

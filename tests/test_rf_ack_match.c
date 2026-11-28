@@ -101,8 +101,7 @@ static void *wake_worker(void *arg) {
     return NULL;
 }
 
-/* Waits in sleeps, not in pthread_join(): under tests/no_futex_exec (a kernel without futex, as
- * on the Hub) a join spins, and the test checks that hub_rf itself does not */
+/* Waits in short sleeps for the helper threads' flags */
 static void wait_flag(volatile int *flag) {
     while (!*flag) usleep(5000);
 }
