@@ -270,11 +270,15 @@ static void *state_watch_thread(void *arg) {
     }
 
     int bt_due = 1;
+    long long bt_last = 0;
     for (;;) {
         if (s_inotify_fd >= 0) {
             /* a write wakes it at once; the timeout is the recheck (and the RF baseline retry) */
             struct pollfd pfd = { s_inotify_fd, POLLIN, 0 };
-            if (poll(&pfd, 1, rf_baseline ? BT_RECHECK_MS : 1000) == 0) bt_due = 1;
+            poll(&pfd, 1, rf_baseline ? BT_RECHECK_MS : 1000);
+            /* on the clock, not on a quiet poll: /tmp is written every few seconds
+             * (network_monitor.sh), which would restart the wait forever */
+            if (now_ms() - bt_last >= BT_RECHECK_MS) bt_due = 1;
         } else {
             usleep(WATCH_INTERVAL_US);
             bt_due = 1;
@@ -312,6 +316,7 @@ static void *state_watch_thread(void *arg) {
 
         if (bt_due) {
             bt_due = 0;
+            bt_last = now_ms();
             char *raw = read_small_file(BT_STATUS_FILE, 16384);
             cJSON *bt = raw ? cJSON_Parse(raw) : NULL;
             free(raw);

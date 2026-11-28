@@ -279,19 +279,6 @@ static int run_ota_verify(int argc, char **argv) {
  * Writes a kernel uImage over the kernel partitions (only those named "kernel" and "kernel2",
  * in flash order), block by block with read-back (flash_image.c).
  * ========================================================================= */
-static int mtd_erase(int fd, uint32_t off, uint32_t len) {
-    struct erase_info_user ei = { .start = off, .length = len };
-    return ioctl(fd, MEMERASE, &ei);
-}
-
-static long mtd_pread(int fd, void *buf, uint32_t len, uint32_t off) {
-    return pread(fd, buf, len, off);
-}
-
-static long mtd_pwrite(int fd, const void *buf, uint32_t len, uint32_t off) {
-    return pwrite(fd, buf, len, off);
-}
-
 /* partition name of /dev/mtdN from /proc/mtd ("mtdN: size erasesize \"name\"") */
 static int mtd_name(int num, char *name, size_t len) {
     FILE *f = fopen("/proc/mtd", "r");
@@ -444,7 +431,7 @@ static int run_flash_image(int argc, char **argv) {
         rc = 0;
         goto out;
     }
-    static const struct flash_ops ops = { mtd_erase, mtd_pread, mtd_pwrite };
+    const struct flash_ops ops = flash_mtd_ops;
     int written;
     if (flash_write_image(parts, nparts, &ops, img, len, &written, err, sizeof(err)) != 0) {
         fprintf(stderr, "flash-image: %s (%d blocks were rewritten)\n", err, written);
@@ -540,7 +527,7 @@ static int restore_remount_ro(void) {
 }
 
 static int run_restore(int argc, char **argv) {
-    static const struct flash_ops ops = { mtd_erase, mtd_pread, mtd_pwrite };
+    const struct flash_ops ops = flash_mtd_ops;
     struct restore_file f[3];
     struct flash_part kparts[2], dparts[2], rpart;
     char err[160], next[32];
