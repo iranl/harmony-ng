@@ -113,6 +113,7 @@ int g_act_trigger_count = 0;
 bool g_gyro_enabled = true;
 int g_deep_standby_min = -1;   /* -1 = at once (2 s after the screen blanks, as stock), 15, 30, 60, 120, 240, 0 = never */
 int g_btn_backlight_mode = 2;  /* 0 = OFF, 1 = ON, 2 = NIGHT_SCHEDULE */
+bool g_clean_wake = false;     /* keeps the panel powered while the screen is off (see fb_set_blank) */
 int g_night_start_hour = 22;   /* 10 PM */
 int g_night_end_hour = 7;      /* 7 AM */
 int g_timeout_seconds = 10;

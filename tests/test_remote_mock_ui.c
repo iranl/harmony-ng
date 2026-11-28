@@ -556,7 +556,13 @@ int main(void) {
         /* Back goes up one level; Settings pages have no Back rows */
         g_pairing_state = 2; /* paired: the categories go back to home, not the pairing prompt */
         g_current_view = VIEW_SETTINGS; g_settings_subview = SETTINGS_VIEW_DISPLAY;
-        assert(get_settings_sub_count() == 7);
+        assert(get_settings_sub_count() == 8);
+        /* Clean Wake is the last row: off by default, one tap turns it on, one more off */
+        assert(!g_clean_wake);
+        execute_settings_action(7);
+        assert(g_clean_wake);
+        execute_settings_action(7);
+        assert(!g_clean_wake);
         /* night start and end are two rows, one hour per tap, wrapping at midnight */
         g_night_start_hour = 23; g_night_end_hour = 8;
         execute_settings_action(3);
