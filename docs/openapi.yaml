@@ -3951,6 +3951,7 @@ paths:
                 eth_gateway: {type: string}
                 eth_dns: {type: string}
                 usb_wifi_setup: {type: boolean, description: "Wi-Fi setup over USB (USB_WIFI_SETUP in ethernet.conf, default true). Left out = the stored value is kept. false refuses every USB request; the next service start or boot starts no hub_usbwifi and does not wait for a computer on the USB port."}
+                usb_wifi_adapter: {type: boolean, description: "Linux 6.18 system: a USB Wi-Fi 5 adapter plugged in at boot becomes the Hub's Wi-Fi (USB_WIFI_ADAPTER in ethernet.conf, default false). Left out = the stored value is kept. Applies at the next boot; an adapter unplugged at runtime hands over to the built-in 2.4 GHz Wi-Fi."}
                 apply: {type: string, description: "apply, 1, reconfigure or restart applies the settings now; anything else or nothing only saves them"}
             example:
               eth_mode: dhcp
