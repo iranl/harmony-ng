@@ -485,6 +485,24 @@ To distribute your plugin independently, host a `repository.json` index on GitHu
 
 Users can simply paste your repository URL into the **Repositories** tab in their WebUI or Android App to install your plugin.
 
+**Last release for older Hubs**: when a release raises `min_harmony_version`, the entry can name
+the last release that runs on older Hubs, so they keep it in the marketplace:
+
+```json
+"min_harmony_version": "4.0.0",
+"legacy": {
+  "version": "1.2.0",
+  "download_url": "https://github.com/username/my-plugin/releases/download/v1.2.0/my-plugin.tar.gz",
+  "sha256": "<64 hex characters>"
+}
+```
+
+A Hub older than `min_harmony_version` takes the `legacy` release in place of the entry (its
+`version`, `download_url`, `sha256` and its own optional `min_harmony_version`) for the
+marketplace, installs and pulls by id, and reports the release it cannot run as
+`latest_version`. A Hub that meets the minimum ignores `legacy`. `gen_repository.py` in
+`harmony-ng-plugins` writes it when the minimum rises and carries it forward after that.
+
 ---
 
 ### Security

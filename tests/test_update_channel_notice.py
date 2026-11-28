@@ -159,6 +159,10 @@ pick_official_branch
         self.publish(BETA, "3.5.0")
         self.publish(STABLE, "3.5.1")
         self.assertEqual(self.check()["remote_version"], "3.5.1")
+        # ota-beta with a v4 pre-release: never followed by a v3 Hub
+        self.publish(BETA, "4.0.0")
+        st = self.check()
+        self.assertEqual((st["remote_version"], st["ota_installable"]), ("3.5.1", True))
 
     def test_remote_image_from_the_branch_of_the_own_version(self):
         self.publish(STABLE, "3.4.0")

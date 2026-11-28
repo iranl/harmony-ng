@@ -426,9 +426,13 @@ pick_official_branch() {
       ;;
     check|apply)
       [ "$REPO" = "$OTA_BETA" ] || return 0
+      # ota-beta carries the pre-releases of the next major version (v4) only: those are never
+      # followed (v3 has no beta; v4 is announced through VERSION_V4)
       _bv=$(source_version "$OTA_BETA")
       _stv=$(source_version "$OTA_STABLE")
-      if [ -z "$_bv" ] || { [ -n "$_stv" ] && is_version_newer "$_stv" "$_bv"; }; then
+      _own=$(get_local_version)
+      if [ -z "$_bv" ] || [ "$(echo "$_bv" | cut -d. -f1)" != "$(echo "${_own#v}" | cut -d. -f1)" ] || \
+         { [ -n "$_stv" ] && is_version_newer "$_stv" "$_bv"; }; then
         REPO="$OTA_STABLE"
       fi
       ;;

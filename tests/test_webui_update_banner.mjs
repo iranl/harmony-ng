@@ -89,6 +89,8 @@ await check.check('online version: beta takes the newer branch, VERSION_V4, page
     assert.equal(await app.fetchOnlineHubVersion(), '3.6.0');
     assert.equal(app.bundleOnlyUrl('3.5.1', '3.6.0'), 'https://github.com/iranl/harmony-ng/releases/tag/v3.6.0');
     assert.equal(app.bundleOnlyUrl('3.5.1', '4.0.0'), 'https://github.com/iranl/harmony-ng/releases/tag/v4.0.0');
+    files['ota-beta/v2/VERSION'] = '4.0.0\n';
+    assert.equal(await app.fetchOnlineHubVersion(), '3.5.1', 'a v4 pre-release is not followed');
     app.updateChannel = 'stable';
     assert.equal(await app.fetchOnlineHubVersion(), '3.5.1');
     assert.equal(app.bundleOnlyUrl('3.5.0', '3.5.1'), '', 'same major, no notice: installs online');

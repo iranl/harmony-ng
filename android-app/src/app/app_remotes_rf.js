@@ -616,7 +616,9 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
     let ver = await branchVersion('ota');
     if (this.updateChannel === 'beta') {
       const betaVer = await branchVersion('ota-beta');
-      if (betaVer && (!ver || !this.isVersionOlder(betaVer, ver))) {
+      // a pre-release of another major version (v4 betas) is never followed: v3 has no beta
+      const major = (v) => String(v).split('.')[0];
+      if (betaVer && ver && major(betaVer) === major(ver) && !this.isVersionOlder(betaVer, ver)) {
         branch = 'ota-beta';
         ver = betaVer;
       }

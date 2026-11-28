@@ -1216,6 +1216,35 @@ int plugin_mgr_version_ok(const cJSON *entry, char *err_msg, size_t err_msg_sz) 
     return -1;
 }
 
+/* A repository entry whose release needs a newer HarmonyNG than this one may name the last
+ * release that runs here: "legacy": {"version", "download_url", "sha256"[, "min_harmony_version"]}
+ * (scripts/gen_repository.py of the plugin repository writes it when the minimum rises). That
+ * release then stands in for the entry everywhere (marketplace, install and pull by id), with
+ * "latest_version" naming the release this Hub cannot run. */
+static void apply_legacy_release(cJSON *e) {
+    const cJSON *lg = cJSON_GetObjectItemCaseSensitive(e, "legacy");
+    if (lg && plugin_mgr_version_ok(e, NULL, 0) != 0 && cJSON_IsObject(lg) &&
+        plugin_mgr_version_ok(lg, NULL, 0) == 0) {
+        const cJSON *v = cJSON_GetObjectItemCaseSensitive(lg, "version");
+        const cJSON *u = cJSON_GetObjectItemCaseSensitive(lg, "download_url");
+        const cJSON *h = cJSON_GetObjectItemCaseSensitive(lg, "sha256");
+        const cJSON *m = cJSON_GetObjectItemCaseSensitive(lg, "min_harmony_version");
+        const cJSON *cur = cJSON_GetObjectItemCaseSensitive(e, "version");
+        if (cJSON_IsString(v) && cJSON_IsString(u) && is_safe_url(u->valuestring) && cJSON_IsString(h) &&
+            strlen(h->valuestring) == 64) {
+            if (cJSON_IsString(cur)) cJSON_AddStringToObject(e, "latest_version", cur->valuestring);
+            cJSON_ReplaceItemInObjectCaseSensitive(e, "version", cJSON_CreateString(v->valuestring));
+            cJSON_DeleteItemFromObjectCaseSensitive(e, "download_url");
+            cJSON_AddStringToObject(e, "download_url", u->valuestring);
+            cJSON_DeleteItemFromObjectCaseSensitive(e, "sha256");
+            cJSON_AddStringToObject(e, "sha256", h->valuestring);
+            cJSON_DeleteItemFromObjectCaseSensitive(e, "min_harmony_version");
+            if (cJSON_IsString(m)) cJSON_AddStringToObject(e, "min_harmony_version", m->valuestring);
+        }
+    }
+    cJSON_DeleteItemFromObjectCaseSensitive(e, "legacy");
+}
+
 /* What the Hub needs from a manifest before it installs it */
 static int validate_manifest(const cJSON *m, const char *src_dir, char *err_msg, size_t err_msg_sz) {
     const cJSON *j_id = cJSON_GetObjectItemCaseSensitive(m, "id");
@@ -1907,6 +1936,7 @@ cJSON *plugin_mgr_get_marketplace_catalog(int force_reload) {
                             /* the repository it was read from, never one the entry names */
                             cJSON_DeleteItemFromObjectCaseSensitive(e, "repository");
                             cJSON_AddStringToObject(e, "repository", repo_url->valuestring);
+                            apply_legacy_release(e);
                             cJSON_AddItemToArray(catalog, e);
                         }
                     }
