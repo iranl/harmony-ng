@@ -63,6 +63,22 @@ static void mark_rf_sync_pending(int slot, const char *diff) {
     }
 }
 
+/* hub_btstack's pin.state (bt-status) compared with state: 1 equal, 0 different, -1 unknown (no
+ * status file, or a hub_btstack without PIN support) */
+static int bt_pin_state_is(const char *state) {
+    FILE *f = fopen("/tmp/hub_btstack_status.json", "r");
+    if (!f) return -1;
+    char buf[4096];
+    size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+    fclose(f);
+    buf[n] = '\0';
+    cJSON *j = cJSON_Parse(buf);
+    cJSON *ps = cJSON_GetObjectItem(cJSON_GetObjectItem(j, "pin"), "state");
+    int r = cJSON_IsString(ps) ? strcmp(ps->valuestring, state) == 0 : -1;
+    cJSON_Delete(j);
+    return r;
+}
+
 int http_api_remotes_handle(int client_fd, const char *method, const char *clean_path,
                             const char *query, const char *body, const char *req) {
     (void)query;
@@ -927,10 +943,16 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
             close(client_fd);
             return 1;
         }
+        if (!cancel && bt_pin_state_is("waiting") == 0) {
+            /* hub_btstack would ignore it: no host waits for a code (any more) */
+            send_json_error(client_fd, 409, "No PIN request is waiting");
+            close(client_fd);
+            return 1;
+        }
         char pipe_cmd[48];
         if (cancel) snprintf(pipe_cmd, sizeof(pipe_cmd), "pin_cancel\n");
         else snprintf(pipe_cmd, sizeof(pipe_cmd), "pin_reply %s\n", pin);
-        if (hub_send_btstack_cmd(pipe_cmd) != 0) {
+        if (hub_send_btstack_cmd_live(pipe_cmd) != 0) {
             send_json_error(client_fd, 500, "Could not reach hub_btstack");
             close(client_fd);
             return 1;

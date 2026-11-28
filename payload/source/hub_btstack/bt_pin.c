@@ -72,6 +72,11 @@ void pin_on_link_key(const uint8_t addr[6]) {
 }
 
 bool pin_on_disconnect(const uint8_t addr[6]) {
+    if (s_pin_state == PIN_STATE_WAITING && memcmp(s_pin_addr, addr, 6) == 0) {
+        /* the held host gave up: a code sent now would reach nobody */
+        s_pin_state = PIN_STATE_REQUIRED;
+        return false;
+    }
     if (pin_list_find(s_pin_tried, s_pin_ntried, addr) < 0) return false;
     pin_list_drop(s_pin_tried, &s_pin_ntried, addr);
     pin_list_add(s_pin_need, &s_pin_nneed, addr);
@@ -97,7 +102,15 @@ bool pin_take_cancel(uint8_t addr_out[6]) {
     }
     memcpy(addr_out, s_pin_addr, 6);
     s_pin_state = PIN_STATE_NONE;
+    /* the user gave up on the code: the next pairing of that host starts with 0000 again */
+    pin_list_drop(s_pin_need, &s_pin_nneed, addr_out);
     return true;
+}
+
+void pin_forget(const uint8_t addr[6]) {
+    pin_list_drop(s_pin_tried, &s_pin_ntried, addr);
+    pin_list_drop(s_pin_need, &s_pin_nneed, addr);
+    if (s_pin_state != PIN_STATE_NONE && memcmp(s_pin_addr, addr, 6) == 0) s_pin_state = PIN_STATE_NONE;
 }
 
 bool pin_take_timeout(uint32_t now_ms, uint8_t addr_out[6]) {

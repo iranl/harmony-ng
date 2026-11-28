@@ -6,7 +6,7 @@ Issue 294, hub_daemon's side of PIN pairing and the PS3 profile:
 - a line break in the pairing name does not start a second hub_btstack command
 - POST /api/bt-pairing-pin: a PIN is a string of 1 to 16 digits (a number, letters, 17 digits or
   nothing are 400); 503 while hub_btstack is not running; with it running "pin_reply <digits>"
-  and {"cancel": true} "pin_cancel" are sent
+  and {"cancel": true} "pin_cancel" are sent; a PIN while bt-status says no request waits is 409
 - a device command PS3:<hex> becomes PS3_DOWN / RELEASE / PS3 lines on the key pipe
 The daemon runs with --dry-run (its hub_btstack commands are printed). A short lived process
 named hub_btstack stands in for a running one (hub_daemon finds it in /proc).
@@ -22,6 +22,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from hub_harness import HubHarness, SAMPLE_CONFIG  # noqa: E402
 from test_bt_api_checks import PIPE, open_pipe_reader, read_pipe  # noqa: E402
+from bt_status_seed import BT_STATUS_FILE, sample_text, remove_status  # noqa: E402
 
 PORT = 9163
 PS3 = "00:11:22:33:44:03"  # test address, not a real device
@@ -117,6 +118,19 @@ def main():
                 time.sleep(0.3)
                 sent = sent_since(log_path, mark)
                 check(sent == ["pin_reply 0842631", "pin_cancel"], "pin_reply keeps the leading zero, then pin_cancel", str(sent))
+
+                # the status file of the real writer, with the pin field hub_btstack adds
+                status = json.loads(sample_text())
+                for state, want in (("none", 409), ("required", 409), ("waiting", 200)):
+                    status["pin"] = {"state": state}
+                    with open(BT_STATUS_FILE + ".tmp", "w") as f:
+                        json.dump(status, f)
+                    os.replace(BT_STATUS_FILE + ".tmp", BT_STATUS_FILE)
+                    st, _ = hub.http_post("/api/bt-pairing-pin", {"pin": "1234"})
+                    check(st == want, "pin.state %s: %d" % (state, want), str(st))
+                st, _ = hub.http_post("/api/bt-pairing-pin", {"cancel": True})
+                check(st == 200, "cancel is taken whatever the state", str(st))
+                remove_status()
 
             print("[-] device command PS3:<hex>")
             # the key pipe, as test_bt_api_checks.py reads it (the mock root may hold it too)

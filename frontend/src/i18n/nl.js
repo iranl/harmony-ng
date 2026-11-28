@@ -958,7 +958,7 @@ export default {
     "loading_bt_status": "BT-status laden...",
     "pairing_mode": "Koppelmodus",
     "bt_pairing_mode_desc": "Maak de Harmony Hub zichtbaar als Bluetooth HID-toetsenbord om te koppelen met Nvidia Shield, Apple TV, Fire TV of pc.",
-    "enable_bt_pairing_60": "BT-koppeling inschakelen (60 s)",
+    "enable_bt_pairing_60": "BT-koppeling inschakelen (180 s)",
     "hub_discoverable_bt_keyboard": "De Hub is nu zichtbaar als Bluetooth-toetsenbord!",
     "disable_pairing": "Koppeling uitschakelen",
     "bt_pairing_disabled": "BT-koppelmodus uitgeschakeld",

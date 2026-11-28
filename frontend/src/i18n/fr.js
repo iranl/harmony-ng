@@ -958,7 +958,7 @@ export default {
     "loading_bt_status": "Chargement de l'état BT...",
     "pairing_mode": "Mode d'appairage",
     "bt_pairing_mode_desc": "Rendre le Harmony Hub visible comme clavier HID Bluetooth pour l'appairer avec Nvidia Shield, Apple TV, Fire TV ou un PC.",
-    "enable_bt_pairing_60": "Activer l'appairage BT (60 s)",
+    "enable_bt_pairing_60": "Activer l'appairage BT (180 s)",
     "hub_discoverable_bt_keyboard": "Le Hub est maintenant visible comme clavier Bluetooth !",
     "disable_pairing": "Désactiver l'appairage",
     "bt_pairing_disabled": "Mode d'appairage BT désactivé",

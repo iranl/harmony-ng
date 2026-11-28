@@ -119,8 +119,12 @@ static void pairing_timeout_handler(btstack_timer_source_t *ts) {
     if (g_host_pairing) pairing_mode_off("timeout");
 }
 
+static uint32_t s_pairing_started_ms;
+
 void pairing_timeout_restart(void) {
     if (!g_host_pairing) return;
+    uint32_t used = btstack_run_loop_get_time_ms() - s_pairing_started_ms;
+    if (used >= PAIRING_MAX_MS - PAIRING_TIMEOUT_MS) return; /* the timer already runs to the limit */
     btstack_run_loop_remove_timer(&g_pairing_timer);
     btstack_run_loop_set_timer_handler(&g_pairing_timer, pairing_timeout_handler);
     btstack_run_loop_set_timer(&g_pairing_timer, PAIRING_TIMEOUT_MS);
@@ -645,6 +649,7 @@ void execute_btstack_cmd(const char *cmd_in) {
         gap_discoverable_control(1);
         /* Pairing mode used to stay on until switched off, discoverable and accepting any
          * pairing request; end it after PAIRING_TIMEOUT_MS */
+        s_pairing_started_ms = btstack_run_loop_get_time_ms();
         btstack_run_loop_remove_timer(&g_pairing_timer);
         btstack_run_loop_set_timer_handler(&g_pairing_timer, pairing_timeout_handler);
         btstack_run_loop_set_timer(&g_pairing_timer, PAIRING_TIMEOUT_MS);

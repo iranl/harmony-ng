@@ -157,7 +157,7 @@ Harmony Hub also operates as a BLE central host to receive inputs from paired ph
 ## 5a. PlayStation 3 (BD Remote Control profile)
 A PlayStation 3 is paired with the profile `ps3` (web UI: Pairing Mode, "Pair as" PlayStation 3;
 `POST /api/bt-pairing` with `"profile": "ps3"`). The Hub then pairs as Sony's BD Remote Control,
-as the stock firmware did for its `ps3` device type: the PS3 lists it as "BD Remote Control"
+with the stock firmware's HID record for its `ps3` device type: the PS3 lists it as "BD Remote Control"
 under Settings > Accessory Settings > Manage Bluetooth Devices > Register New Device. That host
 keeps the profile; every other host stays a keyboard.
 

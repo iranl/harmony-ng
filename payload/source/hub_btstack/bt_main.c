@@ -171,6 +171,9 @@ static void pin_timer_handler(btstack_timer_source_t *ts) {
 
 static void pin_request(bd_addr_t addr) {
     char msg[160];
+    bd_addr_t held;
+    bool other_held = pin_state() == PIN_STATE_WAITING && memcmp(pin_state_addr(), addr, 6) != 0;
+    if (other_held) memcpy(held, pin_state_addr(), 6);
     if (pin_on_request(addr, btstack_run_loop_get_time_ms()) == PIN_ACTION_DEFAULT) {
         snprintf(msg, sizeof(msg), "Classic BT: PIN code requested by %s -> sending default '" PIN_DEFAULT "'", bd_addr_to_str(addr));
         log_msg(msg);
@@ -180,6 +183,12 @@ static void pin_request(bd_addr_t addr) {
     snprintf(msg, sizeof(msg), "Classic BT: PIN code requested by %s, which refused '" PIN_DEFAULT "' -> waiting %d s for the code it shows",
              bd_addr_to_str(addr), PIN_WAIT_MS / 1000);
     log_msg(msg);
+    if (other_held) {
+        /* one code box: the host held before gets its answer now instead of none */
+        snprintf(msg, sizeof(msg), "Classic BT: PIN request of %s replaced -> rejecting it", bd_addr_to_str(held));
+        log_msg(msg);
+        gap_pin_code_negative(held);
+    }
     pairing_timeout_restart();
     btstack_run_loop_remove_timer(&s_pin_timer);
     btstack_run_loop_set_timer_handler(&s_pin_timer, pin_timer_handler);
@@ -209,9 +218,17 @@ void bt_pin_command(const char *cmd) {
         return;
     }
     btstack_run_loop_remove_timer(&s_pin_timer);
-    snprintf(msg, sizeof(msg), "Classic BT: sending the entered PIN (%u digits) to %s", (unsigned)strlen(pin), bd_addr_to_str(addr));
+    /* BTstack keeps the pointer and copies the digits only when hci_run() sends the reply,
+     * which can be later than this call: they must outlive the command buffer */
+    static char s_pin_reply[PIN_MAX_LEN + 1];
+    snprintf(s_pin_reply, sizeof(s_pin_reply), "%s", pin);
+    snprintf(msg, sizeof(msg), "Classic BT: sending the entered PIN (%u digits) to %s", (unsigned)strlen(s_pin_reply), bd_addr_to_str(addr));
     log_msg(msg);
-    gap_pin_code_response(addr, pin);
+    int err = gap_pin_code_response(addr, s_pin_reply);
+    if (err) {
+        snprintf(msg, sizeof(msg), "Classic BT: PIN reply to %s not sent (BTstack error 0x%02x)", bd_addr_to_str(addr), err);
+        log_msg(msg);
+    }
     update_status(app_state == APP_READY ? "ready" : "standby");
 }
 

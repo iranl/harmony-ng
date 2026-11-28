@@ -1511,9 +1511,11 @@ Puts hub HID keyboard emulator into pairing/discoverable mode for target device.
   - `profile` (default `keyboard`): what the Hub pairs as. `keyboard` is the keyboard, consumer
     keys and mouse (Android TV, Fire TV, Apple TV, PC). `ps3` is Sony's BD Remote Control for a
     PlayStation 3 (Settings > Accessory Settings > Manage Bluetooth Devices > Register New Device),
-    as the stock firmware did: name `BD Remote Control`, class of device 0x00050C, the remote's
-    SDP record and report descriptor, Device ID 054C:0306. `name` is not shown then. The host
-    keeps the profile it paired with (`/data/harmony/bt_host_profiles`, `hosts[].profile`); keys
+    as the stock firmware's `ps3` type did: name `BD Remote Control`, class of device 0x00050C,
+    the remote's HID SDP record and report descriptor (the stock `hal` record's values); the
+    Device ID record is Sony's 054C:0306 (the real remote's; the stock `hal` kept its Logitech
+    one). `name` is not shown then. The host keeps the profile it paired with
+    (`/data/harmony/bt_host_profiles`, `hosts[].profile`, in the config bundle); keys
     for a `ps3` host become BD Remote reports (see BLUETOOTH_HID_CODES.md).
   - Turning pairing mode on disconnects the connected hosts (their link keys are kept). It ends by
     itself after 180 s, or with `"enable": false`.
@@ -1533,13 +1535,19 @@ as before. A host that drops the link after `0000` without a link key refused it
 `GET /api/bt-status` shows `pin.state` `required` for it, and pairing mode starts its 180 s again.
 Start the pairing again on the host: its next PIN request is held (`pin.state` `waiting`) until
 this route sends the code, cancels, or 25 s pass (then the request is rejected and the state is
-`required` again). Hosts that refused `0000` are remembered until `hub_btstack` restarts, so
-pairing them again asks for the code at the first try.
+`required` again; also when the host drops the link while it waits). Hosts that refused `0000`
+are remembered until `hub_btstack` restarts, so pairing them again asks for the code at the first
+try; a cancelled entry and Forget clear that. A second host's PIN request replaces a held one,
+which is then rejected. Each refusal restarts the 180 s, up to 360 s after pairing mode was
+turned on. If the host shows no code, send `0000`.
 - **Request Body**: `{"pin": "842631"}` (a string of 1 to 16 digits; the Enter a host asks for is
   only the keyboard's way to end the entry), or `{"cancel": true}`
-- **Response `200 OK`**: `{"ok": true, "cancelled": false}`
+- **Response `200 OK`**: `{"ok": true, "cancelled": false}`: handed to `hub_btstack`, not yet
+  accepted by the host (`GET /api/bt-status` shows the outcome: the host in `hosts[]` with
+  `paired: true`, or `pin.state` `required` again)
 - **Errors**: `400` for a PIN that is not 1 to 16 digits (a JSON number is refused: it loses
-  leading zeros); `503` while `hub_btstack` is not running.
+  leading zeros); `409` for a PIN while `pin.state` is not `waiting` (a cancel is always taken);
+  `503` while `hub_btstack` is not running; `500` when `hub_btstack` did not take the command.
 
 ### 6.3 Connect Host
 #### `POST /api/bt-connect`
@@ -2344,7 +2352,8 @@ Exports complete hub configuration bundle or individual configuration elements.
   - `bundle` (Full JSON snapshot of devices, activities, settings, MQTT, network, mappings, keys:
     one object with `version` (1), `timestamp`, one member per target below whose file exists,
     under the target's name (`devices`, `activities`, `settings` and `mqtt` are always there, empty
-    when the file is missing), `hub_id` when the Hub has that file, and `btstack_keys`, the
+    when the file is missing), `hub_id` when the Hub has that file, `bt_host_profiles` (what each
+    Bluetooth host paired the Hub as, text) when it exists, and `btstack_keys`, the
     Bluetooth link keys as base64. The header `X-Checksum-CRC32` carries the CRC32 of the body)
   - `devices`
   - `activities`

@@ -958,7 +958,7 @@ export default {
     "loading_bt_status": "BT-Status wird geladen...",
     "pairing_mode": "Kopplungsmodus",
     "bt_pairing_mode_desc": "Den Harmony Hub als Bluetooth-HID-Tastatur sichtbar machen, um ihn mit Nvidia Shield, Apple TV, Fire TV oder PC zu koppeln.",
-    "enable_bt_pairing_60": "BT-Kopplung aktivieren (60 s)",
+    "enable_bt_pairing_60": "BT-Kopplung aktivieren (180 s)",
     "hub_discoverable_bt_keyboard": "Der Hub ist jetzt als Bluetooth-Tastatur sichtbar!",
     "disable_pairing": "Kopplung deaktivieren",
     "bt_pairing_disabled": "BT-Kopplungsmodus deaktiviert",

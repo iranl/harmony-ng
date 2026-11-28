@@ -49,7 +49,7 @@ export function createView() {
     h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } }, [
       h('button', {
         className: 'btn btn-primary',
-        text: `📶 ${t('enable_bt_pairing_60', 'Enable BT Pairing (60s)')}`,
+        text: `📶 ${t('enable_bt_pairing_60', 'Enable BT Pairing (180 s)')}`,
         onclick: async () => {
           if (!devSelect.value) {
             toast.error(t('select_target_bt_pairing', 'Please select a target device to assign this Bluetooth pairing to.'));

@@ -337,6 +337,13 @@ static void send_host_ps3_key(const ps3_key_t *key) {
 bool send_host_ps3_code(unsigned int code) {
     const ps3_key_t *key = ps3_key_by_code(code);
     if (!key) return false;
+    if (target_host_profile() != BT_PROFILE_PS3) {
+        /* a keyboard host would read the BD Remote report as keyboard keys */
+        char msg[96];
+        snprintf(msg, sizeof(msg), "PS3 key code 0x%02x dropped: the target host is not paired as a PlayStation 3", code);
+        log_msg(msg);
+        return true;
+    }
     send_host_ps3_key(key);
     return true;
 }

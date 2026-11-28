@@ -784,6 +784,7 @@ void forget_classic_host(const bd_addr_t addr_in) {
     wake_key_drop(addr);
     link_drop_host(addr);
     if (g_pairing_new_key_valid && memcmp(g_pairing_new_key_addr, addr, 6) == 0) g_pairing_new_key_valid = false;
+    pin_forget(addr);
 
     /* The entry goes first, the channels are closed after: closing a connection that is still being
      * set up reports a failed open at once, and that must not find the host and reconnect it. */

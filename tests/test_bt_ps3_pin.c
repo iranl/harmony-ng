@@ -61,6 +61,9 @@ static void test_pin(void) {
     CHECK(pin_take_timeout(5000 + PIN_WAIT_MS, a) && memcmp(a, ADDR_B, 6) == 0, "after PIN_WAIT_MS the request is rejected");
     CHECK(pin_state() == PIN_STATE_REQUIRED, "and the user is told to pair again");
 
+    CHECK(pin_on_request(ADDR_B, 6000) == PIN_ACTION_WAIT, "(B held again)");
+    CHECK(!pin_on_disconnect(ADDR_B) && pin_state() == PIN_STATE_REQUIRED && !pin_take_reply("1234", a),
+          "B drops the link while held: no code is taken any more, pair again");
     pin_on_request(ADDR_B, 0);
     CHECK(pin_take_cancel(a) && memcmp(a, ADDR_B, 6) == 0 && pin_state() == PIN_STATE_NONE, "cancel rejects the held request");
     CHECK(!pin_take_cancel(a), "a second cancel has nothing to reject");
@@ -73,7 +76,13 @@ static void test_pin(void) {
     CHECK(pin_on_request(ADDR_C, 100) == PIN_ACTION_WAIT && pin_state() == PIN_STATE_WAITING,
           "C asks again on the same link without a link key: it refused 0000, its request is held");
     CHECK(pin_take_cancel(a), "(cancelled)");
+    CHECK(pin_on_request(ADDR_C, 200) == PIN_ACTION_DEFAULT, "a cancelled entry: C gets 0000 first again");
+    CHECK(pin_on_request(ADDR_B, 0) == PIN_ACTION_DEFAULT, "B's entry was cancelled before: 0000 first again too");
+    CHECK(pin_on_disconnect(ADDR_B), "(B refuses 0000 again)");
+    pin_session_end();
     CHECK(pin_on_request(ADDR_B, 0) == PIN_ACTION_WAIT, "B, which refused 0000 before, is asked for its code in the next session");
+    pin_forget(ADDR_B);
+    CHECK(pin_state() == PIN_STATE_NONE && pin_on_request(ADDR_B, 0) == PIN_ACTION_DEFAULT, "forgetting B drops its PIN state: 0000 first again");
     pin_session_end();
 }
 
@@ -152,6 +161,9 @@ static void test_hosts(void) {
     fifo_lines("TARGET 00:11:22:33:44:02\nKBD 52\n");
     CHECK(s_reports[1] == 1 && s_last_report[1][1] == 0x01 && s_last_report[1][4] == 0x52, "the keyboard host B still gets a keyboard report");
     fire(&g_host_key_release_timer);
+    before = s_reports[1];
+    fifo_lines("TARGET 00:11:22:33:44:02\nPS3 5C\n");
+    CHECK(s_reports[1] == before, "PS3 5C to the keyboard host B sends nothing (no BD Remote report to a keyboard host)");
 
     printf("[-] the profile file\n");
     unlink(BT_PROFILES_FILE);
@@ -177,6 +189,14 @@ static void test_hosts(void) {
     CHECK(!g_host_pairing && g_pairing_profile == BT_PROFILE_KEYBOARD, "pair_host_off goes back to the keyboard");
     execute_btstack_cmd("pair_host_on Living Room");
     CHECK(g_pairing_profile == BT_PROFILE_KEYBOARD && strcmp(g_host_name, "Living Room") == 0, "pair_host_on without a profile is the keyboard");
+    s_now_ms += PAIRING_TIMEOUT_MS - 1000;
+    g_pairing_timer.armed = false;
+    pairing_timeout_restart();
+    CHECK(g_pairing_timer.armed, "a refusal before the limit restarts the pairing timeout");
+    s_now_ms += PAIRING_TIMEOUT_MS - 1000;
+    g_pairing_timer.armed = false;
+    pairing_timeout_restart();
+    CHECK(!g_pairing_timer.armed, "a refusal that would run past PAIRING_MAX_MS does not restart it");
     execute_btstack_cmd("pair_host_off");
     execute_btstack_cmd("pin_reply 842631");
     CHECK(strcmp(s_pin_cmd, "pin_reply 842631") == 0, "pin_reply goes to the PIN handler");
@@ -185,7 +205,9 @@ static void test_hosts(void) {
 
     printf("[-] the status file\n");
     setup_hosts();
-    pin_on_request(ADDR_B, 0); /* B refused 0000 in test_pin: held at once */
+    pin_on_request(ADDR_B, 0); /* 0000, refused, then held */
+    pin_on_disconnect(ADDR_B);
+    pin_on_request(ADDR_B, 0);
     update_status("ready");
     char st[4096] = "";
     FILE *f = fopen(STATUS_FILE, "r");

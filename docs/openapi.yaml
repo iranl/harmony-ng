@@ -2353,7 +2353,7 @@ paths:
               pin: "842631"
       responses:
         '200':
-          description: Handed to hub_btstack
+          description: Handed to hub_btstack (not yet accepted by the host)
           content:
             application/json:
               example:
@@ -2361,6 +2361,10 @@ paths:
                 cancelled: false
         '400':
           description: pin is not a string of 1 to 16 digits
+        '409':
+          description: A PIN while no PIN request is waiting (bt-status pin.state is not waiting)
+        '500':
+          description: hub_btstack did not take the command
         '503':
           description: hub_btstack is not running
 

@@ -46,8 +46,10 @@ bool pin_on_disconnect(const uint8_t addr[6]);
  * 1..PIN_MAX_LEN digits. The request is answered then (state back to NONE). */
 bool pin_take_reply(const char *pin, uint8_t addr_out[6]);
 /* The user cancelled (or pairing mode ended): true and the address when a request was held,
- * which then gets a negative reply */
+ * which then gets a negative reply; that host gets 0000 first again next time */
 bool pin_take_cancel(uint8_t addr_out[6]);
+/* The host was forgotten (host_forget): drop everything known about its PIN */
+void pin_forget(const uint8_t addr[6]);
 /* The held request's time is up: true and the address (negative reply) */
 bool pin_take_timeout(uint32_t now_ms, uint8_t addr_out[6]);
 /* Pairing mode ended: forget the hosts that took or refused 0000 and any REQUIRED notice */

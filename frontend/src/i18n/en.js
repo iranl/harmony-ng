@@ -958,7 +958,7 @@ export default {
     "loading_bt_status": "Loading BT status...",
     "pairing_mode": "Pairing Mode",
     "bt_pairing_mode_desc": "Make Harmony Hub discoverable as a Bluetooth HID Keyboard to pair with Nvidia Shield, Apple TV, Fire TV, or PC.",
-    "enable_bt_pairing_60": "Enable BT Pairing (60s)",
+    "enable_bt_pairing_60": "Enable BT Pairing (180 s)",
     "hub_discoverable_bt_keyboard": "Hub is now discoverable as Bluetooth Keyboard!",
     "disable_pairing": "Disable Pairing",
     "bt_pairing_disabled": "Disabled BT pairing mode",

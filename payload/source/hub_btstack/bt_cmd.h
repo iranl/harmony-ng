@@ -19,7 +19,9 @@ void cmd_poll_timeout(btstack_timer_source_t *ts);
 #define PAIRING_TIMEOUT_MS (180 * 1000)
 void pairing_mode_off(const char *reason);
 void pairing_timeout_cancel(void);
-/* Pairing mode restarts its timeout (a host refused 0000: the user pairs it again) */
+/* Pairing mode restarts its timeout (a host refused 0000: the user pairs it again), but never
+ * past PAIRING_MAX_MS after pair_host_on: a host that keeps retrying cannot keep it on */
+#define PAIRING_MAX_MS (2 * PAIRING_TIMEOUT_MS)
 void pairing_timeout_restart(void);
 
 /* In bt_main.c (they touch the SDP records and the HCI PIN replies):
