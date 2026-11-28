@@ -7,6 +7,7 @@
 #
 #   modprobe [-q] [-r] [--] <module or alias> [param=value ...]
 D=${MODPROBE_DIR:-/lib/modules/$(uname -r)}  # MODPROBE_DIR: tests
+P=${MODPROBE_LOADED:-/proc/modules}  # MODPROBE_LOADED: tests (the host has its own modules)
 q=0
 r=0
 while [ $# -gt 0 ]; do
@@ -56,7 +57,7 @@ fi
 deps=$(echo ${line#*:} | tr ' ' '\n' | awk '{a[NR]=$0} END {for (i=NR; i>0; i--) print a[i]}')
 for m in $deps "${line%%:*}"; do
     n=$(basename "$m" .ko | tr - _)
-    grep -q "^$n " /proc/modules && continue
+    grep -q "^$n " "$P" && continue
     if [ "$m" = "${line%%:*}" ]; then
         insmod "$D/$m" "$@"
     else

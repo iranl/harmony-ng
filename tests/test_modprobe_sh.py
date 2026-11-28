@@ -40,8 +40,11 @@ class ModprobeScript(unittest.TestCase):
         self.log = r / "calls"
         (stub / "insmod").write_text(f"#!/bin/sh\necho insmod \"${{1##*/}}\" >> '{self.log}'\n")
         (stub / "insmod").chmod(0o755)
-        # nothing loaded yet (the script reads /proc/modules)
-        self.env = dict(os.environ, PATH=f"{stub}:/usr/bin:/bin", MODPROBE_DIR=str(self.mods))
+        # nothing loaded yet: an empty list in place of the host's /proc/modules
+        loaded = r / "loaded"
+        loaded.write_text("")
+        self.env = dict(os.environ, PATH=f"{stub}:/usr/bin:/bin", MODPROBE_DIR=str(self.mods),
+                        MODPROBE_LOADED=str(loaded))
 
     def tearDown(self):
         self.tmp.cleanup()
