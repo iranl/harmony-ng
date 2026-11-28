@@ -3912,6 +3912,14 @@ harmony_send_command:
             <span data-i18n="usb_wifi_setup_lbl">Wi-Fi setup over USB</span>
           </label>
           <div class="help" style="margin-top: 4px;" data-i18n="usb_wifi_setup_desc">A computer connected to the Hub's USB port can read the network name and set the Wi-Fi network (tools/set_wifi_usb.py). Turn this off if others can plug a cable into the Hub. Saved with the IP settings buttons below; it applies at once.</div>
+          <div id="usbWifiAdapterBlock" style="display: none; margin-top: 12px;">
+            <label style="display: flex; align-items: center; gap: 6px;">
+              <input type="checkbox" id="usbWifiAdapterToggle" name="usb_wifi_adapter" value="1">
+              <span data-i18n="usb_wifi_adapter_lbl">USB Wi-Fi adapter</span>
+            </label>
+            <div class="help" style="margin-top: 4px;" data-i18n="usb_wifi_adapter_desc">A USB Wi-Fi 5 adapter plugged in at boot becomes the Hub's Wi-Fi, with 5 GHz networks.</div>
+            <div id="usbWifiAdapterState" class="subtle" style="margin-top: 4px;"></div>
+          </div>
 
           <div class="actions" style="margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px;">
             <button type="button" class="btn btn-sm btn-primary btn-save-eth" data-apply="save"

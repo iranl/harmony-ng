@@ -499,6 +499,20 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
           usbToggle.checked = st.config.usb_wifi_setup;
           usbToggle.dataset.loaded = '1';
         }
+        // USB Wi-Fi adapter (Linux 6.18 system only: an older Hub does not report the switch)
+        const adpToggle = document.getElementById('usbWifiAdapterToggle');
+        const adpBlock = document.getElementById('usbWifiAdapterBlock');
+        if (adpToggle && typeof st.config.usb_wifi_adapter === 'boolean') {
+          adpToggle.checked = st.config.usb_wifi_adapter;
+          adpToggle.dataset.loaded = '1';
+          if (adpBlock) adpBlock.style.display = '';
+          const adpState = document.getElementById('usbWifiAdapterState');
+          if (adpState) {
+            adpState.textContent = st.wifi_usb_adapter
+              ? t('usb_wifi_adapter_in_use')
+              : (st.config.usb_wifi_adapter ? t('usb_wifi_adapter_not_found') : '');
+          }
+        }
       }
 
       // Ensure IP assignment mode select toggles static fields
@@ -534,6 +548,8 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
     };
     const usbToggle = document.getElementById('usbWifiSetupToggle');
     if (usbToggle && usbToggle.dataset.loaded === '1') data.usb_wifi_setup = usbToggle.checked ? 1 : 0;
+    const adpToggle = document.getElementById('usbWifiAdapterToggle');
+    if (adpToggle && adpToggle.dataset.loaded === '1') data.usb_wifi_adapter = adpToggle.checked ? 1 : 0;
     try {
       if (status) status.textContent = t('saving_ip_settings');
       await this.client.saveEthernet(data);

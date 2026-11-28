@@ -108,6 +108,8 @@ function legacyForm(loaded, checked) {
   add('span', 'ethSaveStatus', {});
   const toggle = add('input', 'usbWifiSetupToggle', { type: 'checkbox', checked });
   if (loaded) toggle.dataset.loaded = '1';
+  const adapter = add('input', 'usbWifiAdapterToggle', { type: 'checkbox', checked: !checked });
+  if (loaded) adapter.dataset.loaded = '1';
   return toggle;
 }
 
@@ -124,15 +126,18 @@ await check.check('legacy UI: the switch is sent only after the stored value was
   const data = await legacySave();
   assert.ok(data, 'save sent');
   assert.equal('usb_wifi_setup' in data, false);
+  assert.equal('usb_wifi_adapter' in data, false, 'the adapter switch neither');
 });
 
 await check.check('legacy UI: the switch is sent with the Ethernet settings', async () => {
   legacyForm(true, false);
   let data = await legacySave();
   assert.equal(data.usb_wifi_setup, 0);
+  assert.equal(data.usb_wifi_adapter, 1, 'the USB Wi-Fi adapter switch is sent too');
   legacyForm(true, true);
   data = await legacySave();
   assert.equal(data.usb_wifi_setup, 1);
+  assert.equal(data.usb_wifi_adapter, 0);
 });
 
 check.finish();
