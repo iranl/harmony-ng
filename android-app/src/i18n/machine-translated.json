@@ -947,7 +947,20 @@
     "combined_transports_saved",
     "combined_plugin_not_found",
     "combined_plugin_install_confirm",
-    "net_cmd_headers_lbl"
+    "net_cmd_headers_lbl",
+    "tpl_from_template_btn",
+    "tpl_title",
+    "tpl_search_ph",
+    "tpl_loading",
+    "tpl_load_failed",
+    "tpl_none",
+    "tpl_needs_plugin",
+    "tpl_transports_lbl",
+    "tpl_back",
+    "tpl_create",
+    "tpl_field_required",
+    "tpl_created",
+    "tpl_field_invalid"
   ],
   "fr": [
     "map_action_help",
@@ -1896,7 +1909,20 @@
     "combined_transports_saved",
     "combined_plugin_not_found",
     "combined_plugin_install_confirm",
-    "net_cmd_headers_lbl"
+    "net_cmd_headers_lbl",
+    "tpl_from_template_btn",
+    "tpl_title",
+    "tpl_search_ph",
+    "tpl_loading",
+    "tpl_load_failed",
+    "tpl_none",
+    "tpl_needs_plugin",
+    "tpl_transports_lbl",
+    "tpl_back",
+    "tpl_create",
+    "tpl_field_required",
+    "tpl_created",
+    "tpl_field_invalid"
   ],
   "nl": [
     "map_action_help",
@@ -2845,7 +2871,20 @@
     "combined_transports_saved",
     "combined_plugin_not_found",
     "combined_plugin_install_confirm",
-    "net_cmd_headers_lbl"
+    "net_cmd_headers_lbl",
+    "tpl_from_template_btn",
+    "tpl_title",
+    "tpl_search_ph",
+    "tpl_loading",
+    "tpl_load_failed",
+    "tpl_none",
+    "tpl_needs_plugin",
+    "tpl_transports_lbl",
+    "tpl_back",
+    "tpl_create",
+    "tpl_field_required",
+    "tpl_created",
+    "tpl_field_invalid"
   ],
   "es": [
     "map_action_help",
@@ -3794,7 +3833,20 @@
     "combined_transports_saved",
     "combined_plugin_not_found",
     "combined_plugin_install_confirm",
-    "net_cmd_headers_lbl"
+    "net_cmd_headers_lbl",
+    "tpl_from_template_btn",
+    "tpl_title",
+    "tpl_search_ph",
+    "tpl_loading",
+    "tpl_load_failed",
+    "tpl_none",
+    "tpl_needs_plugin",
+    "tpl_transports_lbl",
+    "tpl_back",
+    "tpl_create",
+    "tpl_field_required",
+    "tpl_created",
+    "tpl_field_invalid"
   ],
   "it": [
     "map_action_help",
@@ -4743,6 +4795,19 @@
     "combined_transports_saved",
     "combined_plugin_not_found",
     "combined_plugin_install_confirm",
-    "net_cmd_headers_lbl"
+    "net_cmd_headers_lbl",
+    "tpl_from_template_btn",
+    "tpl_title",
+    "tpl_search_ph",
+    "tpl_loading",
+    "tpl_load_failed",
+    "tpl_none",
+    "tpl_needs_plugin",
+    "tpl_transports_lbl",
+    "tpl_back",
+    "tpl_create",
+    "tpl_field_required",
+    "tpl_created",
+    "tpl_field_invalid"
   ]
 }

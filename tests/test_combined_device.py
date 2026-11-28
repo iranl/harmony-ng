@@ -185,6 +185,26 @@ def main():
             check(r.get("ok") is True and req.get("headers", {}).get("Authorization") == "Bearer t0k",
                   "converted: token still sent", (r, req.get("headers")))
 
+            # a new combined device in one JSON request (the web UI's device templates)
+            st, r = hub.http_post("/api/new-device", {
+                "name": "Kodi", "manufacturer": "Kodi", "model": "21", "type": "Combined", "transports": ["http", "bt"],
+                "http": {"netHost": "127.0.0.1", "netPort": wport, "httpAuthType": "basic",
+                         "httpUser": "kodi", "httpPassword": "pw"},
+                "commands": [{"name": "Home", "transport": "http", "httpMethod": "POST", "httpPath": "/jsonrpc",
+                              "httpBody": '{"jsonrpc":"2.0","id":1,"method":"Input.Home"}'}]})
+            new_id = r.get("deviceId") if isinstance(r, dict) else None
+            d = dev_by_id(new_id) or {}
+            names = {c["name"]: c for c in d.get("commands", [])}
+            check(st == 200 and d.get("transports") == ["http", "bt"] and d.get("http", {}).get("hasHttpPassword") is True,
+                  "new combined device from one JSON request", (st, r, d))
+            check(names.get("Home", {}).get("keyCode") == "HTTP:Home" and names.get("Connect", {}).get("transport") == "bt",
+                  "its HTTP command, and Connect added for bt", names)
+            REQUESTS.clear()
+            st, r = hub.http_post("/api/device-net-test", {"id": new_id, "command": "Home"}, timeout=15)
+            req = REQUESTS[-1] if REQUESTS else {}
+            check(r.get("ok") is True and req.get("headers", {}).get("Authorization") == "Basic a29kaTpwdw==",
+                  "new combined device sends with its password", (r, req.get("headers")))
+
             st, _ = hub.http_post("/api/device-save", {"id": "60", "transports": ["fax"]})
             check(st == 400, "400 for an unknown transport", st)
             st, _ = hub.http_post("/api/device-save", {"id": "60", "http": {"netPort": 70000}})
