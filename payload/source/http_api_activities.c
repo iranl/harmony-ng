@@ -758,7 +758,9 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
                     /* A Command step with a hold keeps its key down that long, with the timing
                      * of the orchestrator (hw_hold.c) */
                     cJSON *jhold = cJSON_GetObjectItemCaseSensitive(st, "hold");
-                    uint32_t hold_ms = (jhold && cJSON_IsNumber(jhold)) ? hw_hold_clamp_ms((long)jhold->valuedouble) : 0;
+                    uint32_t hold_ms = 0; /* a number, or a string holding one, as config_sanitize.c takes it */
+                    if (cJSON_IsNumber(jhold)) hold_ms = hw_hold_clamp_ms((long)jhold->valuedouble);
+                    else if (cJSON_IsString(jhold) && jhold->valuestring) hold_ms = hw_hold_clamp_ms(atol(jhold->valuestring));
 
                     if (dev_buf[0] && cmd[0] && hold_ms > 0 && strcasecmp(type, "BTCommand") != 0) {
                         hw_hold_run(dev_buf, 1, cmd, hold_ms);

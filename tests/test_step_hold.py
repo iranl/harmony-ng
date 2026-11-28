@@ -6,6 +6,8 @@ A sequence step that holds its key ("hold", ms) instead of tapping it (orchestra
 - a power off with such a step takes at least the hold
 - an activity saved with a held step keeps the hold, capped at 10 s; a raw Bluetooth (HID:) step
   keeps no hold
+- Test Live (POST /api/activity-test-sequence) holds a key for its hold, given as a number or as
+  a string holding one
 The daemon runs with --dry-run: the infrared sends are simulated (a Bluetooth send fails there,
 as hub_btstack does not run, so the held step uses an infrared device).
 """
@@ -100,6 +102,15 @@ def main():
                 ],
             })
             check(st == 200, "save activity 12 with held steps")
+
+            # Test Live answers after the hold, given as a number or as a string holding one
+            for hold in (600, "600"):
+                t0 = time.time()
+                st, r = hub.http_post("/api/activity-test-sequence", {"steps": [
+                    {"type": "Command", "deviceId": "2", "command": "Home", "hold": hold}]}, timeout=10)
+                took = time.time() - t0
+                check(st == 200 and isinstance(r, dict) and r.get("executed") == 1 and took >= 0.6,
+                      "Test Live holds the key %r ms" % (hold,), "%s %s %.2f s" % (st, r, took))
             act = saved_activity(hub, "12") or {}
             stop = act.get("stopSequence", [])
             holds = [s.get("hold") for s in stop]
