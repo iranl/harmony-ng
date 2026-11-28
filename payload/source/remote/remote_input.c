@@ -326,8 +326,11 @@ void handle_screen_touch_tap(int x, int y) {
         return;
     }
 
-    /* Capacitive Activities and Devices keys below the display, on remotes that report them as touch */
+    /* Capacitive Activities and Devices keys below the display, on remotes that report them as touch.
+     * With the capacitive keys off they do nothing, no pulse either, as on the key device
+     * (handle_navigation_key()) */
     if (y >= FB_HEIGHT) {
+        if (!g_cap_buttons_enabled) return;
         remote_haptic_tap();
         g_confirm_pending_rf_code = 0;
         if (!is_remote_paired()) {

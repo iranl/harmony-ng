@@ -5,6 +5,8 @@
  *  2. On: the capacitive keys (on the key device and on the touch strip below the display) write
  *     the driver's timed command for the set length (03 <ms, little endian>); a hard key, a tap
  *     on a menu row and a swipe write nothing.
+ *     With the capacitive keys off (Settings, TOUCH), they give no pulse and do nothing, on the
+ *     key device and on the touch strip.
  *  3. The setting's row steps through OFF, 20, 40 and 80 ms with one pulse of each new length;
  *     the length is saved as haptic=<ms> and read back, and a value it does not offer reads as off.
  *
@@ -93,6 +95,16 @@ int main(void) {
     g_settings_subview = SETTINGS_VIEW_CATEGORIES;
     touch(120, UI_CONTENT_Y + 20, 120, UI_CONTENT_Y + 20);   /* a settings category */
     CHECK(log_bytes(buf, sizeof(buf)) == 9, "on: a tap on a menu row writes nothing");
+    g_cap_buttons_enabled = false;
+    handle_navigation_key(102, 1);
+    handle_navigation_key(102, 0);
+    CHECK(log_bytes(buf, sizeof(buf)) == 9, "capacitive keys off: the Devices key writes nothing");
+    g_current_view = VIEW_SETTINGS;
+    g_settings_subview = SETTINGS_VIEW_CATEGORIES;
+    touch(60, FB_HEIGHT + 10, 60, FB_HEIGHT + 10);
+    CHECK(log_bytes(buf, sizeof(buf)) == 9, "capacitive keys off: the touch strip below the display writes nothing");
+    CHECK(g_current_view == VIEW_SETTINGS, "capacitive keys off: the touch strip opens nothing");
+    g_cap_buttons_enabled = true;
 
     /* 3 */
     g_haptic_ms = 0;
