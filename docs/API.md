@@ -931,7 +931,9 @@ name. `tcpFormat` `text` decodes `\r`, `\n`, `\t`, `\\` and `\xHH`; `hex` sends 
 bytes (spaces and `:` between them are ignored). An HTTP request has `Connection: close`, the
 device's headers, `Authorization: Basic ...` or `Bearer ...`, and a `Content-Type`
 (`httpContentType`, else `application/json` for a body starting with `{` or `[`, else
-`text/plain`). Redirects are not followed.
+`text/plain`). Redirects are not followed. A command may carry its own `httpHeaders` (a
+`SOAPACTION` per action): they are sent first, and a device header of the same name is left out
+(8 headers in all).
 
 TLS (BearSSL, TLS 1.0 to 1.2) checks the certificate by `netTlsVerify`:
 - `verify`: it must chain to a CA in `/data/harmony/cacert.pem` and name `netHost` (a certificate
@@ -971,9 +973,46 @@ Runs a command of an HTTP or TCP device now and waits for it (up to about 4 time
   command of that name.
 
 #### `POST /api/device-net-pin-forget`
-- **Request Body**: `{"id": "50"}`.
+- **Request Body**: `{"id": "50"}` (a combined device also names the connection:
+  `"transport": "http"` or `"tcp"`).
 - **Response `200 OK`**: `{"ok": true, "removed": true}` (`removed` false when no key was
   pinned for the device's host and port).
+
+### 3.10 Combined Devices
+A device of type `Combined` sends each command over its own transport, so one device can mix
+infrared, Bluetooth, HTTP, TCP, MQTT and plugin commands (a TV driven by its plugin, with IR for
+the inputs the plugin cannot select; a receiver on Telnet and HTTP).
+- `transports`: the ones the device uses, in order, from `ir`, `bt`, `http`, `tcp`, `mqtt`,
+  `plugin`. The first is the transport of a command that names none (or one not listed).
+- The settings of each listed transport are the usual device fields: `controlPort` (IR),
+  `bdaddr` and the `bt*` fields (BT), `mqttTopic` and `mqttPulseMs` (MQTT), `plugin` and `config`
+  (plugin). The HTTP and TCP connections are the objects `http` and `tcp`, with the fields of an
+  HTTP or TCP device (3.9): `netHost`, `netPort`, `netTls`, `httpHeaders`, `httpAuthType`, and so
+  on. `http.httpPassword` and `http.httpToken` are never returned (`hasHttpPassword`,
+  `hasHttpToken` inside `http`), and a save without them keeps the stored ones for the same
+  address. A save keeps only the settings of the listed transports.
+- Each command has `transport` and the fields of that transport only: `keyCode`, `port` and
+  `repeats` (IR), `HID:` codes (BT), `PLUGIN:<id>:<sub>` (plugin), `HTTP:<name>` with the
+  request fields, or `TCP:<name>` with `tcpPayload` (3.9). Connect and Disconnect are added (BT)
+  when `bt` is listed.
+- `POST /api/command-save` and `POST /api/commands-batch` take `transport` per command; without
+  it the stored command's transport is kept, else the code tells (`PLUGIN:`, `G:MQTT`, `HID:`),
+  else the device's first transport.
+- A save with `"type": "Combined"` turns a device of one transport into a combined one: that
+  transport is listed (unless the save lists them), an HTTP or TCP connection moves into
+  `http` / `tcp`, and every command gets that transport.
+- `POST /api/device-net-test` runs an HTTP or TCP command over its connection; without
+  `command` it needs `"transport": "http"` or `"tcp"` (else `400`).
+
+```json
+{"id": "12", "name": "Receiver", "type": "Combined", "transports": ["tcp", "http", "ir"],
+ "controlPort": 1, "tcp": {"netHost": "192.0.2.10", "netPort": 23},
+ "http": {"netHost": "192.0.2.10", "netPort": 8080},
+ "commands": [
+   {"name": "PowerOn", "transport": "tcp", "tcpPayload": "PWON\\r"},
+   {"name": "Status", "transport": "http", "httpPath": "/goform/formMainZone_MainZoneXml.xml"},
+   {"name": "HDMI 1", "transport": "ir", "keyCode": "0000 006D ...", "port": 2}]}
+```
 
 ---
 

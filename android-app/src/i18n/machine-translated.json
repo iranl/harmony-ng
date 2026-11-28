@@ -934,7 +934,20 @@
     "press_min_repeats",
     "press_min_repeats_title",
     "click_start_capture_hint",
-    "irdb_captured_frames"
+    "irdb_captured_frames",
+    "trans_combined",
+    "combined_transports_lbl",
+    "combined_plugin_lbl",
+    "combined_send_over",
+    "combined_convert_btn",
+    "combined_convert_confirm",
+    "combined_pick_transport",
+    "combined_choose_plugin",
+    "combined_plugin_install_opt",
+    "combined_transports_saved",
+    "combined_plugin_not_found",
+    "combined_plugin_install_confirm",
+    "net_cmd_headers_lbl"
   ],
   "fr": [
     "map_action_help",
@@ -1870,7 +1883,20 @@
     "press_min_repeats",
     "press_min_repeats_title",
     "click_start_capture_hint",
-    "irdb_captured_frames"
+    "irdb_captured_frames",
+    "trans_combined",
+    "combined_transports_lbl",
+    "combined_plugin_lbl",
+    "combined_send_over",
+    "combined_convert_btn",
+    "combined_convert_confirm",
+    "combined_pick_transport",
+    "combined_choose_plugin",
+    "combined_plugin_install_opt",
+    "combined_transports_saved",
+    "combined_plugin_not_found",
+    "combined_plugin_install_confirm",
+    "net_cmd_headers_lbl"
   ],
   "nl": [
     "map_action_help",
@@ -2806,7 +2832,20 @@
     "press_min_repeats",
     "press_min_repeats_title",
     "click_start_capture_hint",
-    "irdb_captured_frames"
+    "irdb_captured_frames",
+    "trans_combined",
+    "combined_transports_lbl",
+    "combined_plugin_lbl",
+    "combined_send_over",
+    "combined_convert_btn",
+    "combined_convert_confirm",
+    "combined_pick_transport",
+    "combined_choose_plugin",
+    "combined_plugin_install_opt",
+    "combined_transports_saved",
+    "combined_plugin_not_found",
+    "combined_plugin_install_confirm",
+    "net_cmd_headers_lbl"
   ],
   "es": [
     "map_action_help",
@@ -3742,7 +3781,20 @@
     "press_min_repeats",
     "press_min_repeats_title",
     "click_start_capture_hint",
-    "irdb_captured_frames"
+    "irdb_captured_frames",
+    "trans_combined",
+    "combined_transports_lbl",
+    "combined_plugin_lbl",
+    "combined_send_over",
+    "combined_convert_btn",
+    "combined_convert_confirm",
+    "combined_pick_transport",
+    "combined_choose_plugin",
+    "combined_plugin_install_opt",
+    "combined_transports_saved",
+    "combined_plugin_not_found",
+    "combined_plugin_install_confirm",
+    "net_cmd_headers_lbl"
   ],
   "it": [
     "map_action_help",
@@ -4678,6 +4730,19 @@
     "press_min_repeats",
     "press_min_repeats_title",
     "click_start_capture_hint",
-    "irdb_captured_frames"
+    "irdb_captured_frames",
+    "trans_combined",
+    "combined_transports_lbl",
+    "combined_plugin_lbl",
+    "combined_send_over",
+    "combined_convert_btn",
+    "combined_convert_confirm",
+    "combined_pick_transport",
+    "combined_choose_plugin",
+    "combined_plugin_install_opt",
+    "combined_transports_saved",
+    "combined_plugin_not_found",
+    "combined_plugin_install_confirm",
+    "net_cmd_headers_lbl"
   ]
 }

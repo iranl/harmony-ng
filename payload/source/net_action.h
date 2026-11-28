@@ -17,10 +17,12 @@ int net_action_send(const cJSON *dev, const cJSON *cmd, const char *dev_id, cons
                     const char *command, int live_key);
 
 /* POST /api/device-net-test: runs cmd (NULL: connect and TLS handshake only) and waits.
+ * want: NET_KIND_* of the connection on a combined device (0: from cmd's transport).
  * Returns {ok, status?, error?, response?, tlsFingerprint?, pinned?}. */
-cJSON *net_action_test(const cJSON *dev, const cJSON *cmd, const char *dev_id, const char *dev_name);
+cJSON *net_action_test(const cJSON *dev, const cJSON *cmd, int want, const char *dev_id, const char *dev_name);
 
-/* Removes the pinned key of the device's host:port. 0 removed, 1 none stored, -1 error. */
-int net_action_forget_pin(const cJSON *dev);
+/* Removes the pinned key of the device's host:port (want as for net_action_test). 0 removed,
+ * 1 none stored, -1 error. */
+int net_action_forget_pin(const cJSON *dev, int want);
 
 #endif

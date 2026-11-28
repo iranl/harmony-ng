@@ -109,12 +109,23 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
   }
 
   async saveLearnedCommand(data) {
-    return this.postForm('/ir/command', data);
+    return this.postForm('/ir/command', this.withCommandTransport(data));
+  }
+
+  /* A command saved for the combined device open in the studio goes over the transport chosen
+     there (commandTransport: {deviceId, transport}, set by the studio); a command that names
+     its own transport keeps it */
+  withCommandTransport(data) {
+    const ct = this.commandTransport;
+    if (!ct || !data || data.transport || String(data.deviceId) !== String(ct.deviceId)) return data;
+    return { ...data, transport: ct.transport };
   }
 
   // config goes as one JSON field: copied flat on top, a config key named like a device field
   // (name, deviceId) replaced it
   async saveNewDevice(data) {
+    // a combined device's "transports" is a list: a form would send "ir,bt", which the Hub refuses
+    if (Array.isArray(data.transports)) return this.postJson('/ir/new-device', data);
     const payload = { ...data };
     if (data.config && typeof data.config === 'object') {
       payload.config = JSON.stringify(data.config);
@@ -149,7 +160,11 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
   }
 
   async saveBatchCommands(deviceId, commands) {
-    return this.postJson('/api/commands-batch', { deviceId: String(deviceId), commands });
+    const list = (commands || []).map(c => this.withCommandTransport({ ...c, deviceId }));
+    return this.postJson('/api/commands-batch', {
+      deviceId: String(deviceId),
+      commands: list.map(({ deviceId: _d, ...c }) => c)
+    });
   }
 
   /* Bulk IR Lab */
@@ -198,15 +213,17 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
     return this.postJson('/api/device-save', data);
   }
 
-  async testDeviceNet(deviceId, command) {
+  /* transport: "http" | "tcp", the connection of a combined device to test without a command */
+  async testDeviceNet(deviceId, command, transport) {
     const data = { id: String(deviceId) };
     if (command) data.command = command;
+    if (transport) data.transport = transport;
     // the Hub waits up to about 4 times netTimeoutMs (62 s at most): longer than the 12 s default
     return this.postJson('/api/device-net-test', data, { timeout: 65000 });
   }
 
-  async forgetDeviceNetPin(deviceId) {
-    return this.postJson('/api/device-net-pin-forget', { id: String(deviceId) });
+  async forgetDeviceNetPin(deviceId, transport) {
+    return this.postJson('/api/device-net-pin-forget', { id: String(deviceId), ...(transport ? { transport } : {}) });
   }
 
   /* Network (Wi-Fi & Ethernet) */

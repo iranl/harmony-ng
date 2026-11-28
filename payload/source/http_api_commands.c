@@ -64,6 +64,38 @@ static void copy_net_cmd_fields(const cJSON *p, cJSON *cmd) {
         cJSON_DeleteItemFromObjectCaseSensitive(cmd, keys[i]);
         cJSON_AddStringToObject(cmd, keys[i], j->valuestring);
     }
+    /* the command's own headers (an empty array removes them) */
+    const cJSON *h = cJSON_GetObjectItemCaseSensitive(p, "httpHeaders");
+    if (cJSON_IsArray(h)) {
+        cJSON_DeleteItemFromObjectCaseSensitive(cmd, "httpHeaders");
+        if (cJSON_GetArraySize(h) > 0) cJSON_AddItemToObject(cmd, "httpHeaders", cJSON_Duplicate(h, 1));
+    }
+}
+
+/* The DEV_TR_* a command saved on a combined device goes over: the request's "transport", else
+ * the stored command's, else its code's prefix, else the device's first; never one the device
+ * does not list */
+static int combined_cmd_transport(const cJSON *dev, const cJSON *req, const cJSON *stored, const char *raw) {
+    int mask = device_transports(dev, NULL);
+    const cJSON *jt = cJSON_GetObjectItemCaseSensitive(req, "transport");
+    int tr = cJSON_IsString(jt) ? device_transport_bit(jt->valuestring) : 0;
+    if (!(tr & mask) && stored) {
+        jt = cJSON_GetObjectItemCaseSensitive(stored, "transport");
+        tr = cJSON_IsString(jt) ? device_transport_bit(jt->valuestring) : 0;
+    }
+    if (!(tr & mask)) {
+        if (strncasecmp(raw, "PLUGIN:", 7) == 0) tr = DEV_TR_PLUGIN;
+        else if (strncmp(raw, "G:MQTT", 6) == 0) tr = DEV_TR_MQTT;
+        else if (strncasecmp(raw, "HID:", 4) == 0 || strncmp(raw, "G:HID", 5) == 0 ||
+                 strncmp(raw, "BT:SCRIPT:", 10) == 0) tr = DEV_TR_BT;
+    }
+    if (!(tr & mask)) tr = device_command_transport(dev, NULL);
+    return tr;
+}
+
+static void cmd_set_transport(cJSON *cmd, int tr) {
+    cJSON_DeleteItemFromObjectCaseSensitive(cmd, "transport");
+    if (tr) cJSON_AddStringToObject(cmd, "transport", device_transport_name(tr));
 }
 
 int http_api_commands_handle(int client_fd, const char *method, const char *clean_path,
@@ -153,6 +185,18 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                 int is_mqtt_cmd = dev_is_mqtt || (strncmp(raw_data, "G:MQTT", 6) == 0);
                                 int is_ble_cmd = (strncmp(raw_data, BLE_ADV_KEYCODE_PREFIX, BLE_ADV_KEYCODE_PREFIX_LEN) == 0);
                                 int is_plugin_cmd = dev_is_plugin || (strncmp(raw_data, "PLUGIN:", 7) == 0 || strncmp(raw_data, "plugin:", 7) == 0);
+                                /* combined device: the command's own transport decides */
+                                int cmd_tr = 0;
+                                if (device_is_combined(dev_item)) {
+                                    cmd_tr = combined_cmd_transport(dev_item, p, cmd_match, raw_data);
+                                    dev_net = cmd_tr == DEV_TR_HTTP ? NET_KIND_HTTP : cmd_tr == DEV_TR_TCP ? NET_KIND_TCP : 0;
+                                    is_bt_cmd = cmd_tr == DEV_TR_BT;
+                                    is_mqtt_cmd = cmd_tr == DEV_TR_MQTT;
+                                    is_plugin_cmd = cmd_tr == DEV_TR_PLUGIN;
+                                    if (cmd_tr == DEV_TR_IR) is_ble_cmd = 0;
+                                    /* the plugin's manifest (ranges, infrared alternative) only for a plugin command */
+                                    dev_is_plugin = cmd_tr == DEV_TR_PLUGIN;
+                                }
 
                                 if (cmd_match) {
                                     cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "name");
@@ -170,6 +214,7 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                         cJSON_AddBoolToObject(cmd_match, "isMacro", 1);
                                     }
                                     cmd_range_copy(cmd_match, p);
+                                    cmd_set_transport(cmd_match, cmd_tr);
                                     if (dev_is_plugin) cmd_ir_alt_copy(cmd_match, p);
                                     if (dev_net) copy_net_cmd_fields(p, cmd_match);
                                     if (dev_is_plugin && cmd_has_ir_alt(cmd_match)) {
@@ -202,6 +247,7 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                         if (!cmd_ir_alt_in_request(p)) cmd_ir_alt_fill_from_manifest(new_cmd, dd);
                                         cJSON_Delete(dd);
                                     }
+                                    cmd_set_transport(new_cmd, cmd_tr);
                                     if (dev_net) copy_net_cmd_fields(p, new_cmd);
                                     if ((dev_is_plugin && cmd_has_ir_alt(new_cmd)) ||
                                         (!is_bt_cmd && !is_mqtt_cmd && !is_ble_cmd && !is_plugin_cmd && !dev_net)) {
@@ -279,7 +325,7 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                     cmds = cJSON_CreateArray();
                                     cJSON_AddItemToObject(dev_item, "commands", cmds);
                                 }
-                                int dev_is_plugin = plugin_mgr_device_plugin_id(dev_item, NULL, 0);
+                                int dev_has_plugin = plugin_mgr_device_plugin_id(dev_item, NULL, 0);
                                 cJSON *cmd_in = NULL;
                                 cJSON_ArrayForEach(cmd_in, j_cmds) {
                                     cJSON *jn = cJSON_GetObjectItemCaseSensitive(cmd_in, "name");
@@ -289,9 +335,10 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                     cJSON *jport = cJSON_GetObjectItemCaseSensitive(cmd_in, "port");
                                     const char *name = (jn && cJSON_IsString(jn)) ? jn->valuestring : "";
                                     const char *raw_data = (jr && cJSON_IsString(jr)) ? jr->valuestring : "";
-                                    if (!name[0] || !raw_data[0]) continue;
+                                    /* an HTTP or TCP command of a combined device has no code */
+                                    if (!name[0] || (!raw_data[0] && !device_is_combined(dev_item))) continue;
                                     int is_ble_cmd = (strncmp(raw_data, BLE_ADV_KEYCODE_PREFIX, BLE_ADV_KEYCODE_PREFIX_LEN) == 0);
-                                    int is_plugin_cmd = dev_is_plugin || (strncmp(raw_data, "PLUGIN:", 7) == 0 || strncmp(raw_data, "plugin:", 7) == 0);
+                                    int is_plugin_cmd = dev_has_plugin || (strncmp(raw_data, "PLUGIN:", 7) == 0 || strncmp(raw_data, "plugin:", 7) == 0);
 
                                     cJSON *cmd_match = NULL;
                                     cJSON *ci = NULL;
@@ -302,6 +349,15 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                             break;
                                         }
                                     }
+                                    /* combined device: IR fields only on an IR command */
+                                    int cmd_tr = 0;
+                                    if (device_is_combined(dev_item)) {
+                                        cmd_tr = combined_cmd_transport(dev_item, cmd_in, cmd_match, raw_data);
+                                        is_plugin_cmd = cmd_tr != DEV_TR_IR;
+                                        if (cmd_tr == DEV_TR_IR) is_ble_cmd = 0;
+                                    }
+                                    /* the plugin's manifest (ranges, infrared alternative) only for a plugin command */
+                                    int dev_is_plugin = cmd_tr ? cmd_tr == DEV_TR_PLUGIN : dev_has_plugin;
                                     if (cmd_match) {
                                         cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "keyCode");
                                         cJSON_AddStringToObject(cmd_match, "keyCode", raw_data);
@@ -319,12 +375,16 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                             cmd_set_ir_fields(cmd_match, jrep, jport, 0);
                                         }
                                         cmd_range_copy(cmd_match, cmd_in);
+                                        cmd_set_transport(cmd_match, cmd_tr);
+                                        if (cmd_tr == DEV_TR_HTTP || cmd_tr == DEV_TR_TCP) copy_net_cmd_fields(cmd_in, cmd_match);
                                     } else {
                                         cJSON *new_cmd = cJSON_CreateObject();
                                         cJSON_AddStringToObject(new_cmd, "name", name);
                                         cJSON_AddStringToObject(new_cmd, "keyCode", raw_data);
                                         cJSON_AddStringToObject(new_cmd, "raw", raw_data);
                                         cmd_range_copy(new_cmd, cmd_in);
+                                        cmd_set_transport(new_cmd, cmd_tr);
+                                        if (cmd_tr == DEV_TR_HTTP || cmd_tr == DEV_TR_TCP) copy_net_cmd_fields(cmd_in, new_cmd);
                                         if (dev_is_plugin) cmd_ir_alt_copy(new_cmd, cmd_in);
                                         if (dev_is_plugin && (!cJSON_GetObjectItemCaseSensitive(cmd_in, "range") ||
                                                               !cmd_ir_alt_in_request(cmd_in))) {

@@ -12,6 +12,7 @@ webui_node_test test_frontend_auth.mjs
 webui_node_test test_frontend_connection.mjs
 webui_node_test test_webui_keymap_load.mjs
 webui_node_test test_webui_command_port.mjs
+webui_node_test test_webui_combined_device.mjs
 # RF remote page: auto-map wiring and aliases, no device scope for a remote without a screen
 webui_node_test test_webui_remote_slots.mjs
 webui_node_test test_frontend_b25.mjs

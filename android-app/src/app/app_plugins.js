@@ -635,7 +635,36 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
     nameInput?.focus();
   }
 
-  handleDeviceTypeChanged(selectedType) {
+  /* The plugin of a pluginId, installed first when it is not (after a confirmation): the
+     installed plugin, or null when it is not installed (refused, failed, not in a repository) */
+  async ensurePluginInstalled(pluginId) {
+    const find = () => (this.installedPlugins || []).find(p => p.id === pluginId) || null;
+    if (find()) return find();
+    let entry = null;
+    try {
+      const res = await this.client.getPluginMarketplace();
+      const list = Array.isArray(res) ? res : (res?.marketplace || res?.plugins || []);
+      entry = list.find(p => p && p.id === pluginId) || null;
+    } catch (_) { /* reported below */ }
+    if (!entry || !entry.download_url) {
+      showToast(tf('combined_plugin_not_found', { id: pluginId }), 'error');
+      return null;
+    }
+    const name = entry.device_definition?.display_name || entry.name || pluginId;
+    if (!await showConfirm(tf('combined_plugin_install_confirm', { name }), { title: t('plg_install') })) return null;
+    await this.installPluginWithFallback(entry.download_url, pluginId, entry.sha256 || '');
+    try {
+      const res = await this.client.getPlugins();
+      this.installedPlugins = Array.isArray(res) ? res : (res?.plugins || []);
+    } catch (_) { /* the check below fails */ }
+    this.updateDeviceStudioPluginTypes();
+    return find();
+  }
+
+  /* fromCombined: called by updateNewDeviceTransports for the plugin of a combined device */
+  handleDeviceTypeChanged(selectedType, fromCombined = false) {
+    if (!fromCombined && typeof this.updateNewDeviceTransports === 'function') this.updateNewDeviceTransports();
+    if (!fromCombined && selectedType === 'Combined') return;
     let wrap = document.getElementById('newDevicePluginConfigWrap');
     if (!wrap) {
       const row = document.createElement('div');

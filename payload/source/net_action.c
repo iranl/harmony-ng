@@ -253,11 +253,12 @@ static char *tcp_bytes(const char *src, int hex, size_t *out_len)
     return out;
 }
 
-static net_job *job_build(const cJSON *dev, const cJSON *cmd, const char *dev_id, const char *dev_name,
-                          const char *command, char *err, size_t err_sz)
+static net_job *job_build(const cJSON *dev, const cJSON *cmd, int want, const char *dev_id,
+                          const char *dev_name, const char *command, char *err, size_t err_sz)
 {
-    int kind = net_device_kind(dev);
-    if (!kind) {
+    int kind = 0;
+    const cJSON *conn = net_device_conn(dev, cmd, want, &kind);
+    if (!conn) {
         snprintf(err, err_sz, "not an HTTP or TCP device");
         return NULL;
     }
@@ -267,12 +268,12 @@ static net_job *job_build(const cJSON *dev, const cJSON *cmd, const char *dev_id
         return NULL;
     }
     j->kind = kind;
-    snprintf(j->host, sizeof j->host, "%s", jstr(dev, "netHost"));
-    j->port = jint(dev, "netPort", 0);
-    j->tls = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dev, "netTls"));
-    const char *v = jstr(dev, "netTlsVerify");
+    snprintf(j->host, sizeof j->host, "%s", jstr(conn, "netHost"));
+    j->port = jint(conn, "netPort", 0);
+    j->tls = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(conn, "netTls"));
+    const char *v = jstr(conn, "netTlsVerify");
     j->verify = strcmp(v, "pin") == 0 ? NET_TLS_PIN : strcmp(v, "insecure") == 0 ? NET_TLS_INSECURE : NET_TLS_VERIFY;
-    j->timeout_ms = jint(dev, "netTimeoutMs", NET_TIMEOUT_DEFAULT_MS);
+    j->timeout_ms = jint(conn, "netTimeoutMs", NET_TIMEOUT_DEFAULT_MS);
     if (j->timeout_ms < NET_TIMEOUT_MIN_MS || j->timeout_ms > NET_TIMEOUT_MAX_MS) j->timeout_ms = NET_TIMEOUT_DEFAULT_MS;
     snprintf(j->label, sizeof j->label, "%s (%s) %s", dev_name && dev_name[0] ? dev_name : "device",
              dev_id ? dev_id : "", cmd ? command : "connection test");
@@ -333,26 +334,38 @@ static net_job *job_build(const cJSON *dev, const cJSON *cmd, const char *dev_id
         return NULL;
     }
 
+    /* the command's own headers first; a device header of the same name is left out */
     int nh = 0, has_ct = 0;
-    const cJSON *hdrs = cJSON_GetObjectItemCaseSensitive(dev, "httpHeaders");
-    const cJSON *h = NULL;
-    cJSON_ArrayForEach(h, hdrs) {
-        if (nh >= NET_MAX_HEADERS) break;
-        const char *hn = jstr(h, "name");
-        if (!hn[0]) continue;
-        if (strcasecmp(hn, "Content-Type") == 0) has_ct = 1;
-        if (asprintf(&j->headers[nh], "%s: %s", hn, jstr(h, "value")) < 0) j->headers[nh] = NULL;
-        else nh++;
+    const cJSON *lists[2] = { cJSON_GetObjectItemCaseSensitive(cmd, "httpHeaders"),
+                              cJSON_GetObjectItemCaseSensitive(conn, "httpHeaders") };
+    for (int li = 0; li < 2; li++) {
+        const cJSON *h = NULL;
+        cJSON_ArrayForEach(h, lists[li]) {
+            if (nh >= NET_MAX_HEADERS) break;
+            const char *hn = jstr(h, "name");
+            if (!hn[0]) continue;
+            int dup = 0;
+            const cJSON *o = NULL;
+            if (li == 1) {
+                cJSON_ArrayForEach(o, lists[0]) {
+                    if (strcasecmp(jstr(o, "name"), hn) == 0) dup = 1;
+                }
+            }
+            if (dup) continue;
+            if (strcasecmp(hn, "Content-Type") == 0) has_ct = 1;
+            if (asprintf(&j->headers[nh], "%s: %s", hn, jstr(h, "value")) < 0) j->headers[nh] = NULL;
+            else nh++;
+        }
     }
-    const char *auth = jstr(dev, "httpAuthType");
+    const char *auth = jstr(conn, "httpAuthType");
     if (strcmp(auth, "basic") == 0) {
         char up[400], b64[540];
-        snprintf(up, sizeof up, "%s:%s", jstr(dev, "httpUser"), jstr(dev, "httpPassword"));
+        snprintf(up, sizeof up, "%s:%s", jstr(conn, "httpUser"), jstr(conn, "httpPassword"));
         base64((const unsigned char *)up, strlen(up), b64);
         if (asprintf(&j->headers[nh], "Authorization: Basic %s", b64) >= 0) nh++;
         else j->headers[nh] = NULL;
-    } else if (strcmp(auth, "bearer") == 0 && jstr(dev, "httpToken")[0]) {
-        if (asprintf(&j->headers[nh], "Authorization: Bearer %s", jstr(dev, "httpToken")) >= 0) nh++;
+    } else if (strcmp(auth, "bearer") == 0 && jstr(conn, "httpToken")[0]) {
+        if (asprintf(&j->headers[nh], "Authorization: Bearer %s", jstr(conn, "httpToken")) >= 0) nh++;
         else j->headers[nh] = NULL;
     }
     if (j->payload_len > 0 && !has_ct) {
@@ -881,9 +894,11 @@ int net_action_send(const cJSON *dev, const cJSON *cmd, const char *dev_id, cons
                     const char *command, int live_key)
 {
     char err[160];
-    net_job *j = job_build(dev, cmd, dev_id, dev_name, command, err, sizeof err);
+    net_job *j = job_build(dev, cmd, 0, dev_id, dev_name, command, err, sizeof err);
     if (!j) {
-        printf("[!] %s %s (%s) '%s' skipped: %s\n", net_device_kind(dev) == NET_KIND_TCP ? "TCP" : "HTTP",
+        int kind = 0;
+        net_device_conn(dev, cmd, 0, &kind);
+        printf("[!] %s %s (%s) '%s' skipped: %s\n", kind == NET_KIND_TCP ? "TCP" : "HTTP",
                dev_name ? dev_name : "", dev_id ? dev_id : "", command, err);
         return -2;
     }
@@ -911,11 +926,11 @@ int net_action_send(const cJSON *dev, const cJSON *cmd, const char *dev_id, cons
     return 0;
 }
 
-cJSON *net_action_test(const cJSON *dev, const cJSON *cmd, const char *dev_id, const char *dev_name)
+cJSON *net_action_test(const cJSON *dev, const cJSON *cmd, int want, const char *dev_id, const char *dev_name)
 {
     char err[160];
     const char *command = cmd ? jstr(cmd, "name") : "";
-    net_job *j = job_build(dev, cmd, dev_id, dev_name, command, err, sizeof err);
+    net_job *j = job_build(dev, cmd, want, dev_id, dev_name, command, err, sizeof err);
     if (!j) {
         cJSON *r = cJSON_CreateObject();
         cJSON_AddBoolToObject(r, "ok", 0);
@@ -957,10 +972,13 @@ cJSON *net_action_test(const cJSON *dev, const cJSON *cmd, const char *dev_id, c
     return r;
 }
 
-int net_action_forget_pin(const cJSON *dev)
+int net_action_forget_pin(const cJSON *dev, int want)
 {
     char key[300];
-    pin_key(jstr(dev, "netHost"), jint(dev, "netPort", 0), key, sizeof key);
+    int kind = 0;
+    const cJSON *conn = net_device_conn(dev, NULL, want, &kind);
+    if (!conn) return 1;
+    pin_key(jstr(conn, "netHost"), jint(conn, "netPort", 0), key, sizeof key);
     pthread_mutex_lock(&s_pins_lock);
     cJSON *pins = pins_load();
     int rc = 1;

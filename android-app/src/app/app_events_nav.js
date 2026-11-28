@@ -923,6 +923,8 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
           payloadData.repeats = repeats;
           payloadData.port = port;
         }
+        // a command of a combined device keeps the transport it was opened with
+        if (modal?.dataset?.transport) payloadData.transport = modal.dataset.transport;
         await this.client.saveLearnedCommand(payloadData);
         if (stat) stat.innerHTML = `<span style="color:var(--success)">✓ ${t('saved_status')}</span>`;
         setTimeout(() => {
