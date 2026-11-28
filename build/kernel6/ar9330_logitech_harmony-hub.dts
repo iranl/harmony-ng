@@ -117,6 +117,9 @@
  * (rc.sh sets gadget at boot).
  */
 &usb {
+	/* ci_hdrc_usb2 with device-mode streaming (patches/0002): without it, transfers to the
+	 * PC over 1024 bytes never start and the Hub hangs */
+	compatible = "qca,ar933x-usb", "chipidea,usb2";
 	dr_mode = "otg";
 	status = "okay";
 };

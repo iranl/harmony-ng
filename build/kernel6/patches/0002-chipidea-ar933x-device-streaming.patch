@@ -1,0 +1,23 @@
+--- a/drivers/usb/chipidea/ci_hdrc_usb2.c
++++ b/drivers/usb/chipidea/ci_hdrc_usb2.c
+@@ -38,8 +38,20 @@
+ 	.flags		= CI_HDRC_REGS_SHARED | CI_HDRC_FORCE_FULLSPEED,
+ };
+ 
++/*
++ * AR933x (Harmony Hub): device mode needs streaming. With it disabled, an IN transfer of more
++ * than two packets (over 1024 bytes) never starts: the dTD stays active, the host gives up and
++ * resets the port, and the controller then hangs the SoC. Host mode (USB Ethernet and
++ * sticks) keeps streaming off, as before.
++ */
++static const struct ci_hdrc_platform_data ci_ar933x_pdata = {
++	.capoffset	= DEF_CAPOFFSET,
++	.flags		= CI_HDRC_DISABLE_HOST_STREAMING,
++};
++
+ static const struct of_device_id ci_hdrc_usb2_of_match[] = {
+ 	{ .compatible = "chipidea,usb2" },
++	{ .compatible = "qca,ar933x-usb", .data = &ci_ar933x_pdata },
+ 	{ .compatible = "xlnx,zynq-usb-2.20a", .data = &ci_zynq_pdata },
+ 	{ .compatible = "lsi,zevio-usb", .data = &ci_zevio_pdata },
+ 	{ }
