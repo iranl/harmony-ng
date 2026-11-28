@@ -289,7 +289,7 @@ int get_active_dev_cmd_count(void) {
     return count;
 }
 
-int get_active_dev_cmd_item(int filtered_idx, char *out_label, size_t label_len, uint8_t *out_btn_index, uint8_t *out_atype, char *out_icon, size_t icon_len) {
+int get_active_dev_cmd_item(int filtered_idx, char *out_label, size_t label_len, uint8_t *out_btn_index, uint8_t *out_atype, char *out_icon, size_t icon_len, uint16_t *out_icon_id) {
     if (!g_has_hub_config || g_rf_button_count == 0) {
         return -1;
     }
@@ -311,6 +311,7 @@ int get_active_dev_cmd_item(int filtered_idx, char *out_label, size_t label_len,
                     strncpy(out_icon, g_rf_buttons[i].icon_key, icon_len - 1);
                     out_icon[icon_len - 1] = '\0';
                 }
+                if (out_icon_id) *out_icon_id = g_rf_buttons[i].icon_id;
                 return 0;
             }
             cur++;

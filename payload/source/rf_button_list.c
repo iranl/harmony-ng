@@ -78,7 +78,10 @@ int rf_build_button_list(const cJSON *acts_map, rf_button_entry_t *out, int max,
                 if (!cJSON_IsObject(b)) continue;
                 if (n >= max) break;
                 const cJSON *jl = cJSON_GetObjectItemCaseSensitive(b, "label");
-                put(&out[n++], ctx, cJSON_IsString(jl) ? jl->valuestring : "Button", 0x01, 0x01, sidx++);
+                put(&out[n], ctx, cJSON_IsString(jl) ? jl->valuestring : "Button", 0x01, 0x01, sidx++);
+                const cJSON *ji = cJSON_GetObjectItemCaseSensitive(b, "icon");
+                if (cJSON_IsString(ji)) snprintf(out[n].icon, sizeof(out[n].icon), "%s", ji->valuestring);
+                n++;
             }
         }
     }

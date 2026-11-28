@@ -38,6 +38,14 @@ mkdir -p "$PUSH_STEPS_DIR/data/harmony/config"
 HARMONY_MOCK_DIR="$PUSH_STEPS_DIR" LD_PRELOAD="${ASAN_PRELOAD:+$ASAN_PRELOAD:}$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_rf_push_steps" \
     || { rm -rf "$PUSH_STEPS_DIR"; exit 1; }
 rm -rf "$PUSH_STEPS_DIR"
+# hub_rf config push: the icons of on-screen buttons, only for remotes that report RF_CAP_BUTTON_ICONS (own mock folder)
+build_test -Wall -O2 -fsanitize=address -include sys/stat.h -include time.h -Dmain=hub_rf_main -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_push_button_icons" "$SCRIPT_DIR/test_rf_push_button_icons.c" \
+    $(sed -n 's/^ *RF_SRCS="\(.*\)"$/\1/p' "$REPO_ROOT/build/compile_all.sh" | sed "s|payload/|$REPO_ROOT/payload/|g") "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm
+PUSH_ICONS_DIR="$(mktemp -d /tmp/hng_push_icons.XXXXXX)"
+mkdir -p "$PUSH_ICONS_DIR/data/harmony/config"
+HARMONY_MOCK_DIR="$PUSH_ICONS_DIR" LD_PRELOAD="${ASAN_PRELOAD:+$ASAN_PRELOAD:}$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_rf_push_button_icons" \
+    || { rm -rf "$PUSH_ICONS_DIR"; exit 1; }
+rm -rf "$PUSH_ICONS_DIR"
 # hub_rf switch start notice only to remotes that report RF_CAP_SWITCH_START
 build_test -Wall -O2 -fsanitize=address -include sys/stat.h -include time.h -Dmain=hub_rf_main -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_switch_notice" "$SCRIPT_DIR/test_rf_switch_notice.c" \
     $(sed -n 's/^ *RF_SRCS="\(.*\)"$/\1/p' "$REPO_ROOT/build/compile_all.sh" | sed "s|payload/|$REPO_ROOT/payload/|g") "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm

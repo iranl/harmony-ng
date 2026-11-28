@@ -11,7 +11,7 @@
 void execute_active_dev_cmd(int filtered_idx) {
     char label[32] = {0};
     uint8_t btn_idx = 0, atype = 1;
-    if (get_active_dev_cmd_item(filtered_idx, label, sizeof(label), &btn_idx, &atype, NULL, 0) == 0) {
+    if (get_active_dev_cmd_item(filtered_idx, label, sizeof(label), &btn_idx, &atype, NULL, 0, NULL) == 0) {
         if (atype == 2) {
             trigger_activity_switch(g_switching_target_id, label);
         } else if (atype == 3) {
@@ -51,13 +51,16 @@ void render_devices_screen(void) {
         char label[32] = {0};
         char icon_key[24] = {0};
         uint8_t bidx = 0, atype = 1;
-        get_active_dev_cmd_item(idx, label, sizeof(label), &bidx, &atype, icon_key, sizeof(icon_key));
+        uint16_t icon_id = 0;
+        get_active_dev_cmd_item(idx, label, sizeof(label), &bidx, &atype, icon_key, sizeof(icon_key), &icon_id);
 
         fb_fill_rect(8, y, FB_WIDTH - 16, card_h, bg);
         fb_draw_rect(8, y, FB_WIDTH - 16, card_h, border);
 
         char btn_icon_path[128] = {0};
-        bool has_btn_icon = resolve_button_icon(icon_key, label, btn_icon_path, sizeof(btn_icon_path));
+        /* the icon the Hub sent (RF_MSG_BUTTON_ICON), else one guessed from the key or label */
+        bool has_btn_icon = resolve_button_icon_id(icon_id, btn_icon_path, sizeof(btn_icon_path)) ||
+                            resolve_button_icon(icon_key, label, btn_icon_path, sizeof(btn_icon_path));
         if (has_btn_icon) {
             has_btn_icon = blit_png_file(14, y + (card_h - 22) / 2, 22, 22, btn_icon_path);
         }

@@ -318,6 +318,23 @@ bool resolve_device_icon(uint16_t icon_id, const char *icon_key, const char *dev
     return (out_path[0] != '\0');
 }
 
+bool resolve_button_icon_id(uint16_t icon_id, char *out_path, size_t max_len) {
+    if (!out_path || max_len == 0) return false;
+    out_path[0] = '\0';
+    if (icon_id == 0) return false;
+    char test_path[128];
+    if (icon_id & 0x8000) {
+        snprintf(test_path, sizeof(test_path), "/data/assets/custom/%u.png", (unsigned int)icon_id);
+    } else {
+        const char *stock = get_stock_icon_path(icon_id);
+        if (!stock || !stock[0]) return false;
+        snprintf(test_path, sizeof(test_path), "%s", stock);
+    }
+    if (!fs_readable(test_path)) return false;
+    snprintf(out_path, max_len, "%s", test_path);
+    return true;
+}
+
 bool resolve_button_icon(const char *icon_key, const char *label, char *out_path, size_t max_len) {
     if (!out_path || max_len == 0) return false;
     out_path[0] = '\0';
@@ -589,6 +606,9 @@ void save_rf_config(void) {
         if (g_rf_buttons[i].icon_key[0]) {
             cJSON_AddStringToObject(b, "icon", g_rf_buttons[i].icon_key);
         }
+        if (g_rf_buttons[i].icon_id) {
+            cJSON_AddNumberToObject(b, "icon_id", g_rf_buttons[i].icon_id);
+        }
         cJSON_AddItemToArray(btns, b);
     }
 
@@ -773,6 +793,10 @@ void load_rf_config(void) {
                 } else {
                     g_rf_buttons[g_rf_button_count].icon_key[0] = '\0';
                 }
+                cJSON *jicid = cJSON_GetObjectItem(b, "icon_id");
+                g_rf_buttons[g_rf_button_count].icon_id =
+                    (jicid && cJSON_IsNumber(jicid) && jicid->valueint > 0 && jicid->valueint <= 0xFFFF)
+                        ? (uint16_t)jicid->valueint : 0;
                 add_act_trigger(&g_rf_buttons[g_rf_button_count]);
                 g_rf_button_count++;
             }

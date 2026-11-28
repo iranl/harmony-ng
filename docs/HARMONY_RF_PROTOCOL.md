@@ -261,6 +261,7 @@ All application messages are encapsulated in the payload section of Report `0x12
 | `0x2F` | `RF_MSG_HELP_ANSWER` | Remote -> Hub | Help: whether a device is on (ACK'd) |
 | `0x30` | `RF_MSG_WAKE` | Hub -> Remote | Turn the screen on (ACK'd); a remote in light standby still receives frames. Remotes without it drop it as unknown and send no ACK |
 | `0x31` | `RF_MSG_UNIT_ID` | Remote -> Hub | The remote's factory unit id and skin id (ACK'd); sent right after every `RF_MSG_VERSION_REPORT` by remotes that report `RF_CAP_UNIT_ID`. A Hub without it drops the frame as unknown |
+| `0x32` | `RF_MSG_BUTTON_ICON` | Hub -> Remote | The icon of an on-screen button, right after its `RF_MSG_BUTTON_LIST_CHUNK` (ACK'd); only for remotes that report `RF_CAP_BUTTON_ICONS` |
 
 The remote sets no ACK request flag on `RF_MSG_BATTERY_STATUS`, `RF_MSG_REMOTE_CONFIG_BACKUP`, `RF_MSG_VERSION_REPORT`, `RF_MSG_UNIT_ID` and `RF_MSG_OTA_REQUEST`; the Hub answers each of them with `RF_MSG_ACK` all the same (not the first two while an RF OTA runs).
 
@@ -279,6 +280,7 @@ The remote sets no ACK request flag on `RF_MSG_BATTERY_STATUS`, `RF_MSG_REMOTE_C
     (`payload[24]` `0x02`)
   - `0x20` `RF_CAP_HELP_KEY`: understands Help keys in `RF_MSG_BUTTON_LIST_CHUNK` (`payload[24]` `0x04`)
   - `0x40` `RF_CAP_STREAM_PUSH`: takes a streamed config push (see `RF_MSG_CONFIG_END`)
+  - `0x80` `RF_CAP_BUTTON_ICONS`: stores and ACKs `RF_MSG_BUTTON_ICON` (the icons of on-screen buttons)
 
 The remote sends this report when its link first comes up, every 24 hours, and before each full config request, so a Hub that restarted learns the capabilities before it builds the push. The Hub keeps them in `/data/harmony/remote_slot<N>_version.json` (`caps`). A remote drops frame types it doesn't know without an ACK, so the Hub must not send newer frame types to a remote that doesn't report them. The config push depends on the capabilities (Warmup steps, Help keys): when a known remote reports other capabilities with the current config version (an update, or `init.sh` falling back to `remote_ui.bak`), the Hub raises its config version, so the remote asks for a new push.
 
@@ -491,6 +493,13 @@ while the link is up, also one applied from a settings push, and when the Hub as
   - `payload[24]`: `0x01` device command, `0x02` activity start, `0x03` activity stop, `0x04` Help.
 - Only these entries are sent: the hard keys that start or stop an activity (the remote plays the switch by itself), the hard keys mapped to Help (`"type": "help"`) for a remote that reports `RF_CAP_HELP_KEY`, and the on-screen buttons. Every other hard-key mapping stays on the Hub, which maps the raw key. The start, stop and Help keys come first, at most 15, plus a `PwrOff` stop key when no activity maps one; then the on-screen buttons of every activity, up to 255 entries in all.
 - A Help key opens the remote's Help screen while its activity runs (`RF_MSG_HELP_REQUEST`); in another activity the key goes to the Hub as a raw key. An older remote never gets Help keys: the Hub maps the raw key and calls `POST /api/activity/help`, which re-sends the running activity's commands without the power questions.
+
+#### `RF_MSG_BUTTON_ICON` (`0x32`)
+- Hub sends one right after the `RF_MSG_BUTTON_LIST_CHUNK` of an on-screen button that has an icon (`"icon"` of the button in the remote map), only to a remote that reports `RF_CAP_BUTTON_ICONS` (ACK'd):
+  - `payload[0]`: The button's entry index (`payload[0]` of its `RF_MSG_BUTTON_LIST_CHUNK`).
+  - `payload[1..2]`: Icon ID, little endian: a stock icon ID (`remote_stock_icons.c`, the same numbers as the activity and device icons), or a custom icon ID (`0x8000` set). A custom icon is sent after the push with `RF_MSG_ICON_START`, as the activity and device icons are.
+- A button whose icon name is neither an uploaded icon nor a stock image gets no frame. The remote draws the icon in front of the button's label in the activity's on-screen list; without one it keeps guessing an icon from the label.
+- Each `RF_MSG_BUTTON_LIST_CHUNK` clears the icon of its entry, so a button that lost its icon on the Hub loses it on the remote too.
 
 #### `RF_MSG_STEP_LIST_CHUNK` (`0x11`)
 - Hub sends the steps the remote shows while an activity starts or stops, one per frame (ACK'd):

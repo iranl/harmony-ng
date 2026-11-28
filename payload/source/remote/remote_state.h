@@ -163,6 +163,7 @@ typedef struct {
     uint8_t action_type;  /* 1=device_cmd, 2=activity_start, 3=activity_stop */
     uint8_t btn_index;    /* index in activity screen_buttons */
     char icon_key[24];    /* optional icon key / function id / semantic name */
+    uint16_t icon_id;     /* RF_MSG_BUTTON_ICON: a stock icon id, or a custom one (0x8000 set); 0 = none */
 } rf_button_t;
 
 typedef struct {
@@ -411,7 +412,7 @@ void log_remote_debug(const char *fmt, ...) __attribute__((format(printf, 1, 2))
 #define log_power_debug log_remote_debug
 bool has_configured_activities(void);
 int get_active_dev_cmd_count(void);
-int get_active_dev_cmd_item(int filtered_idx, char *out_label, size_t label_len, uint8_t *out_btn_index, uint8_t *out_atype, char *out_icon, size_t icon_len);
+int get_active_dev_cmd_item(int filtered_idx, char *out_label, size_t label_len, uint8_t *out_btn_index, uint8_t *out_atype, char *out_icon, size_t icon_len, uint16_t *out_icon_id);
 
 #ifdef __cplusplus
 }
