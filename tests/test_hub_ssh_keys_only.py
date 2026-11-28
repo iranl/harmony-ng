@@ -299,7 +299,7 @@ class BootScripts(unittest.TestCase):
     def init_block(self) -> pathlib.Path:
         text = (SCRIPTS / "init.sh").read_text()
         helpers = text[text.index("write_if_changed() {"): text.index('echo "$(date) harmony init start')]
-        body = text[text.index("# 3. Shell Profile"): text.index("# 4. Disable")]
+        body = text[text.index("# 3. Shell Profile"): text.index("# 5. Network Time Sync")]
         out = self.s.base / "init_block.sh"
         out.write_text(self.s.sandboxed_text(helpers + body))
         return out

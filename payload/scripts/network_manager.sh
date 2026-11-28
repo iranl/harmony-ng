@@ -56,7 +56,33 @@ usbwifi_requests() {
   sed -n 's/^requests=\([0-9][0-9]*\)$/\1/p' "$USBWIFI_STATE" 2>/dev/null | sed -n 1p
 }
 
+# Linux 6.18: the ChipIdea controller's device side (build/kernel6/usb_gadget.sh); its state is
+# "configured" once a computer set the device up
+UDC_STATE=/sys/class/udc/ci_hdrc.0/state
+USB_GADGET_SH=/usr/lib/kernel6/usb_gadget.sh
+[ -f "$USB_GADGET_SH" ] || USB_GADGET_SH=/cache/kernel6/usb_gadget.sh
+
+# Linux 6.18: a USB Wi-Fi adapter plugged in at boot is the Hub's Wi-Fi (build/kernel6/rc.sh
+# writes its driver here): the port stays in host mode for the boot, never back to a USB device
+WIFI_ADAPTER_FILE=/tmp/harmony_wifi_adapter
+
 usb_computer_attached() {
+  [ -s "$WIFI_ADAPTER_FILE" ] && return 1
+  if [ -e "$UDC_STATE" ]; then
+    _wait=0
+    while [ "$_wait" -lt "$USB_PC_WAIT_IRQ" ]; do
+      case "$(cat "$UDC_STATE" 2>/dev/null)" in
+        configured|addressed) return 0 ;;
+      esac
+      _req=$(usbwifi_requests)
+      [ -n "$_req" ] && [ "$_req" -ge 1 ] 2>/dev/null && return 0
+      # nothing on the cable after the short wait: no computer
+      [ "$_wait" -ge "$USB_PC_WAIT" ] && [ "$(cat "$UDC_STATE" 2>/dev/null)" = "not attached" ] && return 1
+      sleep 1
+      _wait=$(expr "$_wait" + 1)
+    done
+    return 1
+  fi
   # no device controller driver: the port is already a host (or not a USB device at all)
   [ -e "$UDC_PROC" ] || return 1
   _wait=0
@@ -78,7 +104,9 @@ usb_computer_attached() {
 }
 
 set_usb_port_mode() {
-  echo "$1" > "$USB_MODE_FILE" 2>/dev/null || true
+  _mode="$1"
+  [ -s "$WIFI_ADAPTER_FILE" ] && _mode=host
+  echo "$_mode" > "$USB_MODE_FILE" 2>/dev/null || true
 }
 
 # Load configuration with safe defaults
@@ -264,6 +292,16 @@ start_eth() {
 
     if [ -z "$eth_if" ]; then
       log "No USB Ethernet adapter found on USB bus"
+      # Linux 6.18: the port goes back to a USB device (network and Wi-Fi setup for a computer),
+      # never while the USB stick holds data and cache (/usb): device mode cuts it off
+      if grep -q ' /usb ' /proc/mounts 2>/dev/null; then
+        log "USB port stays in host mode (USB stick with data and cache)"
+      elif [ -s "$WIFI_ADAPTER_FILE" ]; then
+        log "USB port stays in host mode (USB Wi-Fi adapter)"
+      elif [ -f "$USB_GADGET_SH" ] && [ -e /sys/bus/platform/devices/1b000000.usb/ci_hdrc.0/role ]; then
+        log "USB port back to device mode"
+        sh "$USB_GADGET_SH" start >> "$LOG" 2>&1 || log "USB device mode did not start"
+      fi
       return 1
     fi
 
@@ -665,6 +703,19 @@ do_boot() {
     log "Starting Onboard Ethernet (eth1)..."
   else
     log "Starting Ethernet (USB Host mode)..."
+  fi
+
+  # Linux 6.18: probing for a USB Ethernet adapter (host mode) loads drivers from flash for
+  # several seconds, which starved the Wi-Fi handshake (connected at 97 s instead of about 40 s).
+  # With a Wi-Fi network configured, it connects first (up to 30 s).
+  if [ "$ETH_ENABLED" = "1" ] && ! is_onboard_eth && [ -e /sys/class/udc/ci_hdrc.0 ] &&
+     grep -q '^[[:space:]]*ssid=' /etc/wpa_supplicant.conf 2>/dev/null; then
+    _w=0
+    while [ "$_w" -lt 30 ] && ! ifconfig ath0 2>/dev/null | grep -q 'inet addr'; do
+      sleep 1
+      _w=$((_w + 1))
+    done
+    log "Wi-Fi first: $( [ "$_w" -lt 30 ] && echo "up after ${_w}s" || echo "not up after 30s" ), then Ethernet"
   fi
 
   if [ "$ETH_ENABLED" != "1" ]; then

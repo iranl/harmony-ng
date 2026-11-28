@@ -1057,8 +1057,8 @@ static void *config_push_once(void *arg) {
  * its old slot (or none). Now a request that finds a push running is noted, and the running one
  * pushes once more when it ends, if the slot table (or which slots hold a remote) changed after
  * it picked its targets. Other requests, such as a remote asking again for its config every few
- * seconds during a long push, are served by the push that runs. A flag and a trylock, no wait:
- * the Hub's kernel has no futex. */
+ * seconds during a long push, are served by the push that runs. A flag and a trylock: a
+ * request never waits for the running push. */
 static pthread_mutex_t s_push_gate = PTHREAD_MUTEX_INITIALIZER;
 static volatile bool s_push_again;
 static volatile bool s_push_active;

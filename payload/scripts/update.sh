@@ -47,7 +47,24 @@ else
   TOKEN_ARG="${3:-}"
 fi
 
-DEFAULT_OTA="https://raw.githubusercontent.com/iranl/harmony-ng/ota"
+DEFAULT_OTA="https://raw.githubusercontent.com/iranl/harmony-ng/ota4"
+# A usable update source: http(s):// and URL characters only (it ends up in wget arguments).
+repo_ok() {
+  case "$1" in
+    http://*|https://*) ;;
+    *) return 1 ;;
+  esac
+  case "$1" in
+    *[!A-Za-z0-9._/:@~-]*) return 1 ;;
+  esac
+  return 0
+}
+# Source order: the argument, the update_repo setting, (remote commands) the source of the last
+# check so the remote gets the release the Hub checked, then the default.
+if [ -z "$REPO_ARG" ] && [ -f /data/harmony/config/settings.json ]; then
+  SET_REPO=$(sed -n 's/.*"update_repo"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' /data/harmony/config/settings.json 2>/dev/null | sed -n 1p)
+  repo_ok "$SET_REPO" && REPO_ARG="$SET_REPO"
+fi
 if [ "$CMD" = "remote" -o "$CMD" = "elite" -o "$CMD" = "fetch-remote" -o "$CMD" = "fetch-remote-ota" -o "$CMD" = "repair-tls" ] && [ -z "$REPO_ARG" ] && [ -f /data/harmony/update_state.conf ]; then
   CONF_REPO=$(grep '^source=' /data/harmony/update_state.conf 2>/dev/null | cut -d= -f2- | tr -d '\r\n ')
   [ -n "$CONF_REPO" ] && REPO_ARG="$CONF_REPO"
@@ -57,6 +74,8 @@ REPO="${REPO%/}"
 REPO="${REPO%/bin/mips}"
 REPO="${REPO%/}"
 [ -z "$REPO" ] && REPO="$DEFAULT_OTA"
+# the v3 releases' official source (a setting kept from before the migration): v4 is on ota4
+[ "$REPO" = "https://raw.githubusercontent.com/iranl/harmony-ng/ota" ] && REPO="$DEFAULT_OTA"
 
 
 TIMESTAMP=$(date +%s 2>/dev/null || echo 1)
@@ -123,6 +142,11 @@ download_retry() {
         *) return 1 ;;
       esac
       FETCH_TOKEN="" ;;
+    *) FETCH_TOKEN="" ;;
+  esac
+  # never in clear: a source without TLS gets no token
+  case "$REPO" in
+    https://*) ;;
     *) FETCH_TOKEN="" ;;
   esac
   if [ -z "$USE_FETCH" ]; then
@@ -281,11 +305,26 @@ install_bundle() {
   if [ -f "$_pkg/bin/busybox" ]; then
     install_file "$_pkg/bin/busybox" /cache/bin/busybox 755 || return 1
   fi
-  # F. Icons archive -> /cache/icons.tar.gz
+  # F. Icons archive -> /cache/icons.tar.gz, or to the USB stick it was moved to
+  # (best effort while the icons are on the stick: a full or failing stick does not stop the
+  # update, and with the stick out nothing is copied)
   if [ -f "$_pkg/icons.tar.gz" ]; then
-    install_file "$_pkg/icons.tar.gz" /cache/icons.tar.gz 644 || return 1
+    _icons=$(icons_dest)
+    if [ -z "$_icons" ]; then
+      echo "[!] The USB stick with the icons is not mounted: icon archive not updated."
+    elif [ "$_icons" = /cache/icons.tar.gz ]; then
+      install_file "$_pkg/icons.tar.gz" "$_icons" 644 || return 1
+    else
+      install_file "$_pkg/icons.tar.gz" "$_icons" 644 || echo "[!] Could not write the icon archive to the USB stick; the old one stays."
+    fi
   fi
   return 0
+}
+
+# Where the icon archive goes: /cache (on the USB stick when the Hub keeps its data and cache
+# there: build/kernel6/usb_storage.sh)
+icons_dest() {
+  echo /cache/icons.tar.gz
 }
 
 # The helpers built into hub_util are symlinks to it
@@ -391,16 +430,20 @@ do_check() {
   LOCAL_VER=$(get_local_version)
   REMOTE_VER=""
 
-  # 1. Try raw GitHub OTA VERSION file with retries (v2 checks v2/VERSION first)
-  if download_retry "${REPO}/v2/VERSION?_=${TIMESTAMP}" /tmp/ota_ver.$$ 8 2 || \
-     download_retry "${REPO}/VERSION_V2?_=${TIMESTAMP}" /tmp/ota_ver.$$ 8 2 || \
-     download_retry "${REPO}/VERSION?_=${TIMESTAMP}" /tmp/ota_ver.$$ 8 3; then
+  # 1. The source's VERSION file, with retries (v4 has its own branch, ota4: no v2/ files there)
+  if download_retry "${REPO}/VERSION?_=${TIMESTAMP}" /tmp/ota_ver.$$ 8 3; then
     REMOTE_VER=$(cat /tmp/ota_ver.$$ | tr -d '\r\n v')
   fi
 
-  # 2. Fallback: try GitHub releases API
-  if [ -z "$REMOTE_VER" ]; then
-    if download_retry "https://api.github.com/repos/iranl/harmony-ng/releases/latest" /tmp/gh_rel.$$ 10 2; then
+  # 2. Fallback: the GitHub releases API of the same repo (only for a raw.githubusercontent.com
+  #    source: another mirror has no releases to ask, and the official ones are not its releases)
+  GH_SLUG=""
+  case "$REPO" in
+    https://raw.githubusercontent.com/*/*)
+      GH_SLUG=$(echo "${REPO#https://raw.githubusercontent.com/}" | cut -d/ -f1-2) ;;
+  esac
+  if [ -z "$REMOTE_VER" ] && [ -n "$GH_SLUG" ]; then
+    if download_retry "https://api.github.com/repos/${GH_SLUG}/releases/latest" /tmp/gh_rel.$$ 10 2; then
       REMOTE_VER=$(cat /tmp/gh_rel.$$ | awk -F'"tag_name":' '{print $2}' | awk -F'"' '{print $2}' | tr -d '\r\n v')
     fi
   fi
@@ -535,6 +578,94 @@ wait_activity_switch() {
   return 0
 }
 
+# What the Linux 6.18 system no longer uses (update.sh cleanup; also run by build/deploy_hub.py
+# and after an update): the stock-era static tools and test leftovers, the fallback boot's old
+# modules, a refused root file system image, and the unionfs whiteout files (.wh.*) the stock
+# kernel left in the data partition (overlayfs ignores them). What HarmonyNG uses stays: the
+# rescue scripts in /cache/kernel6, the links in /cache/bin, the stock resources (the stock
+# configuration import reads them) and /data/stock_backup.
+cleanup_stale() {
+  uname -r | grep -q harmony || return 0
+  # the fallback boot (no overlay root) loads its drivers from /cache/kernel6/modules
+  grep -q '^overlay / overlay' /proc/mounts && rm -rf /cache/kernel6/modules 2>/dev/null
+  rm -rf /cache/kernel6/rootfs.sqfs.failed /cache/busybox /cache/codex_* \
+         /data/codex /data/codex_p /data/codex_rf /data/hub_rf /data/dropbearmulti \
+         /data/test_hub_tx /data/rf_pair_test /data/remote_ui.ota.gz 2>/dev/null
+  # through the overlay root (not its upper directory, which may not change while mounted)
+  grep -q '^overlay / overlay' /proc/mounts && find / -xdev -name '.wh.*' -exec rm -rf {} + 2>/dev/null
+  return 0
+}
+
+# A release with the Linux 6.18 system image (kernel6/ in the manifest, scripts/publish_ota.py), on
+# a Hub that runs it: the root file system is staged in /cache/kernel6/rootfs.sqfs (the kernel's
+# init writes it at the next boot, before it mounts it: build/kernel6/init.c), then the kernel is
+# written. Staged first: a failure leaves the old kernel with the old root file system. Returns 0
+# when the system was updated and needs a reboot, 1 when it was not updated (the old system
+# stays), 2 when the kernel write failed and left the kernel partition incomplete.
+apply_kernel6() {
+  uname -r | grep -q harmony || return 1
+  grep -q '"kernel6/harmony-hub-flash.uImage"' "$TMPDIR/manifest.json" 2>/dev/null || return 1
+  grep -q '"kernel6/harmony-hub-rootfs.sqfs"' "$TMPDIR/manifest.json" 2>/dev/null || return 1
+  # The switch to the one data partition (stock data + cache, build/kernel6/init.c) is done by
+  # the install tool only (tools/install_kernel6.py), never by an update
+  if grep -q '"cache"' /proc/mtd; then
+    echo "[-] This Hub still has the old flash layout (separate cache partition): the system image is not updated."
+    echo "    Run the install tool from a PC: python tools/install_kernel6.py <hub-ip>"
+    return 1
+  fi
+  echo "[*] Linux 6.18 system image in the release: kernel and root file system..."
+  for _f in harmony-hub-flash.uImage harmony-hub-rootfs.sqfs; do
+    if ! download_retry "${REPO}/kernel6/${_f}?_=${TIMESTAMP}" "$TMPDIR/$_f" 35 3 signed; then
+      echo "[-] kernel6/$_f not downloaded: the system image is not updated"
+      return 1
+    fi
+    if ! verify_files "kernel6/$_f=$TMPDIR/$_f"; then
+      echo "[-] kernel6/$_f does not match the signed manifest: the system image is not updated"
+      return 1
+    fi
+  done
+  # a root file system boot does not need the fallback boot's modules any more
+  grep -q '^overlay / overlay' /proc/mounts && rm -rf /cache/kernel6/modules 2>/dev/null
+  _need=$(( $(wc -c < "$TMPDIR/harmony-hub-rootfs.sqfs") / 1024 + 64 ))
+  mkdir -p /cache/kernel6
+  # /cache/kernel6 is on flash also when /cache is on a USB stick (usb_storage.sh)
+  _free=$(df -k /cache/kernel6 2>/dev/null | awk 'NR == 2 { print $4 }')
+  if [ "${_free:-0}" -lt "$_need" ]; then
+    echo "[-] /cache has ${_free} KB free, the root file system needs ${_need} KB: the system image is not updated"
+    return 1
+  fi
+  mkdir -p /cache/kernel6
+  if ! { cp "$TMPDIR/harmony-hub-rootfs.sqfs" /cache/kernel6/rootfs.sqfs.new &&
+         mv -f /cache/kernel6/rootfs.sqfs.new /cache/kernel6/rootfs.sqfs; }; then
+    rm -f /cache/kernel6/rootfs.sqfs.new /cache/kernel6/rootfs.sqfs
+    echo "[-] The root file system could not be stored in /cache: the system image is not updated"
+    return 1
+  fi
+  # the CC2544 shares the SPI bus with the flash (hub_util refuses while hub_rf runs); the stop
+  # flag keeps init.sh's supervisor from starting them again during the write and its retry
+  touch /tmp/harmony_stop
+  killall -9 hub_rf hub_btstack 2>/dev/null
+  sleep 1
+  _k=$(grep '"kernel"' /proc/mtd | cut -d: -f1)
+  _k2=$(grep '"kernel2"' /proc/mtd | cut -d: -f1)
+  if ! "$HUB_UTIL" flash-image "$TMPDIR/harmony-hub-flash.uImage" "/dev/$_k" "/dev/$_k2"; then
+    # blocks that already match are skipped: a second try is cheap and may finish the write
+    echo "[!] The kernel write failed: trying once more..."
+    killall -9 hub_rf hub_btstack 2>/dev/null
+    sleep 2
+    if ! "$HUB_UTIL" flash-image "$TMPDIR/harmony-hub-flash.uImage" "/dev/$_k" "/dev/$_k2"; then
+      # never a new root under an old kernel
+      rm -f /cache/kernel6/rootfs.sqfs
+      # the header block was erased first: the kernel partition holds no bootable kernel now. One
+      # line: the first "[-]" line is the update's error in the web UI. 2 fails the update.
+      echo "[-] The kernel could not be written and the kernel partition is incomplete: do not restart the Hub. Run the update again, or the install tool from a PC (tools/install_kernel6.py)."
+      return 2
+    fi
+  fi
+  echo "[+] Linux 6.18 kernel written; the root file system is written at the next boot."
+  return 0
+}
+
 do_apply() {
   touch /tmp/hub_updating.flag 2>/dev/null || true
   set_update_state running
@@ -619,9 +750,11 @@ do_apply() {
         [ -f "$TMPDIR/pkg/bin/$b" ] && rm -f "/cache/bin/$b" 2>/dev/null
       done
 
-      # D. Install extended BusyBox applets strictly to /cache/bin (/bin/sh is NEVER touched)
+      # D. Install extended BusyBox applets strictly to /cache/bin (/bin/sh is NEVER touched). Not
+      # on the Linux 6.18 system (/cache/bin/busybox is a link to its /bin/busybox, whose applets
+      # are in /bin, /sbin and /usr/bin already: init.sh removes the links in /cache/bin)
       rm -f /data/bin/sh /data/bin/ash /data/bin/busybox 2>/dev/null || true
-      if [ -x /cache/bin/busybox ]; then
+      if [ -x /cache/bin/busybox ] && [ ! -L /cache/bin/busybox ]; then
         # Links to busybox in /usr/bin (older deploys) and of removed applets in /cache/bin go
         _bb=/cache/bin/busybox
         for _l in /usr/bin/* /cache/bin/*; do
@@ -652,11 +785,14 @@ do_apply() {
         fi
       fi
 
-      # F. Icons archive -> /cache/icons.tar.gz (staged above)
+      # F. Icons archive -> /cache/icons.tar.gz or the USB stick (staged above)
       if [ -f "$TMPDIR/pkg/icons.tar.gz" ]; then
-        rm -f /data/harmony/icons.tar.gz 2>/dev/null || true
-        ln -sf /cache/icons.tar.gz /data/harmony/icons.tar.gz 2>/dev/null || true
-        echo "[+] Icons archive updated in /cache/icons.tar.gz (symlinked)."
+        _icons=$(icons_dest)
+        if [ -n "$_icons" ]; then
+          rm -f /data/harmony/icons.tar.gz 2>/dev/null || true
+          ln -sf "$_icons" /data/harmony/icons.tar.gz 2>/dev/null || true
+          echo "[+] Icons archive linked from $_icons."
+        fi
       fi
 
       OTA_BUNDLE_OK=1
@@ -755,7 +891,22 @@ do_apply() {
     return 1
   fi
 
-  # 6. Record new version (Hub and remote version metadata), only after a complete install
+  # 6. The Linux 6.18 system image, on a Hub that runs it (needs a reboot). Before the version
+  # is recorded: a failed kernel write fails the update, and running it again retries.
+  K6_REBOOT=0
+  apply_kernel6
+  case $? in
+    0) K6_REBOOT=1 ;;
+    2)
+      rm -rf "$TMPDIR" 2>/dev/null
+      # the services again (no reboot!): the web UI shows the error
+      rm -f /tmp/harmony_stop 2>/dev/null
+      [ -x /data/harmony/init.sh ] && /data/harmony/init.sh restart >/dev/null 2>&1 </dev/null &
+      return 1
+      ;;
+  esac
+
+  # 6b. Record new version (Hub and remote version metadata), only after a complete install
   if ! { echo "$NEW_VER" > /data/harmony/VERSION.new && mv -f /data/harmony/VERSION.new /data/harmony/VERSION; }; then
     rm -f /data/harmony/VERSION.new 2>/dev/null
     echo "[-] Could not record version v${NEW_VER} in /data/harmony/VERSION."
@@ -770,6 +921,8 @@ do_apply() {
   # image of the old version that hub_rf kept for a resume (sent unverified once its manifest is gone)
   rm -rf /tmp/www/assets/icons /tmp/remote_ui.ota.gz /tmp/remote_manifest.json /tmp/remote_manifest.json.sig 2>/dev/null || true
 
+  cleanup_stale
+
   # 7. Clean up temporary directory
   rm -rf "$TMPDIR" 2>/dev/null
 
@@ -781,7 +934,7 @@ do_apply() {
   # update has no kernel modules; a new rcS.local takes effect at the next boot). Detached, its
   # output to /dev/null: the services must not write into the apply log.
   set_update_state restarting "$NEW_VER"
-  if [ -x /data/harmony/init.sh ]; then
+  if [ -x /data/harmony/init.sh ] && [ "$K6_REBOOT" != 1 ]; then
     echo "[+] Update to v${NEW_VER} applied successfully. Restarting Hub services..."
     rm -f /tmp/harmony_stop 2>/dev/null || true
     /data/harmony/init.sh restart >/dev/null 2>&1 </dev/null &
@@ -1011,6 +1164,9 @@ case "$CMD" in
     ;;
   elite|remote)
     do_remote_ota "$SLOT_ARG"
+    ;;
+  cleanup)
+    cleanup_stale
     ;;
   status)
     if [ -f /data/harmony/update_state.conf ]; then

@@ -763,17 +763,17 @@ void http_auth_add_switch_check(cJSON *reply, const struct user_account *users, 
 static pthread_mutex_t s_tokens_lock = PTHREAD_MUTEX_INITIALIZER;
 
 int http_tokens_lock(void) {
-    /* The Hub's kernel has no futex, so a contended pthread_mutex_lock() spins at full CPU. Try
-     * the lock and sleep in 2 ms steps instead; a holder only reads and writes one small file. */
-    struct timespec start, now;
-    clock_gettime(CLOCK_MONOTONIC, &start);
-    for (;;) {
-        if (pthread_mutex_trylock(&s_tokens_lock) == 0) return 0;
-        clock_gettime(CLOCK_MONOTONIC, &now);
-        long waited_ms = (now.tv_sec - start.tv_sec) * 1000L + (now.tv_nsec - start.tv_nsec) / 1000000L;
-        if (waited_ms >= HTTP_TOKENS_LOCK_WAIT_MS) return -1;
-        usleep(2000);
+    /* a holder only reads and writes one small file; the deadline is on the wall clock, the
+     * only one pthread_mutex_timedlock() takes */
+    struct timespec deadline;
+    clock_gettime(CLOCK_REALTIME, &deadline);
+    deadline.tv_sec += HTTP_TOKENS_LOCK_WAIT_MS / 1000;
+    deadline.tv_nsec += (HTTP_TOKENS_LOCK_WAIT_MS % 1000) * 1000000L;
+    if (deadline.tv_nsec >= 1000000000L) {
+        deadline.tv_sec++;
+        deadline.tv_nsec -= 1000000000L;
     }
+    return pthread_mutex_timedlock(&s_tokens_lock, &deadline) == 0 ? 0 : -1;
 }
 
 /* Token changes per operator account: at most HTTP_TOKENS_WRITES_PER_MIN in a minute (each one

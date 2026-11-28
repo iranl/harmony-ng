@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <sys/utsname.h>
 
 static char g_hub_id[MFG_UNITID_MAX] = "unknown";
 static int g_hub_id_fallback = 1;
@@ -118,4 +119,18 @@ void hub_info_add_ir_capture(cJSON *obj) {
     cJSON_AddBoolToObject(obj, "ir_capture", ir_i2s_capture_mode_enabled() ? 1 : 0);
     char err[160];
     if (ir_i2s_capture_mode_error(err, sizeof(err))) cJSON_AddStringToObject(obj, "ir_capture_error", err);
+}
+
+void hub_info_firmware(char *buf, size_t len) {
+    struct utsname u;
+    FILE *f;
+    if (!buf || len == 0) return;
+    buf[0] = '\0';
+    f = fopen("/etc/version", "r");
+    if (f) {
+        if (!fgets(buf, (int)len, f)) buf[0] = '\0';
+        fclose(f);
+        buf[strcspn(buf, "\r\n")] = '\0';
+    }
+    if (!buf[0]) snprintf(buf, len, "%s", uname(&u) == 0 ? u.release : "unknown");
 }

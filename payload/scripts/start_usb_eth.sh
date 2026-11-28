@@ -2,10 +2,21 @@
 # USB Ethernet Host mode activator
 MODULES_DIR="/data/harmony/modules"
 BIN_DIR="/data/harmony/bin"
+# Linux 6.18 Hub system (build/kernel6): ChipIdea USB controller, role switched in sysfs
+CI_ROLE=/sys/bus/platform/devices/1b000000.usb/ci_hdrc.0/role
+KERNEL6=0
+# its driver unloaded (by hand): load it again, never the stock-kernel register_ehci on 6.x
+case "$(uname -r)" in
+  6.*) [ -e "$CI_ROLE" ] || { modprobe ci_hdrc_usb2 2>/dev/null; sleep 1; } ;;
+esac
+[ -e "$CI_ROLE" ] && KERNEL6=1
 
 load_mod() {
   mod="$1"
-  if [ -f "$MODULES_DIR/$mod" ]; then
+  if [ "$KERNEL6" = 1 ]; then
+    # its own modules (/lib/modules/<release>), with what they need
+    modprobe "${mod%.ko}" 2>/dev/null || true
+  elif [ -f "$MODULES_DIR/$mod" ]; then
     insmod "$MODULES_DIR/$mod" 2>/dev/null || true
   elif [ -f "$MODULES_DIR/usb_net/$mod" ]; then
     insmod "$MODULES_DIR/usb_net/$mod" 2>/dev/null || true
@@ -14,6 +25,16 @@ load_mod() {
   fi
 }
 
+if [ "$KERNEL6" = 1 ]; then
+  echo "[USB_ETH] Switching USB controller to Host mode (ChipIdea role)..."
+  echo host > /tmp/harmony_usb_port_mode 2>/dev/null || true
+  # the USB device side (HID + network gadget, udhcpd, hub_util usbhid) goes; usb_gadget.sh is
+  # in the root file system, or on /cache for its fallback boot
+  for _g in /usr/lib/kernel6/usb_gadget.sh /cache/kernel6/usb_gadget.sh; do
+    [ -f "$_g" ] && { sh "$_g" stop 2>/dev/null; break; }
+  done
+  echo host > "$CI_ROLE" || echo "[USB_ETH] Error: cannot set the USB role to host" >&2
+else
 # Preload usbcore
 insmod /lib/modules/2.6.31-g89d565c/kernel/drivers/usb/core/usbcore.ko 2>/dev/null || true
 
@@ -65,6 +86,7 @@ if [ ! -d /sys/devices/platform/ar7240-ehci.0/driver ] && \
     echo "[USB_ETH] Error: register_ehci not found!" >&2
   fi
 fi
+fi  # stock kernel
 
 # Detect plugged USB device and load ONLY its specific driver (never load cdc_ether with r8152)
 for i in 1 2 3 4 5; do
@@ -101,16 +123,49 @@ slow_usb_device() {
   return 1
 }
 
+# The network adapter: 1-1 itself, or behind a USB hub (1-1.2, 1-1.3.1, ...) next to a USB stick.
+# Hubs, sticks and keyboards or mice (every interface 03, 08 or 09) are skipped, as above.
+net_usb_device() {
+  for _dev in /sys/bus/usb/devices/*; do
+    case "${_dev##*/}" in [0-9]*-*) ;; *) continue ;; esac
+    case "${_dev##*/}" in *:*) continue ;; esac
+    [ "$(cat "$_dev/bDeviceClass" 2>/dev/null)" = "09" ] && continue
+    _other=1
+    for _ic in "$_dev"/*:*/bInterfaceClass; do
+      [ -f "$_ic" ] || continue
+      case "$(cat "$_ic" 2>/dev/null)" in
+        03|08|09) [ "$_other" = 1 ] && _other=0 ;;
+        *) _other=2 ;;
+      esac
+    done
+    [ "$_other" = 0 ] && continue
+    echo "$_dev"
+    return 0
+  done
+  return 1
+}
+
+# devices behind a hub show up a moment after the hub
+net_dev=""
+for i in 1 2 3; do
+  net_dev=$(net_usb_device) && break
+  sleep 1
+done
+
 if slow=$(slow_usb_device); then
   echo "[USB_ETH] USB device $slow runs at full or low speed (USB 1.1): no network driver is loaded (such an adapter froze the Hub in a test). Use a USB 2.0 (high-speed) adapter, hub or OTG cable."
-elif [ -f /sys/bus/usb/devices/1-1/idVendor ]; then
-  vid=$(cat /sys/bus/usb/devices/1-1/idVendor 2>/dev/null)
-  pid=$(cat /sys/bus/usb/devices/1-1/idProduct 2>/dev/null)
+elif [ -n "$net_dev" ] && [ -f "$net_dev/idVendor" ]; then
+  vid=$(cat "$net_dev/idVendor" 2>/dev/null)
+  pid=$(cat "$net_dev/idProduct" 2>/dev/null)
   echo "[USB_ETH] Detected USB device $vid:$pid"
   case "$vid:$pid" in
     0bda:8152|0bda:8153|2357:0601)
       echo "[USB_ETH] Loading Realtek native driver (r8152.ko)..."
       load_mod r8152.ko
+      ;;
+    0b95:1790|0b95:178a)
+      echo "[USB_ETH] Loading ASIX AX88179 driver..."
+      load_mod ax88179_178a.ko
       ;;
     0b95:*|077b:2226|0846:1040)
       echo "[USB_ETH] Loading ASIX driver..."
@@ -135,13 +190,28 @@ elif [ -f /sys/bus/usb/devices/1-1/idVendor ]; then
       echo "[USB_ETH] Loading generic CDC Ethernet driver..."
       load_mod usbnet.ko
       load_mod cdc_ether.ko
+      load_mod cdc_ncm.ko
       ;;
   esac
 else
-  echo "[USB_ETH] No USB device detected yet on port 1-1"
+  echo "[USB_ETH] No USB network adapter detected (only hubs, sticks or input devices, or nothing)"
 fi
 
 # Wait briefly for network interface creation and apply MIPS checksum/TSO fix
+# Linux 6.18 on a plain Hub loads no onboard Ethernet driver, so a USB adapter can get eth0 or
+# eth1, the names network_manager.sh keeps for the onboard ports: it becomes eth2 or eth3
+if [ "$KERNEL6" = 1 ]; then
+  for i in 1 2 3 4 5; do
+    for _n in eth0 eth1; do
+      case "$(readlink -f "/sys/class/net/$_n/device" 2>/dev/null)" in
+        */usb*) ip link set "$_n" name "eth$((${_n#eth} + 2))" 2>/dev/null ;;
+      esac
+    done
+    ls /sys/class/net/eth[2-9] >/dev/null 2>&1 && break
+    sleep 1
+  done
+fi
+
 for i in 1 2 3; do
   for ifpath in /sys/class/net/eth* /sys/class/net/usb*; do
     [ -d "$ifpath" ] || continue

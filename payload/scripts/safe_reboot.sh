@@ -1,5 +1,5 @@
 #!/bin/sh
-# Safe reboot script for Harmony Hub (Atheros AR9344)
+# Safe reboot script for Harmony Hub (Atheros AR9330)
 # Prevents warm reset SPI arbiter / NOR flash bus lockups.
 
 # 0. Stop the init.sh supervisor loops first: they restart a killed daemon after 5 s, which would
@@ -11,7 +11,7 @@ done
 rm -f /tmp/harmony_supervisors.pid 2>/dev/null || true
 
 # 1. Terminate RF and background workers immediately to release /dev/rfspi and Bluetooth UART
-killall -9 hub_rf hub_btstack hub_daemon hal luaworks luadraws lua 2>/dev/null || true
+killall -9 hub_rf hub_btstack hub_daemon 2>/dev/null || true
 
 # A requested reboot is not a failed boot: keep it out of the emergency recovery counter
 rm -f /data/harmony/reboot_counter 2>/dev/null || true
@@ -19,7 +19,7 @@ rm -f /data/harmony/reboot_counter 2>/dev/null || true
 # 2. Wait for in-flight SPI hardware transactions to complete
 sleep 2
 
-# 3. Flush write buffers to NOR flash (AR9344 has no bare 'sync', use hub_sync)
+# 3. Flush write buffers to NOR flash (the stock BusyBox has no sync applet, use hub_sync)
 /data/harmony/bin/hub_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || sync 2>/dev/null || true
 # Allow JFFS2 eraseblock garbage collection and flash sector erasures to settle
 sleep 6

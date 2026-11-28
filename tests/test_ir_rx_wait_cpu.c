@@ -1,9 +1,7 @@
 /*
  * The IR capture mode is turned off while the receiver's read is stalled (here for 1 s): the
- * caller waits for the capture thread, which waits for its stall watchdog. The Hub's kernel has
- * no futex system call, so a wait built on it (pthread_join, pthread_cond_wait) returns at once
- * there and the waiting thread spun for the whole wait. Run under tests/no_futex_exec (futex
- * waits never sleep, as on the Hub) and the mock library (<mock>/i2s_rx gives the receiver
+ * caller waits for the capture thread, which waits for its stall watchdog. Run under the mock
+ * library (<mock>/i2s_rx gives the receiver
  * data, <mock>/i2s_rx_stall stalls its reads): the caller must sleep while it waits, and
  * turning the mode on and off, also when the receiver does not open, must not leave threads
  * or file descriptors behind.

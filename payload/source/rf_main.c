@@ -410,7 +410,7 @@ int main(int argc, char **argv) {
     setvbuf(stdout, NULL, _IONBF, 0);
     setvbuf(stderr, NULL, _IONBF, 0);
 
-    /* Enforce single instance across the entire OS to protect AR9344 SPI arbiter */
+    /* Enforce single instance across the entire OS to protect AR9330 SPI arbiter */
     int lock_fd = open("/var/run/hub_rf.lock", O_CREAT | O_RDWR, 0644);
     /* close-on-exec: a helper still running after hub_rf died kept the lock, and the next hub_rf
      * refused to start */
@@ -602,7 +602,7 @@ int main(int argc, char **argv) {
 
     /* The process must end now, also when a thread is stuck: the receive thread sits in the
      * CC2544 driver's read(), and exit() runs libc's clean-up, which takes stdio locks a stuck
-     * thread may hold (a contended lock spins on the Hub, its kernel has no futex). SIGALRM has
+     * thread may hold (a lock that is never released blocks it for good). SIGALRM has
      * no handler here (no thread blocks it, uClibc's sleep() and usleep() use nanosleep), so the
      * kernel ends the whole process after 5 s, also when this thread is stuck in rf_spi_close();
      * only a thread asleep uninterruptibly in a driver could delay it. init.sh starts hub_rf

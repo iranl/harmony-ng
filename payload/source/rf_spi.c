@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <pthread.h>
+#include "mono_cond.h"
 #include <poll.h>
 #include <sys/time.h>
 #include <time.h>
@@ -21,8 +22,7 @@ __thread uint8_t g_ack_payload[25] = {0};
 /* One ACKed send at a time: the frame waited for is described by one slot and one sequence
  * number, and several threads send ACKed frames (config push, icon push, settings, sleep, wake,
  * Help, OTA). Set (under g_ack_mutex) from before the pending number is set until the result is
- * copied. Not a mutex held over the wait: on the Hub (no futex) a thread blocked on a held mutex
- * spins, so a second sender sleeps in short steps until the flag is clear. */
+ * copied; a second sender waits on g_ack_free until it is clear. */
 static int g_acked_tx_busy = 0;
 static uint8_t g_pending_ack_seq = 0;
 static uint8_t g_pending_ack_slot = 0;
@@ -30,11 +30,15 @@ static int g_ack_received = 0;
 static int g_ack_result_status = 0;
 static uint8_t g_ack_result_payload[25];
 static pthread_mutex_t g_ack_mutex = PTHREAD_MUTEX_INITIALIZER;
-/* The Hub's kernel has no futex system call, so pthread_cond_timedwait() returns at once there
- * and a sender waiting for an ACK spun at full CPU for the whole wait. The receive thread
- * writes a byte to this pipe instead, and the sender sleeps in poll() until it or the timeout
- * comes. g_ack_received (under g_ack_mutex) stays the answer; the byte only wakes. */
-static int g_ack_pipe[2] = { -1, -1 };
+/* g_ack_cv: the receive thread set g_ack_received (CLOCK_MONOTONIC, for the timed wait);
+ * g_ack_free: g_acked_tx_busy was cleared */
+static pthread_cond_t g_ack_cv;
+static pthread_cond_t g_ack_free = PTHREAD_COND_INITIALIZER;
+static pthread_once_t g_ack_once = PTHREAD_ONCE_INIT;
+
+static void ack_cv_init(void) {
+    mono_cond_init(&g_ack_cv);
+}
 
 /* CC2544 NAKs in a row (logged; senders retry on their own ACK timeouts) */
 static int g_nak_count = 0;
@@ -58,6 +62,8 @@ int flash_cc2544(void) {
     close(fin);
     close(fout);
     printf("[+] Programmed %zd bytes into CC2544 firmware\n", total);
+    /* the CC2544 reset line also resets the CSR8811 (build/kernel6/drivers/harmony_cc2544.c) */
+    printf("[!] Bluetooth stays off until the Hub restarts (the CC2544 reset also reset it)\n");
     usleep(100000);
     return 0;
 }
@@ -124,25 +130,6 @@ static int link_idx(uint8_t slot) {
     return (slot >= 1 && slot <= MAX_PAIRED_REMOTES) ? slot - 1 : -1;
 }
 
-/* g_ack_mutex held */
-static void ack_pipe_open_locked(void) {
-    if (g_ack_pipe[0] >= 0) return;
-    int fds[2];
-    if (pipe(fds) != 0) return;
-    for (int i = 0; i < 2; i++) {
-        fcntl(fds[i], F_SETFL, fcntl(fds[i], F_GETFL) | O_NONBLOCK);
-        fcntl(fds[i], F_SETFD, FD_CLOEXEC);
-    }
-    g_ack_pipe[0] = fds[0];
-    g_ack_pipe[1] = fds[1];
-}
-
-static void ack_pipe_drain(void) {
-    char buf[16];
-    if (g_ack_pipe[0] < 0) return;
-    while (read(g_ack_pipe[0], buf, sizeof(buf)) > 0) {}
-}
-
 int rf_send_frame_acked(rf_frame_t *frame, int timeout_ms) {
     /* A send of the same frame as this thread's last one to this remote is a retry. Kept per
      * thread: each sender resends only its own frames, and with one shared record another
@@ -157,20 +144,15 @@ int rf_send_frame_acked(rf_frame_t *frame, int timeout_ms) {
         s_last[li].valid = true;
     }
 
+    pthread_once(&g_ack_once, ack_cv_init);
     pthread_mutex_lock(&g_ack_mutex);
-    while (g_acked_tx_busy) {
-        pthread_mutex_unlock(&g_ack_mutex);
-        usleep(2000);
-        pthread_mutex_lock(&g_ack_mutex);
-    }
+    while (g_acked_tx_busy) pthread_cond_wait(&g_ack_free, &g_ack_mutex);
     g_acked_tx_busy = 1;
     /* the link counters change under g_ack_mutex: several threads send */
     if (li >= 0) {
         g_remote_link[li].acked_sent++;
         if (retry) g_remote_link[li].retries++;
     }
-    ack_pipe_open_locked();
-    ack_pipe_drain();   /* a byte from an earlier ACK must not end this wait */
     g_pending_ack_seq = frame->seq;
     /* the slot rf_send_frame() sends to */
     g_pending_ack_slot = frame->dev_slot ? (frame->dev_slot & 0x0F) : (g_remote_slot ? (g_remote_slot & 0x0F) : 0x01);
@@ -181,27 +163,14 @@ int rf_send_frame_acked(rf_frame_t *frame, int timeout_ms) {
         pthread_mutex_lock(&g_ack_mutex);
         g_pending_ack_slot = 0;
         g_acked_tx_busy = 0;
+        pthread_cond_signal(&g_ack_free);
         pthread_mutex_unlock(&g_ack_mutex);
         return -1;
     }
 
-    struct timespec start;
-    clock_gettime(CLOCK_MONOTONIC, &start);
+    struct timespec deadline = mono_deadline(timeout_ms);
     pthread_mutex_lock(&g_ack_mutex);
-    while (!g_ack_received) {
-        struct timespec now;
-        clock_gettime(CLOCK_MONOTONIC, &now);
-        long elapsed = (long)(now.tv_sec - start.tv_sec) * 1000L + (now.tv_nsec - start.tv_nsec) / 1000000L;
-        if (elapsed >= timeout_ms) break;
-        pthread_mutex_unlock(&g_ack_mutex);
-        if (g_ack_pipe[0] >= 0) {
-            struct pollfd pfd = { g_ack_pipe[0], POLLIN, 0 };
-            if (poll(&pfd, 1, (int)(timeout_ms - elapsed)) > 0) ack_pipe_drain();
-        } else {
-            usleep(2000);   /* no pipe: check the flag every 2 ms */
-        }
-        pthread_mutex_lock(&g_ack_mutex);
-    }
+    while (!g_ack_received && pthread_cond_timedwait(&g_ack_cv, &g_ack_mutex, &deadline) != ETIMEDOUT) {}
     int ok = g_ack_received;
     g_ack_received = 0;
     g_pending_ack_slot = 0; /* nothing waits: a late ACK matches no one */
@@ -211,6 +180,7 @@ int rf_send_frame_acked(rf_frame_t *frame, int timeout_ms) {
         if (li >= 0) g_remote_link[li].acked_ok++;
     }
     g_acked_tx_busy = 0;
+    pthread_cond_signal(&g_ack_free);
     pthread_mutex_unlock(&g_ack_mutex);
     return ok ? 0 : -1;
 }
@@ -242,10 +212,8 @@ void rf_signal_ack_from(uint8_t slot, uint8_t seq, uint8_t status, const uint8_t
         } else {
             memset(g_ack_result_payload, 0, sizeof(g_ack_result_payload));
         }
-        if (g_ack_pipe[1] >= 0) {
-            ssize_t w = write(g_ack_pipe[1], "a", 1);   /* full pipe: a wake is already pending */
-            (void)w;
-        }
+        pthread_once(&g_ack_once, ack_cv_init);
+        pthread_cond_signal(&g_ack_cv);
     }
     pthread_mutex_unlock(&g_ack_mutex);
 }

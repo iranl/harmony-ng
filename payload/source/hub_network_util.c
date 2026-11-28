@@ -273,6 +273,10 @@ static void parse_wifi_security(const char *flags, char *sec, size_t sec_len) {
         strncpy(sec, "WPA/WPA2", sec_len - 1);
     } else if (strstr(flags, "WPA3")) {
         strncpy(sec, "WPA3", sec_len - 1);
+    } else if (strstr(flags, "SAE")) {
+        /* wpa_supplicant shows WPA3-Personal as an RSN AKM: [WPA2-SAE-CCMP], mixed
+         * [WPA2-PSK+SAE-CCMP] */
+        strncpy(sec, strstr(flags, "PSK") ? "WPA2/WPA3" : "WPA3", sec_len - 1);
     } else if (strstr(flags, "WPA2")) {
         strncpy(sec, "WPA2", sec_len - 1);
     } else if (strstr(flags, "WPA")) {

@@ -14,6 +14,7 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <pthread.h>
+#include "mono_cond.h"
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -62,17 +63,16 @@ typedef struct {
     int live_key;                           /* a remote key press: dropped when late */
 } net_job;
 
-/* No condition variables: the Hub's kernel has no futex, so pthread_cond_wait() returns at
- * once there and the waiter spins at full CPU (hw_action.c, ir_i2s.c). The worker sleeps in
- * poll() on a pipe; the test waits by looking at its job every 20 ms. s_lock is held only
- * for a few instructions (a contended mutex spins too). */
+/* The worker waits on s_work for a job, POST /api/device-net-test on s_done for its result
+ * (both under s_lock, which is held only for a few instructions). */
 static pthread_mutex_t s_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t s_work = PTHREAD_COND_INITIALIZER;
+static pthread_cond_t s_done;   /* CLOCK_MONOTONIC (mono_cond_init when the worker starts) */
 /* tls_pins.json: written by the worker (trust on first use) and by net_action_forget_pin */
 static pthread_mutex_t s_pins_lock = PTHREAD_MUTEX_INITIALIZER;
 static net_job *s_queue[NET_QUEUE_LEN];
 static int s_head, s_count;
 static int s_started;
-static int s_wake[2] = { -1, -1 };
 /* Devices that timed out recently (worker thread only) */
 static struct { char host[256]; int port; uint64_t until_ms; } s_slow[NET_SLOW_SLOTS];
 
@@ -623,7 +623,8 @@ static int resolve_checked(const net_job *j, char *out, size_t out_sz)
 {
     struct addrinfo hints, *res = NULL, *ai;
     memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_UNSPEC;
+    /* IPv4 only (no IPv6 in the Hub kernel): AF_UNSPEC waited for AAAA answers too */
+    hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
     out[0] = '\0';
     if (getaddrinfo(j->host, NULL, &hints, &res) != 0 || !res) return -1;
@@ -771,22 +772,11 @@ static void *worker(void *arg)
     (void)arg;
     for (;;) {
         pthread_mutex_lock(&s_lock);
-        net_job *j = NULL;
-        if (s_count > 0) {
-            j = s_queue[s_head];
-            s_head = (s_head + 1) % NET_QUEUE_LEN;
-            s_count--;
-        }
+        while (s_count == 0) pthread_cond_wait(&s_work, &s_lock);
+        net_job *j = s_queue[s_head];
+        s_head = (s_head + 1) % NET_QUEUE_LEN;
+        s_count--;
         pthread_mutex_unlock(&s_lock);
-        if (!j) {
-            /* the timeout only guards against a lost wake byte */
-            struct pollfd p = { s_wake[0], POLLIN, 0 };
-            if (poll(&p, 1, 1000) > 0) {
-                char b[16];
-                while (read(s_wake[0], b, sizeof b) > 0) {}
-            }
-            continue;
-        }
 
         uint64_t now = mono_ms();
         if (!j->sync && j->live_key) {
@@ -810,6 +800,7 @@ static void *worker(void *arg)
         }
         pthread_mutex_lock(&s_lock);
         j->done = 1;
+        pthread_cond_broadcast(&s_done);
         int abandoned = j->abandoned;
         pthread_mutex_unlock(&s_lock);
         if (abandoned) job_free(j);
@@ -821,14 +812,7 @@ static int enqueue(net_job *j)
 {
     pthread_mutex_lock(&s_lock);
     if (!s_started) {
-        if (pipe(s_wake) != 0) {
-            pthread_mutex_unlock(&s_lock);
-            return -1;
-        }
-        for (int i = 0; i < 2; i++) {
-            fcntl(s_wake[i], F_SETFL, fcntl(s_wake[i], F_GETFL) | O_NONBLOCK);
-            fcntl(s_wake[i], F_SETFD, FD_CLOEXEC);
-        }
+        mono_cond_init(&s_done);
         pthread_t t;
         pthread_attr_t attr;
         pthread_attr_init(&attr);
@@ -837,9 +821,7 @@ static int enqueue(net_job *j)
         if (pthread_create(&t, &attr, worker, NULL) == 0) s_started = 1;
         pthread_attr_destroy(&attr);
         if (!s_started) {
-            close(s_wake[0]);
-            close(s_wake[1]);
-            s_wake[0] = s_wake[1] = -1;
+            pthread_cond_destroy(&s_done);
             pthread_mutex_unlock(&s_lock);
             return -1;
         }
@@ -866,14 +848,13 @@ static int enqueue(net_job *j)
     j->queued_ms = mono_ms();
     s_queue[(s_head + s_count) % NET_QUEUE_LEN] = j;
     s_count++;
+    pthread_cond_signal(&s_work);
     pthread_mutex_unlock(&s_lock);
     if (late) {
         printf("[!] %s dropped: waited too long in the queue (queue full)\n", late->label);
         fflush(stdout);
         job_free(late);
     }
-    ssize_t w = write(s_wake[1], "w", 1);   /* a full pipe already holds a wake */
-    (void)w;
     return 0;
 }
 
@@ -932,13 +913,9 @@ cJSON *net_action_test(const cJSON *dev, const cJSON *cmd, const char *dev_id, c
         cJSON_AddStringToObject(r, "error", "send queue full");
         return r;
     }
-    for (int waited = 0;; waited += 20) {
-        pthread_mutex_lock(&s_lock);
-        int done = j->done;
-        if (done || waited >= wait_ms) break;   /* s_lock stays held */
-        pthread_mutex_unlock(&s_lock);
-        usleep(20000);
-    }
+    struct timespec deadline = mono_deadline(wait_ms);
+    pthread_mutex_lock(&s_lock);
+    while (!j->done && pthread_cond_timedwait(&s_done, &s_lock, &deadline) != ETIMEDOUT) {}
     cJSON *r = NULL;
     if (j->done) {
         r = j->result;

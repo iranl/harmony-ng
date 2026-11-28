@@ -257,6 +257,21 @@ class UsbWifi(unittest.TestCase):
         self.assertTrue(mark.exists(), "the DHCP client on ath0 was asked for a new lease")
         self.assertNotIn("goodpassword", self.applet_log())
 
+    def test_wpa3_only_with_a_supplicant_that_has_sae(self):
+        hid = self.hid()
+        self.assertTrue(hid.provision_wifi("Net", "goodpassword"))
+        conf, _ = self.confs()
+        self.assertNotIn("SAE", conf, "a wpa_supplicant without SAE refuses key_mgmt=SAE")
+        self.assertNotIn("sae_pwe", conf)
+        mark = self.root / "usr" / "lib" / "kernel6" / "wpa_supplicant.sae"
+        mark.parent.mkdir(parents=True, exist_ok=True)
+        mark.touch()
+        self.assertTrue(hid.provision_wifi("Net", "goodpassword"))
+        conf, ath0 = self.confs()
+        self.assertEqual(conf, ath0)
+        self.assertIn("\tkey_mgmt=WPA-PSK WPA-PSK-SHA256 SAE\n\tieee80211w=1\n", conf)
+        self.assertIn("update_config=1\nsae_pwe=2\n", conf)
+
     def test_open_network(self):
         hid = self.hid()
         self.assertTrue(hid.provision_wifi("OpenNet", "", "NONE"))

@@ -6,6 +6,7 @@
 #include "sha256.h"
 #include "ota_verify.h"
 #include "cJSON.h"
+#include "ota_source.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -153,8 +154,35 @@ static bool ota_repo_chars_ok(const char *s) {
     return true;
 }
 
-void get_ota_repo_source(char *out_repo, size_t out_sz) {
+#ifndef OTA_SETTINGS_FILE
+#define OTA_SETTINGS_FILE "/data/harmony/config/settings.json"
+#endif
+
+/* The update_repo setting in settings.json; empty when unset or not usable */
+static void ota_repo_from_settings(char *out_repo, size_t out_sz) {
     out_repo[0] = '\0';
+    FILE *f = fopen(OTA_SETTINGS_FILE, "r");
+    if (!f) return;
+    char buf[4096];
+    size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+    fclose(f);
+    buf[n] = '\0';
+    cJSON *root = cJSON_Parse(buf);
+    if (!root) return;
+    cJSON *item = cJSON_GetObjectItemCaseSensitive(root, "update_repo");
+    if (cJSON_IsString(item) && ota_source_url_ok(item->valuestring) && strlen(item->valuestring) < out_sz) {
+        snprintf(out_repo, out_sz, "%s", item->valuestring);
+        /* as config_store does at load: a settings.json from a backup is not normalised */
+        ota_source_normalize(out_repo);
+        if (!ota_source_url_ok(out_repo)) out_repo[0] = '\0';
+    }
+    cJSON_Delete(root);
+}
+
+/* The update_repo setting, else the source of the last update check, else the default */
+void get_ota_repo_source(char *out_repo, size_t out_sz) {
+    ota_repo_from_settings(out_repo, out_sz);
+    if (out_repo[0]) return;
     FILE *f = fopen("/data/harmony/update_state.conf", "r");
     if (f) {
         char line[512];
@@ -176,7 +204,7 @@ void get_ota_repo_source(char *out_repo, size_t out_sz) {
         fclose(f);
     }
     if (!out_repo[0]) {
-        snprintf(out_repo, out_sz, "%s", "https://raw.githubusercontent.com/iranl/harmony-ng/ota");
+        snprintf(out_repo, out_sz, "%s", HARMONY_OTA_DEFAULT_URL);
     }
 }
 

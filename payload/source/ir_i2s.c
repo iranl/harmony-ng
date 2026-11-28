@@ -12,6 +12,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <pthread.h>
+#include "mono_cond.h"
 #include <poll.h>
 #include <time.h>
 
@@ -77,10 +78,11 @@ void ir_i2s_shutdown(void) {
     }
 }
 
-/* Largest bit stream one send may build: 10 s of IR at a 60 kHz carrier fits (about 900 KB),
- * real frames need a few KB. Without a limit a high carrier or long durations built one of
- * tens of MB (or GB) on the Hub's 64 MB, one bit at a time. */
-#define IR_I2S_MAX_STREAM_BYTES (1024 * 1024)
+/* Largest bit stream one send may build: the Linux 6.18 I2S driver's TX ring (512 x 768
+ * bytes, build/kernel6/drivers/harmony_i2s.c), which is filled before the DMA starts: about
+ * 6.9 s of IR at a 38 kHz carrier; real frames need a few KB. Without a limit a high carrier
+ * or long durations built one of tens of MB (or GB) on the Hub's 64 MB, one bit at a time. */
+#define IR_I2S_MAX_STREAM_BYTES (512 * 768)
 
 static inline uint32_t get_spp(uint32_t period_ns) {
     if (period_ns >= 12000) return 12;
@@ -445,52 +447,53 @@ static int ir_rx_block_lit(const uint8_t *b, size_t n) {
 #define IR_RX_STALL_MS 2000
 
 /*
- * No futex on the Hub. Its kernel has no futex system call, so every wait built on it
- * (pthread_cond_wait, pthread_join, sem_wait) returns at once there and the waiting thread
- * spins at full CPU. The threads here wake each other through a pipe and sleep in poll();
- * a thread that has to be waited for sets a flag as its last action, and the waiter detaches
- * it once the flag is set instead of joining it.
+ * Wakes between the threads: a flag under a mutex and a condition variable (CLOCK_MONOTONIC for
+ * the timed waits). A thread that has to be waited for sets a flag as its last action, and the
+ * waiter detaches it once the flag is set: a stalled session's close may never return, so no
+ * thread is joined.
  */
 typedef struct {
-    int rd, wr;   /* -1 when the pipe could not be made: waits then sleep in short steps */
+    pthread_mutex_t m;
+    pthread_cond_t c;
+    int pending;   /* a wake not yet taken */
+    int open;      /* 0: not opened (or closed): waits sleep in short steps */
 } ir_wake_t;
+#define IR_WAKE_INIT { PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, 0, 0 }
 
 static void ir_wake_open(ir_wake_t *w) {
-    int fds[2];
-    w->rd = w->wr = -1;
-    if (pipe(fds) != 0) return;
-    for (int i = 0; i < 2; i++) {
-        fcntl(fds[i], F_SETFL, fcntl(fds[i], F_GETFL) | O_NONBLOCK);
-        fcntl(fds[i], F_SETFD, FD_CLOEXEC);
-    }
-    w->rd = fds[0];
-    w->wr = fds[1];
+    w->pending = 0;
+    w->open = pthread_mutex_init(&w->m, NULL) == 0 && mono_cond_init(&w->c) == 0;
 }
 
 static void ir_wake_close(ir_wake_t *w) {
-    if (w->rd >= 0) close(w->rd);
-    if (w->wr >= 0) close(w->wr);
-    w->rd = w->wr = -1;
+    if (!w->open) return;
+    w->open = 0;
+    pthread_cond_destroy(&w->c);
+    pthread_mutex_destroy(&w->m);
 }
 
 static void ir_wake_signal(ir_wake_t *w) {
-    if (w->wr >= 0) {
-        ssize_t n = write(w->wr, "w", 1);   /* a full pipe already holds a wake */
-        (void)n;
-    }
+    if (!w->open) return;
+    pthread_mutex_lock(&w->m);
+    w->pending = 1;
+    pthread_cond_signal(&w->c);
+    pthread_mutex_unlock(&w->m);
 }
 
-/* Sleeps until a wake or timeout_ms (-1: no limit), then empties the pipe */
+/* Sleeps until a wake or timeout_ms (-1: no limit), and takes the wake */
 static void ir_wake_wait(ir_wake_t *w, int timeout_ms) {
-    if (w->rd < 0) {
+    if (!w->open) {
         usleep(timeout_ms >= 0 && timeout_ms < 5 ? (useconds_t)timeout_ms * 1000 : 5000);
         return;
     }
-    struct pollfd pfd = { w->rd, POLLIN, 0 };
-    if (poll(&pfd, 1, timeout_ms) > 0) {
-        char buf[16];
-        while (read(w->rd, buf, sizeof(buf)) > 0) {}
+    struct timespec deadline = mono_deadline(timeout_ms > 0 ? timeout_ms : 0);
+    pthread_mutex_lock(&w->m);
+    while (!w->pending) {
+        if (timeout_ms < 0) pthread_cond_wait(&w->c, &w->m);
+        else if (pthread_cond_timedwait(&w->c, &w->m, &deadline) == ETIMEDOUT) break;
     }
+    w->pending = 0;
+    pthread_mutex_unlock(&w->m);
 }
 
 typedef struct {
@@ -771,7 +774,7 @@ static int ir_rx_wait_quiet(ir_rx_session_t *s, int (*stop)(void)) {
  */
 
 static pthread_mutex_t s_rx_lock = PTHREAD_MUTEX_INITIALIZER;
-static ir_wake_t s_mode_wake = { -1, -1 };  /* the thread reports its open and its end */
+static ir_wake_t s_mode_wake = IR_WAKE_INIT;  /* the thread reports its open and its end */
 static int s_mode_exited = 0;             /* under s_rx_lock: the thread has ended */
 static int s_thread_on = 0;               /* the receiver thread exists */
 static int s_events_on = 0;               /* the capture mode is on: reported as ir_capture */
@@ -812,7 +815,7 @@ static struct {
 static int s_learn_busy = 0;          /* under s_mode_set_lock and s_rx_lock: a learn runs */
 static unsigned s_learn_gen = 0;
 static volatile unsigned s_learn_want = 0;   /* gen of a PENDING or ARMED request, 0 for none */
-static ir_wake_t s_learn_wake = { -1, -1 };  /* thread -> waiter; opened once, never closed */
+static ir_wake_t s_learn_wake = IR_WAKE_INIT;  /* thread -> waiter; opened once, never closed */
 static int s_rx_shutdown = 0;         /* ir_i2s_capture_shutdown() ran: no more learns */
 /* Only the receiver thread touches these */
 static unsigned s_cur_gen = 0;        /* the request being served, 0 for none */
@@ -1200,12 +1203,11 @@ static void ir_thread_stop_locked(void) {
 /* Requests that start or stop the thread run one after the other (HTTP workers, the main loop,
  * shutdown, the end of a learn). A stop drops s_rx_lock while it waits for the thread: a start
  * asked meanwhile saw the thread still there and returned, then the stop marked it gone, and two
- * stops waited for the same thread. Taken with trylock and short sleeps: a contended mutex wait
- * spins on the Hub (no futex), and a holder can keep it for up to 3 s (a stalled read). */
+ * stops waited for the same thread. A holder can keep it for up to 3 s (a stalled read). */
 static pthread_mutex_t s_mode_set_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static void ir_mode_set_lock(void) {
-    while (pthread_mutex_trylock(&s_mode_set_lock) != 0) usleep(2000);
+    pthread_mutex_lock(&s_mode_set_lock);
 }
 
 static int capture_mode_set(int enable, ir_rx_signal_cb cb, void *user, char *err, size_t errlen) {
@@ -1311,7 +1313,7 @@ int ir_i2s_capture_ms(char *out, size_t outlen, unsigned int timeout_ms) {
         pthread_mutex_unlock(&s_mode_set_lock);
         return rc;
     }
-    if (s_learn_wake.rd < 0) ir_wake_open(&s_learn_wake);
+    if (!s_learn_wake.open) ir_wake_open(&s_learn_wake);
     ir_wake_wait(&s_learn_wake, 0);   /* a stale wake of an earlier learn */
     if (++s_learn_gen == 0) s_learn_gen = 1;
     s_learn.state = IR_LEARN_PENDING;

@@ -9,7 +9,7 @@
  *   test_ir_learn_capture race     a result crossing the waiter's limit, 200 rounds (built with
  *                                  -DIR_LEARN_GRACE_MS=0 and AddressSanitizer: the thread must
  *                                  never write the waiter's buffer once it gave up)
- *   test_ir_learn_capture cpu      the waiter sleeps (run under tests/no_futex_exec)
+ *   test_ir_learn_capture cpu      the waiter sleeps
  */
 #include "ir_i2s.h"
 
@@ -523,7 +523,7 @@ static void race(void) {
     alarm(0);
 }
 
-/* ---- the waiter sleeps (under tests/no_futex_exec, futex waits never sleep, as on the Hub) ---- */
+/* ---- the waiter sleeps ---- */
 
 static void cpu(void) {
     char what[200], raw[256];

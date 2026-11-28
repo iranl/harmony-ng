@@ -229,6 +229,20 @@ class NetworkManagerScript(unittest.TestCase):
         self.assertIn("START_ETH", out)
         self.assertNotIn("SLEPT", out, "no device controller: no wait")
 
+    def test_usb_wifi_adapter_keeps_host_mode(self):
+        # rc.sh found a USB Wi-Fi adapter at boot: no wait for a computer, the mode stays host
+        # also with Ethernet off
+        (self.root / "tmp" / "harmony_wifi_adapter").write_text("mt76x0u\n")
+        self.udc(57)
+        (self.root / "tmp" / "harmony_usbwifi.state").write_text("connections=2\n")
+        self.conf.write_text('ETH_ENABLED=1\nETH_MODE="dhcp"\n')
+        out = self.run_sh(self.PORT_STUBS + "is_onboard_eth() { return 1; }\ndo_boot")
+        self.assertIn("START_ETH", out)
+        self.assertNotIn("SLEPT", out, "no wait for a computer on a port in host mode")
+        self.conf.write_text('ETH_ENABLED=0\nETH_MODE="dhcp"\n')
+        self.run_sh(self.PORT_STUBS + "is_onboard_eth() { return 1; }\ndo_boot")
+        self.assertEqual(self.mode(), "host")
+
     def test_onboard_ethernet_ignores_usb_port(self):
         self.conf.write_text('ETH_ENABLED=1\nETH_MODE="dhcp"\n')
         self.udc(57)

@@ -12,7 +12,6 @@ payload/scripts/* text eol=lf
 
 *.ps1 text eol=crlf
 
-payload/modules/*.ko binary
 tools/unbrick_recovery/** binary
 # ...except the PC-side server: a plain Python file, LF endings (a CRLF shebang line does not run).
 # The other two stay byte-exact: recv_static is a MIPS program, upload_recv.sh is pasted as is

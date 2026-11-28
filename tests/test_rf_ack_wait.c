@@ -1,12 +1,9 @@
-/* hub_rf waits up to a timeout for the remote's ACK of a frame. The Hub's kernel has no futex
- * system call, so a wait on a condition variable returns at once there and the sender spun at
- * full CPU for the whole wait, on every frame that wants an ACK. Run under tests/no_futex_exec
- * (futex waits never sleep, as on the Hub): the waiting thread must sleep through the timeout,
- * wake when the ACK comes, and not be woken early by an ACK that came after the previous wait.
+/* hub_rf waits up to a timeout for the remote's ACK of a frame: the waiting thread must sleep
+ * through the timeout (no CPU), wake when the ACK comes, and not be woken early by an ACK that
+ * came after the previous wait.
  * Runs the real hub_rf sources (main renamed) with /dev/rfspi replaced by a socket pair. */
 #undef main
 #include <errno.h>
-#include <linux/futex.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
@@ -40,13 +37,12 @@ static int timed_send(uint8_t seq, int timeout_ms, double *wall, double *cpu) {
     return rc;
 }
 
-/* A wait that spins can also never end (glibc's condition variable never sees its timeout
- * when no futex wait sleeps): give up after a few seconds instead of hanging */
+/* A wait that never ends: give up after a few seconds instead of hanging */
 static void stuck(int sig) {
     (void)sig;
     char msg[160];
     int n = snprintf(msg, sizeof(msg), "  [FAIL] the send did not return within 5 s; the process used %.1f s CPU meanwhile\n"
-                     "[-] test_rf_ack_wait: the ACK wait spins without futex\n", now_s(CLOCK_PROCESS_CPUTIME_ID));
+                     "[-] test_rf_ack_wait: the ACK wait does not end\n", now_s(CLOCK_PROCESS_CPUTIME_ID));
     if (n > 0) {
         ssize_t w = write(1, msg, (size_t)n);
         (void)w;
@@ -69,11 +65,6 @@ int main(void) {
     if (socketpair(AF_UNIX, SOCK_SEQPACKET, 0, sv) != 0) return 1;
     g_rf_fd = sv[0]; /* the frames go to the other end, which nobody reads */
 
-    /* Under tests/no_futex_exec a futex wait returns at once instead of timing out */
-    int word = 0;
-    struct timespec one_ms = { 0, 1000000 };
-    long r = syscall(SYS_futex, &word, FUTEX_WAIT_PRIVATE, 0, &one_ms, NULL, 0);
-    printf("  futex waits %s here\n", (r < 0 && errno == ETIMEDOUT) ? "sleep (not like the Hub)" : "never sleep (like the Hub)");
 
     signal(SIGALRM, stuck);
     alarm(5);   /* the three sends take about 1 s */
@@ -102,6 +93,6 @@ int main(void) {
         printf("[-] test_rf_ack_wait: %d failure(s)\n", s_failures);
         return 1;
     }
-    printf("[+] test_rf_ack_wait: hub_rf sleeps while it waits for an ACK, also without futex\n");
+    printf("[+] test_rf_ack_wait: hub_rf sleeps while it waits for an ACK\n");
     return 0;
 }

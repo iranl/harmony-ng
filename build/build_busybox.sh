@@ -53,11 +53,15 @@ build_mips() {
 
     make defconfig
     # Enable static compilation and disable tc (requires linux kernel headers) and seedrng (requires getrandom syscall)
-    sed -i 's/.*CONFIG_STATIC.*/CONFIG_STATIC=y/' .config
-    sed -i 's/.*CONFIG_STATIC_LIBGCC.*/CONFIG_STATIC_LIBGCC=y/' .config
     sed -i 's/CONFIG_TC=y/# CONFIG_TC is not set/' .config
     sed -i 's/CONFIG_FEATURE_TC_INGRESS=y/# CONFIG_FEATURE_TC_INGRESS is not set/' .config
     sed -i 's/CONFIG_SEEDRNG=y/# CONFIG_SEEDRNG is not set/' .config
+    # no modprobe or depmod applet: the system's /sbin/modprobe (build/kernel6/modprobe.sh) follows
+    # modules.dep, and HarmonyNG's "busybox --install -s /cache/bin" (first in PATH) must not hide it
+    sed -i 's/^CONFIG_MODPROBE=y/# CONFIG_MODPROBE is not set/; s/^CONFIG_DEPMOD=y/# CONFIG_DEPMOD is not set/' .config
+    # IPv4 only: the Hub kernel has no IPv6, and every name lookup also asked for AAAA records
+    # (wget, ping, nslookup) and waited for an answer it could never use
+    sed -i 's/^CONFIG_FEATURE_IPV6=y/# CONFIG_FEATURE_IPV6 is not set/' .config
 
     # Enable built-in TLS & HTTPS for wget
     sed -i 's/.*CONFIG_TLS.*/CONFIG_TLS=y/' .config
@@ -98,8 +102,11 @@ build_mips() {
     make -j"$(nproc)" CROSS_COMPILE="$CROSS" busybox
     "${CROSS}strip" busybox
 
-    cp busybox "$REPO_ROOT/payload/bin/busybox"
-    echo "[+] MIPS BusyBox built: $REPO_ROOT/payload/bin/busybox ($(ls -lh "$REPO_ROOT/payload/bin/busybox" | awk '{print $5}'))"
+    # shared uClibc-ng, for the Linux 6.18 root file system (build/build_rootfs6.sh)
+    dest="$REPO_ROOT/build/output/kernel6/bin/busybox"
+    mkdir -p "$(dirname "$dest")"
+    cp busybox "$dest"
+    echo "[+] MIPS BusyBox built: $dest ($(ls -lh "$dest" | awk '{print $5}'))"
 }
 
 build_arm() {

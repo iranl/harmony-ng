@@ -12,6 +12,7 @@
 #include <strings.h>
 #include <unistd.h>
 #include <stdint.h>
+#include <time.h>
 #include <arpa/inet.h>
 
 static int parse_ipv4(const char *s, uint32_t *out) {
@@ -44,6 +45,143 @@ static const char *static_address_error(const char *ip_s, const char *mask_s, co
         }
     }
     return NULL;
+}
+
+/* RAM files of the background jobs (/tmp; the test build: HARMONY_TEST_TMP_DIR) */
+static const char *job_path(char *buf, size_t sz, const char *name) {
+    const char *dir = "/tmp";
+#ifdef TEST_HARNESS
+    const char *t = getenv("HARMONY_TEST_TMP_DIR");
+    if (t && t[0]) dir = t;
+#endif
+    snprintf(buf, sz, "%s/%s", dir, name);
+    return buf;
+}
+
+/* The script for data and cache on a USB stick (the Linux 6.18 root file system's) */
+static const char *usb_storage_script(void) {
+#ifdef TEST_HARNESS
+    const char *t = getenv("HARMONY_USB_STORAGE_SH");
+    if (t && t[0]) return t;
+#endif
+    return "/usr/lib/kernel6/usb_storage.sh";
+}
+
+/* A shell command run in the background: <tag>_running exists while it runs, and <tag>.rc
+ * holds its exit code after, <tag>.log its output. args is put into the command as it is:
+ * callers pass only fixed words and checked names. */
+static void start_bg_job(const char *tag, const char *args) {
+    char flag[256], rc_path[256], log_path[256], name[64], cmd[1024];
+    snprintf(name, sizeof(name), "%s_running", tag);
+    job_path(flag, sizeof(flag), name);
+    snprintf(name, sizeof(name), "%s.rc", tag);
+    job_path(rc_path, sizeof(rc_path), name);
+    snprintf(name, sizeof(name), "%s.log", tag);
+    job_path(log_path, sizeof(log_path), name);
+    unlink(rc_path);
+    /* the start time (seconds since boot): a job killed with its shell leaves the flag behind */
+    FILE *ff = fopen(flag, "w");
+    if (ff) {
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        fprintf(ff, "%ld\n", (long)ts.tv_sec);
+        fclose(ff);
+    }
+    snprintf(cmd, sizeof(cmd),
+             "/bin/sh -c 'sh %s >%s 2>&1; echo $? >%s; rm -f %s' >/dev/null 2>&1 &",
+             args, log_path, rc_path, flag);
+#ifndef TEST_HARNESS
+    system(cmd);
+#else
+    printf("[*] background job (test build, not run): %s\n", cmd);
+#endif
+}
+
+/* A job runs at most this long (copying a full data partition to a slow stick): an older flag
+ * is one a killed job left, and the job no longer counts as running */
+#define BG_JOB_MAX_SECS 1800
+
+/* 1 while the job runs; *rc: its exit code, -1 when it never ran or still runs */
+static int bg_job_state(const char *tag, int *rc) {
+    char path[256], name[64], line[32];
+    *rc = -1;
+    snprintf(name, sizeof(name), "%s_running", tag);
+    FILE *ff = fopen(job_path(path, sizeof(path), name), "r");
+    if (ff) {
+        long started = -1;
+        if (fgets(line, sizeof(line), ff)) started = atol(line);
+        fclose(ff);
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        if (started < 0 || (long)ts.tv_sec - started < BG_JOB_MAX_SECS) return 1;
+        unlink(path);
+    }
+    snprintf(name, sizeof(name), "%s.rc", tag);
+    FILE *f = fopen(job_path(path, sizeof(path), name), "r");
+    if (f) {
+        if (fgets(line, sizeof(line), f)) *rc = atoi(line);
+        fclose(f);
+    }
+    return 0;
+}
+
+/* /dev/sdX or /dev/sdXN: a USB disk name usb_storage.sh setup accepts */
+static int usb_disk_name_ok(const char *s) {
+    size_t n = s ? strlen(s) : 0;
+    if ((n != 8 && n != 9) || strncmp(s, "/dev/sd", 7) != 0 || s[7] < 'a' || s[7] > 'z') return 0;
+    return n == 8 || (s[8] >= '1' && s[8] <= '9');
+}
+
+/* GET /api/usb-storage: usb_storage.sh status (mode flash, usb or usb-missing; the stick and its
+ * space) and devices (the USB disks, in host mode), the job running, and the last line the last
+ * job printed (its result or why it failed) */
+static cJSON *usb_storage_json(void) {
+    char path[256], line[256], cmd[320];
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddBoolToObject(o, "ok", 1);
+    cJSON_AddStringToObject(o, "mode", "flash");
+    cJSON *disks = cJSON_CreateArray();
+    snprintf(cmd, sizeof(cmd), "sh %s status 2>/dev/null; sh %s devices 2>/dev/null",
+             usb_storage_script(), usb_storage_script());
+    FILE *f = popen(cmd, "r");
+    while (f && fgets(line, sizeof(line), f)) {
+        line[strcspn(line, "\r\n")] = '\0';
+        char *v = strchr(line, '=');
+        if (v) {
+            *v++ = '\0';
+            if ((strcmp(line, "mode") == 0 || strcmp(line, "device") == 0) && is_safe_param(v, "/")) {
+                cJSON_DeleteItemFromObjectCaseSensitive(o, line);
+                cJSON_AddStringToObject(o, line, v);
+            } else if ((strcmp(line, "total_kb") == 0 || strcmp(line, "free_kb") == 0) && v[0]) {
+                cJSON_AddNumberToObject(o, line, (double)atol(v));
+            }
+            continue;
+        }
+        char dev[16];
+        long kb;
+        if (sscanf(line, "%15s %ld", dev, &kb) == 2 && usb_disk_name_ok(dev)) {
+            cJSON *d = cJSON_CreateObject();
+            cJSON_AddStringToObject(d, "device", dev);
+            cJSON_AddNumberToObject(d, "size_kb", (double)kb);
+            cJSON_AddItemToArray(disks, d);
+        }
+    }
+    if (f) pclose(f);
+    cJSON_AddItemToObject(o, "disks", disks);
+    int rc, busy = bg_job_state("usb_storage", &rc);
+    cJSON_AddBoolToObject(o, "busy", busy);
+    if (!busy && rc > 0) cJSON_AddBoolToObject(o, "failed", 1);
+    char last[256] = "";
+    f = fopen(job_path(path, sizeof(path), "usb_storage.log"), "r");
+    if (f) {
+        while (fgets(line, sizeof(line), f)) {
+            line[strcspn(line, "\r\n")] = '\0';
+            if (line[0]) snprintf(last, sizeof(last), "%s", line);
+        }
+        fclose(f);
+    }
+    cJSON_AddStringToObject(o, "message", last);
+    return o;
 }
 
 int http_api_network_handle(int client_fd, const char *method, const char *clean_path,
@@ -158,6 +296,9 @@ int http_api_network_handle(int client_fd, const char *method, const char *clean
             fclose(cff);
         }
         cJSON_AddBoolToObject(cfg, "usb_wifi_setup", usb_wifi);
+        /* USB Wi-Fi adapter (build/kernel6/rc.sh): the switch, and whether one is in use */
+        cJSON_AddBoolToObject(cfg, "usb_wifi_adapter", wifi_usb_adapter_setting(config_store_path("ethernet.conf")));
+        cJSON_AddBoolToObject(st, "wifi_usb_adapter", access("/tmp/harmony_wifi_adapter", F_OK) == 0);
         cJSON_AddItemToObject(st, "config", cfg);
 
         char ifconfig_buf[8192] = {0};
@@ -328,6 +469,76 @@ int http_api_network_handle(int client_fd, const char *method, const char *clean
         return 1;
     }
 
+    /* Route: GET /api/usb-storage: data and cache on a USB stick (Linux 6.18 system) */
+    if (strcmp(clean_path, "/api/usb-storage") == 0 && strcmp(method, "GET") == 0) {
+        cJSON *st = usb_storage_json();
+        send_cjson_resp(client_fd, 200, st);
+        cJSON_Delete(st);
+        close(client_fd);
+        return 1;
+    }
+
+    /* Route: POST /api/usb-storage {action}: scan (USB host mode, the USB disks: the USB
+     * device side goes), setup {device, confirm: true} (erases that disk, copies data and cache
+     * to it, reboots onto it), disable (the flash again from the next boot, as it was at the
+     * setup). Runs usb_storage.sh in the background; GET shows busy until it ends. */
+    if (strcmp(clean_path, "/api/usb-storage") == 0 && strcmp(method, "POST") == 0) {
+        cJSON *params = parse_request_params(body);
+        cJSON *ja = params ? cJSON_GetObjectItemCaseSensitive(params, "action") : NULL;
+        cJSON *jd = params ? cJSON_GetObjectItemCaseSensitive(params, "device") : NULL;
+        int confirm = params && cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(params, "confirm"));
+        char action[16] = "", device[16] = "";
+        if (cJSON_IsString(ja) && (strcmp(ja->valuestring, "scan") == 0 ||
+                                   strcmp(ja->valuestring, "setup") == 0 ||
+                                   strcmp(ja->valuestring, "disable") == 0))
+            snprintf(action, sizeof(action), "%s", ja->valuestring);
+        if (cJSON_IsString(jd) && usb_disk_name_ok(jd->valuestring))
+            snprintf(device, sizeof(device), "%s", jd->valuestring);
+        cJSON_Delete(params);
+        if (!action[0]) {
+            send_json_error(client_fd, 400, "action must be scan, setup or disable");
+            close(client_fd);
+            return 1;
+        }
+        if (strcmp(action, "setup") == 0) {
+            /* only a disk the Hub lists, and only with the erase confirmed */
+            int listed = 0;
+            cJSON *st = usb_storage_json();
+            cJSON *d;
+            cJSON_ArrayForEach(d, cJSON_GetObjectItemCaseSensitive(st, "disks")) {
+                cJSON *dv = cJSON_GetObjectItemCaseSensitive(d, "device");
+                if (cJSON_IsString(dv) && strcmp(dv->valuestring, device) == 0) listed = 1;
+            }
+            cJSON_Delete(st);
+            if (!listed || !confirm) {
+                send_json_error(client_fd, 400, "setup needs a listed USB disk and confirm: true (the disk is erased)");
+                close(client_fd);
+                return 1;
+            }
+        }
+        int rc;
+        if (bg_job_state("usb_storage", &rc)) {
+            send_json_error(client_fd, 409, "A USB storage action is already running");
+            close(client_fd);
+            return 1;
+        }
+        char args[400];
+        /* action is a fixed word and device /dev/sd[a-z][1-9] (checked above) */
+        if (strcmp(action, "setup") == 0)
+            snprintf(args, sizeof(args), "%s setup %s --yes", usb_storage_script(), device);
+        else
+            snprintf(args, sizeof(args), "%s %s", usb_storage_script(), action);
+        start_bg_job("usb_storage", args);
+        cJSON *resp = cJSON_CreateObject();
+        cJSON_AddBoolToObject(resp, "ok", 1);
+        cJSON_AddStringToObject(resp, "status", "running");
+        cJSON_AddStringToObject(resp, "action", action);
+        send_cjson_resp(client_fd, 202, resp);
+        cJSON_Delete(resp);
+        close(client_fd);
+        return 1;
+    }
+
     /* Route: POST /ethernet or POST /api/ethernet-save */
     if ((strcmp(clean_path, "/ethernet") == 0 || strcmp(clean_path, "/api/ethernet-save") == 0) && strcmp(method, "POST") == 0) {
         cJSON *params = parse_request_params(body);
@@ -364,6 +575,18 @@ int http_api_network_handle(int client_fd, const char *method, const char *clean
                 else if (cJSON_IsNumber(p_usb)) usb_wifi = (p_usb->valueint != 0);
                 else if (cJSON_IsString(p_usb)) usb_wifi = (strcmp(p_usb->valuestring, "0") != 0 && strcasecmp(p_usb->valuestring, "false") != 0);
             }
+            /* the USB Wi-Fi adapter switch: also kept when left out (it applies at the next boot).
+             * Held back for now (open issues: no fallback network when the adapter is gone, a
+             * Wi-Fi test across networks reported as failed): it can be turned off, not on. */
+            cJSON *p_adp = cJSON_GetObjectItemCaseSensitive(params, "usb_wifi_adapter");
+            int usb_adapter = wifi_usb_adapter_setting(config_store_path("ethernet.conf"));
+            if (p_adp) {
+                int want = usb_adapter;
+                if (cJSON_IsBool(p_adp)) want = cJSON_IsTrue(p_adp);
+                else if (cJSON_IsNumber(p_adp)) want = (p_adp->valueint != 0);
+                else if (cJSON_IsString(p_adp)) want = (strcmp(p_adp->valuestring, "0") != 0 && strcasecmp(p_adp->valuestring, "false") != 0);
+                if (!want) usb_adapter = 0;
+            }
 
             const char *mode_val = (p_mode && cJSON_IsString(p_mode) && strcasecmp(p_mode->valuestring, "static") == 0) ? "static" : "dhcp";
             const char *raw_ip = (p_ip && cJSON_IsString(p_ip)) ? p_ip->valuestring : "";
@@ -396,8 +619,9 @@ int http_api_network_handle(int client_fd, const char *method, const char *clean
                 "ETH_NETMASK=\"%s\"\n"
                 "ETH_GATEWAY=\"%s\"\n"
                 "ETH_DNS=\"%s\"\n"
-                "USB_WIFI_SETUP=%d\n",
-                eth_en, eth_fb, mode_val, valid_ip, valid_mask, valid_gw, valid_dns, usb_wifi);
+                "USB_WIFI_SETUP=%d\n"
+                "USB_WIFI_ADAPTER=%d\n",
+                eth_en, eth_fb, mode_val, valid_ip, valid_mask, valid_gw, valid_dns, usb_wifi, usb_adapter);
 
             if (write_file_content(config_store_path("ethernet.conf"), conf_buf) != 0) {
                 cJSON_Delete(params);

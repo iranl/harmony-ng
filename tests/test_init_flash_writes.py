@@ -28,7 +28,7 @@ def block() -> str:
     h = text.find("write_if_changed() {")
     helpers = text[h: text.index('echo "$(date) harmony init start')] if h >= 0 else ""
     start = text.index("# 3. Shell Profile")
-    end = text.index("# 4. Disable")
+    end = text.index("# 5. Network Time Sync")
     return helpers + text[start:end]
 
 
