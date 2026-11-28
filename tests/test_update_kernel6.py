@@ -31,7 +31,7 @@ class ApplyKernel6(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         r = self.root = pathlib.Path(self.tmp.name)
-        for d in ("proc", "cache/kernel6", "tmpdir", "serve", "stub"):
+        for d in ("proc", "cache/kernel6", "tmpdir", "serve", "stub", "tmp"):
             (r / d).mkdir(parents=True)
         (r / "proc/mtd").write_text(
             'dev:    size   erasesize  name\nmtd1: 000f0000 00010000 "kernel"\n'
@@ -54,10 +54,16 @@ class ApplyKernel6(unittest.TestCase):
             f.write_text(f"#!/bin/sh\n{body}\n")
             f.chmod(0o755)
         hub_util = r / "stub" / "hub_util"
-        hub_util.write_text(f"#!/bin/sh\necho \"hub_util $*\" >> '{self.log}'\nexit ${{FLASH_RC:-0}}\n")
+        # FLASH_RC: every write's exit code; FLASH_FAIL_ONCE=1: only the first write fails.
+        # Each call records whether the services' stop flag was there.
+        hub_util.write_text(
+            f"#!/bin/sh\nstop=no; [ -e '{r}/tmp/harmony_stop' ] && stop=yes\n"
+            f"echo \"hub_util $* stop=$stop\" >> '{self.log}'\n"
+            f"if [ \"${{FLASH_FAIL_ONCE:-}}\" = 1 ] && [ ! -e '{r}/failed_once' ]; then : > '{r}/failed_once'; exit 1; fi\n"
+            "exit ${FLASH_RC:-0}\n")
         hub_util.chmod(0o755)
         func = function_text("apply_kernel6")
-        func = re.sub(r"(?<![\w/.-])/(proc|cache)/", lambda m: f"{r}{m.group(0)}", func)
+        func = re.sub(r"(?<![\w/.-])/(proc|cache|tmp)/", lambda m: f"{r}{m.group(0)}", func)
         harness = f"""
 TMPDIR='{r}/tmpdir'
 REPO=http://pkg.invalid
@@ -91,7 +97,7 @@ echo "rc=$?"
         self.assertIn("rc=0", out)
         self.assertEqual(self.staged().read_bytes(), b"R" * 2048)
         self.assertEqual(len(self.calls()), 1)
-        self.assertRegex(self.calls()[0], r"flash-image \S+harmony-hub-flash.uImage /dev/mtd1 /dev/mtd2$")
+        self.assertRegex(self.calls()[0], r"flash-image \S+harmony-hub-flash.uImage /dev/mtd1 /dev/mtd2 stop=yes$")
         self.assertFalse((self.root / "cache/kernel6/modules").exists())  # root file system boot
 
     def test_bad_signature_changes_nothing(self):
@@ -107,9 +113,21 @@ echo "rc=$?"
         self.assertEqual(self.calls(), [])
 
     def test_failed_kernel_write_removes_staged_root(self):
+        # two failed writes: the update fails (2) with a one-line error, no new root stays staged
         out = self.run_it(FLASH_RC="1")
-        self.assertIn("rc=1", out)
+        self.assertIn("rc=2", out)
         self.assertFalse(self.staged().exists())
+        self.assertEqual(len(self.calls()), 2)
+        err = [l for l in out.splitlines() if l.startswith("[-]")]
+        self.assertEqual(len(err), 1)
+        self.assertIn("kernel partition is incomplete", err[0])
+
+    def test_kernel_write_retried_with_the_services_stopped(self):
+        out = self.run_it(FLASH_FAIL_ONCE="1")
+        self.assertIn("rc=0", out)
+        self.assertEqual(len(self.calls()), 2)
+        self.assertTrue(all(c.endswith("stop=yes") for c in self.calls()), self.calls())
+        self.assertTrue(self.staged().exists(), "the retry worked: the root stays staged")
 
     def test_old_flash_layout_is_left_to_the_install_tool(self):
         mtd = self.root / "proc/mtd"

@@ -52,8 +52,9 @@
 #include "flash_image.h"
 
 #define BUSYBOX "/cache/bin/busybox"
-/* the static BusyBox rc.sh keeps for this fallback once /cache/bin/busybox links to the root
- * file system's (dynamic) one, which the flash initramfs does not have */
+/* the static BusyBox for the fallback boot (rc.sh moves a static /cache/bin/busybox here, the
+ * install and deploy tools put one here): once /cache/bin/busybox links to the root file
+ * system's (dynamic) one, which the flash initramfs does not have, only this copy runs */
 #define RESCUE_BUSYBOX "/cache/kernel6/busybox"
 #define RC "/cache/kernel6/rc.sh"
 #define RESET_FLAG "/cache/kernel6/factory-reset"
@@ -220,7 +221,9 @@ static void write_pending_root(const char *pending) {
         part.fd = mfd;
         part.size = mi.size;
         part.erasesize = mi.erasesize;
-        ok = flash_write_image(&part, 1, &flash_mtd_ops, img, st.st_size, &written, err, sizeof(err)) == 0;
+        /* a flash error may pass (blocks that match are skipped): three tries in this boot */
+        for (int t = 0; t < 3 && !ok; t++)
+            ok = flash_write_image(&part, 1, &flash_mtd_ops, img, st.st_size, &written, err, sizeof(err)) == 0;
         flash_error = !ok;
     }
     if (fd >= 0) close(fd);
