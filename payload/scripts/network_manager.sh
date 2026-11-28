@@ -393,7 +393,45 @@ stop_eth() {
   fi
 }
 
+# Linux 6.18: the USB Wi-Fi adapter rc.sh made the Hub's Wi-Fi (/tmp/harmony_wifi_adapter) was
+# unplugged: its ath0 is gone. Back to the built-in radio (ath9k, renamed ath0 as rc.sh does) on
+# the networks stored (a 2.4 GHz one is always kept: wifi_config.c), and, once nothing is left on
+# the port (no USB hub, no stick holding data and cache), the USB device side again.
+NET_DIR=/sys/class/net
+USB_DEV_DIR=/sys/bus/usb/devices
+USB_ROLE=/sys/bus/platform/devices/1b000000.usb/ci_hdrc.0/role
+adapter_fallback() {
+  [ -s "$WIFI_ADAPTER_FILE" ] || return 1
+  [ -e "$NET_DIR/ath0" ] && return 1
+  _drv=$(cat "$WIFI_ADAPTER_FILE")
+  log "USB Wi-Fi adapter ($_drv) unplugged: back to the built-in Wi-Fi"
+  rm -f "$WIFI_ADAPTER_FILE"
+  killall wpa_supplicant 2>/dev/null
+  kill -9 $(cat /var/run/udhcpc.ath0.pid 2>/dev/null) 2>/dev/null
+  rm -f /var/run/udhcpc.ath0.pid
+  modprobe -r "$_drv" 2>/dev/null
+  if ! modprobe ath9k; then
+    log "Built-in Wi-Fi driver (ath9k) did not load"
+    return 0
+  fi
+  _i=0
+  while [ ! -e "$NET_DIR/wlan0" ] && [ ! -e "$NET_DIR/ath0" ] && [ $_i -lt 25 ]; do sleep 0.2; _i=$((_i + 1)); done
+  [ -e "$NET_DIR/wlan0" ] && ip link set wlan0 name ath0
+  ensure_wifi
+  # the port: device mode only when nothing is plugged in any more
+  if ls -d "$USB_DEV_DIR"/*-[1-9]* >/dev/null 2>&1; then
+    log "USB port stays in host mode (a USB device is still plugged in)"
+  elif grep -q ' /usb ' /proc/mounts 2>/dev/null; then
+    log "USB port stays in host mode (USB stick with data and cache)"
+  elif [ -f "$USB_GADGET_SH" ] && [ -e "$USB_ROLE" ]; then
+    log "USB port back to device mode"
+    sh "$USB_GADGET_SH" start >> "$LOG" 2>&1 || log "USB device mode did not start"
+  fi
+  return 0
+}
+
 monitor_wifi() {
+  adapter_fallback && return 0
   # 1. Ensure ath0 interface exists and is up
   if ! ifconfig ath0 >/dev/null 2>&1; then
     log "ath0 missing, creating..."

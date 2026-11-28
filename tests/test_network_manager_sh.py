@@ -243,6 +243,54 @@ class NetworkManagerScript(unittest.TestCase):
         self.run_sh(self.PORT_STUBS + "is_onboard_eth() { return 1; }\ndo_boot")
         self.assertEqual(self.mode(), "host")
 
+    def netlog(self) -> str:
+        log = self.root / "tmp" / "harmony-network.log"
+        return log.read_text() if log.exists() else ""
+
+    def adapter_env(self, usb_devices: bool) -> str:
+        net = self.root / "net"
+        usb = self.root / "usb"
+        net.mkdir(exist_ok=True)
+        usb.mkdir(exist_ok=True)
+        if usb_devices:
+            (usb / "1-1").mkdir(exist_ok=True)
+        (self.root / "role").write_text("host\n")
+        gadget = self.root / "usb_gadget.sh"
+        gadget.write_text("echo GADGET_$1\n")
+        return (f"NET_DIR='{net}'; USB_DEV_DIR='{usb}'; USB_ROLE='{self.root}/role'; USB_GADGET_SH='{gadget}'\n"
+                f"modprobe() {{ echo MODPROBE $*; [ \"$1\" = ath9k ] && mkdir -p '{net}/wlan0'; return 0; }}\n"
+                f"ip() {{ echo IP $*; mv '{net}/wlan0' '{net}/ath0'; }}\n"
+                "ensure_wifi() { echo ENSURE_WIFI; }\nkillall() { echo KILLALL $*; }\n")
+
+    def test_adapter_unplugged_back_to_builtin_wifi(self):
+        # ath0 of the adapter still there: nothing happens
+        (self.root / "tmp" / "harmony_wifi_adapter").write_text("rtw88_8822bu\n")
+        env = self.adapter_env(usb_devices=False)
+        (self.root / "net" / "ath0").mkdir()
+        out = self.run_sh(env + "adapter_fallback && echo FELL_BACK; true")
+        self.assertNotIn("FELL_BACK", out)
+        # unplugged: the adapter's driver goes, ath9k becomes ath0, Wi-Fi restarts on the stored
+        # networks, and with nothing on the port it is a USB device again
+        (self.root / "net" / "ath0").rmdir()
+        out = self.run_sh(env + "adapter_fallback && echo FELL_BACK")
+        self.assertIn("FELL_BACK", out)
+        self.assertIn("MODPROBE -r rtw88_8822bu", out)
+        self.assertIn("MODPROBE ath9k", out)
+        self.assertIn("IP link set wlan0 name ath0", out)
+        self.assertIn("ENSURE_WIFI", out)
+        self.assertIn("GADGET_start", self.netlog())
+        self.assertFalse((self.root / "tmp" / "harmony_wifi_adapter").exists())
+        # once done, it does not run again
+        out = self.run_sh(env + "adapter_fallback && echo AGAIN; true")
+        self.assertNotIn("AGAIN", out)
+
+    def test_adapter_unplugged_hub_still_on_the_port_keeps_host_mode(self):
+        (self.root / "tmp" / "harmony_wifi_adapter").write_text("mt76x2u\n")
+        env = self.adapter_env(usb_devices=True)
+        out = self.run_sh(env + "adapter_fallback")
+        self.assertIn("ENSURE_WIFI", out)
+        self.assertNotIn("GADGET_start", self.netlog(), "a USB hub is still plugged in: host mode stays")
+
     def test_onboard_ethernet_ignores_usb_port(self):
         self.conf.write_text('ETH_ENABLED=1\nETH_MODE="dhcp"\n')
         self.udc(57)
