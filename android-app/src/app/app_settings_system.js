@@ -1,4 +1,5 @@
 import { HarmonyClient } from '../api.js';
+import { otaSource, setOtaSource } from '../update_source.js';
 import { getSavedHubs, saveHub, deleteHub, getActiveHub, setActiveHubId } from '../storage.js';
 import { RemoteEngine } from '../remote-engine.js';
 import {
@@ -823,6 +824,9 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
             tzEl.value = st.timezone;
           }
         }
+        setOtaSource(st.update_repo);
+        const repoInp = document.getElementById('updateRepo');
+        if (repoInp) repoInp.value = otaSource();
         const mdnsCb = document.getElementById('hubMdnsEnabled');
         if (mdnsCb && st.mdns_enabled !== undefined) mdnsCb.checked = Boolean(st.mdns_enabled);
         const legacyCb = document.getElementById('hubLegacyEnabled');
@@ -845,12 +849,77 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
     await Promise.allSettled([
       this.refreshServiceStatuses(),
       this.refreshSystemInfo(),
-      this.refreshStockResources(),
       this.refreshLogs(),
       this.loadUserAccounts(),
-      this.loadPersonalAccessTokens()
+      this.loadPersonalAccessTokens(),
+      this.refreshUsbStorage()
     ]);
     this.updateIconCacheUI();
+  }
+
+  /* Data and cache on a USB stick (GET /api/usb-storage); actions run on the Hub in the background */
+  async refreshUsbStorage() {
+    const status = document.getElementById('usbStorageStatus');
+    const actions = document.getElementById('usbStorageActions');
+    if (!status || !actions) return;
+    let st;
+    try {
+      st = await this.client.getUsbStorage();
+    } catch (err) {
+      status.textContent = tf('error_msg', { error: err.message });
+      return;
+    }
+    actions.innerHTML = '';
+    clearTimeout(this._usbStoragePoll);
+    if (st.busy) {
+      status.textContent = t('usb_storage_busy');
+      this._usbStoragePoll = setTimeout(() => this.refreshUsbStorage(), 2000);
+      return;
+    }
+    const mb = (kb) => Math.round((kb || 0) / 1024);
+    const button = (label, run) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn-sm btn-secondary';
+      btn.textContent = label;
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        try {
+          await run();
+        } catch (err) {
+          showToast(tf('error_msg', { error: err.message }), 'error');
+        }
+        this.refreshUsbStorage();
+      });
+      actions.appendChild(btn);
+    };
+    const disable = async () => {
+      if (await showConfirm(t('usb_storage_disable_confirm'), { title: t('usb_storage_title') })) {
+        await this.client.usbStorageAction('disable');
+      }
+    };
+    let text;
+    if (st.mode === 'usb') {
+      text = tf('usb_storage_mode_usb', { device: st.device, free: mb(st.free_kb), total: mb(st.total_kb) });
+      button(t('usb_storage_disable_btn'), disable);
+    } else if (st.mode === 'usb-missing') {
+      text = t('usb_storage_mode_missing');
+      button(t('usb_storage_disable_btn'), disable);
+    } else {
+      text = t('usb_storage_mode_flash');
+      for (const d of st.disks || []) {
+        const vars = { device: d.device, size: mb(d.size_kb) };
+        button(tf('usb_storage_setup_btn', vars), async () => {
+          if (await showConfirm(tf('usb_storage_setup_confirm', vars), { title: t('usb_storage_title') })) {
+            await this.client.usbStorageAction('setup', { device: d.device, confirm: true });
+          }
+        });
+      }
+      if (!(st.disks || []).length) text += ' ' + t('usb_storage_scan_note');
+      button(t('usb_storage_scan_btn'), () => this.client.usbStorageAction('scan'));
+    }
+    if (st.failed && st.message) text += ' ' + tf('usb_storage_failed', { message: st.message });
+    status.textContent = text;
   }
 
   updateIconCacheUI() {
@@ -1037,7 +1106,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
           const mem = kb => (kb ? `${Math.round(kb / 1024)} MB (${kb} kB)` : 'N/A');
           const rows = [
             [t('sysinfo_kernel'), sys.kernel || 'Linux'],
-            [t('firmware'), sys.firmware || '4.15.600'],
+            [t('firmware'), sys.firmware || t('unknown')],
             [t('uptime'), sys.uptime || t('unknown')],
             [t('sysinfo_load_average'), sys.loadavg || 'N/A'],
             [t('sysinfo_memory_total'), mem(sys.mem_total_kb)],

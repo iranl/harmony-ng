@@ -53,16 +53,13 @@ export function createSystemApi(client) {
         cacheUsedMb,
         totalCombinedFreeMb,
         totalCombinedMb,
-        output: `Data: ${freeMb}MB free (${totalMb}MB) | Cache: ${cacheFreeMb}MB free (${cacheTotalMb}MB)`
+        // one file system for data and cache (Linux 6.18 system): cache_* are 0
+        output: `Data: ${freeMb}MB free (${totalMb}MB)` + (data.cache_total_kb ? ` | Cache: ${cacheFreeMb}MB free (${cacheTotalMb}MB)` : '')
       };
     },
 
     async rebootHub() {
       return client.postForm('/system', { action: 'reboot' });
-    },
-
-    async cleanStockResources() {
-      return client.postForm('/system', { action: 'clean_stock_resources', confirm: 'EMPTY' });
     },
 
     async saveSystemAction(action, extra = {}) {
@@ -145,6 +142,15 @@ export function createSystemApi(client) {
         ifconfig: data.ifconfig || '',
         config: data.config || null
       };
+    },
+
+    /* Data and cache on a USB stick: state, and scan|setup|disable (background job) */
+    async getUsbStorage() {
+      return client.request('/api/usb-storage');
+    },
+
+    async usbStorageAction(action, extra = {}) {
+      return client.postJson('/api/usb-storage', { action, ...extra });
     },
 
     async saveEthernet(data) {

@@ -356,6 +356,10 @@ def restore_stock_configuration(
     machine = arch.stdout.strip()
     if arch.returncode != 0 or not machine.startswith("mips"):
         raise RuntimeError(f"{hub_ip} is not a Harmony Hub (uname -m: {machine or 'no answer'}); nothing was changed")
+    rel = run_ssh_cmd(target, "uname -r", ssh_opts).stdout.strip()
+    if "harmony" in rel:
+        raise RuntimeError(f"{hub_ip} runs the Linux 6.18 system; nothing was changed. Back to the stock firmware "
+                           "with tools/rollback_kernel6.py and the backup tools/install_kernel6.py made")
     stock_extra = stock_resources_to_add(target, ssh_opts, members or [], stock_copy)
     if stock_extra:
         print(f"[+] The stock files go back too: {stock_extra.name}")
@@ -398,7 +402,7 @@ def restore_stock_configuration(
         if not local_bb:
             raise FileNotFoundError(
                 "Local MIPS BusyBox binary with tar support not found "
-                "(bin/busybox of the release bundle, or build it with ./build/build_busybox.sh mips)."
+                "(tools/bin/busybox of the release bundle, or build it with LINK=static ./build/build_busybox.sh mips)."
             )
         print(f"    + Staging temporary BusyBox ({local_bb.stat().st_size:,} bytes) to /tmp/busybox...")
         with open(local_bb, "rb") as f_in:

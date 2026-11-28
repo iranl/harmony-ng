@@ -4,6 +4,7 @@ import { api } from '../../api/index.js';
 import { t } from '../../i18n/index.js';
 import { toast } from '../../components/toast.js';
 import { confirm } from '../../components/confirm.js';
+import { DEFAULT_OTA_URL, setOtaSource } from '../../utils/update_source.js';
 
 export function createView() {
   const container = h('div', { className: 'setup-subview-system', style: { display: 'flex', flexDirection: 'column', gap: '16px' } });
@@ -54,6 +55,113 @@ export function createView() {
     ledSelect,
   ]);
 
+  // Update Source Card: the Hub's update_repo setting (empty = official source)
+  const repoInput = h('input', { className: 'form-control', type: 'url', placeholder: DEFAULT_OTA_URL });
+  const repoCard = h('div', { className: 'card' }, [
+    h('div', { className: 'card-header' }, [
+      h('h3', { className: 'card-title', text: t('update_source', 'Update Source') }),
+    ]),
+    h('div', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '10px' }, text: t('update_source_desc', 'Where the Hub downloads updates, remote firmware and Ethernet drivers. Leave empty for the official source.') }),
+    h('div', { style: { display: 'flex', gap: '8px' } }, [
+      repoInput,
+      h('button', {
+        className: 'btn btn-secondary',
+        text: t('save', 'Save'),
+        onclick: async () => {
+          const clean = repoInput.value.trim().replace(/\/+$/, '');
+          const stored = clean === DEFAULT_OTA_URL ? '' : clean;
+          try {
+            await api.saveSettings({ update_repo: stored });
+            setOtaSource(stored);
+            repoInput.value = stored;
+            toast.success(t('update_source_saved', 'Update source saved'));
+          } catch (err) {
+            toast.error(err.message);
+          }
+        },
+      }),
+    ]),
+  ]);
+
+  // USB Storage Card: the Hub's data and cache on a USB stick (Linux 6.18 system)
+  const usbStatus = h('div', { className: 'text-dim', style: { marginBottom: '8px' } });
+  const usbActions = h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } });
+  const usbCard = h('div', { className: 'card' }, [
+    h('div', { className: 'card-header' }, [
+      h('h3', { className: 'card-title', text: t('usb_storage_title', 'USB Storage') }),
+    ]),
+    h('div', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '10px' }, text: t('usb_storage_desc', "A USB stick (on a USB hub cable at the Hub's port) can hold all of the Hub's data and cache: settings, icons and plugins, with room to spare. The Hub then needs the stick: without it, it starts in rescue mode only (Wi-Fi and SSH, no remote control). The USB port stays in host mode, so the USB Wi-Fi setup from a PC is not available.") }),
+    usbStatus,
+    usbActions,
+  ]);
+  let usbPoll = null;
+  async function loadUsbStorage() {
+    clearTimeout(usbPoll);
+    let st;
+    try {
+      st = await api.getUsbStorage();
+    } catch (e) {
+      usbStatus.textContent = t('error_msg', 'Error: {error}', { error: e.message });
+      return;
+    }
+    usbActions.innerHTML = '';
+    if (st.busy) {
+      usbStatus.textContent = t('usb_storage_busy', 'Working...');
+      usbPoll = setTimeout(loadUsbStorage, 2000);
+      return;
+    }
+    const mb = (kb) => Math.round((kb || 0) / 1024);
+    const button = (label, run) => {
+      const btn = h('button', {
+        className: 'btn btn-secondary btn-sm',
+        text: label,
+        onclick: async () => {
+          btn.disabled = true;
+          try {
+            await run();
+          } catch (err) {
+            toast.error(err.message);
+          }
+          loadUsbStorage();
+        },
+      });
+      usbActions.appendChild(btn);
+    };
+    const disable = async () => {
+      const ok = await confirm.ask({
+        title: t('usb_storage_title', 'USB Storage'),
+        message: t('usb_storage_disable_confirm', 'Use the flash again from the next restart? It holds the data as they were when the stick was set up: later changes stay on the stick only.'),
+        danger: true,
+      });
+      if (ok) await api.usbStorageAction('disable');
+    };
+    let text;
+    if (st.mode === 'usb') {
+      text = t('usb_storage_mode_usb', 'Data and cache are on the USB stick {device}: {free} MB free of {total} MB.', { device: st.device, free: mb(st.free_kb), total: mb(st.total_kb) });
+      button(t('usb_storage_disable_btn', 'Back to flash'), disable);
+    } else if (st.mode === 'usb-missing') {
+      text = t('usb_storage_mode_missing', "The USB stick with the Hub's data is missing: the Hub runs in rescue mode. Plug the stick in and restart the Hub.");
+      button(t('usb_storage_disable_btn', 'Back to flash'), disable);
+    } else {
+      text = t('usb_storage_mode_flash', "Data and cache are on the Hub's flash.");
+      for (const d of st.disks || []) {
+        const vars = { device: d.device, size: mb(d.size_kb) };
+        button(t('usb_storage_setup_btn', 'Use {device} ({size} MB) for data and cache', vars), async () => {
+          const ok = await confirm.ask({
+            title: t('usb_storage_title', 'USB Storage'),
+            message: t('usb_storage_setup_confirm', "Erase {device} ({size} MB) and move the Hub's data and cache onto it? Everything on the stick is lost. The Hub restarts.", vars),
+            danger: true,
+          });
+          if (ok) await api.usbStorageAction('setup', { device: d.device, confirm: true });
+        });
+      }
+      if (!(st.disks || []).length) text += ' ' + t('usb_storage_scan_note', 'Looking for sticks switches the USB port to host mode: a USB connection to a PC stops.');
+      button(t('usb_storage_scan_btn', 'Look for USB sticks'), () => api.usbStorageAction('scan'));
+    }
+    if (st.failed && st.message) text += ' ' + t('usb_storage_failed', 'Last action failed: {message}', { message: st.message });
+    usbStatus.textContent = text;
+  }
+
   // Maintenance & Reboot Card
   const actionsCard = h('div', { className: 'card' }, [
     h('div', { className: 'card-header' }, [
@@ -70,33 +178,6 @@ export function createView() {
             toast.success(st?.message || t('update_check_finished', 'Update check finished'));
           } catch (e) {
             toast.error(e.message);
-          }
-        },
-      }),
-      h('button', {
-        className: 'btn btn-secondary',
-        id: 'btn-empty-stock-res',
-        text: t('empty_stock_resources', 'Empty Stock Resources'),
-        // Enabled only once the disk status says the files may go
-        disabled: true,
-        // style, not the hidden attribute: .btn sets display, which wins over [hidden]
-        style: { display: 'none' },
-        onclick: async () => {
-          const disk = await api.getSystemDisk().catch(() => null);
-          const kb = disk?.stock_resources_kb ?? 0;
-          const ok = await confirm.ask({
-            title: t('clean_stock_resources_title', 'Empty Stock Resources'),
-            message: t('clean_stock_resources_confirm', 'Empty /data/resources? This deletes the stock Logitech files ({kb} kB uncompressed; less flash space is freed, as the flash is compressed). A revert to the stock firmware then needs the saved copy (stock_resources_<hub>.tar).', { kb }),
-            danger: true,
-          });
-          if (ok) {
-            try {
-              const res = await api.cleanStockResources();
-              toast.success(t('freed_stock_resources_toast', 'Freed ~{kb} kB of flash storage!', { kb: res?.freed_kb ?? kb }));
-              loadSystemInfo();
-            } catch (e) {
-              toast.error(e.message);
-            }
           }
         },
       }),
@@ -196,17 +277,6 @@ export function createView() {
 
       statsMount.appendChild(grid);
 
-      const emptyResBtn = container.querySelector('#btn-empty-stock-res');
-      if (emptyResBtn && disk) {
-        const kb = disk.stock_resources_kb;
-        const canEmpty = disk.can_empty_stock_resources === true;
-        // Hidden on firmware without the delete and when nothing is left
-        emptyResBtn.style.display = typeof kb !== 'number' || kb === 0 ? 'none' : '';
-        emptyResBtn.disabled = !canEmpty;
-        emptyResBtn.title = canEmpty ? ''
-          : !disk.stock_resources_saved ? t('stock_resources_not_saved', 'Kept until a backup has saved them (run deploy_hub.py or tools/backup_hub.py).')
-          : t('stock_resources_not_imported', 'Kept until the stock configuration is imported.');
-      }
     } catch (e) {
       statsMount.textContent = t('error_msg', 'Error: {error}', { error: e.message });
     }
@@ -265,6 +335,8 @@ export function createView() {
       const raw = String(st?.led_mode || 'green').toLowerCase();
       const mode = LEGACY_LED_MODES[raw] || raw;
       ledSelect.value = LED_MODES.includes(mode) ? mode : 'green';
+      setOtaSource(st?.update_repo);
+      repoInput.value = st?.update_repo || '';
     } catch (e) {
       ledSelect.value = 'green';
     }
@@ -286,12 +358,15 @@ export function createView() {
   container.appendChild(statsCard);
   container.appendChild(servicesCard);
   container.appendChild(ledCard);
+  container.appendChild(repoCard);
+  container.appendChild(usbCard);
   container.appendChild(actionsCard);
   container.appendChild(logsCard);
 
   loadSystemInfo();
   loadServices();
   loadLedMode();
+  loadUsbStorage();
   loadLogs('daemon');
 
   return container;

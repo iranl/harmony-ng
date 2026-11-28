@@ -51,7 +51,7 @@ cd android-app && npm install && npm run build && cd ..
 ```
 
 > [!NOTE]
-> The automatic stock backup in `tools/root_hub_usb.py` needs a MIPS BusyBox with `tar` (the stock one has none). The release bundle ships it as `bin/busybox`; a git checkout does not, so build it first with `./build/build_busybox.sh mips` (output: `payload/bin/busybox`), otherwise the root tool cannot take the backup.
+> The automatic stock backup in `tools/root_hub_usb.py` needs a MIPS BusyBox with `tar` (the stock one has none). The release bundle ships it as `tools/bin/busybox`; a git checkout does not, so build it first with `LINK=static ./build/build_busybox.sh mips` (output: `payload/bin/busybox`), otherwise the root tool cannot take the backup.
 
 ---
 
@@ -133,7 +133,7 @@ When `backups/golden_hub_backup.tar` does not exist yet, the root tool also copi
 > [!NOTE]
 > **No gzip compression**: Backups and restores use uncompressed tar archives (`.tar`, not `.tar.gz`). The embedded BusyBox on the Hub has limited RAM and flash bandwidth; omitting gzip avoids CPU exhaustion and out-of-memory kernel panics during tar extraction.
 
-The backup that `tools/backup_hub.py` makes (also before every `deploy_hub.py` run) holds `/data/harmony` (devices, activities, button maps, Bluetooth keys, certificates), the stock `/data/resources` (also kept in `stock_resources_<hub>.tar`, never replaced: the copy that allows emptying them, see below), the Wi-Fi configuration, the SSH host keys and the saved stock boot script. The files are named after the Hub (its Wi-Fi MAC), so several Hubs can share one `backups/` folder: `golden_hub_backup_<hub>.tar` is the first backup of each Hub and is never replaced (a `golden_hub_backup.tar` in the same folder is kept as the golden backup, and no new one is made next to it: older versions of the tool wrote that file, and `tools/root_hub_usb.py` still writes it, so a Hub rooted from this folder gets no `golden_hub_backup_<hub>.tar`), and of the `hub_backup_<hub>_<time>.tar` files the newest five are kept, plus the newest of each of the eight weeks before them. `deploy_hub.py` makes such a backup before every deployment and stops without changing the Hub when it cannot make one (`--no-backup` skips it; a `--webui-only` run makes none). To put such an archive back on the Hub, name it: `python tools/restore_stock.py --hub-ip <YOUR_HUB_IP> --backup backups/hub_backup_<hub>_<time>.tar` (without `--backup` the tool takes the stock backup; with `--hub-ip` it uses SSH when the Hub answers there, without the USB step). The tool empties `/cache` first and these archives hold no `/cache`, so run `deploy_hub.py` again afterwards.
+The backup that `tools/backup_hub.py` makes (also before every `deploy_hub.py` run) holds `/data/harmony` (devices, activities, button maps, Bluetooth keys, certificates), the stock `/data/resources`, the Wi-Fi configuration, the SSH host keys and the saved stock boot script. The files are named after the Hub (its Wi-Fi MAC), so several Hubs can share one `backups/` folder: `golden_hub_backup_<hub>.tar` is the first backup of each Hub and is never replaced (a `golden_hub_backup.tar` in the same folder is kept as the golden backup, and no new one is made next to it: older versions of the tool wrote that file, and `tools/root_hub_usb.py` still writes it, so a Hub rooted from this folder gets no `golden_hub_backup_<hub>.tar`), and of the `hub_backup_<hub>_<time>.tar` files the newest five are kept, plus the newest of each of the eight weeks before them. `deploy_hub.py` makes such a backup before every deployment and stops without changing the Hub when it cannot make one (`--no-backup` skips it; a `--webui-only` run makes none). To put such an archive back on the Hub, name it: `python tools/restore_stock.py --hub-ip <YOUR_HUB_IP> --backup backups/hub_backup_<hub>_<time>.tar` (without `--backup` the tool takes the stock backup; with `--hub-ip` it uses SSH when the Hub answers there, without the USB step). The tool empties `/cache` first and these archives hold no `/cache`, so run `deploy_hub.py` again afterwards.
 
 You can also run manual backups at any time:
 ```bash
@@ -212,12 +212,6 @@ python3 tools/migrate_hub_configs.py --src stock/resources --dest migrated
 
 To use the result, back up `/data/harmony` on the Hub first, copy `migrated/config/*` to `/data/harmony/config/` and `migrated/*.json` to `/data/harmony/`, then reboot the Hub.
 
-**Emptying `/data/resources`.** After the import HarmonyNG does not read the stock files. They take about 250 kB as files, less on the Hub's compressed flash (JFFS2). They can be removed from the web UI (Settings, Stock Resources), with `python tools/clean_stock_resources.py <YOUR_HUB_IP>` or with `deploy_hub.py --clean-stock-resources`. All three refuse until:
-- the stock configuration was imported (a non-empty `/data/harmony/config/devices.json`); the deploy never removes the files in the run that imported them, and
-- a backup saved them as they are now: `tools/backup_hub.py` (run by every deploy) keeps `backups/stock_resources_<hub>.tar` (`<hub>` is the Wi-Fi MAC; without a readable MAC nothing is saved). Each run checks the copy file by file (names, sizes, md5) against the Hub. A copy is never replaced: when the files changed since, a new `stock_resources_<hub>_<time>.tar` is saved beside it. Then the Hub is marked (`/data/harmony/stock_resources_saved`, the copy's name and a fingerprint of the file names and sizes). `clean_stock_resources.py` and the deploy need the matching copy in the `backups/` folder of the computer they run on; the web UI cannot see that folder and needs the mark to match the files on the Hub. Keep these files: they are the only copy.
-
-The stock firmware needs the files. `tools/restore_stock.py` puts the newest `stock_resources_<hub>*.tar` back on a restore of the stock firmware (an archive without `/data/harmony`) that holds no stock files while the Hub has none, and stops before stopping any process when there is no such copy. A rolling backup (`hub_backup_<hub>_<time>.tar`) restores HarmonyNG, which does not need them: nothing is added. `--stock-resources <file>` adds a copy in any case (also when the Hub's MAC cannot be read). The backup makes no golden backup while `/data/resources` is empty. After a software reset (which removes the mark with `/data/harmony`) or `tools/root_hub_usb.py` (which writes `stock_hub_backup_*.tar` and `golden_hub_backup.tar` itself), an emptied Hub can still give archives without stock files; `restore_stock.py` then adds the copy or refuses. Before "Revert to Stock Firmware" in the web UI on an emptied Hub, keep the copy: the stock firmware needs it put back with `restore_stock.py`. To run the import above again, extract the saved copy (`tar -xf backups/stock_resources_<hub>.tar` gives `data/resources`) and pass that folder to `--src`.
-
 The tool also takes a HarmonyNG configuration folder or a backup bundle (`--src`). The RF protocol carries 4 bytes of a device id, so a device whose id is longer gets the lowest free number as its id (a number no device has and no activity or remote map refers to, so a reference left over from a deleted device never points at it); devices whose id fits keep it, and every reference follows (activities, power sequences, the Bluetooth trigger, the remote maps and the hosts of an old `bt-devices.json`). The migration lists each renumbered id in its warnings.
 
 ### SSH host keys
@@ -251,6 +245,23 @@ python build/deploy_hub.py <YOUR_HUB_IP> --key ~/.ssh/harmony_owner_ed25519
 In Windows PowerShell, which has no `<`, the append is `Get-Content $env:USERPROFILE\.ssh\harmony_owner_ed25519.pub | ssh -i <YOUR_CURRENT_KEY> root@<YOUR_HUB_IP> "echo >> /home/root/.ssh/authorized_keys; cat >> /home/root/.ssh/authorized_keys"`.
 
 The line must start with `ssh-ed25519 ` and the whole key, or with one options field the server knows (for example `no-pty`; it refuses a line with an option it does not know, such as OpenSSH's `from=`), one blank and then the key. The checks answer no for a key with blanks in front but no options, a cut key, an Ed25519 key written as the comment of an RSA key, and two keys joined on one line: the server would not let that key in either.
+
+### The Linux 6.18 Hub system
+
+HarmonyNG 4 runs on its own Linux 6.18 system (kernel, root file system, one data partition) instead of the stock 2.6.31 firmware. Only the install tool switches a Hub to it; an online update never does (it only updates a Hub that already runs it).
+
+```bash
+# Cross-platform (Windows, Linux, macOS), from the repository root or the release bundle:
+python tools/install_kernel6.py <YOUR_HUB_IP>
+```
+
+On a stock Hub the tool first backs up the kernel, root, data, cache and mfg partitions to `backups/<hub>-<date>/`, removes the stock-era HarmonyNG binaries (and, if the data partition is still short of room, the web UI and icons), stages the new system, writes the kernel and restarts. On a Hub with an older 6.18 install it merges the data and cache partitions into one (everything in `/cache` except the boot flags goes). On a Hub that already has one data partition it updates the kernel and root file system. In every case the Hub writes its root file system at the first boot (a few minutes, **do not cut the power**). The tool then waits for it and runs `deploy_hub.py`.
+
+Back to the stock firmware, as it was at the switch:
+
+```bash
+python tools/rollback_kernel6.py <YOUR_HUB_IP> backups/<hub>-<date>
+```
 
 ---
 

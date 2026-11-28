@@ -89,12 +89,16 @@ def package_ota(output_dir: Path, version: str):
     # 1. Version file
     # For v2+ releases, keep root VERSION at 1.14.0 so existing 1.*.* hubs do not attempt 2.0 upgrade over the air.
     # Write v2/VERSION and VERSION_V2 for 2.0+ clients.
+    # v4 (Linux 6.18 system) has a branch of its own (ota4) with a plain VERSION: the ota branch keeps
+    # the last v3 release for v3 Hubs, which only get VERSION_V4 there (publish_v4_pointer).
     try:
         major = int(version.split(".")[0])
     except Exception:
         major = 1
 
-    if major >= 2:
+    if major >= 4:
+        (output_dir / "VERSION").write_text(version + "\n", encoding="utf-8")
+    elif major >= 2:
         (output_dir / "VERSION").write_text("1.14.0\n", encoding="utf-8")
         (output_dir / "VERSION_V2").write_text(version + "\n", encoding="utf-8")
         v2_dir = output_dir / "v2"
@@ -211,6 +215,22 @@ def package_ota(output_dir: Path, version: str):
     else:
         print("[-] Warning: No built WebUI bundle found with index.html")
 
+    # 4b. Linux 6.18 system (build/build_kernel6.sh, build/build_rootfs6.sh): kernel and root
+    # file system images, for Hubs that run it (update.sh writes the kernel and stages the root
+    # file system for the next boot). Optional: a release without them updates HarmonyNG only.
+    k6_src = REPO_ROOT / "build" / "output" / "kernel6"
+    k6_target = output_dir / "kernel6"
+    for k6name in ("harmony-hub-flash.uImage", "harmony-hub-rootfs.sqfs"):
+        src = k6_src / k6name
+        if not src.is_file():
+            print(f"[*] {k6name} not built: no Linux 6.18 system image in this release")
+            continue
+        k6_target.mkdir(parents=True, exist_ok=True)
+        dst = k6_target / k6name
+        shutil.copy2(src, dst)
+        md5, sha = get_file_hashes(dst)
+        manifest_files[f"kernel6/{k6name}"] = {"size": dst.stat().st_size, "md5": md5, "sha256": sha}
+
     # 5. Unified Hub OTA bundle (hub_ota.tar.gz)
     hub_tar = output_dir / "hub_ota.tar.gz"
     print(f"[*] Creating unified Hub OTA package {hub_tar.name}...")
@@ -219,15 +239,11 @@ def package_ota(output_dir: Path, version: str):
         ver_file = (output_dir / "v2" / "VERSION") if (major >= 2 and (output_dir / "v2" / "VERSION").exists()) else (output_dir / "VERSION")
         tar.add(ver_file, arcname="VERSION")
         # Binaries
-        for bname in HUB_BINARIES + ["busybox", "dropbearmulti"]:
+        # BusyBox and dropbear are the Linux 6.18 root file system's (build/build_rootfs6.sh)
+        for bname in HUB_BINARIES:
             src = find_candidate_file(bname, MIPS_SEARCH_PATHS)
             if src and src.exists():
-                # The SSH server takes Ed25519 user keys only. The update.sh of v2.5.3 and older
-                # installs bin/dropbearmulti unchecked and reboots, which would lock out a Hub
-                # whose root has no Ed25519 key: under this name that script skips it, and the new
-                # update.sh installs it as dropbearmulti behind its key check.
-                arc = "bin/dropbearmulti_ed25519" if bname == "dropbearmulti" else f"bin/{bname}"
-                tar.add(src, arcname=arc)
+                tar.add(src, arcname=f"bin/{bname}")
         # Scripts
         scripts_dir = REPO_ROOT / "payload" / "scripts"
         if scripts_dir.is_dir():
@@ -362,12 +378,35 @@ def push_to_ota_branch(staging_dir: Path, version: str, remote_url: str = None, 
             print(f"[+] Single-commit git repository created locally in staging for branch '{branch}'.")
             print("    To push to GitHub, run with --remote <url> or git push -f.")
 
+def publish_v4_pointer(version: str, remote_url: str, branch: str = "ota"):
+    """Write VERSION_V4 and v4/VERSION onto the v3 branch, keeping everything else on it: v3 Hubs
+    install only the v3 release there and show the v4 banner from these files."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp_git:
+        tmp_path = Path(tmp_git)
+        subprocess.run(["git", "clone", "--depth", "1", "--branch", branch, remote_url, str(tmp_path)], check=True)
+        (tmp_path / "VERSION_V4").write_text(version + "\n", encoding="utf-8")
+        (tmp_path / "v4").mkdir(exist_ok=True)
+        (tmp_path / "v4" / "VERSION").write_text(version + "\n", encoding="utf-8")
+        subprocess.run(["git", "add", "VERSION_V4", "v4/VERSION"], cwd=tmp_path, check=True)
+        if subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=tmp_path).returncode == 0:
+            print(f"[+] {branch} already points to v{version}.")
+            return
+        subprocess.run(["git", "-c", "user.name=github-actions[bot]",
+                        "-c", "user.email=github-actions[bot]@users.noreply.github.com",
+                        "commit", "-m", f"VERSION_V4: v{version}"], cwd=tmp_path, check=True)
+        subprocess.run(["git", "push", "origin", branch], cwd=tmp_path, check=True)
+        print(f"[+] {branch}: VERSION_V4 and v4/VERSION point to v{version}.")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Package and deploy Harmony OTA assets")
     parser.add_argument("--version", "-v", help="Release version (default: from VERSION file)")
     parser.add_argument("--push", "-p", action="store_true", help="Push to git remote OTA branch")
     parser.add_argument("--remote", "-r", default="", help="Remote git URL (e.g. git@github.com:iranl/harmony-ng.git)")
-    parser.add_argument("--branch", "-b", default="ota", help="Target branch (default: ota)")
+    parser.add_argument("--branch", "-b", default="ota", help="Target branch (default: ota; v4 releases: ota4)")
+    parser.add_argument("--v4-pointer-branch", default="",
+                        help="v4 release: also write VERSION_V4 and v4/VERSION onto this v3 branch (e.g. ota)")
     parser.add_argument("--require-signature", action="store_true",
                         help="Fail when OTA_SIGNING_KEY is not set (release workflow)")
     args = parser.parse_args()
@@ -379,6 +418,8 @@ def main():
 
     if args.push or args.remote:
         push_to_ota_branch(STAGING_DIR, ver, remote_url=args.remote or None, branch=args.branch)
+        if args.v4_pointer_branch and args.remote:
+            publish_v4_pointer(ver, args.remote, args.v4_pointer_branch)
 
 if __name__ == "__main__":
     main()

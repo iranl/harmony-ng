@@ -244,6 +244,15 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
     return this.postForm('/ethernet', data);
   }
 
+  /* Data and cache on a USB stick: state, and scan|setup|disable (background job) */
+  async getUsbStorage() {
+    return this.request('/api/usb-storage');
+  }
+
+  async usbStorageAction(action, extra = {}) {
+    return this.postJson('/api/usb-storage', { action, ...extra });
+  }
+
   async scanWifi() {
     return this.request('/api/wifi-scan');
   }
@@ -296,7 +305,8 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
       cacheUsedMb,
       totalCombinedFreeMb,
       totalCombinedMb,
-      output: `Data: ${freeMb}MB free (${totalMb}MB) | Cache: ${cacheFreeMb}MB free (${cacheTotalMb}MB)`
+      // one file system for data and cache (Linux 6.18 system): cache_* are 0
+      output: `Data: ${freeMb}MB free (${totalMb}MB)` + (data.cache_total_kb ? ` | Cache: ${cacheFreeMb}MB free (${cacheTotalMb}MB)` : '')
     };
   }
 
@@ -346,10 +356,6 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
 
   async rebootHub() {
     return this.saveSystemAction('reboot');
-  }
-
-  async cleanStockResources() {
-    return this.saveSystemAction('clean_stock_resources', { confirm: 'EMPTY' });
   }
 
   async getUpdateStatus() {

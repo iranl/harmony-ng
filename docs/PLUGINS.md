@@ -33,7 +33,7 @@ Official plugin repository: [**https://github.com/iranl/harmony-ng-plugins**](ht
 ## Architecture & Design Principles
 
 ### 1. Minimal Flash Space & Low Overhead
-The Harmony Hub (Atheros AR9344 SoC, MIPS 24Kc) operates with limited flash and RAM. To prevent memory exhaustion and binary bloat:
+The Harmony Hub (Atheros AR9330 SoC, MIPS 24Kc) operates with limited flash and RAM. To prevent memory exhaustion and binary bloat:
 - Core `hub_daemon` remains a micro-daemon (< 650 KB).
 - Plugins run as independent, standalone processes (lightweight shell scripts, micro-daemons in C/C++, or small interpreters).
 - No statically linked runtimes (Python, Node.js, or heavy frameworks).
@@ -354,7 +354,7 @@ For a device that asks the user to accept the Hub on its own screen (a Samsung o
 
 ### Target Architecture & Cross-Compilation
 
-The Harmony Hub CPU is an **Atheros AR9344 (MIPS 24Kc, big-endian)** running **Linux 2.6.31**. Its stock C library is **uClibc 0.9.30**.
+The Harmony Hub CPU is an **Atheros AR9330 (MIPS 24Kc, big-endian)**. HarmonyNG runs on the **Linux 6.18** Hub system (`build/build_kernel6.sh`, `build/build_rootfs6.sh`), whose C library is the toolchain's shared **uClibc-ng 1.0.24**. The stock Linux 2.6.31 with uClibc 0.9.30 is no longer supported.
 
 #### Cross-Compiler Toolchain
 The MIPS Buildroot toolchain (`mips32--uclibc--stable`, uClibc-ng 1.0.24 / GCC 5.4.0) is found by `build/compile_all.sh` in `build/toolchains/`; it is not downloaded. Get it from the Buildroot toolchain archives (bootlin `mips32--uclibc--stable`).
@@ -363,16 +363,15 @@ The MIPS Buildroot toolchain (`mips32--uclibc--stable`, uClibc-ng 1.0.24 / GCC 5
 # Add MIPS toolchain to PATH
 export PATH="$(pwd)/build/toolchains/mips32--uclibc--stable/bin:$PATH"
 
-# Compile a dynamically linked executable against the Hub's uClibc
+# Compile a dynamically linked executable against the Hub's uClibc-ng
 mips-buildroot-linux-uclibc-gcc -Wall -Os -s -o my_daemon main.c -lm
 ```
 
 #### Binary Guidelines
-1. **Link dynamically** against the Hub's `libc.so.0` (and `libpthread.so.0` only if needed): a static binary is much larger, and `/data` has about 5 MB for everything. The Hub's own binaries in this repository are static because they must run before and without anything else; a plugin does not.
-2. **Symbols missing from the stock uClibc 0.9.30**: the toolchain's headers are uClibc-ng 1.0.24, so some calls link but are not on the Hub. `<ctype.h>` functions (`isdigit`, `tolower`, ...) import `__ctype_b_loc` / `__ctype_tolower_loc`, which the Hub lacks: the plugin starts and dies at the first call. Write these checks by hand; `build_plugins.sh` refuses a binary that imports `__ctype_`. Link statically only when a symbol you need is missing and cannot be avoided.
-3. **No futex on the Hub kernel**: a thread waiting on a condition variable, a semaphore, a contended mutex or `pthread_join` spins at 100 % CPU (#211). Use one thread and a `poll()` loop (socket, timers as poll timeouts); if a second thread is unavoidable, wake it through a pipe it `poll()`s.
-4. **Prefer POSIX shell scripts** using BusyBox applets (`sed`, `awk`, `wget`, `nc`) when network protocols allow (such as HTTP REST APIs). A script entrypoint must also stay in the foreground (`exec` the last command).
-5. **TLS: link the Hub's BearSSL**, do not bundle one (next section).
+1. **Link dynamically** against the Hub's `libc.so.0` (uClibc-ng merges libpthread and libm into it), as the Hub's own binaries do: a static binary is much larger, and `/data` has about 5 MB for everything. The headers and the library on the Hub are the same uClibc-ng 1.0.24, so whatever links runs (`<ctype.h>` included).
+2. **Threads**: the 6.18 kernel has futexes, so condition variables, semaphores and `pthread_join` block as they should. One thread with a `poll()` loop is still the smallest design.
+3. **Prefer POSIX shell scripts** using BusyBox applets (`sed`, `awk`, `wget`, `nc`) when network protocols allow (such as HTTP REST APIs). A script entrypoint must also stay in the foreground (`exec` the last command).
+4. **TLS: link the Hub's BearSSL**, do not bundle one (next section).
 
 #### Using TLS: the shared BearSSL
 The Hub firmware ships BearSSL once, as `/data/harmony/lib/libbearssl.so.0` (about 165 KB, needs
@@ -389,8 +388,7 @@ mips-buildroot-linux-uclibc-gcc -Wall -Os -s -I build/tmp/bearssl/inc -o bin/my_
 ```
 
 and lists it in the manifest: `"requires_libs": ["libbearssl.so.0"]`. The Hub starts every
-plugin with `LD_LIBRARY_PATH=/data/harmony/lib`: the stock `ld-uClibc` 0.9.30 ignores a
-binary's rpath (`-Wl,-rpath` does not help). A plugin binary started by hand needs the same
+plugin with `LD_LIBRARY_PATH=/data/harmony/lib`; a plugin binary started by hand needs the same
 variable. The `android-tv` plugin linked this way is 34 KB instead of 100 KB.
 
 - **The commit is part of the ABI.** BearSSL contexts (`br_ssl_client_context`, ...) are structs
@@ -496,9 +494,7 @@ Users can simply paste your repository URL into the **Repositories** tab in thei
 
 ## Reference Plugins
 
-Official reference implementations are hosted in the **harmony-ng-plugins** repository:
+The plugins the marketplace offers are in the **harmony-ng-plugins** repository, with a `template/` to start from:
 👉 [**https://github.com/iranl/harmony-ng-plugins**](https://github.com/iranl/harmony-ng-plugins)
 
-- **`roku-ecp`**: Wi-Fi External Control Protocol for Roku streaming sticks and Roku TVs.
-- **`ps5-wake`**: DualSense/DualShock Bluetooth wake packets for PlayStation 4 and PlayStation 5 consoles.
-- **`android-tv`**: Local network key and media controls for Android TV and Google TV devices.
+Two to read first: **`roku-ecp`**, the smallest one (plain HTTP to a Roku), and **`android-tv`**, which pairs (`pin_display`) and talks TLS with the shared BearSSL. The repository's README lists the others (TVs, consoles, Wake-on-LAN, ...).

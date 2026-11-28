@@ -5,7 +5,7 @@ info:
   description: |
     REST and WebSocket API for the open-source **Harmony Hub** firmware and **Harmony remote** RF daemon.
     
-    Runs natively on port `8089` on Atheros AR9344 MIPS hardware. Transparently proxies `/api/rf/*` calls to the `hub_rf` daemon on port `8092`.
+    Runs natively on port `8089` on Atheros AR9330 MIPS hardware. Transparently proxies `/api/rf/*` calls to the `hub_rf` daemon on port `8092`.
     
     ### Testing Locally
     Use the **Servers** dropdown or "Try it out" to send requests directly to your Harmony Hub.
@@ -279,7 +279,7 @@ paths:
                 hub_name: Living Room Hub
                 uptime: "1d 4h 12m (101520s)"
                 loadavg: "0.12 0.08 0.05"
-                kernel: "Linux version 3.3.8 (mips Atheros AR9344)"
+                kernel: "Linux version 6.18.65-harmony (gcc 14) #1 Thu Nov 26 2026"
                 firmware: "4.15.600"
                 version: "2.4.2"
                 commit: abc1234
@@ -288,6 +288,8 @@ paths:
                 mem_total_kb: 131072
                 mem_free_kb: 49152
                 mem_available_kb: 73728
+                swap_total_kb: 16384
+                swap_free_kb: 16384
                 network_details: "=== Network Interfaces (/proc/net/dev) ===\n..."
 
   /api/disk-space:
@@ -311,9 +313,7 @@ paths:
                 cache_free_kb: 1824
                 cache_used_kb: 3296
                 cache_percent_free: 35
-                stock_resources_kb: 251
-                stock_resources_saved: true
-                can_empty_stock_resources: true
+                cache_shared: false
 
   /api/network-status:
     get:
@@ -1036,6 +1036,8 @@ paths:
                 led_mode: green
                 mdns_enabled: true
                 legacy_enabled: false
+                update_repo: ""
+                update_repo_default: https://raw.githubusercontent.com/iranl/harmony-ng/ota4
     post:
       tags:
         - System & Status
@@ -1059,6 +1061,7 @@ paths:
                   description: "Front light colour while the Hub runs normally: green, amber (also orange), red or off. The older values always_on (green) and always_off (off) are still accepted. Stored as sent without a check; a value the Hub does not know shows green."
                 mdns_enabled: {type: boolean, default: true, description: "mDNS responder for _harmony-ng._tcp; takes effect at once"}
                 legacy_enabled: {type: boolean, default: false, description: "Logitech protocol shim on port 8088 (never authenticated) and its SSDP responder; takes effect at once, off closes every 8088 client"}
+                update_repo: {type: string, default: "", description: "Update source for update-check, update-apply, the remote OTA and Ethernet driver downloads: an http(s):// URL with only letters, digits and - _ . / : @ ~. Empty means the official source (update_repo_default in the reply). A request's own repo parameter still wins."}
             example:
               hub_name: Living Room Hub
               dry_run: false
@@ -1081,8 +1084,10 @@ paths:
                 led_mode: green
                 mdns_enabled: true
                 legacy_enabled: false
+                update_repo: ""
+                update_repo_default: https://raw.githubusercontent.com/iranl/harmony-ng/ota4
         '400':
-          description: "Unknown timezone: use a name from the list or a POSIX TZ string (nothing is saved)"
+          description: "Unknown timezone (use a name from the list or a POSIX TZ string), or an update_repo that is not a usable URL (nothing is saved)"
         '500':
           description: The settings could not be saved
 
@@ -1107,10 +1112,10 @@ paths:
               properties:
                 action:
                   type: string
-                  enum: [reboot, factory_reset, clean_stock_resources, mqtt_publish, auth]
+                  enum: [reboot, factory_reset, mqtt_publish, auth]
                 confirm:
                   type: string
-                  description: Required confirmation string ('RESET') for factory_reset, ('EMPTY') for clean_stock_resources
+                  description: Required confirmation string ('RESET') for factory_reset
                 topic:
                   type: string
                   description: MQTT topic for mqtt_publish action
@@ -1132,8 +1137,6 @@ paths:
                 value: {action: reboot}
               factoryReset:
                 value: {action: factory_reset, confirm: RESET}
-              cleanStockResources:
-                value: {action: clean_stock_resources, confirm: EMPTY}
               mqttPublish:
                 value: {action: mqtt_publish, topic: harmony/hub/notify, payload: "{\"event\":\"ready\"}"}
               auth:
@@ -1150,11 +1153,11 @@ paths:
                 ok: true
                 message: Rebooting hub now
         '400':
-          description: "factory_reset without confirm RESET; clean_stock_resources without confirm EMPTY; auth: a name of 32 bytes or more or with ':' or a line break, a password over 128 bytes, renaming the admin without the password, or turning authentication on with no admin account and no password"
+          description: "factory_reset without confirm RESET; auth: a name of 32 bytes or more or with ':' or a line break, a password over 128 bytes, renaming the admin without the password, or turning authentication on with no admin account and no password"
         '409':
-          description: "reboot while a software update runs (Software update in progress. Manual reboot blocked.); clean_stock_resources: the stock configuration is not imported yet (no or an empty /data/harmony/config/devices.json), no saved copy of the stock files as they are now (the fingerprint in /data/harmony/stock_resources_saved, written by tools/backup_hub.py, does not match), or /data/resources is a link; auth: the admin name is taken by another account"
+          description: "reboot while a software update runs (Software update in progress. Manual reboot blocked.); auth: the admin name is taken by another account"
         '500':
-          description: "factory_reset: the reset script is not installed on this Hub; clean_stock_resources: some files in /data/resources could not be removed, or it could not be read; auth: the accounts could not be saved, or the admin name has access tokens left by a deleted account and the token file cannot be changed"
+          description: "factory_reset: the reset script is not installed on this Hub; auth: the accounts could not be saved, or the admin name has access tokens left by a deleted account and the token file cannot be changed"
         '503':
           description: "auth: the token list is busy, try again"
 
@@ -3878,6 +3881,55 @@ paths:
         '500':
           description: The settings could not be saved
 
+  /api/usb-storage:
+    get:
+      tags:
+        - System & Status
+      summary: Data and cache on a USB stick
+      description: |
+        Linux 6.18 system: an ext4 USB stick (Hub USB port in host mode) holds the Hub's data and
+        cache; the flash keeps the boot state and the data as at the set-up. mode is flash, usb
+        (device, total_kb and free_kb describe the stick) or usb-missing (set up, stick not there
+        at boot: rescue mode, no HarmonyNG). disks lists the USB disks the Hub sees (host mode
+        only, see scan).
+      responses:
+        '200':
+          description: USB storage state
+          content:
+            application/json:
+              example: {ok: true, mode: usb, device: /dev/sda1, total_kb: 7800000, free_kb: 7700000, disks: [], busy: false, message: ""}
+    post:
+      tags:
+        - System & Status
+      summary: Run a USB storage action
+      description: |
+        scan (USB host mode, the USB device side goes; lists the disks), setup (device from disks
+        and confirm true: erases that disk, formats it ext4, copies data and cache to it, restarts
+        onto it), disable (the flash again from the next restart, with the data as at the
+        set-up). Runs in the background; GET shows busy until it ends.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action: {type: string, enum: [scan, setup, disable]}
+                device: {type: string, pattern: "^/dev/sd[a-z][1-9]?$", description: "setup: a disk from disks"}
+                confirm: {type: boolean, description: "setup: must be true (the disk is erased)"}
+            example: {action: setup, device: /dev/sda, confirm: true}
+      responses:
+        '202':
+          description: Action started
+          content:
+            application/json:
+              example: {ok: true, status: running, action: setup}
+        '400':
+          description: Unknown action, or setup without a listed disk or without confirm true
+        '409':
+          description: An action is already running
+
   /api/ethernet-save:
     post:
       tags:
@@ -3942,7 +3994,7 @@ paths:
                 firmware: 4.15.600
                 rf_version: "0x20 CC2544"
                 bt_version: "BTstack v1.5 (UART)"
-                arch: "mips (AR9344)"
+                arch: "mips (AR9330)"
                 update_available: false
                 updating: false
                 update_state: idle
@@ -4006,7 +4058,7 @@ paths:
                   type: string
                   description: "A version the client already knows (also accepted as version): stored as the latest version, nothing is downloaded"
             example:
-              repo: "https://raw.githubusercontent.com/iranl/harmony-ng/ota"
+              repo: "https://raw.githubusercontent.com/iranl/harmony-ng/ota4"
       responses:
         '200':
           description: Check result
