@@ -67,6 +67,18 @@ await check('a failed Hub test reaches the caller as an error', async () => {
   }
 });
 
+await check('a lost reply (Hub moved to another network) has no HTTP status; a refusal has one', async () => {
+  // the view shows "may have a new address" for the first, the Hub's error for the second
+  const { client, seen } = makeClient({ ok: false, error: 'refused' }, 400);
+  try {
+    await assert.rejects(client.saveWifi({ ssid: 'Home', password: 'secret123' }), (err) => err.status === 400);
+    globalThis.fetch = async () => { throw new TypeError('Failed to fetch'); };
+    await assert.rejects(client.saveWifi({ ssid: 'Other', password: 'secret123' }), (err) => err.status === undefined);
+  } finally {
+    seen.restore();
+  }
+});
+
 await check('pass phrase length is checked before sending', async () => {
   assert.equal(wifiPassphraseError(''), null);
   assert.equal(wifiPassphraseError('12345678'), null);

@@ -60,13 +60,15 @@ OLD_CONF = ('ctrl_interface=/var/run/wpa_supplicant\nupdate_config=1\n\nnetwork=
             '\tpsk="oldpassword1"\n}\n')
 
 FAKE_WPA_CLI = r'''#!/bin/sh
-# fake wpa_cli: the state follows the network in the configuration file
+# fake wpa_cli: the state follows the first network in the configuration file (the one of
+# highest priority; the fallbacks follow it); $ROOT/freq: the band of the link (MHz)
 ROOT="@ROOT@"
 CONF="$ROOT/etc/wpa_supplicant.conf"
 echo "$*" >> "$ROOT/wpa_cli.log"
-ssid=$(sed -n 's/^[[:space:]]*ssid="\(.*\)"$/\1/p' "$CONF" 2>/dev/null)
-psk=$(sed -n 's/^[[:space:]]*psk="\(.*\)"$/\1/p' "$CONF" 2>/dev/null)
-open=$(grep -c 'key_mgmt=NONE' "$CONF" 2>/dev/null)
+first=$(awk '/^network=\{/ {n++} n == 1' "$CONF" 2>/dev/null)
+ssid=$(echo "$first" | sed -n 's/^[[:space:]]*ssid="\(.*\)"$/\1/p')
+psk=$(echo "$first" | sed -n 's/^[[:space:]]*psk="\(.*\)"$/\1/p')
+open=$(echo "$first" | grep -c 'key_mgmt=NONE')
 case "$3" in
   ping) [ -f "$ROOT/no_supplicant" ] || echo PONG ;;
   reconfigure|remove_network|disconnect) echo OK ;;
@@ -76,6 +78,7 @@ case "$3" in
       echo "bssid=02:00:00:00:00:01"
       echo "ssid=$ssid"
       echo "key_mgmt=WPA2-PSK"
+      echo "freq=$(cat "$ROOT/freq" 2>/dev/null || echo 2437)"
       echo "wpa_state=COMPLETED"
       echo "ip_address=192.0.2.10"
     elif [ "$psk" = "wrongpassword" ]; then
@@ -257,6 +260,63 @@ class UsbWifi(unittest.TestCase):
         self.assertTrue(mark.exists(), "the DHCP client on ath0 was asked for a new lease")
         self.assertNotIn("goodpassword", self.applet_log())
 
+    def networks(self) -> list[dict[str, str]]:
+        """The network blocks of wpa_supplicant.conf in file order, as key -> value"""
+        nets, cur = [], None
+        for line in self.confs()[0].splitlines():
+            line = line.strip()
+            if line == "network={":
+                cur = {}
+            elif line == "}" and cur is not None:
+                nets.append(cur)
+                cur = None
+            elif cur is not None and "=" in line:
+                k, v = line.split("=", 1)
+                cur[k] = v
+        return nets
+
+    def summary(self) -> list[tuple[str, str, str]]:
+        return [(n.get("ssid"), n.get("priority"), n.get("id_str", "")) for n in self.networks()]
+
+    def test_previous_network_kept_as_fallback(self):
+        hid = self.hid()
+        self.assertTrue(hid.provision_wifi("NewNet", "goodpassword"))
+        conf, ath0 = self.confs()
+        self.assertEqual(conf, ath0)
+        self.assertTrue(conf.startswith("ctrl_interface=/var/run/wpa_supplicant\nupdate_config=1\n"))
+        # the old file had no band tag: kept as it was, below the new network
+        self.assertEqual(self.summary(), [('"NewNet"', "2", '"hng-2g"'), ('"OldNet"', "1", "")])
+        self.assertEqual(self.networks()[1].get("psk"), '"oldpassword1"')
+        # the same network again: not listed twice
+        self.assertTrue(hid.provision_wifi("NewNet", "goodpassword"))
+        self.assertEqual(self.summary(), [('"NewNet"', "2", '"hng-2g"'), ('"OldNet"', "1", "")])
+
+    def test_one_24ghz_network_always_kept(self):
+        hid = self.hid()
+        self.assertTrue(hid.provision_wifi("Home24", "goodpassword"))  # the Hub's own radio
+        adapter = self.root / "tmp" / "harmony_wifi_adapter"
+        adapter.write_text("mt7601u\n")
+        (self.root / "freq").write_text("5180\n")
+        self.assertTrue(hid.provision_wifi("Fast5a", "goodpassword"))
+        self.assertEqual(self.summary(), [('"Fast5a"', "2", '"hng-5g"'), ('"Home24"', "1", '"hng-2g"')])
+        self.assertTrue(hid.provision_wifi("Fast5b", "goodpassword"))
+        self.assertEqual(self.summary(), [('"Fast5b"', "3", '"hng-5g"'), ('"Fast5a"', "2", '"hng-5g"'),
+                                          ('"Home24"', "1", '"hng-2g"')])
+        self.assertTrue(hid.provision_wifi("Fast5c", "goodpassword"))
+        self.assertEqual(self.summary(), [('"Fast5c"', "3", '"hng-5g"'), ('"Fast5b"', "2", '"hng-5g"'),
+                                          ('"Home24"', "1", '"hng-2g"')], "the 2.4 GHz network stays")
+        # through the adapter on 2.4 GHz: tagged 2.4 GHz, the 5 GHz one before it is the fallback
+        (self.root / "freq").write_text("2412\n")
+        self.assertTrue(hid.provision_wifi("Other24", "goodpassword"))
+        self.assertEqual(self.summary(), [('"Other24"', "2", '"hng-2g"'), ('"Fast5c"', "1", '"hng-5g"')])
+
+    def test_failed_set_keeps_fallbacks(self):
+        hid = self.hid()
+        self.assertTrue(hid.provision_wifi("NewNet", "goodpassword"))
+        before = self.confs()
+        self.assertTrue(hid.provision_wifi("FarAway", "wrongpassword"))
+        self.assertEqual(self.confs(), before, "a failed set changes nothing")
+
     def test_wpa3_only_with_a_supplicant_that_has_sae(self):
         hid = self.hid()
         self.assertTrue(hid.provision_wifi("Net", "goodpassword"))
@@ -277,7 +337,7 @@ class UsbWifi(unittest.TestCase):
         self.assertTrue(hid.provision_wifi("OpenNet", "", "NONE"))
         conf, _ = self.confs()
         self.assertIn("key_mgmt=NONE", conf)
-        self.assertNotIn("psk=", conf)
+        self.assertNotIn("psk", self.networks()[0], "the open network has no key; the old one follows as a fallback")
         self.assertEqual(hid.get_wifi_status().get("connect_status"), "connected")
 
     def test_wrong_password_keeps_old_config(self):

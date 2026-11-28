@@ -4,9 +4,6 @@ import { api } from '../../api/index.js';
 import { t } from '../../i18n/index.js';
 import { toast } from '../../components/toast.js';
 
-// The USB Wi-Fi adapter switch (Linux 6.18 system): held back, see createView()
-const USB_WIFI_ADAPTER_UI = false;
-
 // WPA pass phrase: 8 to 63 characters, or 64 hex digits. wpa_supplicant refuses anything else.
 export function wifiPassphraseError(password) {
   if (!password) return null;
@@ -209,17 +206,20 @@ export function createView() {
       const res = await api.saveWifi({ ssid, password });
       toast.success(res?.message || t('wifi_verified_applied', 'Wi-Fi settings verified and applied'));
     } catch (err) {
-      toast.error(err.message);
+      // No reply at all (no HTTP status): the test moves the Hub to the new network, and on
+      // another network or subnet its answer cannot come back here. Not a failure.
+      if (err.status === undefined) {
+        toast.warn(t('wifi_no_answer_new_address', "No answer from the Hub. It may have joined the new network and have a new address there: look for it in your router's device list."));
+      } else {
+        toast.error(err.message);
+      }
     }
   }
 
   container.appendChild(statusCard);
   container.appendChild(wifiCard);
   container.appendChild(usbCard);
-  // The USB Wi-Fi adapter card stays hidden for now (the Hub API only turns the switch off): it
-  // comes back once the open issues are solved (no fallback network when the adapter is gone, a
-  // Wi-Fi test across networks reported as failed).
-  if (USB_WIFI_ADAPTER_UI) container.appendChild(adapterCard);
+  container.appendChild(adapterCard);
   loadNetStatus();
 
   return container;

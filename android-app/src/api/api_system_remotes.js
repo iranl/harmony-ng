@@ -262,7 +262,8 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
   }
 
   async saveWifi(data) {
-    return this.postForm('/wifi', data);
+    // the Hub tests the network first when applying: up to about 15 s
+    return this.postForm('/wifi', data, { timeout: 45000 });
   }
 
   /* Backup & Restore */

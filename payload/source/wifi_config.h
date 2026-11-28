@@ -11,12 +11,14 @@
  *   starts wpa_supplicant on ath0 when it does not run, as network_manager.sh does) and waits
  *   up to 12 s for the link; on failure each file gets its previous content back, or is
  *   removed when it did not exist, and wpa_supplicant is pointed back at it, so the Hub stays
- *   on its old network (or on none, as before);
+ *   on its old network (or on none, as before); on success the previous network stays in both
+ *   files as a fallback of lower priority (wifi_config_merge());
  * - while a test runs, copies of the previous files and a mark listing them are on flash next
  *   to the files: a test cut short (the process killed, the power cut) is undone by
  *   wifi_config_recover(), called when hub_daemon and the USB setup start and before every
  *   new test;
- * - wifi_config_save(): writes both files (both or neither) and, with apply, reconfigures.
+ * - wifi_config_save(): writes both files (both or neither), the networks already in them kept
+ *   as fallbacks, and, with apply, reconfigures.
  *
  * One test or apply at a time across processes: a lock file in /tmp with the holder's pid (a
  * pthread mutex cannot be shared with another program; a second caller is refused at once:
@@ -46,11 +48,29 @@ extern "C" {
  * older one rejects a file with key_mgmt=SAE altogether, so SAE is written only with it. */
 #define WIFI_SAE_MARK_PATH "/usr/lib/kernel6/wpa_supplicant.sae"
 
+/* present (build/kernel6/rc.sh): ath0 is a USB Wi-Fi adapter (it may have 5 GHz); without it
+ * ath0 is the Hub's own radio, 2.4 GHz only */
+#define WIFI_ADAPTER_MARK_PATH "/tmp/harmony_wifi_adapter"
+
+/* Band tags (id_str) of the networks in the file: the band each network was joined on */
+#define WIFI_BAND_24 1
+#define WIFI_BAND_5 2
+#define WIFI_BAND_TAG_24 "hng-2g"
+#define WIFI_BAND_TAG_5 "hng-5g"
+#define WIFI_TEXT_MAX 4096
+
 /* 1 when the system's wpa_supplicant has SAE (WIFI_SAE_MARK_PATH) */
 int wifi_config_has_sae(void);
 
 /* 0, or -1 when buf is too small */
 int wifi_config_text(char *buf, size_t len, const char *ssid, const char *psk, int is_open, int hidden);
+
+/* The file for new_text's one network (highest priority, tagged with band: WIFI_BAND_24,
+ * WIFI_BAND_5 or 0 = not known) followed by fallbacks from prev_text (may be NULL): the network
+ * of highest priority there that is not the new one, and, when neither is tagged 2.4 GHz, the
+ * first 2.4 GHz one, so the Hub's own radio always has a network to go back to. 0, or -1 when
+ * out is too small or new_text has no network. */
+int wifi_config_merge(char *out, size_t len, const char *new_text, const char *prev_text, int band);
 
 /* 0 when the Hub associated with the network; -1 with the reason in err otherwise (nothing
  * changed then). Refused at once when another test or apply runs. */

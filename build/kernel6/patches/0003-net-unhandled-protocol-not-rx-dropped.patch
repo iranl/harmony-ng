@@ -1,0 +1,14 @@
+--- a/net/core/dev.c
++++ b/net/core/dev.c
+@@ -6155,7 +6155,10 @@
+ 		*ppt_prev = pt_prev;
+ 	} else {
+ drop:
+-		if (!deliver_exact)
++		/* Harmony Hub: a frame of a protocol nothing handles (IPv6 on a kernel without it,
++		 * LLDP, 802.2 LLC, vendor frames of the router) is no drop: rx_nohandler, so
++		 * rx_dropped (ifconfig, /proc/net/dev) counts real losses only, as on the stock kernel */
++		if (!deliver_exact && drop_reason != SKB_DROP_REASON_UNHANDLED_PROTO)
+ 			dev_core_stats_rx_dropped_inc(skb->dev);
+ 		else
+ 			dev_core_stats_rx_nohandler_inc(skb->dev);

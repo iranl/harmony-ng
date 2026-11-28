@@ -852,6 +852,7 @@ export default {
     "scan_failed_error": "Suche fehlgeschlagen: {error}",
     "enter_wifi_ssid": "Wi-Fi-SSID eingeben",
     "wifi_testing_before_switch": "Die Wi-Fi-Verbindung wird vor dem Umschalten getestet (bis zu 15 s)...",
+    "wifi_no_answer_new_address": "Keine Antwort vom Hub. Er ist möglicherweise jetzt im neuen Netzwerk und hat dort eine neue Adresse: Suchen Sie ihn in der Geräteliste Ihres Routers.",
     "wifi_verified_applied": "Wi-Fi-Einstellungen geprüft und übernommen",
     "harmony_search_mfg_placeholder": "z. B. Sony, Samsung, LG, Denon, Apple...",
     "harmony_search_model_placeholder": "z. B. OLED65C1, STR-DN1080, Apple TV 4K...",

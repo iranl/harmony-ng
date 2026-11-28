@@ -84,6 +84,168 @@ int wifi_config_text(char *buf, size_t len, const char *ssid, const char *psk, i
     return (n < 0 || (size_t)n >= len) ? -1 : 0;
 }
 
+/* ---- the previous networks, kept as fallbacks ---- */
+
+/* One network={...} block of a wpa_supplicant file: its lines (without the braces), its SSID,
+ * priority and band tag. wpa_supplicant writes the closing brace on a line of its own, and a
+ * value with a brace in it is never the whole line. */
+struct wifi_block {
+    const char *body;
+    size_t body_len;
+    int prio;
+    int band;
+    unsigned char ssid[32];
+    int ssid_len; /* -1: no ssid line */
+};
+
+#define WIFI_MAX_BLOCKS 8
+
+static int wifi_hex(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+static int wifi_line_is(const char *l, const char *e, const char *key) {
+    size_t k = strlen(key);
+    return (size_t)(e - l) >= k && memcmp(l, key, k) == 0;
+}
+
+/* ssid="text" (as typed) or ssid=6869 (hex, how wpa_supplicant writes other bytes) */
+static void wifi_block_ssid(struct wifi_block *b, const char *v, const char *e) {
+    int n = 0;
+    if (v < e && *v == '"') {
+        for (v++; v < e && *v != '"' && n < 32; v++) b->ssid[n++] = (unsigned char)*v;
+    } else {
+        for (; v + 1 < e && n < 32; v += 2) {
+            int hi = wifi_hex(v[0]), lo = wifi_hex(v[1]);
+            if (hi < 0 || lo < 0) break;
+            b->ssid[n++] = (unsigned char)(hi << 4 | lo);
+        }
+    }
+    b->ssid_len = n;
+}
+
+static int wifi_blocks(const char *text, struct wifi_block *bl, int max) {
+    int n = 0;
+    struct wifi_block *cur = NULL;
+    for (const char *p = text; p && *p;) {
+        const char *nl = strchr(p, '\n');
+        const char *next = nl ? nl + 1 : p + strlen(p);
+        const char *l = p, *e = nl ? nl : next;
+        while (l < e && (*l == ' ' || *l == '\t')) l++;
+        while (e > l && (e[-1] == '\r' || e[-1] == ' ' || e[-1] == '\t')) e--;
+        if (!cur) {
+            if (e - l == 9 && memcmp(l, "network={", 9) == 0 && n < max) {
+                cur = &bl[n];
+                memset(cur, 0, sizeof(*cur));
+                cur->body = next;
+                cur->ssid_len = -1;
+            }
+        } else if (e - l == 1 && *l == '}') {
+            cur->body_len = (size_t)(p - cur->body);
+            n++;
+            cur = NULL;
+        } else if (wifi_line_is(l, e, "ssid=")) {
+            wifi_block_ssid(cur, l + 5, e);
+        } else if (wifi_line_is(l, e, "priority=")) {
+            cur->prio = atoi(l + 9);
+        } else if (wifi_line_is(l, e, "id_str=\"" WIFI_BAND_TAG_24 "\"")) {
+            cur->band = WIFI_BAND_24;
+        } else if (wifi_line_is(l, e, "id_str=\"" WIFI_BAND_TAG_5 "\"")) {
+            cur->band = WIFI_BAND_5;
+        }
+        p = next;
+    }
+    return n; /* a block without its closing brace is left out */
+}
+
+static int wifi_same_ssid(const struct wifi_block *a, const struct wifi_block *b) {
+    return a->ssid_len >= 0 && a->ssid_len == b->ssid_len && memcmp(a->ssid, b->ssid, (size_t)a->ssid_len) == 0;
+}
+
+static int wifi_put(char *out, size_t len, size_t *pos, const char *s, size_t n) {
+    if (*pos + n >= len) return -1;
+    memcpy(out + *pos, s, n);
+    *pos += n;
+    out[*pos] = '\0';
+    return 0;
+}
+
+/* the block's lines without its old priority and tag, then the new ones */
+static int wifi_put_block(char *out, size_t len, size_t *pos, const struct wifi_block *b, int prio) {
+    if (wifi_put(out, len, pos, "network={\n", 10) != 0) return -1;
+    const char *end = b->body + b->body_len;
+    for (const char *p = b->body; p < end;) {
+        const char *nl = memchr(p, '\n', (size_t)(end - p));
+        const char *next = nl ? nl + 1 : end;
+        const char *l = p;
+        while (l < next && (*l == ' ' || *l == '\t')) l++;
+        if (!wifi_line_is(l, next, "priority=") && !wifi_line_is(l, next, "id_str=")) {
+            if (wifi_put(out, len, pos, p, (size_t)(next - p)) != 0) return -1;
+            if (!nl && wifi_put(out, len, pos, "\n", 1) != 0) return -1;
+        }
+        p = next;
+    }
+    const char *tag = b->band == WIFI_BAND_24 ? WIFI_BAND_TAG_24 : b->band == WIFI_BAND_5 ? WIFI_BAND_TAG_5 : NULL;
+    char tail[64];
+    int n = tag ? snprintf(tail, sizeof(tail), "\tpriority=%d\n\tid_str=\"%s\"\n}\n", prio, tag)
+                : snprintf(tail, sizeof(tail), "\tpriority=%d\n}\n", prio);
+    return wifi_put(out, len, pos, tail, (size_t)n);
+}
+
+int wifi_config_merge(char *out, size_t len, const char *new_text, const char *prev_text, int band) {
+    struct wifi_block nb, pb[WIFI_MAX_BLOCKS];
+    const char *net = new_text ? strstr(new_text, "network={") : NULL;
+    if (!out || !len || !net || wifi_blocks(new_text, &nb, 1) != 1) return -1;
+    nb.band = band;
+    int pn = prev_text ? wifi_blocks(prev_text, pb, WIFI_MAX_BLOCKS) : 0;
+    /* highest priority first, file order among equals */
+    int order[WIFI_MAX_BLOCKS];
+    for (int i = 0; i < pn; i++) {
+        int j = i;
+        while (j > 0 && pb[order[j - 1]].prio < pb[i].prio) {
+            order[j] = order[j - 1];
+            j--;
+        }
+        order[j] = i;
+    }
+    /* the network used before, and a 2.4 GHz one when neither of the two is (the built-in
+     * radio has 2.4 GHz only: without the USB adapter the Hub can join no other) */
+    int keep[2], k = 0;
+    for (int o = 0; o < pn && k < 2; o++) {
+        const struct wifi_block *b = &pb[order[o]];
+        if (b->ssid_len < 0 || wifi_same_ssid(b, &nb)) continue;
+        if (k == 0) keep[k++] = order[o];
+        else if (band != WIFI_BAND_24 && pb[keep[0]].band != WIFI_BAND_24 && b->band == WIFI_BAND_24) keep[k++] = order[o];
+    }
+    size_t pos = 0;
+    out[0] = '\0';
+    if (wifi_put(out, len, &pos, new_text, (size_t)(net - new_text)) != 0) return -1;
+    if (wifi_put_block(out, len, &pos, &nb, k + 1) != 0) return -1;
+    for (int i = 0; i < k; i++) {
+        if (wifi_put(out, len, &pos, "\n", 1) != 0 || wifi_put_block(out, len, &pos, &pb[keep[i]], k - i) != 0) return -1;
+    }
+    return 0;
+}
+
+/* The band tag of new_text's network in text, 0 when it is not there or has none */
+static int wifi_file_band(const char *text, const char *new_text) {
+    struct wifi_block nb, pb[WIFI_MAX_BLOCKS];
+    if (!text || wifi_blocks(new_text, &nb, 1) != 1) return 0;
+    int pn = wifi_blocks(text, pb, WIFI_MAX_BLOCKS);
+    for (int i = 0; i < pn; i++)
+        if (wifi_same_ssid(&pb[i], &nb)) return pb[i].band;
+    return 0;
+}
+
+/* without a USB Wi-Fi adapter (build/kernel6/rc.sh) ath0 is the Hub's own radio: 2.4 GHz */
+static int wifi_usb_adapter_in_use(void) {
+    char abuf[256];
+    return access(wifi_config_path(WIFI_ADAPTER_MARK_PATH, abuf, sizeof(abuf)), F_OK) == 0;
+}
+
 /* ---- one test at a time, across processes ---- */
 
 /* The lock is a kernel lock (flock) on a file in /tmp, never the file itself: the kernel drops it
@@ -346,6 +508,7 @@ static int wifi_test_run(const char *ssid, const char *psk, int is_open, int hid
     int connected = 0;
     int wrong_key = 0;
     int saw_assoc = 0, in_handshake = 0, handshake_drops = 0;
+    int freq = 0; /* MHz of the network joined (wpa_cli status) */
     int wait_s = wifi_wait_seconds();
     snprintf(cmd, sizeof(cmd), "%s -i ath0 status 2>/dev/null", cli);
     for (int t = 0; t < wait_s && !connected && !wrong_key; t++) {
@@ -359,6 +522,7 @@ static int wifi_test_run(const char *ssid, const char *psk, int is_open, int hid
                 snprintf(state, sizeof(state), "%s", st_line + 10);
                 state[strcspn(state, "\r\n")] = '\0';
             }
+            if (strncmp(st_line, "freq=", 5) == 0) freq = atoi(st_line + 5);
             if (strstr(st_line, "WRONG_KEY") || strstr(st_line, "auth_failures")) wrong_key = 1;
         }
         pclose(f_st);
@@ -381,10 +545,8 @@ static int wifi_test_run(const char *ssid, const char *psk, int is_open, int hid
         if (wrong_key) snprintf(err_msg, err_len, "Incorrect Wi-Fi password");
         else if (!saw_assoc) {
             /* a USB Wi-Fi adapter (build/kernel6/rc.sh) has 5 GHz too */
-            char abuf[256];
-            int usb = access(wifi_config_path("/tmp/harmony_wifi_adapter", abuf, sizeof(abuf)), F_OK) == 0;
             snprintf(err_msg, err_len, "Wi-Fi network not found (check the name%s)",
-                     usb ? "" : "; 2.4 GHz networks only");
+                     wifi_usb_adapter_in_use() ? "" : "; 2.4 GHz networks only");
         }
     }
 
@@ -397,6 +559,16 @@ static int wifi_test_run(const char *ssid, const char *psk, int is_open, int hid
         return -1;
     }
 
+    /* Connected: the previous networks go back into both files as fallbacks of lower priority
+     * (the running wpa_supplicant stays on the candidate until it reads the files again). The
+     * band is the link's: a USB adapter may have joined 5 GHz. */
+    int band = !wifi_usb_adapter_in_use() ? WIFI_BAND_24 : freq >= 4900 ? WIFI_BAND_5 : freq > 0 ? WIFI_BAND_24 : 0;
+    char merged[WIFI_TEXT_MAX];
+    if (wifi_config_merge(merged, sizeof(merged), test_wpa, prev.conf ? prev.conf : prev.ath0, band) != 0 ||
+        atomic_file_write_pair(conf, conf_ath0, merged, 16384) != 0) {
+        printf("[wifi] Could not write the fallback networks; only the new network is stored\n");
+        fflush(stdout);
+    }
     wifi_backup_remove();
     wifi_prev_free(&prev);
     return 0;
@@ -429,13 +601,23 @@ int wifi_config_test(const char *ssid, const char *psk, int is_open, int hidden,
 }
 
 int wifi_config_save(const char *ssid, const char *psk, int is_open, int hidden, int apply) {
-    char text[1024];
+    char text[1024], merged[WIFI_TEXT_MAX];
     if (wifi_config_text(text, sizeof(text), ssid, psk, is_open, hidden) != 0) return -1;
     char conf_buf[256], ath0_buf[256];
+    const char *conf = wifi_config_path(WIFI_CONF_PATH, conf_buf, sizeof(conf_buf));
+    const char *conf_ath0 = wifi_config_path(WIFI_CONF_ATH0_PATH, ath0_buf, sizeof(ath0_buf));
+    /* the networks in the file stay as fallbacks; a test before this one left the new network
+     * in it, tagged with its band */
+    size_t cur_len = 0;
+    char *cur = read_file_text_alloc(conf, 16384, &cur_len);
+    if (!cur) cur = read_file_text_alloc(conf_ath0, 16384, &cur_len);
+    int band = wifi_file_band(cur, text);
+    if (!band && !wifi_usb_adapter_in_use()) band = WIFI_BAND_24;
+    int rc = wifi_config_merge(merged, sizeof(merged), text, cur, band);
+    free(cur);
+    if (rc != 0) return -1;
     /* both or neither: a failed second write puts the first file back */
-    if (atomic_file_write_pair(wifi_config_path(WIFI_CONF_PATH, conf_buf, sizeof(conf_buf)),
-                               wifi_config_path(WIFI_CONF_ATH0_PATH, ath0_buf, sizeof(ath0_buf)),
-                               text, 16384) != 0) {
+    if (atomic_file_write_pair(conf, conf_ath0, merged, 16384) != 0) {
         return -1;
     }
     if (apply) {
