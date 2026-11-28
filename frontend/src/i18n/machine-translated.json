@@ -645,7 +645,8 @@
     "plg_verify_code",
     "plg_confirm_running",
     "plg_confirm_timeout",
-    "plg_ir_alt_title"
+    "plg_ir_alt_title",
+    "plg_needs_version"
   ],
   "fr": [
     "map_action_help",
@@ -1292,7 +1293,8 @@
     "plg_verify_code",
     "plg_confirm_running",
     "plg_confirm_timeout",
-    "plg_ir_alt_title"
+    "plg_ir_alt_title",
+    "plg_needs_version"
   ],
   "nl": [
     "map_action_help",
@@ -1939,7 +1941,8 @@
     "plg_verify_code",
     "plg_confirm_running",
     "plg_confirm_timeout",
-    "plg_ir_alt_title"
+    "plg_ir_alt_title",
+    "plg_needs_version"
   ],
   "es": [
     "map_action_help",
@@ -2586,7 +2589,8 @@
     "plg_verify_code",
     "plg_confirm_running",
     "plg_confirm_timeout",
-    "plg_ir_alt_title"
+    "plg_ir_alt_title",
+    "plg_needs_version"
   ],
   "it": [
     "map_action_help",
@@ -3233,6 +3237,7 @@
     "plg_verify_code",
     "plg_confirm_running",
     "plg_confirm_timeout",
-    "plg_ir_alt_title"
+    "plg_ir_alt_title",
+    "plg_needs_version"
   ]
 }

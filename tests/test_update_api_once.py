@@ -12,7 +12,11 @@
   line of the apply log as update_error; failed wins over a flag a killed run left behind), and
   /api/status "updating" agrees; a daemon start ends "restarting" and keeps "failed";
 - update-check with remote_version writes latest_version and update_available.flag only when
-  they change: repeating the same check leaves both files untouched (flash writes).
+  they change: repeating the same check leaves both files untouched (flash writes);
+- another major version is not installable online, its page is the project's release (never a
+  URL from update_state.conf), and next_major= of the conf (VERSION_V4) is reported;
+- POST /api/update-channel writes or removes the channel file, clears the stored latest version,
+  and refuses any value but stable and beta.
 """
 
 import os
@@ -40,8 +44,11 @@ def main():
     state = os.path.join(flag_dir, "hub_update.state")
     log = os.path.join(flag_dir, "update_apply.log")
     uptime = os.path.join(flag_dir, "uptime")
+    channel = os.path.join(flag_dir, "update_channel")
+    conf = os.path.join(flag_dir, "update_state.conf")
     env = {"HARMONY_TEST_UPDATING_FLAG": flag, "HARMONY_TEST_UPDATE_STATE": state, "HARMONY_TEST_UPDATE_LOG": log,
-           "HARMONY_TEST_UPTIME_FILE": uptime}
+           "HARMONY_TEST_UPTIME_FILE": uptime, "HARMONY_TEST_UPDATE_CHANNEL": channel,
+           "HARMONY_TEST_UPDATE_CONF": conf}
 
     def write(path, text):
         with open(path, "w") as f:
@@ -155,6 +162,31 @@ def main():
             check(st == 200 and r.get("update_available") is False and not os.path.exists(avail),
                   "an older version clears the flag", (st, r))
 
+            # the notice: another major version, the page built from the version, VERSION_V4
+            write(conf, "remote_version=99.0.0\nota_installable=1\nrelease_url=https://example.org/x.zip\n")
+            st, r = hub.http_post("/api/update-check", {"remote_version": "v99.0.0"})
+            check(r.get("ota_installable") is False
+                  and r.get("release_url") == "https://github.com/iranl/harmony-ng/releases/tag/v99.0.0"
+                  and "release bundle" in r.get("message", ""), "another major version: release bundle only", r)
+            write(conf, "remote_version=0.0.1\nota_installable=1\nnext_major=99.0.0\n")
+            st, r = hub.http_post("/api/update-check", {"remote_version": "v0.0.1"})
+            check(r.get("next_major_version") == "99.0.0" and "release bundle" in r.get("message", ""),
+                  "next major version from VERSION_V4", r)
+            st, r = hub.http_get("/api/update-status")
+            check(r.get("next_major_version") == "99.0.0" and r.get("channel") == "stable", "status: next major", r)
+
+            # the update channel
+            st, r = hub.http_post("/api/update-channel", {"channel": "beta"})
+            check(st == 200 and r.get("channel") == "beta" and os.path.exists(channel)
+                  and not os.path.exists(latest), "beta: channel file written, latest version cleared", (st, r))
+            st, r = hub.http_get("/api/update-status")
+            check(r.get("channel") == "beta", "status: beta", r)
+            st, r = hub.http_post("/api/update-channel", {"channel": "../x"})
+            check(st == 400 and os.path.exists(channel), "another value: 400, nothing changed", (st, r))
+            st, r = hub.http_post("/api/update-channel", {"channel": "stable"})
+            check(st == 200 and r.get("channel") == "stable" and not os.path.exists(channel),
+                  "stable: channel file removed", (st, r))
+
         # The daemon that starts is the restart: "restarting" ends even when the version installed
         # is not the one it runs (a deploy of an older build, a manifest above the binary)
         write(state, "state=restarting\nversion=99.0.0\n")
@@ -167,7 +199,7 @@ def main():
             st, r = hub.http_get("/api/update-status")
             check(r.get("update_state") == "failed", "a daemon start keeps failed", r)
     finally:
-        for pth in (flag, state, log, uptime):
+        for pth in (flag, state, log, uptime, channel, conf):
             if os.path.exists(pth):
                 os.unlink(pth)
         os.rmdir(flag_dir)

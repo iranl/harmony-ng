@@ -310,7 +310,16 @@ export function createView() {
               text: t('plg_view_docs', 'View Documentation / Source →')
             }),
           ]),
-          h('div', {}, [
+          // min_harmony_version above this Hub's: no install or update (the Hub refuses it too)
+          p.compatible === false ? h('div', {}, [
+            installed && h('span', { className: 'badge badge-success', style: { padding: '6px 12px' }, text: t('plg_installed_badge', 'Installed') }),
+            h('span', {
+              className: 'badge badge-warning',
+              style: { padding: '6px 12px' },
+              title: p.incompatible_reason || '',
+              text: t('plg_needs_version', 'Needs HarmonyNG {version}', { version: String(p.min_harmony_version || '').replace(/^v/, '') }),
+            }),
+          ]) : h('div', {}, [
             installed && !hasUpdate && h('span', { className: 'badge badge-success', style: { padding: '6px 12px' }, text: t('plg_installed_badge', 'Installed') }),
             hasUpdate && h('button', {
               className: 'btn btn-accent btn-sm',

@@ -81,7 +81,10 @@ def main():
                       "%s vs %s" % ((r or {}).get(k), rest.get(k)))
             check(r is not None and r.get("update_available") is True and r.get("remote_version") == "99.0.0",
                   "the check's result is in the reply", str(r)[:200])
-            check(r is not None and "Update available" in r.get("message", ""), "the check's message", str(r)[:200])
+            # 99.0.0 is another major version: shown, but installed with the release bundle only
+            check(r is not None and r.get("ota_installable") is False and "release bundle" in r.get("message", "")
+                  and "releases/tag/v99.0.0" in r.get("release_url", ""),
+                  "the check's message: another major version, release bundle only", str(r)[:200])
 
             print("[-] a slow update_check does not block the main loop")
             ws = WsClient("127.0.0.1", PORT)

@@ -934,7 +934,14 @@
     "press_min_repeats",
     "press_min_repeats_title",
     "click_start_capture_hint",
-    "irdb_captured_frames"
+    "irdb_captured_frames",
+    "plg_needs_version",
+    "update_channel",
+    "update_channel_stable",
+    "update_channel_beta",
+    "update_channel_beta_warn",
+    "update_bundle_only",
+    "update_open_release"
   ],
   "fr": [
     "map_action_help",
@@ -1870,7 +1877,14 @@
     "press_min_repeats",
     "press_min_repeats_title",
     "click_start_capture_hint",
-    "irdb_captured_frames"
+    "irdb_captured_frames",
+    "plg_needs_version",
+    "update_channel",
+    "update_channel_stable",
+    "update_channel_beta",
+    "update_channel_beta_warn",
+    "update_bundle_only",
+    "update_open_release"
   ],
   "nl": [
     "map_action_help",
@@ -2806,7 +2820,14 @@
     "press_min_repeats",
     "press_min_repeats_title",
     "click_start_capture_hint",
-    "irdb_captured_frames"
+    "irdb_captured_frames",
+    "plg_needs_version",
+    "update_channel",
+    "update_channel_stable",
+    "update_channel_beta",
+    "update_channel_beta_warn",
+    "update_bundle_only",
+    "update_open_release"
   ],
   "es": [
     "map_action_help",
@@ -3742,7 +3763,14 @@
     "press_min_repeats",
     "press_min_repeats_title",
     "click_start_capture_hint",
-    "irdb_captured_frames"
+    "irdb_captured_frames",
+    "plg_needs_version",
+    "update_channel",
+    "update_channel_stable",
+    "update_channel_beta",
+    "update_channel_beta_warn",
+    "update_bundle_only",
+    "update_open_release"
   ],
   "it": [
     "map_action_help",
@@ -4678,6 +4706,13 @@
     "press_min_repeats",
     "press_min_repeats_title",
     "click_start_capture_hint",
-    "irdb_captured_frames"
+    "irdb_captured_frames",
+    "plg_needs_version",
+    "update_channel",
+    "update_channel_stable",
+    "update_channel_beta",
+    "update_channel_beta_warn",
+    "update_bundle_only",
+    "update_open_release"
   ]
 }

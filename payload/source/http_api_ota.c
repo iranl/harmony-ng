@@ -57,6 +57,54 @@ static const char *update_state_path(void) { OTA_PATH("HARMONY_TEST_UPDATE_STATE
 static const char *update_log_path(void) { OTA_PATH("HARMONY_TEST_UPDATE_LOG", "/tmp/update_apply.log"); }
 static const char *uptime_path(void) { OTA_PATH("HARMONY_TEST_UPTIME_FILE", "/proc/uptime"); }
 
+/* The update channel (update.sh): "beta" follows the pre-releases and drafts (branch ota-beta) */
+static const char *update_channel_path(void) { OTA_PATH("HARMONY_TEST_UPDATE_CHANNEL", "/data/harmony/update_channel"); }
+static const char *update_conf_path(void) { OTA_PATH("HARMONY_TEST_UPDATE_CONF", "/data/harmony/update_state.conf"); }
+
+static int update_channel_beta(void) {
+    char buf[16] = {0};
+    FILE *f = fopen(update_channel_path(), "r");
+    if (!f) return 0;
+    if (!fgets(buf, sizeof(buf), f)) buf[0] = '\0';
+    fclose(f);
+    buf[strcspn(buf, " \r\n")] = '\0';
+    return strcmp(buf, "beta") == 0;
+}
+
+/* v without a leading v when it is a plain version (digits and dots), else "" */
+static const char *plain_version(const char *v) {
+    if (v[0] == 'v' || v[0] == 'V') v++;
+    if (!v[0] || strspn(v, "0123456789.") != strlen(v)) return "";
+    return v;
+}
+
+/* Whether remote_ver installs over the air, and its release page: another major version never
+ * does (a new system: the release bundle installs it), nor a release whose notice says so
+ * (release.json, as update.sh check found it for that version). The page is always the
+ * project's GitHub release (release.json is not signed). next_major_version: the next major
+ * release named by the v3 branch (VERSION_V4), installed with the release bundle only. */
+static void add_release_notice(cJSON *st, const char *remote_ver, int has_update) {
+    char line[320], conf_ver[64] = "", inst[8] = "", next[64] = "", url[128];
+    FILE *f = fopen(update_conf_path(), "r");
+    if (f) {
+        while (fgets(line, sizeof(line), f)) {
+            line[strcspn(line, "\r\n")] = '\0';
+            if (strncmp(line, "remote_version=", 15) == 0) snprintf(conf_ver, sizeof(conf_ver), "%s", line + 15);
+            else if (strncmp(line, "ota_installable=", 16) == 0) snprintf(inst, sizeof(inst), "%s", line + 16);
+            else if (strncmp(line, "next_major=", 11) == 0) snprintf(next, sizeof(next), "%s", line + 11);
+        }
+        fclose(f);
+    }
+    const char *rv = plain_version(remote_ver);
+    int same = rv[0] && strcmp(rv, plain_version(conf_ver)) == 0;
+    int installable = !(has_update && atoi(rv) != atoi(HARMONY_VERSION)) && !(same && strcmp(inst, "0") == 0);
+    snprintf(url, sizeof(url), "https://github.com/iranl/harmony-ng/releases%s%s", rv[0] ? "/tag/v" : "", rv);
+    cJSON_AddBoolToObject(st, "ota_installable", installable);
+    cJSON_AddStringToObject(st, "release_url", url);
+    cJSON_AddStringToObject(st, "next_major_version", plain_version(next));
+    cJSON_AddStringToObject(st, "channel", update_channel_beta() ? "beta" : "stable");
+}
+
 /* Seconds since boot (SNTP never steps this clock), -1 when unknown */
 static long uptime_secs(void) {
     double up = -1;
@@ -207,6 +255,7 @@ cJSON *ota_update_status(void) {
     cJSON_AddStringToObject(st, "bt_version", "BTstack v1.5 (UART)");
     cJSON_AddStringToObject(st, "arch", "mips (AR9344)");
     cJSON_AddBoolToObject(st, "update_available", has_update);
+    add_release_notice(st, remote_ver, has_update);
 
     char target[64], last[256], err[256];
     const char *ust = update_state_now(target, sizeof(target));
@@ -291,9 +340,19 @@ cJSON *ota_update_check(const cJSON *params) {
         fclose(rf);
     }
 
-    char msg[256];
-    if (has_update) {
+    cJSON *notice = cJSON_CreateObject();
+    add_release_notice(notice, remote_ver, has_update);
+    int installable = cJSON_IsTrue(cJSON_GetObjectItem(notice, "ota_installable"));
+    char msg[384];
+    if (has_update && !installable) {
+        snprintf(msg, sizeof(msg), "v%s is available. It is not installed as an online update: install it with the "
+                 "release bundle (%s).", remote_ver, cJSON_GetObjectItem(notice, "release_url")->valuestring);
+    } else if (has_update) {
         snprintf(msg, sizeof(msg), "Update available: v%s (Current: v%s)", remote_ver, HARMONY_VERSION);
+    } else if (cJSON_GetObjectItem(notice, "next_major_version")->valuestring[0]) {
+        const char *nv = cJSON_GetObjectItem(notice, "next_major_version")->valuestring;
+        snprintf(msg, sizeof(msg), "Hub binaries and WebUI are up to date (v%s). v%s is available: install it with the "
+                 "release bundle (https://github.com/iranl/harmony-ng/releases/tag/v%s).", HARMONY_VERSION, nv, nv);
     } else {
         snprintf(msg, sizeof(msg), "Hub binaries and WebUI are up to date (v%s).", HARMONY_VERSION);
     }
@@ -305,6 +364,8 @@ cJSON *ota_update_check(const cJSON *params) {
     cJSON_AddStringToObject(st, "message", msg);
     cJSON_AddBoolToObject(st, "has_update", has_update);
     cJSON_AddBoolToObject(st, "update_available", has_update);
+    for (cJSON *it = notice->child; it; it = it->next) cJSON_AddItemToObject(st, it->string, cJSON_Duplicate(it, 1));
+    cJSON_Delete(notice);
     return st;
 }
 
@@ -412,6 +473,46 @@ int http_api_ota_handle(int client_fd, const char *method, const char *clean_pat
         cJSON *st = ota_update_check(p);
         cJSON_Delete(p);
         send_cjson_resp(client_fd, 200, st);
+        cJSON_Delete(st);
+        close(client_fd);
+        return 1;
+    }
+
+    /* Route: POST /api/update-channel {"channel": "stable" | "beta"} (admin): the releases the update
+     * check and the online update follow; beta: the pre-releases and drafts too */
+    if (strcmp(clean_path, "/api/update-channel") == 0 && strcmp(method, "POST") == 0) {
+        cJSON *p = parse_request_params(body);
+        const cJSON *ch = cJSON_GetObjectItemCaseSensitive(p, "channel");
+        int code = 200;
+        cJSON *st = cJSON_CreateObject();
+        if (!cJSON_IsString(ch) || (strcmp(ch->valuestring, "stable") != 0 && strcmp(ch->valuestring, "beta") != 0)) {
+            code = 400;
+            cJSON_AddBoolToObject(st, "ok", 0);
+            cJSON_AddStringToObject(st, "error", "channel must be \"stable\" or \"beta\"");
+        } else {
+            int beta = strcmp(ch->valuestring, "beta") == 0;
+            if (beta != update_channel_beta()) {
+                if (beta) {
+                    FILE *f = fopen(update_channel_path(), "w");
+                    if (f) {
+                        fputs("beta\n", f);
+                        fclose(f);
+                    }
+                } else {
+                    unlink(update_channel_path());
+                }
+                /* the last check was for the other channel (kept when the switch failed) */
+                if (update_channel_beta() == beta) {
+                    unlink(config_store_path("latest_version"));
+                    set_flag_file("/data/harmony/update_available.flag", 0);
+                }
+            }
+            cJSON_AddBoolToObject(st, "ok", update_channel_beta() == beta);
+            cJSON_AddStringToObject(st, "channel", update_channel_beta() ? "beta" : "stable");
+            if (update_channel_beta() != beta) code = 500;
+        }
+        cJSON_Delete(p);
+        send_cjson_resp(client_fd, code, st);
         cJSON_Delete(st);
         close(client_fd);
         return 1;

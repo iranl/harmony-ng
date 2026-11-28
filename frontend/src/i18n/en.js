@@ -1339,6 +1339,7 @@ export default {
     "plg_uninstalled": "Uninstalled {name}",
     "plg_unknown_error": "Unknown error",
     "plg_update_btn": "Update (v{version})",
+    "plg_needs_version": "Needs HarmonyNG {version}",
     "plg_upload_btn": "+ Upload Plugin (.tar.gz)",
     "plg_upload_install": "Upload & Install",
     "plg_upload_intro": "Select a plugin archive (.tar.gz) from your computer to install directly on the Hub.",

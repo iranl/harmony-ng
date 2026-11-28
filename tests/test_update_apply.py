@@ -420,6 +420,21 @@ class UpdateApply(unittest.TestCase):
             self.assertEqual((self.data / "bin" / b).read_text(), self.new_files[f"bin/{b}"], b)
         self.assertEqual(self.version(), NEW_VER)
 
+    def test_bundle_only_release_is_refused(self):
+        """A signed "ota_installable": false (publish_ota.py --install-tool-only) and another
+        major version: refused after the signature check, nothing installed"""
+        self.serve_bundle()
+        before = self.installed()
+        for manifest in (f'{{"version": "{NEW_VER}", "ota_installable": false, "files": {{}}}}\n',
+                         '{"version": "4.0.0", "files": {}}\n'):
+            self.write(self.root / "serve" / "manifest.json", manifest)
+            r = self.run_apply()
+            self.assertNotEqual(r.returncode, 0, r.stdout)
+            self.assertIn("release bundle", r.stdout)
+            self.assertIn("Nothing was changed", r.stdout)
+            self.assertEqual(self.installed(), before)
+            self.assertEqual(self.version(), OLD_VER)
+
 
     def run_repair(self) -> subprocess.CompletedProcess[str]:
         env = {"PATH": f"{self.root / 'fakebin'}:/usr/bin:/bin", "UPD_SERVE": str(self.root / "serve")}

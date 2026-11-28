@@ -1,0 +1,52 @@
+name: Promote Release to the Stable Update Channel
+
+# A pre-release or draft (beta channel, branch ota-beta) published as a full release: its signed
+# OTA staging (release asset ota-staging-v<version>.tar.gz, made by release.yml) goes to the
+# stable channel (branch ota) unchanged. A full release made by release.yml itself does not
+# start this workflow (events of the workflow token start no workflows): it published to ota
+# already.
+on:
+  release:
+    types: [released]
+
+permissions:
+  contents: write
+
+# release.yml and this workflow both force-push the OTA branches: one at a time. publish_ota.py
+# --promote also stops when ota holds the same or a newer release (an older draft published late).
+concurrency:
+  group: ota-publish
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    name: Publish the release to branch ota
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - name: Download the OTA staging of the release
+        id: staging
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          mkdir -p promote
+          if gh release download "$TAG" --pattern 'ota-staging-*.tar.gz' --dir promote; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No OTA staging asset in $TAG: nothing to promote (a release published by release.yml directly)."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Publish to branch ota
+        if: steps.staging.outputs.found == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          python scripts/publish_ota.py --promote promote/ota-staging-*.tar.gz \
+            --push --remote "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" --branch ota

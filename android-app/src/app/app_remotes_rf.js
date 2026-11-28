@@ -602,13 +602,37 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
    * VERSION first (its signed manifest is what gets installed), GitHub releases only when the
    * branch cannot be read. */
   async fetchOnlineHubVersion(token = '') {
-    const base = 'https://raw.githubusercontent.com/iranl/harmony-ng/ota';
-    for (const file of ['v2/VERSION', 'VERSION_V2']) {
+    const plain = (v) => (/^\d+(\.\d+)*$/.test(v) ? v : '');
+    const read = async (path) => {
       try {
-        const res = await fetch(`${base}/${file}?_=${Date.now()}`, { cache: 'no-cache' });
-        const ver = res.ok ? (await res.text()).trim().replace(/^v/, '') : '';
-        if (/^\d+(\.\d+)*$/.test(ver)) return ver;
+        const res = await fetch(`https://raw.githubusercontent.com/iranl/harmony-ng/${path}?_=${Date.now()}`, { cache: 'no-cache' });
+        return res.ok ? plain((await res.text()).trim().replace(/^v/, '')) : '';
+      } catch (_) { return ''; }
+    };
+    const branchVersion = async (branch) => (await read(`${branch}/v2/VERSION`)) || (await read(`${branch}/VERSION_V2`));
+    // stable: branch ota. beta: the newer of ota-beta (pre-releases and drafts) and ota (ota-beta
+    // may not exist; a full release goes to ota only), as update.sh does
+    let branch = 'ota';
+    let ver = await branchVersion('ota');
+    if (this.updateChannel === 'beta') {
+      const betaVer = await branchVersion('ota-beta');
+      // a pre-release of another major version (v4 betas) is never followed: v3 has no beta
+      const major = (v) => String(v).split('.')[0];
+      if (betaVer && ver && major(betaVer) === major(ver) && !this.isVersionOlder(betaVer, ver)) {
+        branch = 'ota-beta';
+        ver = betaVer;
+      }
+    }
+    // the next major version (v4) has a branch of its own; the v3 branch names it in VERSION_V4
+    this.onlineNextMajor = await read('ota/VERSION_V4');
+    if (ver) {
+      // its notice (scripts/publish_ota.py): installed over the air or with the release bundle
+      this.onlineRelease = null;
+      try {
+        const rel = await fetch(`https://raw.githubusercontent.com/iranl/harmony-ng/${branch}/v2/release.json?_=${Date.now()}`, { cache: 'no-cache' });
+        if (rel.ok) this.onlineRelease = await rel.json();
       } catch (_) { }
+      return ver;
     }
     try {
       const headers = { 'Accept': 'application/vnd.github.v3+json' };
@@ -619,7 +643,59 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
     return '';
   }
 
+  /* The release page when version target is not installed as an online update (another major
+   * version, or its notice or the Hub says so), else '' */
+  bundleOnlyUrl(localVer, target, updateStat = null) {
+    const clean = (v) => String(v || '').replace(/^v/, '').trim();
+    const tv = clean(target);
+    if (!tv) return '';
+    const url = `https://github.com/iranl/harmony-ng/releases/tag/v${tv}`;
+    const rel = this.onlineRelease;
+    // the page is always the project's release: release.json is not signed
+    if (!/^\d+(\.\d+)*$/.test(tv)) return '';
+    if (rel && clean(rel.version) === tv && rel.ota_installable === false) return url;
+    if (updateStat && clean(updateStat.remote_version) === tv && updateStat.ota_installable === false) return url;
+    const major = (v) => parseInt(clean(v).split('.')[0], 10);
+    return clean(localVer) && major(localVer) !== major(tv) ? url : '';
+  }
+
+  showBundleNotice(version, url) {
+    const box = document.getElementById('updateBundleNotice');
+    if (!box) return;
+    box.style.display = url ? '' : 'none';
+    const text = document.getElementById('updateBundleText');
+    const link = document.getElementById('updateBundleLink');
+    if (text) text.textContent = url ? tf('update_bundle_only', { version: String(version).replace(/^v/, '') }) + ' ' : '';
+    if (link && url) link.href = url;
+  }
+
+  async changeUpdateChannel(select) {
+    const want = select.value === 'beta' ? 'beta' : 'stable';
+    if (want === 'beta' && !await showConfirm(t('update_channel_beta_warn'), {
+      title: t('update_channel'), okText: t('update_channel_beta'), danger: true
+    })) {
+      select.value = this.updateChannel || 'stable';
+      return;
+    }
+    try {
+      const res = await this.client.setUpdateChannel(want);
+      this.updateChannel = res?.channel === 'beta' ? 'beta' : 'stable';
+      this.onlineVersion = '';
+      this.onlineRelease = null;
+      await this.checkOnlineVersions();
+      await this.checkBanners();
+    } catch (err) {
+      select.value = this.updateChannel || 'stable';
+      showToast(err.message, 'error');
+    }
+  }
+
   async checkOnlineVersions() {
+    // the channel decides the branch: at page load checkBanners has not read it yet
+    if (!this.updateChannel) {
+      const st = await this.client.getUpdateStatus().catch(() => null);
+      if (st?.channel) this.updateChannel = st.channel === 'beta' ? 'beta' : 'stable';
+    }
     const ver = await this.fetchOnlineHubVersion();
     if (ver) {
       this.onlineVersion = ver;
@@ -656,6 +732,12 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
         this.hideUpdatingOverlay();
       }
 
+      if (updateStat?.channel) {
+        this.updateChannel = updateStat.channel === 'beta' ? 'beta' : 'stable';
+        const sel = document.getElementById('updateChannel');
+        if (sel && document.activeElement !== sel) sel.value = this.updateChannel;
+      }
+
       // 1. Hub software update available
       const hubBanner = document.getElementById('hubUpdateBanner');
       if (hubBanner) {
@@ -663,15 +745,29 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
         const targetRemote = this.onlineVersion || updateStat?.remote_version || '';
         const hasOnlineUpdate = Boolean(targetRemote && localVer && this.isVersionOlder(localVer, targetRemote));
         const isUpdateAvail = Boolean(hasOnlineUpdate || (updateStat?.update_available && (!targetRemote || (localVer && this.isVersionOlder(localVer, targetRemote)))));
-        if (isUpdateAvail && !updateStat?.updating) {
+        // no update of this major version: the next major one (v4, VERSION_V4), release bundle only
+        const nextMajor = this.onlineNextMajor || updateStat?.next_major_version || '';
+        const showNext = !isUpdateAvail && Boolean(nextMajor && localVer && this.isVersionOlder(localVer, nextMajor));
+        const bannerTarget = showNext ? nextMajor : targetRemote;
+        if ((isUpdateAvail || showNext) && !updateStat?.updating) {
           hubBanner.style.display = 'flex';
           const title = document.getElementById('hubUpdateTitle');
           const desc = document.getElementById('hubUpdateDesc');
-          const targetVer = targetRemote || t('hub_update_new');
+          const targetVer = bannerTarget || t('hub_update_new');
+          this.bannerReleaseUrl = this.bundleOnlyUrl(localVer, bannerTarget, updateStat);
+          const btn = document.getElementById('btnHubUpdateBanner');
           if (title) title.textContent = tf('hub_update_available_ver', { version: targetVer.replace(/^v/, '') });
-          if (desc) desc.textContent = tf('hub_update_installed_tap', { version: localVer.replace(/^v/, '') || t('current_version_word') });
+          if (desc) {
+            desc.textContent = this.bannerReleaseUrl
+              ? tf('update_bundle_only', { version: targetVer.replace(/^v/, '') })
+              : tf('hub_update_installed_tap', { version: localVer.replace(/^v/, '') || t('current_version_word') });
+          }
+          if (btn) btn.textContent = this.bannerReleaseUrl ? t('update_open_release') : t('update_hub_btn');
+          this.showBundleNotice(targetVer, this.bannerReleaseUrl);
         } else {
           hubBanner.style.display = 'none';
+          this.bannerReleaseUrl = '';
+          this.showBundleNotice('', '');
         }
       }
 

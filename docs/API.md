@@ -531,10 +531,26 @@ Returns running version, commit hash, build date, architecture, and whether an u
     "bt_version": "BTstack v1.5 (UART)",
     "arch": "mips (AR9344)",
     "update_available": false,
+    "ota_installable": true,
+    "release_url": "https://github.com/iranl/harmony-ng/releases/tag/v1.0.4",
+    "next_major_version": "",
+    "channel": "stable",
     "updating": false,
     "update_state": "idle"
   }
   ```
+  `ota_installable` is `false` when the release in `remote_version` is shown but not installed as
+  an online update: another major version (a new system: the release bundle installs it), or a
+  release published with `scripts/publish_ota.py --install-tool-only` (its `release.json` says so,
+  and its signed manifest has `"ota_installable": false`, which `update.sh apply` refuses).
+  Hubs on 3.0.0 or older do not read that flag and install such a release of their own major
+  version. `release_url` is the release's page on GitHub, for the notice; it is always built from
+  the version (`release.json` is not signed, and counts only when its `version` is the one found).
+  `next_major_version` is the next major release (v4, the Linux 6.18 system) when the v3 branch
+  names one in `VERSION_V4` (it has a branch of its own, `ota4`), else `""`: shown, and installed
+  with the release bundle only. `channel` is the update channel (`stable` or `beta`,
+  `POST /api/update-channel`).
+
   `update_state` is the state of the last `POST /api/update-apply` since the Hub started:
   - `running`: `update.sh apply` downloads and installs (`/tmp/hub_updating.flag` exists and the
     run started less than 30 minutes ago, counted on the uptime clock, which SNTP does not step).
@@ -580,9 +596,28 @@ Checks for newer release bundles (also answered as `/api/update-check-state`).
     "remote_version": "1.0.4",
     "message": "Hub binaries and WebUI are up to date (v1.0.4).",
     "has_update": false,
-    "update_available": false
+    "update_available": false,
+    "ota_installable": true,
+    "release_url": "https://github.com/iranl/harmony-ng/releases/tag/v1.0.4",
+    "next_major_version": "",
+    "channel": "stable"
   }
   ```
+  For a release that is not installed online (`ota_installable` false, see 2.1), `message` says
+  so and names `release_url`.
+
+#### `POST /api/update-channel`
+Chooses the releases the update check and the online update follow (admin):
+`{"channel": "stable"}` (the default: full releases, branch `ota`) or `{"channel": "beta"}` (the
+newer of branch `ota-beta`, the pre-releases and drafts, which are tested less, and branch `ota`).
+A pre-release of another major version on `ota-beta` is never followed (v3 has no beta; the
+v4 betas are there, and v4 itself is announced through `VERSION_V4`). The channel applies to the
+default source only: a custom source is followed as it is. A change
+clears the stored latest version. Answers `{"ok": true, "channel": "beta"}`, or `400` for another
+value. A pre-release or draft published later as a full release goes to the stable channel
+unchanged (`.github/workflows/release-promote.yml`), unless `ota` holds the same or a newer
+release. Back on stable after installing a newer pre-release, the Hub stays on it (nothing older
+is offered) until a full release passes it.
 
 ### 2.3 Apply Update
 #### `POST /api/update-apply`
