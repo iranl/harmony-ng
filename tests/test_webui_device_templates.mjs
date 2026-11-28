@@ -2,7 +2,10 @@
 // - the index comes from jsDelivr, else raw.githubusercontent; entries with an odd file are left out
 // - the device: ticked transports in the template's order, the earlier transport's command wins a
 //   name, {{key}} filled in (a whole-string number stays a number), plugin default commands added
-// - required setup fields are reported; "Create device" posts the combined device as JSON
+// - a template command wins over a plugin default of the same name, whatever the transport order
+// - typed values trimmed, a host typed as a URL cut to the host, a number field takes whole numbers
+// - {{constructor}} is no value; the device name is made unique
+// - required setup fields are reported; "Create device" posts the combined device as JSON, once
 // - template text is shown escaped
 // Runs in Node with a stand-in DOM and a stubbed fetch: no browser, no Hub.
 import assert from 'node:assert/strict';
@@ -79,6 +82,31 @@ await t.check('device: template order decides, placeholders filled', async () =>
   assert.equal(httpOnly.tcp, undefined);
 });
 
+await t.check('a template command wins over a plugin default, whatever the order', async () => {
+  const T2 = { ...TPL, transports: { plugin: { id: 'demo-plug', default_commands: true }, ir: {} },
+    commands: [{ name: 'home', transport: 'ir', keyCode: 'G:GoVideoO1 32 Bit:()(0xE0E07D82)():3' }] };
+  const d = tpl.buildDeviceFromTemplate(T2, ['plugin', 'ir'], {}, PLUG);
+  const home = d.commands.filter(c => c.name.toLowerCase() === 'home');
+  assert.equal(home.length, 1, 'one command per name (case ignored)');
+  assert.equal(home[0].transport, 'ir', 'the template IR command, not the plugin default');
+  assert.ok(d.commands.some(c => c.name === 'PowerOn' && c.transport === 'plugin'), 'free names still get the default');
+});
+
+await t.check('typed values: trimmed, host from a URL, whole numbers only', async () => {
+  const T3 = { ...TPL, setup: { fields: [...TPL.setup.fields, { key: 'host', label: 'dup' }, { key: 'port2', type: 'number', min: 1, max: 65535 }] } };
+  const v = tpl.setupValues(T3, { host: ' http://10.0.0.5/api ', port: '8080.5', psk: ' k ', port2: '70000' });
+  assert.equal(v.host, '10.0.0.5');
+  assert.equal(v.psk, 'k');
+  assert.deepEqual(tpl.badSetupFields(T3, v).map(f => f.key), ['port', 'port2']);
+  assert.equal(tpl.setupFields(T3).filter(f => f.key === 'host').length, 1, 'a key once');
+  assert.deepEqual(tpl.setupFields({ setup: { fields: 'x' } }), [], 'fields that are no list');
+  assert.equal(tpl.fillPlaceholders('{{constructor}}/{{toString}}', {}), '/');
+  assert.equal(tpl.uniqueDeviceName('Sonos speaker', ['sonos speaker', 'Sonos speaker 2']), 'Sonos speaker 3');
+  assert.equal(tpl.uniqueDeviceName('Kodi', ['Sonos']), 'Kodi');
+  const d = tpl.buildDeviceFromTemplate(TPL, ['tcp'], tpl.setupValues(TPL, { host: '1.2.3.4' }), null, ' Den / AVR ');
+  assert.equal(d.name, 'Den / AVR');
+});
+
 await t.check('required setup fields reported', async () => {
   const missing = tpl.missingSetupFields(TPL, tpl.setupValues(TPL, { host: '' }));
   assert.deepEqual(missing.map(f => f.key), ['host']);
@@ -111,17 +139,20 @@ await t.check('Create device posts the combined device as JSON', async () => {
   mk('input', { id: 'tpl_f_port' }, { value: '' });
   mk('input', { id: 'tpl_f_psk' }, { value: '' });
   mk('div', { id: 'tplSetupStatus' });
+  mk('input', { id: 'tplDevName' }, { value: ' Den AVR ' });
+  mk('button', { id: 'btnTplCreate' });
   app.activeTemplate = TPL;
   let asked = '';
   app.ensurePluginInstalled = async id => { asked = id; return PLUG; };
   app.refreshData = async () => {};
   app.renderIrView = () => {};
   calls.length = 0;
-  await app.createDeviceFromTemplate();
+  await Promise.all([app.createDeviceFromTemplate(), app.createDeviceFromTemplate()]);
   assert.equal(asked, 'demo-plug');
-  const req = calls.find(c => c.url.includes('/api/new-device'));
-  assert.ok(req, JSON.stringify(calls.map(c => c.url)));
-  const p = JSON.parse(req.body);
+  const reqs = calls.filter(c => c.url.includes('/api/new-device'));
+  assert.equal(reqs.length, 1, 'two clicks, one device: ' + JSON.stringify(calls.map(c => c.url)));
+  const p = JSON.parse(reqs[0].body);
+  assert.equal(p.name, 'Den AVR', 'the typed name');
   assert.deepEqual(p.transports, ['tcp', 'plugin']);
   assert.equal(p.tcp.netHost, '10.0.0.9');
   assert.equal(p.http, undefined);

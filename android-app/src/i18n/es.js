@@ -2174,5 +2174,6 @@ export default {
     "tpl_back": "Atrás",
     "tpl_create": "Crear dispositivo",
     "tpl_field_required": "Rellene: {field}",
+    "tpl_field_invalid": "Valor no válido: {field}",
     "tpl_created": "Dispositivo creado desde la plantilla",
 };

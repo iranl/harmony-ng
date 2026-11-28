@@ -2174,5 +2174,6 @@ export default {
     "tpl_back": "Retour",
     "tpl_create": "Créer l'appareil",
     "tpl_field_required": "À remplir : {field}",
+    "tpl_field_invalid": "Valeur non valide : {field}",
     "tpl_created": "Appareil créé depuis le modèle",
 };

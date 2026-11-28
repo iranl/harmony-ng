@@ -2174,5 +2174,6 @@ export default {
     "tpl_back": "Terug",
     "tpl_create": "Apparaat aanmaken",
     "tpl_field_required": "Vul in: {field}",
+    "tpl_field_invalid": "Geen geldige waarde: {field}",
     "tpl_created": "Apparaat aangemaakt vanuit het sjabloon",
 };

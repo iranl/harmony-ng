@@ -959,7 +959,8 @@
     "tpl_back",
     "tpl_create",
     "tpl_field_required",
-    "tpl_created"
+    "tpl_created",
+    "tpl_field_invalid"
   ],
   "fr": [
     "map_action_help",
@@ -1920,7 +1921,8 @@
     "tpl_back",
     "tpl_create",
     "tpl_field_required",
-    "tpl_created"
+    "tpl_created",
+    "tpl_field_invalid"
   ],
   "nl": [
     "map_action_help",
@@ -2881,7 +2883,8 @@
     "tpl_back",
     "tpl_create",
     "tpl_field_required",
-    "tpl_created"
+    "tpl_created",
+    "tpl_field_invalid"
   ],
   "es": [
     "map_action_help",
@@ -3842,7 +3845,8 @@
     "tpl_back",
     "tpl_create",
     "tpl_field_required",
-    "tpl_created"
+    "tpl_created",
+    "tpl_field_invalid"
   ],
   "it": [
     "map_action_help",
@@ -4803,6 +4807,7 @@
     "tpl_back",
     "tpl_create",
     "tpl_field_required",
-    "tpl_created"
+    "tpl_created",
+    "tpl_field_invalid"
   ]
 }

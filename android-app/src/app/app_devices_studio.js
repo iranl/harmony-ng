@@ -57,6 +57,9 @@ import {
   fetchTemplateIndex,
   fetchTemplate,
   templateTransports,
+  setupFields,
+  badSetupFields,
+  uniqueDeviceName,
   setupValues,
   missingSetupFields,
   buildDeviceFromTemplate
@@ -1580,6 +1583,9 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
   closeTemplatePicker() {
     const m = document.getElementById('tplModal');
     if (m) m.style.display = 'none';
+    /* a typed secret does not stay in the hidden form */
+    const fields = document.getElementById('tplFields');
+    if (fields) fields.innerHTML = '';
   }
 
   async openTemplatePicker() {
@@ -1640,6 +1646,11 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
     set('tplSetupName', `${tpl.name || ''} — ${tpl.model || ''}`);
     set('tplSetupMessage', typeof tpl.setup?.message === 'string' ? tpl.setup.message : '');
+    const nameEl = document.getElementById('tplDevName');
+    if (nameEl) {
+      const taken = (this.inventory?.devices || []).map(d => d.name).filter(n => typeof n === 'string');
+      nameEl.value = uniqueDeviceName(typeof tpl.name === 'string' && tpl.name ? tpl.name : 'Device', taken);
+    }
     const trs = document.getElementById('tplTransports');
     if (trs) {
       trs.innerHTML = templateTransports(tpl).map(x => `
@@ -1650,7 +1661,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     }
     const fields = document.getElementById('tplFields');
     if (fields) {
-      fields.innerHTML = (tpl.setup?.fields || []).filter(f => f && typeof f.key === 'string').map(f => `
+      fields.innerHTML = setupFields(tpl).map(f => `
         <div>
           <label for="tpl_f_${escapeHtml(f.key)}" class="mini">${escapeHtml(f.label || f.key)}${f.required ? ' *' : ''}</label>
           <input id="tpl_f_${escapeHtml(f.key)}" class="form-control form-control-sm" type="${f.type === 'number' ? 'number' : (f.type === 'password' ? 'password' : 'text')}"
@@ -1669,20 +1680,31 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     const picked = [...document.querySelectorAll('.tpl-tr-chk')].filter(c => c.checked).map(c => c.value);
     if (picked.length === 0) return fail(t('combined_pick_transport'));
     const typed = {};
-    for (const f of tpl.setup?.fields || []) {
-      if (f && typeof f.key === 'string') typed[f.key] = document.getElementById(`tpl_f_${f.key}`)?.value ?? '';
-    }
+    for (const f of setupFields(tpl)) typed[f.key] = document.getElementById(`tpl_f_${f.key}`)?.value ?? '';
     const values = setupValues(tpl, typed);
     const missing = missingSetupFields(tpl, values);
     if (missing.length) return fail(tf('tpl_field_required', { field: missing[0].label || missing[0].key }));
-    let pluginDef = null;
-    if (picked.includes('plugin')) {
-      pluginDef = await this.ensurePluginInstalled(tpl.transports.plugin?.id);
-      if (!pluginDef) return fail(tf('combined_plugin_not_found', { id: tpl.transports.plugin?.id || '' }));
-    }
+    const bad = badSetupFields(tpl, values);
+    if (bad.length) return fail(tf('tpl_field_invalid', { field: bad[0].label || bad[0].key }));
+    const name = (document.getElementById('tplDevName')?.value || '').trim();
+    /* one request at a time: a second click made a second device (and a second plugin install) */
+    if (this._tplCreating) return;
+    this._tplCreating = true;
+    const btn = document.getElementById('btnTplCreate');
+    if (btn) btn.disabled = true;
     try {
+      let pluginDef = null;
+      if (picked.includes('plugin')) {
+        if (stat) stat.textContent = tf('plg_downloading_installing', { id: tpl.transports.plugin?.id || '' });
+        /* reports itself why not: not offered (toast), declined, or the install failed (toast) */
+        pluginDef = await this.ensurePluginInstalled(tpl.transports.plugin?.id);
+        if (!pluginDef) {
+          if (stat) stat.textContent = '';
+          return;
+        }
+      }
       if (stat) stat.textContent = t('saving_new_device');
-      const dev = buildDeviceFromTemplate(tpl, picked, values, pluginDef);
+      const dev = buildDeviceFromTemplate(tpl, picked, values, pluginDef, name);
       // JSON: the http / tcp connections and the command list are objects
       const res = await this.client.postJson('/api/new-device', dev);
       if (res && res.ok === false) throw new Error(res.error || t('failed_save_device_hub'));
@@ -1696,6 +1718,9 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
       this.renderIrView(newId);
     } catch (err) {
       fail(tf('error_msg', { error: err.message }));
+    } finally {
+      this._tplCreating = false;
+      if (btn) btn.disabled = false;
     }
   }
 

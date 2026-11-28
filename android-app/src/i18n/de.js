@@ -2174,5 +2174,6 @@ export default {
     "tpl_back": "Zurück",
     "tpl_create": "Gerät anlegen",
     "tpl_field_required": "Bitte ausfüllen: {field}",
+    "tpl_field_invalid": "Kein gültiger Wert: {field}",
     "tpl_created": "Gerät aus der Vorlage angelegt",
 };

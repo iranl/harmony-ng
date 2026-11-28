@@ -2174,5 +2174,6 @@ export default {
     "tpl_back": "Indietro",
     "tpl_create": "Crea dispositivo",
     "tpl_field_required": "Compila: {field}",
+    "tpl_field_invalid": "Valore non valido: {field}",
     "tpl_created": "Dispositivo creato dal modello",
 };

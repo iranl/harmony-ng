@@ -1991,7 +1991,6 @@
 
         </div>
 
-        <!-- Command Edit Modal / Bottom Sheet -->
         <!-- Device templates (harmony-ng-plugins/devices): pick one, then finish its setup -->
         <div id="tplModal" class="modal-sheet-backdrop" style="display: none;">
           <div class="modal-sheet-dialog">
@@ -2009,6 +2008,10 @@
               <div id="tplSetupPane" style="display: none;">
                 <strong id="tplSetupName" style="font-size: 14px;"></strong>
                 <div id="tplSetupMessage" class="card mini" style="margin-top: 8px; padding: 10px;"></div>
+                <div style="margin-top: 10px;">
+                  <label for="tplDevName" class="mini" data-i18n="device_name">Device Name</label>
+                  <input id="tplDevName" class="form-control form-control-sm" type="text" maxlength="64">
+                </div>
                 <div class="mini muted" style="margin-top: 10px;" data-i18n="tpl_transports_lbl">Control the device over</div>
                 <div id="tplTransports" style="display: flex; flex-direction: column; gap: 4px; margin-top: 4px;"></div>
                 <div id="tplFields" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; margin-top: 10px;"></div>
@@ -2022,6 +2025,7 @@
           </div>
         </div>
 
+        <!-- Command Edit Modal / Bottom Sheet -->
         <div id="cmdEditModal" class="modal-sheet-backdrop" style="display: none;">
           <div class="modal-sheet-dialog">
             <div class="sheet-drag-handle"></div>

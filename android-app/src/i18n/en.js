@@ -2174,5 +2174,6 @@ export default {
     "tpl_back": "Back",
     "tpl_create": "Create device",
     "tpl_field_required": "Fill in: {field}",
+    "tpl_field_invalid": "Not a valid value: {field}",
     "tpl_created": "Device created from the template",
 };
