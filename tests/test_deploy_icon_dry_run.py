@@ -72,6 +72,8 @@ def main():
         def fake_ssh(cmd):
             if cmd == "uname -m":
                 return subprocess.CompletedProcess(cmd, 0, "mips\n", "")
+            if cmd == "uname -r":
+                return subprocess.CompletedProcess(cmd, 0, "6.18.65-harmony\n", "")
             if cmd.startswith("pidof"):
                 return subprocess.CompletedProcess(cmd, 0, "101 102 103", "")
             if "devices.json ] && echo 1" in cmd:

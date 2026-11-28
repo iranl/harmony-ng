@@ -542,7 +542,9 @@ static int cc2544_fw_open(struct inode *inode, struct file *f)
 	memset(c->fw_buf, 0xff, FW_BUF);
 	c->fw_write = false;
 	/* the interrupt line becomes the debug clock: no interrupt meanwhile. Freed before taking
-	 * xfer_lock: free_irq waits for the threaded handler, which takes that lock itself */
+	 * xfer_lock: free_irq waits for the threaded handler, which takes that lock itself. Disabled
+	 * first: a handler running now ends with enable_irq(), which must not come after free_irq */
+	disable_irq(c->spi->irq);
 	free_irq(c->spi->irq, c);
 	mutex_lock(&c->xfer_lock);
 	dbg_enter(c);

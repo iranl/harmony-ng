@@ -323,7 +323,7 @@ def backup_hub(
 
         if not staged_ram_bb and not dry_run:
             print("[-] No backup made: the Hub's BusyBox has no tar applet and no MIPS BusyBox could be staged")
-            print("    (build one with build/build_busybox.sh, or put it in payload/bin/busybox).")
+            print("    (build one with LINK=static build/build_busybox.sh mips, or put it in payload/bin/busybox).")
             return False
 
     try:

@@ -13,14 +13,13 @@ import argparse
 import sys
 import time
 
-import serial
-
 PROMPT = b'ar7240> '
 MM_PROMPT = b' ? '
 
 
 class Console:
     def __init__(self, port, baud, log):
+        import serial  # pyserial: only when a port is opened (the tests and --help need none)
         self.ser = serial.Serial(port, baud, timeout=0.05)
         self.log = log
         self.buf = b''

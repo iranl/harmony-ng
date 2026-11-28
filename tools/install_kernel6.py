@@ -153,6 +153,10 @@ class Installer:
         self.flash = files / "harmony-hub-flash.uImage"
         self.rootfs = files / "harmony-hub-rootfs.sqfs"
         self.hub_util = files / "static" / "hub_util"
+        # the static BusyBox the fallback boot runs (build/kernel6/init.c): bundle tools/bin, or a
+        # checkout's LINK=static build
+        self.rescue_bb = next((p for p in (HERE / "bin" / "busybox", HERE.parent / "payload" / "bin" / "busybox")
+                               if p.is_file()), None)
 
     def check_files(self) -> None:
         missing = [p for p in (self.flash, self.rootfs, self.hub_util, *(self.scripts / s for s in RESCUE_SCRIPTS))
@@ -178,7 +182,18 @@ class Installer:
                 self.hub.push(self.hub_util, "/tmp/k6_hub_util")
                 self.hub.run("chmod 755 /tmp/k6_hub_util")
             out = self.hub.run(f"/tmp/k6_hub_util df '{path}' 2>/dev/null; true").strip()
+        return int(out) if out.isdigit() else -1   # -1: could not be measured
+
+    def size_kb(self, paths: tuple[str, ...]) -> int:
+        """KB the files under paths take (ls and awk: the stock BusyBox has no du)"""
+        out = self.hub.run("ls -lR " + " ".join(f"'{p}'" for p in paths) +
+                           " 2>/dev/null | awk '$1 ~ /^-/ { s += $5 } END { print int(s / 1024) }'; true").strip()
         return int(out) if out.isdigit() else 0
+
+    def need_kb(self) -> int:
+        """Room the staged files need: the root file system image, the rescue BusyBox, a margin"""
+        bb = self.rescue_bb.stat().st_size if self.rescue_bb else 0
+        return (self.rootfs.stat().st_size + bb) // 1024 + 256
 
     def make_room(self, data_top: str, need_kb: int, prefix: str, always: tuple[str, ...],
                   if_short: tuple[str, ...]) -> None:
@@ -192,6 +207,8 @@ class Installer:
             print(f"  removing {p} for room (the deploy puts it back)")
             self.hub.run(f"rm -rf '{prefix}{p}'; true")
         free = self.free_kb(data_top)
+        if free < 0:
+            raise SystemExit("Error: the free space of the data partition could not be measured: nothing was staged.")
         if free < need_kb:
             raise SystemExit(f"Error: the data partition has {free} KB free, the root file system image needs "
                              f"{need_kb} KB. Remove plugins or custom icons (or move them to a USB stick) and "
@@ -204,6 +221,12 @@ class Installer:
             self.hub.push((self.scripts / s).read_bytes().replace(b"\r\n", b"\n"), f"{kernel6_dir}/{s}")
         self.hub.push(self.rootfs, f"{kernel6_dir}/rootfs.sqfs.new")
         self.hub.run(f"chmod 755 '{kernel6_dir}'/*.sh; mv -f '{kernel6_dir}/rootfs.sqfs.new' '{kernel6_dir}/rootfs.sqfs'")
+        if self.rescue_bb:
+            self.hub.push(self.rescue_bb, f"{kernel6_dir}/busybox")
+            self.hub.run(f"chmod 755 '{kernel6_dir}/busybox'")
+        else:
+            print("[!] No static BusyBox (tools/bin/busybox, or LINK=static build/build_busybox.sh mips): the "
+                  "fallback boot will have no rescue shell")
 
     def firmware_from_stock_root(self, target: str) -> None:
         """PSKEY files and CC2544 firmware from --stock-root, for a Hub whose stock root is gone."""
@@ -251,6 +274,20 @@ class Installer:
 
     # --- the modes ---
 
+    def from_stock_room(self) -> int:
+        """The KB the switch needs in the stock data partition (the stock union root writes to its
+        top: /kernel6, /cache-import). Measured before anything goes: a refusal leaves HarmonyNG
+        as it was."""
+        need = self.need_kb()
+        free = self.free_kb("/data")
+        if free < 0:
+            raise SystemExit("Error: the free space of the data partition could not be measured: nothing was changed.")
+        if free + self.size_kb(STOCK_ERA + ("/data/harmony/bin",) + REDEPLOYABLE) < need:
+            raise SystemExit(f"Error: the data partition has {free} KB free and not enough files a deploy puts "
+                             f"back to reach the {need} KB the 6.18 system needs. Nothing was changed. Remove "
+                             "plugins or custom icons (or move them to a USB stick) and run this again.")
+        return need
+
     def from_stock(self) -> None:
         h = self.hub
         if h.run("ls /lib/firmware/csr8811-a06.psr /lib/firmware/csr8811-a08.psr "
@@ -263,10 +300,9 @@ class Installer:
             h.pull(h.mtd(part), bk / f"{part}.bin")
             print(f"  {part}: {(bk / f'{part}.bin').stat().st_size} bytes")
         print("=== Stopping HarmonyNG, making room in the data partition ===")
+        need = self.from_stock_room()
         self.stop_services()
         h.run(STOCK_ERA_BIN)
-        # the stock union root writes to the data partition's top: /kernel6, /cache-import
-        need = self.rootfs.stat().st_size // 1024 + 256
         self.make_room("/data", need, "", STOCK_ERA, REDEPLOYABLE)
         print("=== Staging the 6.18 system ===")
         self.stage("/cache-import/kernel6")
@@ -291,7 +327,7 @@ class Installer:
             top, prefix = "/tmp/k6data", "/tmp/k6data/upper"
         print("=== Stopping HarmonyNG ===")
         self.stop_services()
-        need = self.rootfs.stat().st_size // 1024 + 256
+        need = self.need_kb()
         # the 6.18 binaries in /data/harmony/bin work: they go only when room is short
         self.make_room(top, need, prefix, (), REDEPLOYABLE + ("/data/harmony/bin",))
         print("=== Staging the 6.18 system and the boot flags ===")
