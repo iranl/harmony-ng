@@ -77,7 +77,8 @@ class UsbStorageScript(unittest.TestCase):
     def test_setup_guards(self):
         for args, why in ((("setup", "/dev/sda1"), "--yes"), (("setup", "/dev/mtdblock3", "--yes"), "not a USB disk"),
                           (("setup", "/dev/sda1;reboot", "--yes"), "not a USB disk"),
-                          (("setup", "/dev/sda1", "--yes"), "not found")):
+                          # a disk no build machine has (a CI runner has a real /dev/sda1)
+                          (("setup", "/dev/sdz9", "--yes"), "not found")):
             res = self.run_it(*args)
             self.assertNotEqual(res.returncode, 0, args)
             self.assertIn(why, res.stderr, args)
