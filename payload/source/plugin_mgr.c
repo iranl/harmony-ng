@@ -1199,11 +1199,17 @@ cJSON *plugin_mgr_get_installed_json(void) {
 }
 
 /* The plugin's "min_harmony_version" (manifest or repository entry, optional): 0 when this
- * HarmonyNG is that version or newer (or no minimum is set), else -1 with the reason */
+ * HarmonyNG is that version or newer (or no minimum is set), else -1 with the reason. A minimum
+ * that is not a version string (digits and dots) is refused: a typo must not remove it. */
 int plugin_mgr_version_ok(const cJSON *entry, char *err_msg, size_t err_msg_sz) {
     const cJSON *mv = cJSON_GetObjectItemCaseSensitive(entry, "min_harmony_version");
-    if (!cJSON_IsString(mv) || !mv->valuestring[0]) return 0;
-    const char *want = (mv->valuestring[0] == 'v' || mv->valuestring[0] == 'V') ? mv->valuestring + 1 : mv->valuestring;
+    if (!mv) return 0;
+    const char *want = cJSON_IsString(mv) ? mv->valuestring : "";
+    if (want[0] == 'v' || want[0] == 'V') want++;
+    if (!want[0] || !isdigit((unsigned char)want[0]) || strspn(want, "0123456789.") != strlen(want)) {
+        if (err_msg) snprintf(err_msg, err_msg_sz, "Manifest has an invalid min_harmony_version");
+        return -1;
+    }
     if (harmony_version_compare(HARMONY_VERSION, want) >= 0) return 0;
     if (err_msg) snprintf(err_msg, err_msg_sz, "This plugin needs HarmonyNG %.20s or newer (this Hub runs %s)", want,
                           HARMONY_VERSION);

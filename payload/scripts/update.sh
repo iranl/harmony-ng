@@ -47,12 +47,15 @@ else
   TOKEN_ARG="${3:-}"
 fi
 
-DEFAULT_OTA="https://raw.githubusercontent.com/iranl/harmony-ng/ota"
+OTA_STABLE="https://raw.githubusercontent.com/iranl/harmony-ng/ota"
+OTA_BETA="https://raw.githubusercontent.com/iranl/harmony-ng/ota-beta"
+DEFAULT_OTA="$OTA_STABLE"
 # Update channel (POST /api/update-channel): "beta" follows the pre-releases and drafts (branch
-# ota-beta, scripts/publish_ota.py --channel beta); anything else the stable releases
+# ota-beta, scripts/publish_ota.py --channel beta) as well as the full releases
+# (pick_official_branch); anything else the stable releases
 UPDATE_CHANNEL=stable
-[ "$(tr -d ' \r\n' < /data/harmony/update_channel 2>/dev/null)" = beta ] && UPDATE_CHANNEL=beta
-[ "$UPDATE_CHANNEL" = beta ] && DEFAULT_OTA="https://raw.githubusercontent.com/iranl/harmony-ng/ota-beta"
+[ -f /data/harmony/update_channel ] && [ "$(tr -d ' \r\n' < /data/harmony/update_channel 2>/dev/null)" = beta ] && UPDATE_CHANNEL=beta
+[ "$UPDATE_CHANNEL" = beta ] && DEFAULT_OTA="$OTA_BETA"
 if [ "$CMD" = "remote" -o "$CMD" = "elite" -o "$CMD" = "fetch-remote" -o "$CMD" = "fetch-remote-ota" -o "$CMD" = "repair-tls" ] && [ -z "$REPO_ARG" ] && [ -f /data/harmony/update_state.conf ]; then
   CONF_REPO=$(grep '^source=' /data/harmony/update_state.conf 2>/dev/null | cut -d= -f2- | tr -d '\r\n ')
   [ -n "$CONF_REPO" ] && REPO_ARG="$CONF_REPO"
@@ -63,8 +66,7 @@ REPO="${REPO%/bin/mips}"
 REPO="${REPO%/}"
 [ -z "$REPO" ] && REPO="$DEFAULT_OTA"
 # the web UI passes the stable URL by default: on the beta channel that means the beta branch
-[ "$UPDATE_CHANNEL" = beta ] && [ "$REPO" = "https://raw.githubusercontent.com/iranl/harmony-ng/ota" ] && \
-  REPO="https://raw.githubusercontent.com/iranl/harmony-ng/ota-beta"
+[ "$UPDATE_CHANNEL" = beta ] && [ "$REPO" = "$OTA_STABLE" ] && REPO="$OTA_BETA"
 
 
 TIMESTAMP=$(date +%s 2>/dev/null || echo 1)
@@ -395,16 +397,49 @@ is_version_newer() {
   }'
 }
 
+# source_version URL: the release the source's VERSION file names, "" when it cannot be read
+# (v2 checks v2/VERSION first)
+source_version() {
+  _sv=""
+  if download_retry "$1/v2/VERSION?_=${TIMESTAMP}" /tmp/ota_ver.$$ 8 2 || \
+     download_retry "$1/VERSION_V2?_=${TIMESTAMP}" /tmp/ota_ver.$$ 8 2 || \
+     download_retry "$1/VERSION?_=${TIMESTAMP}" /tmp/ota_ver.$$ 8 3; then
+    _sv=$(cat /tmp/ota_ver.$$ | tr -d '\r\n v')
+  fi
+  rm -f /tmp/ota_ver.$$ 2>/dev/null
+  echo "$_sv"
+}
+
+# The two official branches. A Hub on beta follows whichever holds the newer release: ota-beta
+# may not exist yet, and a full release goes to ota only. fetch-remote-ota and repair-tls want
+# the files of the Hub's own version, which after a channel switch can be on the other branch.
+pick_official_branch() {
+  [ "$REPO" = "$OTA_STABLE" ] || [ "$REPO" = "$OTA_BETA" ] || return 0
+  case "$CMD" in
+    fetch-remote|fetch-remote-ota|repair-tls)
+      _own=$(get_local_version)
+      _other="$OTA_STABLE"
+      [ "$REPO" = "$OTA_STABLE" ] && _other="$OTA_BETA"
+      if [ "$(source_version "$REPO")" != "${_own#v}" ] && [ "$(source_version "$_other")" = "${_own#v}" ]; then
+        REPO="$_other"
+      fi
+      ;;
+    check|apply)
+      [ "$REPO" = "$OTA_BETA" ] || return 0
+      _bv=$(source_version "$OTA_BETA")
+      _stv=$(source_version "$OTA_STABLE")
+      if [ -z "$_bv" ] || { [ -n "$_stv" ] && is_version_newer "$_stv" "$_bv"; }; then
+        REPO="$OTA_STABLE"
+      fi
+      ;;
+  esac
+}
+
 do_check() {
   LOCAL_VER=$(get_local_version)
-  REMOTE_VER=""
 
-  # 1. Try raw GitHub OTA VERSION file with retries (v2 checks v2/VERSION first)
-  if download_retry "${REPO}/v2/VERSION?_=${TIMESTAMP}" /tmp/ota_ver.$$ 8 2 || \
-     download_retry "${REPO}/VERSION_V2?_=${TIMESTAMP}" /tmp/ota_ver.$$ 8 2 || \
-     download_retry "${REPO}/VERSION?_=${TIMESTAMP}" /tmp/ota_ver.$$ 8 3; then
-    REMOTE_VER=$(cat /tmp/ota_ver.$$ | tr -d '\r\n v')
-  fi
+  # 1. Try raw GitHub OTA VERSION file with retries
+  REMOTE_VER=$(source_version "$REPO")
 
   # 2. Fallback: try GitHub releases API
   if [ -z "$REMOTE_VER" ]; then
@@ -413,7 +448,7 @@ do_check() {
     fi
   fi
 
-  rm -f /tmp/ota_ver.$$ /tmp/gh_rel.$$ 2>/dev/null
+  rm -f /tmp/gh_rel.$$ 2>/dev/null
 
   if [ -z "$REMOTE_VER" ]; then
     echo "{\"ok\":false,\"error\":\"Could not fetch remote version from ${REPO}\"}"
@@ -421,14 +456,17 @@ do_check() {
   fi
 
   # The release's notice (release.json, scripts/publish_ota.py): whether it installs over the
-  # air, and its page. Optional: an older source has none.
+  # air. Optional: an older source has none. It is not signed, so it only words the notice
+  # (apply decides on the signed manifest), counts only for the version found, and names no
+  # page: the page is always the project's GitHub release.
   INSTALLABLE=1
   RELEASE_URL="https://github.com/iranl/harmony-ng/releases/tag/v${REMOTE_VER}"
   if download_retry "${REPO}/v2/release.json?_=${TIMESTAMP}" /tmp/ota_rel.$$ 8 1 || \
      download_retry "${REPO}/release.json?_=${TIMESTAMP}" /tmp/ota_rel.$$ 8 1; then
-    grep -q '"ota_installable": *false' /tmp/ota_rel.$$ && INSTALLABLE=0
-    _url=$(sed -n 's/.*"release_url": *"\(https:\/\/[^"]*\)".*/\1/p' /tmp/ota_rel.$$ | sed -n 1p)
-    [ -n "$_url" ] && RELEASE_URL="$_url"
+    if grep -q "\"version\": *\"v*${REMOTE_VER}\"" /tmp/ota_rel.$$ && \
+       grep -q '"ota_installable": *false' /tmp/ota_rel.$$; then
+      INSTALLABLE=0
+    fi
   fi
   rm -f /tmp/ota_rel.$$ 2>/dev/null
 
@@ -444,6 +482,21 @@ do_check() {
     fi
     [ "$LOCAL_MAJOR" != "$REMOTE_MAJOR" ] && INSTALLABLE=0
   fi
+
+  # The next major version (v4, the Linux 6.18 system) has a branch of its own (ota4); the v3
+  # branch names it in VERSION_V4 (scripts/publish_ota.py --v4-pointer-branch). It is shown,
+  # and installed with the release bundle only.
+  NEXT_MAJOR=""
+  _v4src="$REPO"
+  [ "$REPO" = "$OTA_BETA" ] && _v4src="$OTA_STABLE"
+  if download_retry "${_v4src}/VERSION_V4?_=${TIMESTAMP}" /tmp/ota_v4.$$ 8 1; then
+    _v4=$(tr -d '\r\n v' < /tmp/ota_v4.$$)
+    case "$_v4" in
+      ""|*[!0-9.]*) ;;
+      *) [ "$(echo "$_v4" | cut -d. -f1)" != "$LOCAL_MAJOR" ] && is_version_newer "$_v4" "$LOCAL_VER" && NEXT_MAJOR="$_v4" ;;
+    esac
+  fi
+  rm -f /tmp/ota_v4.$$ 2>/dev/null
 
   mkdir -p /data/harmony 2>/dev/null || true
   echo "$REMOTE_VER" > /data/harmony/latest_version
@@ -465,9 +518,10 @@ source=${REPO}
 channel=${UPDATE_CHANNEL}
 ota_installable=${INSTALLABLE}
 release_url=${RELEASE_URL}
+next_major=${NEXT_MAJOR}
 EOF
 
-  echo "{\"ok\":true,\"local_version\":\"${LOCAL_VER}\",\"remote_version\":\"${REMOTE_VER}\",\"update_available\":$([ $HAS_UPDATE -eq 1 ] && echo true || echo false),\"ota_installable\":$([ $INSTALLABLE -eq 1 ] && echo true || echo false),\"release_url\":\"${RELEASE_URL}\",\"channel\":\"${UPDATE_CHANNEL}\"}"
+  echo "{\"ok\":true,\"local_version\":\"${LOCAL_VER}\",\"remote_version\":\"${REMOTE_VER}\",\"update_available\":$([ $HAS_UPDATE -eq 1 ] && echo true || echo false),\"ota_installable\":$([ $INSTALLABLE -eq 1 ] && echo true || echo false),\"release_url\":\"${RELEASE_URL}\",\"next_major_version\":\"${NEXT_MAJOR}\",\"channel\":\"${UPDATE_CHANNEL}\"}"
   return 0
 }
 
@@ -1005,6 +1059,8 @@ apply_locked() {
   rm -rf "$APPLY_LOCK" 2>/dev/null
   return $_rc
 }
+
+pick_official_branch
 
 case "$CMD" in
   check)

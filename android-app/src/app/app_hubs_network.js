@@ -120,11 +120,15 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
         const curVer = stat.current_version || APP_VERSION;
         const targetVer = remoteVer || (stat.remote_version ? stat.remote_version.replace(/^v/, '') : (res.remote_version ? res.remote_version.replace(/^v/, '') : ''));
         const hasUpdate = Boolean(targetVer && curVer && this.isVersionOlder(curVer, targetVer));
-        const bundleUrl = hasUpdate ? this.bundleOnlyUrl(curVer, targetVer, { ...res, ...stat }) : '';
-        this.showBundleNotice(targetVer, bundleUrl);
+        // up to date: the next major version (v4, VERSION_V4 on the v3 branch), release bundle only
+        const nextMajor = String(stat.next_major_version || res.next_major_version || this.onlineNextMajor || '').replace(/^v/, '');
+        const showNext = !hasUpdate && Boolean(nextMajor && curVer && this.isVersionOlder(curVer, nextMajor));
+        const noticeVer = showNext ? nextMajor : targetVer;
+        const bundleUrl = hasUpdate || showNext ? this.bundleOnlyUrl(curVer, noticeVer, { ...res, ...stat }) : '';
+        this.showBundleNotice(noticeVer, bundleUrl);
         log.textContent = tf('update_check_result', { local: curVer, remote: displayRemote }) + '\n' +
           tf('ver_status', {
-            value: !hasUpdate ? `✓ ${t('hub_is_up_to_date')}`
+            value: !hasUpdate ? `✓ ${t('hub_is_up_to_date')}` + (bundleUrl ? `\n⚠️ ${tf('update_bundle_only', { version: noticeVer })} ${bundleUrl}` : '')
               : bundleUrl ? `⚠️ ${tf('update_bundle_only', { version: targetVer })} ${bundleUrl}`
               : `⚠️ ${tf('update_available_install', { version: displayRemote })}`
           });
@@ -138,8 +142,11 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
     const repo = document.getElementById('updateRepo')?.value.trim();
     const token = document.getElementById('updateToken')?.value.trim();
     const log = document.getElementById('updateLog');
-    // a release for the release bundle only: the page instead of an install the Hub would refuse
-    if (this.bannerReleaseUrl) {
+    // a release for the release bundle only: the page instead of an install the Hub would refuse.
+    // Not for a mirror: the banner is worked out from the official branch, the mirror may hold a
+    // release of this major version (the Hub refuses what it has to, update_error says why).
+    const official = !repo || /^https:\/\/raw\.githubusercontent\.com\/iranl\/harmony-ng\/ota(-beta)?(\/bin\/mips)?\/?$/.test(repo);
+    if (this.bannerReleaseUrl && official) {
       if (log) log.textContent = `${t('update_open_release')}: ${this.bannerReleaseUrl}`;
       window.open(this.bannerReleaseUrl, '_blank', 'noopener');
       return;

@@ -4036,7 +4036,10 @@ paths:
                     description: false when remote_version is shown but installed with the release bundle only (another major version, or published so; docs/API.md 2.1)
                   release_url:
                     type: string
-                    description: The release page of remote_version on GitHub
+                    description: The release page of remote_version on GitHub (built from the version)
+                  next_major_version:
+                    type: string
+                    description: The next major release named by VERSION_V4 on the v3 branch (release bundle only), else empty
                   channel:
                     type: string
                     enum: [stable, beta]
@@ -4087,6 +4090,10 @@ paths:
                 message: Hub binaries and WebUI are up to date (v2.1.1).
                 has_update: false
                 update_available: false
+                ota_installable: true
+                release_url: "https://github.com/iranl/harmony-ng/releases/tag/v2.1.1"
+                next_major_version: ""
+                channel: stable
     post:
       tags:
         - Updates & Maintenance
@@ -4122,6 +4129,10 @@ paths:
                 message: Hub binaries and WebUI are up to date (v2.1.1).
                 has_update: false
                 update_available: false
+                ota_installable: true
+                release_url: "https://github.com/iranl/harmony-ng/releases/tag/v2.1.1"
+                next_major_version: ""
+                channel: stable
 
   /api/update-apply:
     post:

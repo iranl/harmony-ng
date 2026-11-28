@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version (e.g. 1.3.0)'
+        description: 'Release version (e.g. 1.3.0): plain x.y.z, also for a pre-release (Hubs read no suffix such as -beta1)'
         required: false
         default: ''
       bump:
@@ -30,13 +30,18 @@ on:
         default: false
         type: boolean
       install_tool_only:
-        description: 'Hubs show this release but do not install it online: the release bundle installs it'
+        description: 'Hubs show this release but do not install it online: the release bundle installs it (Hubs on 3.0.0 or older ignore this and install it)'
         required: false
         default: false
         type: boolean
 
 permissions:
   contents: write
+
+# release.yml and release-promote.yml both force-push the OTA branches: one at a time
+concurrency:
+  group: ota-publish
+  cancel-in-progress: false
 
 jobs:
   prepare-version:
@@ -377,6 +382,20 @@ jobs:
           python scripts/generate_release_notes.py --version "$VERSION" --output release_notes.md
           cat release_notes.md
 
+      # The release first: Hubs are never offered a release that has no page (a draft has none
+      # until it is published). The signed OTA staging is added once it is published to the branch.
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ needs.prepare-version.outputs.version }}"
+          FLAGS=""
+          [ "${{ github.event.inputs.prerelease }}" = "true" ] && FLAGS="$FLAGS --prerelease"
+          [ "${{ github.event.inputs.draft }}" = "true" ] && FLAGS="$FLAGS --draft"
+          gh release create "v${VERSION}" release_assets/* $FLAGS \
+            --title "HarmonyNG v${VERSION}" \
+            --notes-file release_notes.md
+
       # A pre-release or a draft goes to the beta channel (branch ota-beta) only. Its signed OTA
       # staging is a release asset: publishing it later as a full release puts that same staging
       # on the stable channel (release-promote.yml), without a new build.
@@ -401,15 +420,4 @@ jobs:
             --staging-tarball "release_assets/ota-staging-v${VERSION}.tar.gz" \
             --push --remote "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" --branch "$BRANCH"
           (cd release_assets && sha256sum "ota-staging-v${VERSION}.tar.gz" >> sha256sums.txt)
-
-      - name: Create GitHub Release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION="${{ needs.prepare-version.outputs.version }}"
-          FLAGS=""
-          [ "${{ github.event.inputs.prerelease }}" = "true" ] && FLAGS="$FLAGS --prerelease"
-          [ "${{ github.event.inputs.draft }}" = "true" ] && FLAGS="$FLAGS --draft"
-          gh release create "v${VERSION}" release_assets/* $FLAGS \
-            --title "HarmonyNG v${VERSION}" \
-            --notes-file release_notes.md
+          gh release upload "v${VERSION}" "release_assets/ota-staging-v${VERSION}.tar.gz" release_assets/sha256sums.txt --clobber

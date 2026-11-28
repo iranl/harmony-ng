@@ -12,6 +12,12 @@ on:
 permissions:
   contents: write
 
+# release.yml and this workflow both force-push the OTA branches: one at a time. publish_ota.py
+# --promote also stops when ota holds the same or a newer release (an older draft published late).
+concurrency:
+  group: ota-publish
+  cancel-in-progress: false
+
 jobs:
   promote:
     name: Publish the release to branch ota

@@ -342,8 +342,36 @@ def promote_staging(tarball: Path, output_dir: Path) -> str:
         tar.extractall(output_dir, filter="data")
     manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
     version = manifest["version"]
+    check_staging(output_dir, manifest)
     write_release_info(output_dir, version, manifest.get("ota_installable", True) is not False, "stable")
     return version
+
+
+def check_staging(output_dir: Path, manifest: dict):
+    """A damaged or replaced staging asset is not published: the signature is there and every
+    file the manifest lists has its SHA-256 (Hubs check the signature itself)."""
+    sig = (output_dir / "manifest.json.sig")
+    if not sig.is_file() or len(sig.read_text(encoding="utf-8").strip()) != 128:
+        raise SystemExit("[-] Staging has no manifest signature: not published.")
+    for name, meta in manifest.get("files", {}).items():
+        f = output_dir / name
+        if not f.is_file() or get_file_hashes(f)[1] != str(meta.get("sha256", "")).lower():
+            raise SystemExit(f"[-] Staging file {name} does not match the manifest: not published.")
+
+
+def version_tuple(v: str) -> tuple:
+    return tuple(int(x) for x in v.strip().lstrip("v").split("."))
+
+
+def branch_version(remote_url: str, branch: str) -> str:
+    """The release on the remote's branch (v2/VERSION), "" when the branch or the file is missing"""
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        subprocess.run(["git", "init", "-q"], cwd=tmp, check=True)
+        if subprocess.run(["git", "fetch", "-q", "--depth", "1", remote_url, branch], cwd=tmp).returncode != 0:
+            return ""
+        res = subprocess.run(["git", "show", "FETCH_HEAD:v2/VERSION"], cwd=tmp, capture_output=True, text=True)
+        return res.stdout.strip() if res.returncode == 0 else ""
 
 
 def sign_manifest(output_dir: Path, require: bool) -> bool:
@@ -425,6 +453,11 @@ def main():
 
     if args.promote:
         ver = promote_staging(args.promote, STAGING_DIR)
+        # an older draft or pre-release published later must not replace a newer stable release
+        current = branch_version(args.remote, args.branch) if args.remote else ""
+        if current and version_tuple(ver) <= version_tuple(current):
+            print(f"[*] {args.branch} holds v{current}: v{ver} is not newer, not promoted.")
+            return
     else:
         ver = args.version or (VERSION_FILE.read_text().strip() if VERSION_FILE.exists() else "1.3.0")
         package_ota(STAGING_DIR, ver, ota_installable=not args.install_tool_only, channel=args.channel)

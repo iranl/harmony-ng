@@ -602,24 +602,36 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
    * VERSION first (its signed manifest is what gets installed), GitHub releases only when the
    * branch cannot be read. */
   async fetchOnlineHubVersion(token = '') {
-    // the channel's branch: ota (stable) or ota-beta (pre-releases and drafts)
-    const base = `https://raw.githubusercontent.com/iranl/harmony-ng/${this.updateChannel === 'beta' ? 'ota-beta' : 'ota'}`;
-    for (const file of ['v2/VERSION', 'VERSION_V2']) {
+    const plain = (v) => (/^\d+(\.\d+)*$/.test(v) ? v : '');
+    const read = async (path) => {
       try {
-        const res = await fetch(`${base}/${file}?_=${Date.now()}`, { cache: 'no-cache' });
-        const ver = res.ok ? (await res.text()).trim().replace(/^v/, '') : '';
-        if (/^\d+(\.\d+)*$/.test(ver)) {
-          // its notice (scripts/publish_ota.py): installed over the air or with the release bundle
-          this.onlineRelease = null;
-          try {
-            const rel = await fetch(`${base}/v2/release.json?_=${Date.now()}`, { cache: 'no-cache' });
-            if (rel.ok) this.onlineRelease = await rel.json();
-          } catch (_) { }
-          return ver;
-        }
-      } catch (_) { }
+        const res = await fetch(`https://raw.githubusercontent.com/iranl/harmony-ng/${path}?_=${Date.now()}`, { cache: 'no-cache' });
+        return res.ok ? plain((await res.text()).trim().replace(/^v/, '')) : '';
+      } catch (_) { return ''; }
+    };
+    const branchVersion = async (branch) => (await read(`${branch}/v2/VERSION`)) || (await read(`${branch}/VERSION_V2`));
+    // stable: branch ota. beta: the newer of ota-beta (pre-releases and drafts) and ota (ota-beta
+    // may not exist; a full release goes to ota only), as update.sh does
+    let branch = 'ota';
+    let ver = await branchVersion('ota');
+    if (this.updateChannel === 'beta') {
+      const betaVer = await branchVersion('ota-beta');
+      if (betaVer && (!ver || !this.isVersionOlder(betaVer, ver))) {
+        branch = 'ota-beta';
+        ver = betaVer;
+      }
     }
-    if (this.updateChannel === 'beta') return '';
+    // the next major version (v4) has a branch of its own; the v3 branch names it in VERSION_V4
+    this.onlineNextMajor = await read('ota/VERSION_V4');
+    if (ver) {
+      // its notice (scripts/publish_ota.py): installed over the air or with the release bundle
+      this.onlineRelease = null;
+      try {
+        const rel = await fetch(`https://raw.githubusercontent.com/iranl/harmony-ng/${branch}/v2/release.json?_=${Date.now()}`, { cache: 'no-cache' });
+        if (rel.ok) this.onlineRelease = await rel.json();
+      } catch (_) { }
+      return ver;
+    }
     try {
       const headers = { 'Accept': 'application/vnd.github.v3+json' };
       if (token) headers['Authorization'] = `token ${token}`;
@@ -637,12 +649,10 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
     if (!tv) return '';
     const url = `https://github.com/iranl/harmony-ng/releases/tag/v${tv}`;
     const rel = this.onlineRelease;
-    if (rel && clean(rel.version) === tv && rel.ota_installable === false) {
-      return /^https:\/\//.test(rel.release_url || '') ? rel.release_url : url;
-    }
-    if (updateStat && clean(updateStat.remote_version) === tv && updateStat.ota_installable === false) {
-      return /^https:\/\//.test(updateStat.release_url || '') ? updateStat.release_url : url;
-    }
+    // the page is always the project's release: release.json is not signed
+    if (!/^\d+(\.\d+)*$/.test(tv)) return '';
+    if (rel && clean(rel.version) === tv && rel.ota_installable === false) return url;
+    if (updateStat && clean(updateStat.remote_version) === tv && updateStat.ota_installable === false) return url;
     const major = (v) => parseInt(clean(v).split('.')[0], 10);
     return clean(localVer) && major(localVer) !== major(tv) ? url : '';
   }
@@ -679,6 +689,11 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
   }
 
   async checkOnlineVersions() {
+    // the channel decides the branch: at page load checkBanners has not read it yet
+    if (!this.updateChannel) {
+      const st = await this.client.getUpdateStatus().catch(() => null);
+      if (st?.channel) this.updateChannel = st.channel === 'beta' ? 'beta' : 'stable';
+    }
     const ver = await this.fetchOnlineHubVersion();
     if (ver) {
       this.onlineVersion = ver;
@@ -728,12 +743,16 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
         const targetRemote = this.onlineVersion || updateStat?.remote_version || '';
         const hasOnlineUpdate = Boolean(targetRemote && localVer && this.isVersionOlder(localVer, targetRemote));
         const isUpdateAvail = Boolean(hasOnlineUpdate || (updateStat?.update_available && (!targetRemote || (localVer && this.isVersionOlder(localVer, targetRemote)))));
-        if (isUpdateAvail && !updateStat?.updating) {
+        // no update of this major version: the next major one (v4, VERSION_V4), release bundle only
+        const nextMajor = this.onlineNextMajor || updateStat?.next_major_version || '';
+        const showNext = !isUpdateAvail && Boolean(nextMajor && localVer && this.isVersionOlder(localVer, nextMajor));
+        const bannerTarget = showNext ? nextMajor : targetRemote;
+        if ((isUpdateAvail || showNext) && !updateStat?.updating) {
           hubBanner.style.display = 'flex';
           const title = document.getElementById('hubUpdateTitle');
           const desc = document.getElementById('hubUpdateDesc');
-          const targetVer = targetRemote || t('hub_update_new');
-          this.bannerReleaseUrl = this.bundleOnlyUrl(localVer, targetRemote, updateStat);
+          const targetVer = bannerTarget || t('hub_update_new');
+          this.bannerReleaseUrl = this.bundleOnlyUrl(localVer, bannerTarget, updateStat);
           const btn = document.getElementById('btnHubUpdateBanner');
           if (title) title.textContent = tf('hub_update_available_ver', { version: targetVer.replace(/^v/, '') });
           if (desc) {
