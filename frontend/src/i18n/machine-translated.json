@@ -645,7 +645,11 @@
     "plg_verify_code",
     "plg_confirm_running",
     "plg_confirm_timeout",
-    "plg_ir_alt_title"
+    "plg_ir_alt_title",
+    "step_press_mode",
+    "step_press_tap",
+    "step_press_hold",
+    "step_hold_seconds"
   ],
   "fr": [
     "map_action_help",
@@ -1939,7 +1943,11 @@
     "plg_verify_code",
     "plg_confirm_running",
     "plg_confirm_timeout",
-    "plg_ir_alt_title"
+    "plg_ir_alt_title",
+    "step_press_mode",
+    "step_press_tap",
+    "step_press_hold",
+    "step_hold_seconds"
   ],
   "es": [
     "map_action_help",
@@ -2586,7 +2594,11 @@
     "plg_verify_code",
     "plg_confirm_running",
     "plg_confirm_timeout",
-    "plg_ir_alt_title"
+    "plg_ir_alt_title",
+    "step_press_mode",
+    "step_press_tap",
+    "step_press_hold",
+    "step_hold_seconds"
   ],
   "it": [
     "map_action_help",
@@ -3233,6 +3245,10 @@
     "plg_verify_code",
     "plg_confirm_running",
     "plg_confirm_timeout",
-    "plg_ir_alt_title"
+    "plg_ir_alt_title",
+    "step_press_mode",
+    "step_press_tap",
+    "step_press_hold",
+    "step_hold_seconds"
   ]
 }

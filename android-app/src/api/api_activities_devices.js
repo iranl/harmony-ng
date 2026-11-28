@@ -3,6 +3,22 @@ import { t, tf } from '../i18n.js';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+// Test Live answers once the Hub has sent every step: the client waits for their delays (the Hub
+// waits at most 3 s per step) and holds (at most 10 s) on top of the usual 12 s
+export function testSequenceTimeoutMs(steps) {
+  let ms = 12000;
+  try {
+    const arr = Array.isArray(steps) ? steps : JSON.parse(String(steps));
+    if (Array.isArray(arr)) {
+      for (const s of arr) {
+        ms += 100 + Math.min(Math.max(Number(s && s.delay) || 0, 0), 3000) +
+          Math.min(Math.max(Number(s && s.hold) || 0, 0), 10000);
+      }
+    }
+  } catch (_) { /* not JSON: the usual timeout */ }
+  return ms;
+}
+
 // One step per line: TEXT <words>, KEY <name>, WAIT <ms> (0..10000). Blank lines and lines
 // starting with # are skipped; anything else is an error naming the line.
 export function parseBtScript(script) {
@@ -131,6 +147,7 @@ export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
         deviceId: String(s.deviceId || '0'),
         command: s.command || '',
         delay: Number(s.delay !== undefined ? s.delay : 0),
+        ...(Number(s.hold) > 0 ? { hold: Number(s.hold) } : {}),
         order: s.order !== undefined ? s.order : idx
       }));
       const normStop = (a.stopSequence || []).map((s, idx) => ({
@@ -139,6 +156,7 @@ export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
         deviceId: String(s.deviceId || '0'),
         command: s.command || '',
         delay: Number(s.delay !== undefined ? s.delay : 0),
+        ...(Number(s.hold) > 0 ? { hold: Number(s.hold) } : {}),
         order: s.order !== undefined ? s.order : idx
       }));
       const devIds = Array.isArray(a.deviceIds) ? a.deviceIds.map(String).filter(Boolean) : [];
@@ -218,7 +236,10 @@ export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
   }
 
   async testActivitySequence(steps) {
-    return this.postJson('/api/activity-test-sequence', { steps: String(steps) });
+    // JSON text: the Hub reads a sequence sent as text as JSON when it starts with [
+    const text = typeof steps === 'string' ? steps : JSON.stringify(steps);
+    return this.postJson('/api/activity-test-sequence', { steps: text },
+      { timeout: testSequenceTimeoutMs(steps) });
   }
 
   /* Device Control & Commands */

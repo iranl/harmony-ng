@@ -82,6 +82,47 @@ int hw_ir_send_harmony_keycode(const char *keycode, uint8_t ports, uint8_t repea
 #define HW_BTN_ACTION_RELEASE 3
 
 /*
+ * A key held for a set time (hw_hold.c): pressed, kept down with a hold (HW_BTN_ACTION_REPEAT)
+ * every HW_HOLD_BEAT_MS, as a remote does while a key is down (a held infrared key repeats only
+ * while they come, HW_IR_HOLD_DEADLINE_MS), and released when the time is up. The one timing of
+ * a timed hold for every sender: the MQTT send_command sequencer, activity and device sequence
+ * steps (orchestrator.c) and Test Live. No thread and no condition variable (the Hub's kernel has
+ * no futex): the caller's loop calls hw_hold_tick() at least every HW_HOLD_BEAT_MS, or
+ * hw_hold_run() does it in place.
+ *
+ * Infrared has one transmitter: a held infrared key ends when another infrared command goes
+ * out, and the holds that follow do not start it again (hw_action.c, the held-key player).
+ */
+#define HW_HOLD_BEAT_MS 300
+#define HW_HOLD_MAX_MS 10000
+
+typedef struct {
+    int active;
+    int match_mode;         /* as for hw_device_command_send_action(): 1 by device id, 0 by name */
+    char target[128];
+    char command[64];
+    uint64_t release_ms;    /* CLOCK_MONOTONIC */
+    uint64_t next_beat_ms;
+} hw_hold_t;
+
+/* CLOCK_MONOTONIC in ms, the clock of the hold functions */
+uint64_t hw_hold_now_ms(void);
+/* ms, at most HW_HOLD_MAX_MS; 0 for a negative value */
+uint32_t hw_hold_clamp_ms(long ms);
+/* Presses command and holds it hold_ms (at most HW_HOLD_MAX_MS) from now_ms. A key h still
+ * holds is released first. Returns the press's result: on an error nothing is held. */
+int hw_hold_press(hw_hold_t *h, const char *target, int match_mode, const char *command,
+                  uint32_t hold_ms, uint64_t now_ms);
+/* Sends the hold that is due, or the release when the time is up; 1 while the key is held */
+int hw_hold_tick(hw_hold_t *h, uint64_t now_ms);
+/* When hw_hold_tick() has something to send next; 0 when nothing is held */
+uint64_t hw_hold_next_ms(const hw_hold_t *h);
+/* Releases the held key now (a cancel); nothing when none is held */
+void hw_hold_release(hw_hold_t *h);
+/* Presses, holds and releases in place: returns after the release (Test Live) */
+int hw_hold_run(const char *target, int match_mode, const char *command, uint32_t hold_ms);
+
+/*
  * Direct device command dispatcher: looks up device and command in json,
  * encodes protocol waveform, and sends directly via I2S, BTstack FIFO, or MQTT.
  */

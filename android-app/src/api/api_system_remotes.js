@@ -140,8 +140,10 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
     return this.postForm(`/ir/delete-device?id=${encodeURIComponent(deviceId)}`, { deviceId, id: deviceId });
   }
 
+  // JSON: the sequences are arrays of steps, which a form post sent as "[object Object]"
+  // (the Hub kept the stored sequences)
   async saveDevicePower(data) {
-    return this.postForm('/ir/device-power', data);
+    return this.postJson('/ir/device-power', data);
   }
 
   async deleteCommand(deviceId, command) {

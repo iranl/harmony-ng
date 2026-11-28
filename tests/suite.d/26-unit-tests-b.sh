@@ -11,7 +11,11 @@ build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/
     "$REPO_ROOT"/payload/source/{remote_stock_icons,cJSON,sha256,timezone_db}.c -lpthread -lm && \
     HARMONY_MOCK_DIR="/tmp/harmony_mock" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_remote_wake_catchup"
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_action_lifecycle" "$SCRIPT_DIR/test_action_lifecycle.c" "$REPO_ROOT/payload/source/hw_action.c" "$REPO_ROOT/payload/source/cJSON.c" -lm && "$BUILD_DIR/test_action_lifecycle"
-build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_orch_current_activity" "$SCRIPT_DIR/test_orch_current_activity.c" "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm && "$BUILD_DIR/test_orch_current_activity"
+build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_orch_current_activity" "$SCRIPT_DIR/test_orch_current_activity.c" "$REPO_ROOT/payload/source/hw_hold.c" "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm && "$BUILD_DIR/test_orch_current_activity"
+# Keys held by sequence steps: one per device, a cancel releases them all (orchestrator.c)
+build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_orch_holds" "$SCRIPT_DIR/test_orch_holds.c" "$REPO_ROOT/payload/source/hw_hold.c" "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm && "$BUILD_DIR/test_orch_holds"
+# A timed hold (hw_hold.c): press, a hold every 300 ms, release; the same for MQTT, sequence steps and Test Live
+build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_hw_hold" "$SCRIPT_DIR/test_hw_hold.c" "$REPO_ROOT/payload/source/hw_hold.c" && "$BUILD_DIR/test_hw_hold"
 # Hub init.sh log cap in a host sandbox (every log in /tmp is capped)
 python3 "$SCRIPT_DIR/test_init_log_cap.py"
 python3 "$SCRIPT_DIR/test_init_bt_reattach.py"
@@ -127,6 +131,10 @@ python3 "$SCRIPT_DIR/test_usb_eth_modules_crc.py"
 # 5a. Bluetooth links around activity power on and off (orchestrator, daemon in --dry-run)
 python3 "$SCRIPT_DIR/test_activity_test_sequence.py"
 python3 "$SCRIPT_DIR/test_bt_power_link.py"
+# A sequence step that holds its key ("hold"), released before the next step
+python3 "$SCRIPT_DIR/test_step_hold.py"
+# Test Live from both web UIs: the steps as JSON text, holds kept, a timeout for the whole sequence
+if command -v node >/dev/null 2>&1; then node "$SCRIPT_DIR/test_test_live_client.mjs"; else echo "    (node not found, test_test_live_client.mjs skipped)"; fi
 # Legacy web UI modules import the functions they call (no build step reports a missing import)
 python3 "$SCRIPT_DIR/test_ui_imports.py"
 python3 "$SCRIPT_DIR/test_activity_queue.py"

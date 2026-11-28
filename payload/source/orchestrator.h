@@ -32,6 +32,7 @@ typedef struct {
     uint8_t ir_ports;
     uint8_t ir_repeats;
     uint32_t delay_ms;
+    uint32_t hold_ms; /* STEP_ACT_DEVICE_CMD: the key is held this long (0 = a tap), then the delay */
     char description[128];
 } orch_step_t;
 

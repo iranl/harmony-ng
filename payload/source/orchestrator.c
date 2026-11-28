@@ -62,6 +62,9 @@ static size_t g_current_step = 0;
 static uint64_t g_next_deadline_ms = 0;
 
 static orch_bg_step_t g_bg_queue[ORCH_MAX_STEPS];
+/* The key a step holds (see hold_press() below) */
+static void hold_release(void);
+static int hold_active(void);
 static size_t g_bg_len = 0;
 static uint64_t g_t_switched_step1 = 0;
 static uint64_t g_t_switched_step4 = 0;
@@ -356,7 +359,7 @@ static void orch_start_queued(void) {
 }
 
 int orch_is_sending(void) {
-    return g_queue_len > 0 || g_bg_len > 0;
+    return g_queue_len > 0 || g_bg_len > 0 || hold_active();
 }
 
 /* Returns a copy taken under the lock, one buffer per thread (as config_store.c does): a caller
@@ -389,6 +392,7 @@ void orch_cancel(void) {
 }
 
 static void cancel_locked(void) {
+    hold_release();
     hw_ir_cancel(IR_PORT_ALL);
     clear_activity_target();
     /* empty the queues first, so the state event below says nothing is being sent */
@@ -423,6 +427,7 @@ static void cancel_locked(void) {
 int orch_enqueue_steps(const orch_step_t *steps, size_t count) {
     if (count > ORCH_MAX_STEPS) return -1;
     queue_lock();
+    hold_release(); /* a key a step of the transition before still holds */
     memcpy(g_queue, steps, count * sizeof(orch_step_t));
     g_queue_len = count;
     g_current_step = 0;
@@ -508,6 +513,69 @@ static size_t orch_take_pending_tail(orch_step_t *out, size_t max) {
     return n;
 }
 
+/* The keys steps hold (hold_ms > 0): pressed by execute_step(), kept down and released by
+ * hold_service() with the timing of hw_hold.c. One per device: a step that holds a key of a
+ * device releases the key that device still holds, while a background step after Switched may
+ * hold a key of another device at the same time. A cancel or a new transition releases them all.
+ * Infrared has one transmitter: a held infrared key also ends when another infrared command
+ * goes out (hw_action.h). Main loop only (orch_tick, under the queue lock). */
+#define ORCH_MAX_HOLDS 8
+static hw_hold_t g_held[ORCH_MAX_HOLDS];
+
+static void hold_release(void) {
+    for (int i = 0; i < ORCH_MAX_HOLDS; i++) {
+        if (!g_held[i].active) continue;
+        printf("[*] Orch: release held '%s' (device '%s')\n", g_held[i].command, g_held[i].target);
+        fflush(stdout);
+        hw_hold_release(&g_held[i]);
+    }
+}
+
+static int hold_press(const orch_step_t *step) {
+    hw_hold_t *slot = NULL;
+    for (int i = 0; i < ORCH_MAX_HOLDS && !slot; i++) {
+        if (g_held[i].active && strcmp(g_held[i].target, step->device_id) == 0) slot = &g_held[i];
+    }
+    for (int i = 0; i < ORCH_MAX_HOLDS && !slot; i++) {
+        if (!g_held[i].active) slot = &g_held[i];
+    }
+    if (!slot) { /* every slot holds a key: the one released soonest makes room */
+        slot = &g_held[0];
+        for (int i = 1; i < ORCH_MAX_HOLDS; i++) {
+            if (g_held[i].release_ms < slot->release_ms) slot = &g_held[i];
+        }
+    }
+    uint32_t hold = hw_hold_clamp_ms((long)step->hold_ms);
+    printf("[*] Orch: hold '%s' (device '%s') for %u ms\n", step->command_name, step->device_id, hold);
+    fflush(stdout);
+    return hw_hold_press(slot, step->device_id, 1, step->command_name, hold, get_now_ms());
+}
+
+static int hold_active(void) {
+    for (int i = 0; i < ORCH_MAX_HOLDS; i++) {
+        if (g_held[i].active) return 1;
+    }
+    return 0;
+}
+
+/* Keeps the held keys down, and releases each when its time is up; 1 while a key is held */
+static int hold_service(uint64_t now) {
+    int holding = 0;
+    for (int i = 0; i < ORCH_MAX_HOLDS; i++) {
+        if (!g_held[i].active) continue;
+        char cmd[sizeof(g_held[i].command)], dev[sizeof(g_held[i].target)];
+        snprintf(cmd, sizeof(cmd), "%s", g_held[i].command);
+        snprintf(dev, sizeof(dev), "%s", g_held[i].target);
+        if (hw_hold_tick(&g_held[i], now)) {
+            holding = 1;
+        } else {
+            printf("[*] Orch: release held '%s' (device '%s')\n", cmd, dev);
+            fflush(stdout);
+        }
+    }
+    return holding;
+}
+
 /* Sends one step; returns 0, or the negative result of the send (the command did not go out) */
 static int execute_step(const orch_step_t *step) {
     int rc = 0;
@@ -518,7 +586,9 @@ static int execute_step(const orch_step_t *step) {
         }
         break;
     case STEP_ACT_DEVICE_CMD:
-        if (step->device_id[0] && step->command_name[0]) {
+        if (step->device_id[0] && step->command_name[0] && step->hold_ms > 0) {
+            rc = hold_press(step); /* hold_service() releases it */
+        } else if (step->device_id[0] && step->command_name[0]) {
             rc = hw_device_command_send(step->device_id, step->command_name);
             if (rc != 0 && (strncmp(step->command_name, "0000 ", 5) == 0 ||
                             step->command_name[0] == 'F' || step->command_name[0] == 'f')) {
@@ -593,6 +663,7 @@ int orch_tick(void) {
 
 static int orch_tick_locked(void) {
     uint64_t now = get_now_ms();
+    int holding = hold_service(now);
 
     /* Process background queue: each due step is claimed under the lock, then sent */
     if (g_bg_len > 0) {
@@ -639,7 +710,7 @@ static int orch_tick_locked(void) {
     }
 
     if (g_queue_len == 0) {
-        return (g_bg_len > 0) ? 1 : 0;
+        return (g_bg_len > 0 || holding) ? 1 : 0;
     }
 
     if (now < g_next_deadline_ms) {
@@ -695,6 +766,9 @@ static int orch_tick_locked(void) {
          * and counting from before it shortened the gap to the next step (two equal commands
          * then fell under the dispatcher's same-button filter and the second was dropped). */
         uint32_t delay = step->delay_ms ? step->delay_ms : 50;
+        /* a held key: the delay runs from its release */
+        if (step_rc == 0 && step->type == STEP_ACT_DEVICE_CMD && step->hold_ms > 0)
+            delay += hw_hold_clamp_ms((long)step->hold_ms);
         g_next_deadline_ms = get_now_ms() + delay;
 
         if (g_progress_cb) {

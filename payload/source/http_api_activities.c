@@ -35,11 +35,11 @@ static cJSON *build_activity_steps_cjson(const char *seq_text) {
         while (*p == '\n' || *p == '\r') p++;
         if (!line[0]) continue;
 
-        char type[32] = {0}, dev_id[32] = {0}, cmd[80] = {0}, del_str[32] = {0};
-        char *f[4] = { type, dev_id, cmd, del_str };
+        char type[32] = {0}, dev_id[32] = {0}, cmd[80] = {0}, del_str[32] = {0}, hold_str[32] = {0};
+        char *f[5] = { type, dev_id, cmd, del_str, hold_str };
         int fi = 0;
         char *lp = line;
-        while (fi < 4 && *lp) {
+        while (fi < 5 && *lp) {
             char *sep = strchr(lp, '|');
             if (sep) {
                 *sep = '\0';
@@ -83,6 +83,8 @@ static cJSON *build_activity_steps_cjson(const char *seq_text) {
             cJSON_AddStringToObject(step, "deviceId", dev_id);
             cJSON_AddStringToObject(step, "command", cmd);
             cJSON_AddNumberToObject(step, "delay", delay_ms >= 0 ? delay_ms : 0);
+            int hold_ms = atoi(hold_str);
+            if (hold_ms > 0) cJSON_AddNumberToObject(step, "hold", hold_ms); /* config_sanitize.c caps it */
         }
         cJSON_AddItemToArray(arr, step);
     }
@@ -696,7 +698,21 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
             if (!p_steps) p_steps = cJSON_GetObjectItemCaseSensitive(params, "sequence");
             cJSON *step_arr = NULL;
             if (p_steps && cJSON_IsArray(p_steps)) step_arr = p_steps;
-            else if (p_steps && cJSON_IsString(p_steps)) step_arr = build_activity_steps_cjson(p_steps->valuestring);
+            else if (p_steps && cJSON_IsString(p_steps) && p_steps->valuestring) {
+                /* The web UIs send the sequence as a JSON text (JSON.stringify of the steps), the
+                 * older form is "type|device|command|delay|hold" lines */
+                const char *sv = p_steps->valuestring;
+                while (*sv == ' ' || *sv == '\t' || *sv == '\r' || *sv == '\n') sv++;
+                if (*sv == '[') {
+                    step_arr = cJSON_Parse(sv);
+                    if (step_arr && !cJSON_IsArray(step_arr)) {
+                        cJSON_Delete(step_arr);
+                        step_arr = NULL;
+                    }
+                } else {
+                    step_arr = build_activity_steps_cjson(sv);
+                }
+            }
 
             /* The steps run on this request's thread, up to 3 s each: without a limit one request
              * held an HTTP worker for steps x 3 s. A sequence can hold no more steps than the
@@ -739,7 +755,17 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
                     cJSON *jcmd = cJSON_GetObjectItemCaseSensitive(st, "command");
                     const char *cmd = (jcmd && cJSON_IsString(jcmd)) ? jcmd->valuestring : "";
 
-                    if (dev_buf[0] && cmd[0]) {
+                    /* A Command step with a hold keeps its key down that long, with the timing
+                     * of the orchestrator (hw_hold.c) */
+                    cJSON *jhold = cJSON_GetObjectItemCaseSensitive(st, "hold");
+                    uint32_t hold_ms = 0; /* a number, or a string holding one, as config_sanitize.c takes it */
+                    if (cJSON_IsNumber(jhold)) hold_ms = hw_hold_clamp_ms((long)jhold->valuedouble);
+                    else if (cJSON_IsString(jhold) && jhold->valuestring) hold_ms = hw_hold_clamp_ms(atol(jhold->valuestring));
+
+                    if (dev_buf[0] && cmd[0] && hold_ms > 0 && strcasecmp(type, "BTCommand") != 0) {
+                        hw_hold_run(dev_buf, 1, cmd, hold_ms);
+                        executed++;
+                    } else if (dev_buf[0] && cmd[0]) {
                         hw_device_command_send(dev_buf, cmd);
                         executed++;
                     }
