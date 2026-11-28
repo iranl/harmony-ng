@@ -125,11 +125,25 @@ slow_usb_device() {
 
 # The network adapter: 1-1 itself, or behind a USB hub (1-1.2, 1-1.3.1, ...) next to a USB stick.
 # Hubs, sticks and keyboards or mice (every interface 03, 08 or 09) are skipped, as above.
+# A USB Wi-Fi adapter (Linux 6.18, build/kernel6/rc.sh: USB_WIFI_ADAPTER), never an Ethernet
+# one: an interface with a wireless network device, or an id one of the Wi-Fi drivers names in
+# modules.alias (also before its driver is loaded)
+usb_wifi_dev() {
+  ls -d "$1"/*:*/net/*/phy80211 >/dev/null 2>&1 && return 0
+  [ "$KERNEL6" = 1 ] || return 1
+  _v=$(cat "$1/idVendor" 2>/dev/null)
+  _p=$(cat "$1/idProduct" 2>/dev/null)
+  [ -n "$_v" ] && [ -n "$_p" ] || return 1
+  grep -i "^alias usb:v${_v}p${_p}d" "/lib/modules/$(uname -r)/modules.alias" 2>/dev/null |
+    grep -q -e ' mt76x[02]u$' -e ' rtw88_88[0-9][0-9][abc]u$'
+}
+
 net_usb_device() {
   for _dev in /sys/bus/usb/devices/*; do
     case "${_dev##*/}" in [0-9]*-*) ;; *) continue ;; esac
     case "${_dev##*/}" in *:*) continue ;; esac
     [ "$(cat "$_dev/bDeviceClass" 2>/dev/null)" = "09" ] && continue
+    usb_wifi_dev "$_dev" && continue
     _other=1
     for _ic in "$_dev"/*:*/bInterfaceClass; do
       [ -f "$_ic" ] || continue

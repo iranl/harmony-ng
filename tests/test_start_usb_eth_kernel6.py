@@ -86,5 +86,31 @@ class StartUsbEthKernel6(unittest.TestCase):
         self.assertNotIn("modprobe cdc_ether", calls)
 
 
+    def test_usb_wifi_adapter_is_not_an_ethernet_adapter(self):
+        # the TP-Link 802.11ac adapter (rtw88_8822bu) behind a USB hub: no Ethernet driver for it
+        devs = self.root / "sys/bus/usb/devices"
+        (devs / "1-1").rename(devs / "old-1-1")
+        for name, vid, pid, cls, ifcls in (("1-1", "214b", "7260", "09", "09"),
+                                           ("1-1.4", "2357", "0138", "00", "ff")):
+            d = devs / name
+            d.mkdir(parents=True, exist_ok=True)
+            (d / "idVendor").write_text(vid + "\n")
+            (d / "idProduct").write_text(pid + "\n")
+            (d / "speed").write_text("480\n")
+            (d / "bDeviceClass").write_text(cls + "\n")
+            (d / f"{name}:1.0").mkdir(exist_ok=True)
+            (d / f"{name}:1.0" / "bInterfaceClass").write_text(ifcls + "\n")
+        rel = subprocess.run(["uname", "-r"], capture_output=True, text=True).stdout.strip()
+        mods = self.root / "lib/modules" / rel
+        mods.mkdir(parents=True)
+        (mods / "modules.alias").write_text(
+            "alias usb:v2357p0138d*dc*dsc*dp*icFFiscFFipFFin* rtw88_8822bu\n"
+            "alias usb:v0B95p1790d*dc*dsc*dp*ic*isc*ip*in* ax88179_178a\n")
+        res = subprocess.run(["sh", str(self.script)], env=self.env, capture_output=True, text=True, timeout=120)
+        calls = self.log.read_text().splitlines() if self.log.exists() else []
+        self.assertNotIn("Detected USB device 2357:0138", res.stdout)
+        self.assertFalse([c for c in calls if c.startswith("modprobe") and "ci_hdrc" not in c], calls)
+
+
 if __name__ == "__main__":
     unittest.main()
