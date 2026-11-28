@@ -1946,7 +1946,6 @@ export default {
     "usb_storage_disable_confirm": "Ab dem nächsten Neustart wieder den Flash verwenden? Er enthält die Daten vom Zeitpunkt der Einrichtung des Sticks: spätere Änderungen bleiben nur auf dem Stick.",
     "usb_storage_busy": "Wird ausgeführt...",
     "usb_storage_failed": "Letzte Aktion fehlgeschlagen: {message}",
-    "usb_storage_title": "USB-Speicher",
     "hide_in_devices_tab": "Im Tab Geräte ausblenden (nur Weboberfläche; die Fernbedienung bleibt unverändert)",
     "devices_all_hidden": "Alle Geräte sind in diesem Tab ausgeblendet. Deaktivieren Sie \"Im Tab Geräte ausblenden\" in den Geräteeinstellungen, um eines anzuzeigen.",
     "slot_n_empty": "Slot {slot} (leer)",

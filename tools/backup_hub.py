@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import glob
+import hashlib
 import os
 import pathlib
 import re
@@ -115,6 +116,43 @@ def hub_stock_files(run: Run) -> StockFiles:
         if path.startswith(STOCK_RES_DIR + "/"):
             files[path[len(STOCK_RES_DIR) + 1:]] = (int(size) if size.isdigit() else -1, digest)
     return files
+
+
+def archive_stock_files(path: pathlib.Path) -> StockFiles | None:
+    """(tools/restore_stock.py: a Hub emptied by the v3 stock resources delete) The files under data/resources in a plain tar, as hub_stock_files() gives them; None when
+    path is no complete tar."""
+    if not path.is_file() or not tar_is_complete(path):
+        return None
+    files: StockFiles = {}
+    prefix = STOCK_RES_DIR.lstrip("/") + "/"
+    try:
+        with tarfile.open(path, "r:") as tf:
+            for m in tf:
+                name = m.name.lstrip("/")
+                if not name.startswith(prefix) or m.isdir():
+                    continue
+                if m.isfile():
+                    f = tf.extractfile(m)
+                    files[name[len(prefix):]] = (m.size, hashlib.md5(f.read() if f else b"").hexdigest())
+                else:
+                    files[name[len(prefix):]] = (0, "link")
+    except (tarfile.TarError, OSError, EOFError):
+        return None
+    return files
+
+
+def is_mac(tag: str | None) -> bool:
+    return bool(tag and re.fullmatch(r"[0-9a-f]{12}", tag))
+
+
+def stock_resources_file(backup_dir: pathlib.Path, tag: str) -> pathlib.Path:
+    return backup_dir / f"stock_resources_{tag}.tar"
+
+
+def stock_copies(backup_dir: pathlib.Path, tag: str) -> list[pathlib.Path]:
+    """The Hub's copies of its stock files, newest first."""
+    copies = [stock_resources_file(backup_dir, tag), *backup_dir.glob(f"stock_resources_{tag}_*.tar")]
+    return sorted((p for p in copies if p.is_file()), key=lambda p: p.stat().st_mtime, reverse=True)
 
 
 def default_backup_dir(repo_root: pathlib.Path | None = None) -> pathlib.Path:
@@ -259,6 +297,7 @@ def backup_hub(
         for cand in [
             repo_root / "build" / "bin" / "busybox",
             repo_root / "payload" / "bin" / "busybox",
+            repo_root / "tools" / "bin" / "busybox",   # release bundle
             repo_root / "bin" / "busybox",
         ]:
             if cand.is_file():

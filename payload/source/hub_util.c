@@ -31,6 +31,7 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/mount.h>
+#include <sys/statvfs.h>
 #include <sys/reboot.h>
 #include <sys/syscall.h>
 #include <linux/if.h>
@@ -533,6 +534,8 @@ static int run_restore(int argc, char **argv) {
     char err[160], next[32];
     int dry = 0, first = 1, rc = 1, written, dnum = -1;
 
+    /* line by line: the rollback tool runs it with the output in a file and reads its progress */
+    setvbuf(stdout, NULL, _IOLBF, 0);
     if (argc > 1 && strcmp(argv[1], "--dry-run") == 0) {
         dry = 1;
         first = 2;
@@ -589,10 +592,13 @@ static int run_restore(int argc, char **argv) {
         goto out;
     }
     /* from here the flash changes: on a failure carry on, stopping halfway helps nothing */
+    printf("restore: writing the kernels\n");
     if (flash_write_image(kparts, 2, &ops, f[0].data, f[0].len, &written, err, sizeof(err)) != 0)
         fprintf(stderr, "restore: kernels: %s\n", err);
+    printf("restore: writing root\n");
     if (flash_write_image(&rpart, 1, &ops, f[1].data, f[1].len, &written, err, sizeof(err)) != 0)
         fprintf(stderr, "restore: root: %s\n", err);
+    printf("restore: writing data + cache (the longest part)\n");
     if (flash_write_image(dparts, 2, &ops, f[2].data, f[2].len, &written, err, sizeof(err)) != 0)
         fprintf(stderr, "restore: data + cache: %s\n", err);
     sync();
@@ -622,6 +628,22 @@ static int run_mfg(int argc, char **argv) {
         return 1;
     }
     printf("%u\n", skin);
+    return 0;
+}
+
+/* hub_util df <path>: the KB free for root in the file system of path. The stock BusyBox has no
+ * df (tools/install_kernel6.py checks the room on a freshly rooted stock Hub with it). */
+static int run_df(int argc, char **argv) {
+    struct statvfs sv;
+    if (argc != 2) {
+        fprintf(stderr, "usage: hub_util df <path>\n");
+        return 2;
+    }
+    if (statvfs(argv[1], &sv) != 0) {
+        perror(argv[1]);
+        return 1;
+    }
+    printf("%llu\n", (unsigned long long)sv.f_bavail * sv.f_frsize / 1024);
     return 0;
 }
 
@@ -663,6 +685,8 @@ int main(int argc, char **argv) {
             return run_restore(argc - 1, argv + 1);
         if (strcmp(cmd, "mfg") == 0)
             return run_mfg(argc - 1, argv + 1);
+        if (strcmp(cmd, "df") == 0)
+            return run_df(argc - 1, argv + 1);
         if (strcmp(cmd, "usbhid") == 0)
             return usbhid_relay_main(argc - 1, argv + 1);
         if (strcmp(cmd, "usbwifi") == 0 || strcmp(cmd, "hub_usbwifi") == 0)

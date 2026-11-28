@@ -105,6 +105,13 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
     }
   }
 
+  /* The repo argument of an update request: '' for the default source (the Hub picks its own
+     branch), the field's value for a mirror */
+  explicitRepo(value) {
+    const clean = (value || '').trim().replace(/\/+$/, '').replace(/\/bin\/mips$/, '').replace(/\/+$/, '');
+    return clean === DEFAULT_OTA_URL ? '' : clean;
+  }
+
   /* The update source field is the Hub's update_repo setting: the default URL is stored as
      empty, so the Hub follows the official source if it moves. */
   async saveUpdateRepo(value) {
@@ -131,7 +138,9 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
       await this.saveUpdateRepo(repoInput);
       const remoteVer = await this.fetchOnlineHubVersion(tokenInput);
 
-      const res = await this.client.checkUpdate(true, repoInput, tokenInput, remoteVer);
+      // the default source goes as none: the Hub's own (update.sh maps it per system: a v3 Hub
+      // keeps its v3 branch), never the v4 URL the field shows
+      const res = await this.client.checkUpdate(true, this.explicitRepo(repoInput), tokenInput, remoteVer);
       const stat = await this.client.getUpdateStatus().catch(() => ({}));
       if (log) {
         const displayRemote = remoteVer ? `v${remoteVer}` : (stat.remote_version || res.remote_version || t('unknown_lc'));
@@ -156,7 +165,7 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
       await this.saveUpdateRepo(repo);
       this.showUpdatingOverlay(t('hub_downloading_update'));
       if (log) log.textContent = t('update_applying', 'Applying software update...');
-      await this.client.applyUpdate(token, repo);
+      await this.client.applyUpdate(token, this.explicitRepo(repo));
     } catch (err) {
       // "busy": an update started elsewhere (another tab) runs already: follow that one
       if (err.status !== 409 || err.data?.status !== 'busy') {

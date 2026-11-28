@@ -26,6 +26,34 @@ class DetectMode(unittest.TestCase):
             ik.detect_mode("3.3.8", NEW_MTD)
 
 
+class FakeHub:
+    """Answers like a freshly rooted stock Hub: no df anywhere, the static hub_util has one"""
+    def __init__(self):
+        self.cmds, self.pushed = [], []
+
+    def run(self, remote, check=True, timeout=600):
+        self.cmds.append(remote)
+        if "k6_hub_util df" in remote:
+            return "4321\n"
+        return ""
+
+    def push(self, local, remote):
+        self.pushed.append(remote)
+
+
+class StockHubWithoutHarmonyNG(unittest.TestCase):
+    def test_free_space_from_the_static_hub_util(self):
+        hub = FakeHub()
+        inst = ik.Installer(hub, pathlib.Path("files"), pathlib.Path("scripts"), None, pathlib.Path("bk"))
+        self.assertEqual(inst.free_kb("/data"), 4321, "no df on the Hub: hub_util df answers")
+        self.assertEqual(hub.pushed, ["/tmp/k6_hub_util"])
+
+    def test_ssh_server_kept_until_the_kernel_is_written(self):
+        self.assertFalse(any("dropbear" in p for p in ik.STOCK_ERA), ik.STOCK_ERA)
+        self.assertNotIn("/data/harmony/bin", ik.STOCK_ERA)
+        self.assertIn("dropbear*|scp|ssh) ;;", ik.STOCK_ERA_BIN)
+
+
 class DatacacheImage(unittest.TestCase):
     def test_backup_and_factory_fresh(self):
         with tempfile.TemporaryDirectory() as d:

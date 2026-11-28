@@ -116,7 +116,7 @@ class RestoreStock(unittest.TestCase):
         bb.write_text(script)
         bb.chmod(0o755)
 
-    def restore(self, pure_stock: bool = False) -> None:
+    def restore(self, pure_stock: bool = False, stock_copy: pathlib.Path | None = None) -> None:
         try:
             with tarfile.open(self.backup, "r:*") as tar:
                 members = tar.getnames()
@@ -125,7 +125,8 @@ class RestoreStock(unittest.TestCase):
         with patch.object(restore_stock.subprocess, "run", side_effect=self.hub.run), \
              patch.object(restore_stock.subprocess, "Popen", side_effect=self.hub.popen), \
              patch.object(restore_stock.time, "sleep"):
-            restore_stock.restore_stock_configuration("hub.invalid", None, self.backup, pure_stock, members)
+            restore_stock.restore_stock_configuration("hub.invalid", None, self.backup, pure_stock, members,
+                                                      stock_copy)
 
     def rebooted(self) -> bool:
         return any(c.startswith("reboot") for c in self.hub.commands)
@@ -171,6 +172,74 @@ class RestoreStock(unittest.TestCase):
         self.assertIn("invalid option", str(ctx.exception))
         self.assertFalse(self.rebooted())
         self.assertFalse(any("dropbear" in c for c in self.hub.commands))
+
+    def emptied_hub(self) -> None:
+        for f in (self.root / "data" / "resources").iterdir():
+            f.unlink()
+
+    def test_emptied_hub_without_saved_stock_files_is_refused(self):
+        """The stock files were removed and the archive has none: stop before anything changes."""
+        self.install_busybox("cache/bin/busybox")
+        self.emptied_hub()
+        with self.assertRaises(RuntimeError) as ctx:
+            self.restore()
+        self.assertIn("stock_resources_001122334455.tar", str(ctx.exception))
+        self.assertTrue((self.root / "cache" / "www_leftover").exists())
+        self.assertFalse(any(c.startswith("killall") for c in self.hub.commands))
+
+    STOCK_DATA = b'{"devices": []}\n'
+
+    def stock_copy(self, name: str = "stock_resources_001122334455.tar") -> pathlib.Path:
+        saved = self.backups / name
+        with tarfile.open(saved, "w") as tar:
+            info = tarfile.TarInfo("data/resources/DeviceList.json")
+            info.size = len(self.STOCK_DATA)
+            tar.addfile(info, io.BytesIO(self.STOCK_DATA))
+        return saved
+
+    def test_emptied_hub_gets_the_saved_stock_files_back(self):
+        self.install_busybox("cache/bin/busybox")
+        self.emptied_hub()
+        self.stock_copy()
+        self.restore()
+        self.assertEqual((self.root / "data" / "resources" / "DeviceList.json").read_bytes(), self.STOCK_DATA)
+        self.assertTrue((self.root / "data" / "stock_data_file").is_file())
+        self.assertTrue(self.rebooted())
+
+    def config_backup(self) -> None:
+        """A rolling backup (hub_backup_<hub>_<time>.tar): HarmonyNG's own data, no stock files"""
+        with tarfile.open(self.backup, "a") as tar:
+            info = tarfile.TarInfo("data/harmony/config/devices.json")
+            info.size = 2
+            tar.addfile(info, io.BytesIO(b"{}"))
+
+    def test_config_restore_on_an_emptied_hub_adds_no_stock_files(self):
+        self.install_busybox("cache/bin/busybox")
+        self.emptied_hub()
+        self.config_backup()
+        self.restore()  # no copy here: not needed
+        self.assertTrue((self.root / "data" / "harmony" / "config" / "devices.json").is_file())
+        self.stock_copy()
+        self.install_busybox("cache/bin/busybox")  # the restore emptied /cache
+        self.restore()  # a copy here: not put back unasked
+        self.assertEqual(list((self.root / "data" / "resources").iterdir()), [])
+
+    def test_stock_copy_named_on_the_command_line(self):
+        self.install_busybox("cache/bin/busybox")
+        self.emptied_hub()
+        self.config_backup()
+        self.restore(stock_copy=self.stock_copy("elsewhere.tar"))
+        self.assertEqual((self.root / "data" / "resources" / "DeviceList.json").read_bytes(), self.STOCK_DATA)
+
+    def test_unreadable_mac_asks_for_the_copy(self):
+        self.install_busybox("cache/bin/busybox")
+        self.emptied_hub()
+        self.stock_copy()
+        self.hub.mac = ""
+        with self.assertRaises(RuntimeError) as ctx:
+            self.restore()
+        self.assertIn("--stock-resources", str(ctx.exception))
+        self.assertFalse(any(c.startswith("killall") for c in self.hub.commands))
 
     def test_refuses_a_device_that_is_not_a_hub(self):
         """The remote answers at 192.168.2.1 with the same key: nothing may be stopped or emptied there."""

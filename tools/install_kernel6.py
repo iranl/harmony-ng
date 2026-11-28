@@ -52,8 +52,12 @@ STOCK_FIRMWARE = ("csr8811-a06.psr", "csr8811-a08.psr", "csr8811-a08-pb1.psr", "
 # boot flags that survive the switch to one data partition (build/kernel6/init.c, rc.sh)
 KEEP_FLAGS = ("usb-storage", "serial-console")
 # HarmonyNG files a deploy puts back: always (stock-era builds, wrong C library for 6.18) ...
-STOCK_ERA = ("/data/harmony/bin", "/data/harmony/lib", "/data/codex", "/data/dropbearmulti",
-             "/data/test_hub_tx", "/data/rf_pair_test")
+STOCK_ERA = ("/data/harmony/lib", "/data/codex", "/data/test_hub_tx", "/data/rf_pair_test")
+# ... and the stock-era binaries in /data/harmony/bin except the SSH server (dropbearmulti and its
+# links): the stock Hub needs it until the 6.18 kernel is written; rc.sh links it to the 6.18
+# one at the first boot and update.sh cleanup_stale removes /data/dropbearmulti
+STOCK_ERA_BIN = ("for f in /data/harmony/bin/*; do case \"${f##*/}\" in dropbear*|scp|ssh) ;; "
+                 "*) rm -rf \"$f\" ;; esac; done; true")
 # ... and only when the data partition is still short of room
 REDEPLOYABLE = ("/data/harmony/www", "/data/harmony/icons.tar.gz", "/data/harmony/remote_ui.ota.gz")
 
@@ -165,9 +169,15 @@ class Installer:
                      "killall -9 hub_rf hub_btstack hub_daemon hal luaworks 2>/dev/null; sleep 2; true")
 
     def free_kb(self, path: str) -> int:
-        # the stock BusyBox has no df: HarmonyNG's own in /cache/bin
+        # the stock BusyBox has no df: HarmonyNG's own in /cache/bin, else (a freshly rooted stock
+        # Hub without HarmonyNG) the static hub_util's df
         out = self.hub.run(f"(/cache/bin/busybox df -k '{path}' || df -k '{path}') 2>/dev/null | "
                            "awk 'NR == 2 { print $4 }'").strip()
+        if not out.isdigit():
+            if self.hub.run("[ -x /tmp/k6_hub_util ] && echo ok; true").strip() != "ok":
+                self.hub.push(self.hub_util, "/tmp/k6_hub_util")
+                self.hub.run("chmod 755 /tmp/k6_hub_util")
+            out = self.hub.run(f"/tmp/k6_hub_util df '{path}' 2>/dev/null; true").strip()
         return int(out) if out.isdigit() else 0
 
     def make_room(self, data_top: str, need_kb: int, prefix: str, always: tuple[str, ...],
@@ -197,6 +207,7 @@ class Installer:
 
     def firmware_from_stock_root(self, target: str) -> None:
         """PSKEY files and CC2544 firmware from --stock-root, for a Hub whose stock root is gone."""
+        self.hub.run(f"mkdir -p '{target}'")
         have = self.hub.run(f"ls '{target}' 2>/dev/null; true").split()
         for name in STOCK_FIRMWARE:
             if name in have:
@@ -253,6 +264,7 @@ class Installer:
             print(f"  {part}: {(bk / f'{part}.bin').stat().st_size} bytes")
         print("=== Stopping HarmonyNG, making room in the data partition ===")
         self.stop_services()
+        h.run(STOCK_ERA_BIN)
         # the stock union root writes to the data partition's top: /kernel6, /cache-import
         need = self.rootfs.stat().st_size // 1024 + 256
         self.make_room("/data", need, "", STOCK_ERA, REDEPLOYABLE)

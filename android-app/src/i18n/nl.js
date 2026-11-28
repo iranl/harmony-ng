@@ -1946,7 +1946,6 @@ export default {
     "usb_storage_disable_confirm": "Vanaf de volgende herstart het flashgeheugen weer gebruiken? Het bevat de gegevens zoals ze waren toen de stick werd ingesteld: latere wijzigingen blijven alleen op de stick.",
     "usb_storage_busy": "Bezig...",
     "usb_storage_failed": "Laatste actie mislukt: {message}",
-    "usb_storage_title": "USB-opslag",
     "hide_in_devices_tab": "Verbergen in tabblad Apparaten (alleen webinterface; de afstandsbediening verandert niet)",
     "devices_all_hidden": "Alle apparaten zijn verborgen in dit tabblad. Zet \"Verbergen in tabblad Apparaten\" uit in de apparaatinstellingen om er een te tonen.",
     "slot_n_empty": "Slot {slot} (leeg)",

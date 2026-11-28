@@ -52,7 +52,13 @@ build_mips() {
     done
 
     make defconfig
-    # Enable static compilation and disable tc (requires linux kernel headers) and seedrng (requires getrandom syscall)
+    # LINK=static: the stock Hub's copy (tools/root_hub_usb.py, tools/backup_hub.py stage it on
+    # a stock Hub, whose C library is not the toolchain's)
+    if [ "${LINK:-dynamic}" = static ]; then
+        sed -i 's/.*CONFIG_STATIC.*/CONFIG_STATIC=y/' .config
+        sed -i 's/.*CONFIG_STATIC_LIBGCC.*/CONFIG_STATIC_LIBGCC=y/' .config
+    fi
+    # disable tc (requires linux kernel headers) and seedrng (requires getrandom syscall)
     sed -i 's/CONFIG_TC=y/# CONFIG_TC is not set/' .config
     sed -i 's/CONFIG_FEATURE_TC_INGRESS=y/# CONFIG_FEATURE_TC_INGRESS is not set/' .config
     sed -i 's/CONFIG_SEEDRNG=y/# CONFIG_SEEDRNG is not set/' .config
@@ -102,8 +108,10 @@ build_mips() {
     make -j"$(nproc)" CROSS_COMPILE="$CROSS" busybox
     "${CROSS}strip" busybox
 
-    # shared uClibc-ng, for the Linux 6.18 root file system (build/build_rootfs6.sh)
+    # shared uClibc-ng, for the Linux 6.18 root file system (build/build_rootfs6.sh); static: the
+    # stock Hub's
     dest="$REPO_ROOT/build/output/kernel6/bin/busybox"
+    [ "${LINK:-dynamic}" = static ] && dest="$REPO_ROOT/payload/bin/busybox"
     mkdir -p "$(dirname "$dest")"
     cp busybox "$dest"
     echo "[+] MIPS BusyBox built: $dest ($(ls -lh "$dest" | awk '{print $5}'))"
