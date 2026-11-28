@@ -183,6 +183,9 @@ static int hi2s_open(struct inode *inode, struct file *f)
 	bool first;
 	int ret = 0;
 
+	/* one direction per open: the write path uses the TX ring, which O_RDWR would not set up */
+	if ((f->f_mode & FMODE_READ) && (f->f_mode & FMODE_WRITE))
+		return -EINVAL;
 	mutex_lock(&s->lock);
 	if (((f->f_mode & FMODE_READ) && s->rx.open) || ((f->f_mode & FMODE_WRITE) && s->tx.open)) {
 		ret = -EBUSY;
@@ -235,15 +238,21 @@ static ssize_t hi2s_write(struct file *f, const char __user *ubuf, size_t len, l
 	struct hi2s *s = to_hi2s(f);
 	struct ring *r = &s->tx;
 	size_t done = 0;
-	int ret;
+	long ret;
 
+	/* TX DMA starts only on I2S_START, after the write: a stream must fit the ring */
+	if (len > (size_t)TX_DESCS * BUF_SIZE)
+		return -E2BIG;
 	writel(readl(s->mbox + MBOX_INT_ENABLE) | INT_TX, s->mbox + MBOX_INT_ENABLE);
 	while (done < len) {
 		struct mbox_desc *d = &r->desc[r->head];
 		size_t n = min_t(size_t, len - done, BUF_SIZE);
 
-		ret = wait_event_interruptible(s->tx_wait, !(READ_ONCE(d->ctrl) & DESC_OWN));
-		if (ret)
+		/* bounded: a ring still full from an earlier write without I2S_START never drains */
+		ret = wait_event_interruptible_timeout(s->tx_wait, !(READ_ONCE(d->ctrl) & DESC_OWN), 5 * HZ);
+		if (ret == 0)
+			return done ? done : -ETIMEDOUT;
+		if (ret < 0)
 			return done ? done : ret;
 		if (copy_from_user(r->buf + r->head * BUF_SIZE, ubuf + done, n))
 			return done ? done : -EFAULT;

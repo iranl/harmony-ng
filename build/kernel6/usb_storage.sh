@@ -95,6 +95,13 @@ setup)
     size=$(( $(cat /sys/block/$(basename "${dev%[0-9]}")/size) / 2 ))
     [ "$size" -gt $((used * 2 + 65536)) ] || die "$dev is too small ($size KB, data and cache use $used KB)"
 
+    # after the services stop, every failure starts them again: the web UI shows the error
+    fail() {
+        grep -q ' /tmp/usbsetup ' /proc/mounts && umount /tmp/usbsetup
+        rm -f /tmp/harmony_stop $FLAG.new
+        /data/harmony/init.sh restart >/dev/null 2>&1 &
+        die "$*"
+    }
     echo "usb_storage: stopping the Hub services"
     touch /tmp/harmony_stop
     killall -15 hub_rf hub_btstack hub_daemon 2>/dev/null
@@ -102,25 +109,23 @@ setup)
     killall -9 hub_rf hub_btstack hub_daemon 2>/dev/null
 
     echo "usb_storage: formatting $dev (ext4)"
-    mkfs.ext4 -F -q -t ext4 -L harmonyhub -m 0 "$dev" || die "mke2fs failed"
+    mkfs.ext4 -F -q -t ext4 -L harmonyhub -m 0 "$dev" || fail "mke2fs failed"
     uuid=$(blkid "$dev" | sed -n 's/.* UUID="\([^"]*\)".*/\1/p')
-    [ -n "$uuid" ] || die "no UUID on $dev"
+    [ -n "$uuid" ] || fail "no UUID on $dev"
     mkdir -p /tmp/usbsetup
-    mount -t ext4 -o noatime "$dev" /tmp/usbsetup || die "cannot mount $dev"
+    mount -t ext4 -o noatime "$dev" /tmp/usbsetup || fail "cannot mount $dev"
     mkdir -p /tmp/usbsetup/data/upper /tmp/usbsetup/data/work /tmp/usbsetup/cache
     echo "usb_storage: copying data and cache"
     # overlayfs xattrs (opaque directories) are not copied by BusyBox cp; whiteouts are
     if ! cp -a /overlay/upper/. /tmp/usbsetup/data/upper/ || ! cp -a /cache/. /tmp/usbsetup/cache/; then
-        umount /tmp/usbsetup
-        rm -f /tmp/harmony_stop
-        die "copy failed: the Hub keeps the flash (reboot to restart its services)"
+        fail "copy failed: the Hub keeps the flash"
     fi
     rm -rf /tmp/usbsetup/cache/kernel6   # the flash's, bound over it at boot
     mkdir /tmp/usbsetup/cache/kernel6
     sync
-    umount /tmp/usbsetup || die "cannot unmount $dev"
+    umount /tmp/usbsetup || fail "cannot unmount $dev"
     rm -f $MISSING
-    echo "$uuid" > $FLAG.new && mv -f $FLAG.new $FLAG || die "cannot write $FLAG"
+    echo "$uuid" > $FLAG.new && mv -f $FLAG.new $FLAG || fail "cannot write $FLAG"
     sync
     echo "usb_storage: $dev ($uuid) holds data and cache from the next boot: rebooting"
     killall -9 hub_rf hub_btstack 2>/dev/null

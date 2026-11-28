@@ -541,9 +541,10 @@ static int cc2544_fw_open(struct inode *inode, struct file *f)
 	}
 	memset(c->fw_buf, 0xff, FW_BUF);
 	c->fw_write = false;
-	mutex_lock(&c->xfer_lock);
-	/* the interrupt line becomes the debug clock: no interrupt meanwhile */
+	/* the interrupt line becomes the debug clock: no interrupt meanwhile. Freed before taking
+	 * xfer_lock: free_irq waits for the threaded handler, which takes that lock itself */
 	free_irq(c->spi->irq, c);
+	mutex_lock(&c->xfer_lock);
 	dbg_enter(c);
 	if (mode == O_RDONLY) {
 		if (fw_chip_id(c) != CHIP_ID_CC2544)

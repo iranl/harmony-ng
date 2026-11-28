@@ -586,7 +586,9 @@ wait_activity_switch() {
 # configuration import reads them) and /data/stock_backup.
 cleanup_stale() {
   uname -r | grep -q harmony || return 0
-  rm -rf /cache/kernel6/modules /cache/kernel6/rootfs.sqfs.failed /cache/busybox /cache/codex_* \
+  # the fallback boot (no overlay root) loads its drivers from /cache/kernel6/modules
+  grep -q '^overlay / overlay' /proc/mounts && rm -rf /cache/kernel6/modules 2>/dev/null
+  rm -rf /cache/kernel6/rootfs.sqfs.failed /cache/busybox /cache/codex_* \
          /data/codex /data/codex_p /data/codex_rf /data/hub_rf /data/dropbearmulti \
          /data/test_hub_tx /data/rf_pair_test /data/remote_ui.ota.gz 2>/dev/null
   # through the overlay root (not its upper directory, which may not change while mounted)
@@ -644,9 +646,17 @@ apply_kernel6() {
   _k=$(grep '"kernel"' /proc/mtd | cut -d: -f1)
   _k2=$(grep '"kernel2"' /proc/mtd | cut -d: -f1)
   if ! "$HUB_UTIL" flash-image "$TMPDIR/harmony-hub-flash.uImage" "/dev/$_k" "/dev/$_k2"; then
-    rm -f /cache/kernel6/rootfs.sqfs
-    echo "[-] The kernel could not be written: the system image is not updated"
-    return 1
+    # blocks that already match are skipped: a second try is cheap and may finish the write
+    echo "[!] The kernel write failed: trying once more..."
+    sleep 2
+    if ! "$HUB_UTIL" flash-image "$TMPDIR/harmony-hub-flash.uImage" "/dev/$_k" "/dev/$_k2"; then
+      # never a new root under an old kernel
+      rm -f /cache/kernel6/rootfs.sqfs
+      # the header block was erased first: the kernel partition holds no bootable kernel now
+      echo "[-] The kernel could not be written: the kernel partition is incomplete. Do not restart"
+      echo "    the Hub; run the install tool from a PC: python tools/install_kernel6.py <hub-ip>"
+      return 1
+    fi
   fi
   echo "[+] Linux 6.18 kernel written; the root file system is written at the next boot."
   return 0

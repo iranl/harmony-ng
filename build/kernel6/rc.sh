@@ -60,10 +60,16 @@ if [ $ROOTFS = 1 ]; then
     mount -t tmpfs tmpfs /var/volatile
     mkdir -p /var/volatile/run /var/volatile/log /var/volatile/lock /var/volatile/tmp
     # HarmonyNG's scripts call /cache/bin/busybox and /data/harmony/bin/dropbearmulti, which
-    # were its own static copies on the stock root: here the root file system's dynamic ones
-    # (a static copy left from before is replaced by the link, freeing its flash)
-    mkdir -p /cache/bin
-    [ "$(readlink /cache/bin/busybox)" = /bin/busybox ] || ln -sf /bin/busybox /cache/bin/busybox
+    # were its own static copies on the stock root: here the root file system's dynamic ones.
+    # A static copy left from before moves to /cache/kernel6/busybox: the fallback boot
+    # (build/kernel6/init.c) runs this script with it, and its initramfs has no /bin/busybox.
+    mkdir -p /cache/bin /cache/kernel6
+    if [ "$(readlink /cache/bin/busybox)" != /bin/busybox ]; then
+        if [ -f /cache/bin/busybox ] && [ ! -L /cache/bin/busybox ] && [ ! -e /cache/kernel6/busybox ]; then
+            mv /cache/bin/busybox /cache/kernel6/busybox
+        fi
+        ln -sf /bin/busybox /cache/bin/busybox
+    fi
     # /cache/bin comes first in PATH: an applet link of an older BusyBox named modprobe would
     # hide /sbin/modprobe (modules.dep) and load the drivers without what they need
     for a in modprobe depmod; do [ -L /cache/bin/$a ] && rm -f /cache/bin/$a; done

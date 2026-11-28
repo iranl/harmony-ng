@@ -1,5 +1,9 @@
 #include "flash_image.h"
 
+#include <mtd/mtd-user.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -74,6 +78,21 @@ int squashfs_check(const uint8_t *img, size_t len, int comp, char *err, size_t e
     return 0;
 }
 
+static int mtd_erase(int fd, uint32_t off, uint32_t len) {
+    struct erase_info_user ei = { .start = off, .length = len };
+    return ioctl(fd, MEMERASE, &ei);
+}
+
+static long mtd_pread(int fd, void *buf, uint32_t len, uint32_t off) {
+    return pread(fd, buf, len, off);
+}
+
+static long mtd_pwrite(int fd, const void *buf, uint32_t len, uint32_t off) {
+    return pwrite(fd, buf, len, off);
+}
+
+const struct flash_ops flash_mtd_ops = { mtd_erase, mtd_pread, mtd_pwrite };
+
 /* one erase block: content wanted at (part, off) */
 static int write_block(const struct flash_part *part, const struct flash_ops *ops, uint32_t off,
                        const uint8_t *want, uint8_t *buf, int *written, char *err, size_t errlen) {
@@ -84,7 +103,10 @@ static int write_block(const struct flash_part *part, const struct flash_ops *op
     }
     if (memcmp(buf, want, bs) == 0)
         return 0;
-    if (ops->erase(part->fd, off, bs) != 0) {
+    /* erased already (block 0 is erased first, see flash_write_image) */
+    size_t i = 0;
+    while (i < bs && buf[i] == 0xFF) i++;
+    if (i < bs && ops->erase(part->fd, off, bs) != 0) {
         snprintf(err, errlen, "erase failed at 0x%x", (unsigned)off);
         return -1;
     }
@@ -127,7 +149,22 @@ int flash_write_image(const struct flash_part *parts, int nparts, const struct f
     }
     int rc = 0;
     size_t nblocks = (len + bs - 1) / bs;
-    /* block 0 (the header) last */
+    /* Block 0 (the uImage header, the squashfs superblock) is erased first when it changes and
+     * written last: a write cut short leaves no header and no magic, so U-Boot does not boot a
+     * kernel of two versions and init does not mount a root of two (it boots the fallback and
+     * retries the staged image), instead of the old header over partly new blocks. */
+    if (nblocks > 1) {
+        size_t n0 = len < bs ? len : bs;
+        memcpy(want, img, n0);
+        memset(want + n0, 0xFF, bs - n0);
+        if (ops->pread(parts[0].fd, buf, bs, 0) != (long)bs) {
+            snprintf(err, errlen, "read failed at 0x0");
+            rc = -1;
+        } else if (memcmp(buf, want, bs) != 0 && ops->erase(parts[0].fd, 0, bs) != 0) {
+            snprintf(err, errlen, "erase failed at 0x0");
+            rc = -1;
+        }
+    }
     for (size_t step = 1; step <= nblocks && rc == 0; step++) {
         size_t b = step % nblocks;
         size_t pos = b * bs;
