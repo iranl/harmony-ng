@@ -1709,6 +1709,7 @@ export default {
     "enter_ssid": "Veuillez saisir un SSID",
     "conn_test_failed": "Échec du test de connexion",
     "wifi_testing_before_switch": "Test de la connexion avant le changement...",
+    "wifi_no_answer_new_address": "Pas de réponse du Hub. Il a peut-être rejoint le nouveau réseau et y a une nouvelle adresse : cherchez-le dans la liste des appareils de votre routeur.",
     "saving_wifi": "Enregistrement du Wi-Fi...",
     "failed_save_wifi": "Impossible d'enregistrer le Wi-Fi",
     "wifi_verified_applied": "Wi-Fi vérifié et appliqué !",

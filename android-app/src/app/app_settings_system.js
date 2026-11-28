@@ -713,7 +713,8 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
       }
       const res = await this.client.saveWifi(data);
       if (res && res.ok === false) {
-        throw new Error(res.error || t('failed_save_wifi'));
+        // the Hub answered: a refusal, not a lost reply
+        throw Object.assign(new Error(res.error || t('failed_save_wifi')), { status: 200 });
       }
       if (status) {
         status.innerHTML = isApplying
@@ -722,7 +723,11 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
       }
     } catch (err) {
       if (status) {
-        status.innerHTML = `<span style="color:var(--danger); font-weight:600;">${escapeHtml(err.message)}</span>`;
+        // No reply at all (no HTTP status) while applying: the test moved the Hub to the new
+        // network, and from another network or subnet its answer cannot come back. Not a failure.
+        status.innerHTML = isApplying && err.status === undefined
+          ? `<span style="color:var(--warning); font-weight:600;">${t('wifi_no_answer_new_address')}</span>`
+          : `<span style="color:var(--danger); font-weight:600;">${escapeHtml(err.message)}</span>`;
       }
     }
   }

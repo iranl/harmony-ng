@@ -1709,6 +1709,7 @@ export default {
     "enter_ssid": "Voer een SSID in",
     "conn_test_failed": "Verbindingstest mislukt",
     "wifi_testing_before_switch": "Verbinding testen voor het overschakelen...",
+    "wifi_no_answer_new_address": "Geen antwoord van de Hub. Mogelijk zit de Hub nu op het nieuwe netwerk en heeft hij daar een nieuw adres: zoek hem in de apparatenlijst van uw router.",
     "saving_wifi": "Wi-Fi opslaan...",
     "failed_save_wifi": "Wi-Fi opslaan mislukt",
     "wifi_verified_applied": "Wi-Fi gecontroleerd en toegepast!",
