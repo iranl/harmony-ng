@@ -235,6 +235,9 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
 
     // Bluetooth View Actions
     document.getElementById('btPairToggleBtn')?.addEventListener('click', () => this.toggleBtPairing());
+    document.getElementById('btPinSendBtn')?.addEventListener('click', () => this.sendBtPairingPin(false));
+    document.getElementById('btPinCancelBtn')?.addEventListener('click', () => this.sendBtPairingPin(true));
+    document.getElementById('btPinInput')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') this.sendBtPairingPin(false); });
     document.getElementById('btDisconnBtn')?.addEventListener('click', () => this.client.disconnectBt());
     document.getElementById('btRefreshBtn')?.addEventListener('click', () => this.loadBtView());
     document.getElementById('btReleaseAll')?.addEventListener('click', () => {

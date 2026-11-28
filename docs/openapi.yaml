@@ -2284,8 +2284,9 @@ paths:
                 remote: {connected: true, addr: "11:22:33:44:55:66"}
                 host: {connected: true, addr: "AA:BB:CC:DD:EE:FF", name: Media Player, pairing: false}
                 hosts:
-                  - {addr: "AA:BB:CC:DD:EE:01", name: Television, connected: false, paired: true, cid: 2}
-                  - {addr: "AA:BB:CC:DD:EE:FF", name: Media Player, connected: true, paired: true, cid: 6}
+                  - {addr: "AA:BB:CC:DD:EE:01", name: Television, connected: false, paired: true, cid: 2, profile: keyboard}
+                  - {addr: "AA:BB:CC:DD:EE:FF", name: Media Player, connected: true, paired: true, cid: 6, profile: keyboard}
+                pin: {state: none, addr: "", name: ""}
                 ok: true
                 running: true
                 connected: true
@@ -2307,10 +2308,16 @@ paths:
                 enable: {type: boolean, default: false}
                 name: {type: string, default: "Harmony Keyboard"}
                 deviceId: {type: string, description: "Device the paired host is linked to (also accepted as targetDev, which is read first). Required with enable true."}
+                profile:
+                  type: string
+                  enum: [keyboard, ps3]
+                  default: keyboard
+                  description: "What the Hub pairs as: the keyboard, or ps3 (Sony's BD Remote Control for a PlayStation 3, as the stock firmware did; name is not shown then). The host keeps it (hosts[].profile of GET /api/bt-status)."
             example:
               enable: true
               name: Harmony Keyboard
               deviceId: "70321456"
+              profile: keyboard
       responses:
         '200':
           description: Pairing mode toggled
@@ -2319,8 +2326,48 @@ paths:
               example:
                 ok: true
                 pairing: true
+                profile: keyboard
         '400':
-          description: enable true without a device (Target device is required for Bluetooth pairing)
+          description: enable true without a device (Target device is required for Bluetooth pairing), or a profile other than keyboard and ps3
+
+  /api/bt-pairing-pin:
+    post:
+      tags:
+        - Bluetooth HID
+      summary: Send the PIN a pairing host shows
+      description: >-
+        Legacy PIN pairing (a PlayStation 3 registering a keyboard, older PCs). hub_btstack answers a
+        host's first PIN request with 0000; a host that drops the link after it without a link key
+        refused it (GET /api/bt-status pin.state "required": pair again from the host). Its next
+        request is held (pin.state "waiting") until this route sends the code, cancels, or 25 s pass.
+        Admin only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pin: {type: string, pattern: "^[0-9]{1,16}$", description: "The code the host shows (a string: a number loses leading zeros)"}
+                cancel: {type: boolean, description: "Reject the held request instead"}
+            example:
+              pin: "842631"
+      responses:
+        '200':
+          description: Handed to hub_btstack (not yet accepted by the host)
+          content:
+            application/json:
+              example:
+                ok: true
+                cancelled: false
+        '400':
+          description: pin is not a string of 1 to 16 digits
+        '409':
+          description: A PIN while no PIN request is waiting (bt-status pin.state is not waiting)
+        '500':
+          description: hub_btstack did not take the command
+        '503':
+          description: hub_btstack is not running
 
   /api/bt-connect:
     post:

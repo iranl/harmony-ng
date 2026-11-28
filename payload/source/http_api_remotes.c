@@ -63,6 +63,22 @@ static void mark_rf_sync_pending(int slot, const char *diff) {
     }
 }
 
+/* hub_btstack's pin.state (bt-status) compared with state: 1 equal, 0 different, -1 unknown (no
+ * status file, or a hub_btstack without PIN support) */
+static int bt_pin_state_is(const char *state) {
+    FILE *f = fopen("/tmp/hub_btstack_status.json", "r");
+    if (!f) return -1;
+    char buf[4096];
+    size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+    fclose(f);
+    buf[n] = '\0';
+    cJSON *j = cJSON_Parse(buf);
+    cJSON *ps = cJSON_GetObjectItem(cJSON_GetObjectItem(j, "pin"), "state");
+    int r = cJSON_IsString(ps) ? strcmp(ps->valuestring, state) == 0 : -1;
+    cJSON_Delete(j);
+    return r;
+}
+
 int http_api_remotes_handle(int client_fd, const char *method, const char *clean_path,
                             const char *query, const char *body, const char *req) {
     (void)query;
@@ -825,13 +841,21 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
         return 1;
     }
 
-    /* Route: POST /api/bt-pairing */
+    /* Route: POST /api/bt-pairing {"enable", "name", "deviceId", "profile"}: profile "keyboard"
+     * (default) or "ps3" (the Hub pairs as Sony's BD Remote Control, for a PlayStation 3) */
     if (strcmp(clean_path, "/api/bt-pairing") == 0 && strcmp(method, "POST") == 0) {
         cJSON *params = parse_request_params(body);
         int enable = 0;
         char name[64] = "Harmony Keyboard";
         char target_dev[64] = {0};
+        const char *profile = "keyboard";
+        int bad_profile = 0;
         if (params) {
+            cJSON *jp = cJSON_GetObjectItem(params, "profile");
+            if (jp && cJSON_IsString(jp) && jp->valuestring[0]) {
+                if (strcasecmp(jp->valuestring, "ps3") == 0) profile = "ps3";
+                else if (strcasecmp(jp->valuestring, "keyboard") != 0) bad_profile = 1;
+            }
             cJSON *je = cJSON_GetObjectItem(params, "enable");
             if (je) {
                 if (cJSON_IsBool(je)) enable = cJSON_IsTrue(je);
@@ -850,6 +874,15 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
             }
             cJSON_Delete(params);
         }
+        if (bad_profile) {
+            send_json_error(client_fd, 400, "profile must be \"keyboard\" or \"ps3\"");
+            close(client_fd);
+            return 1;
+        }
+        /* one line on hub_btstack's pipe: a line break in the name made a second command */
+        for (char *c = name; *c; c++) {
+            if ((unsigned char)*c < 0x20) *c = ' ';
+        }
         if (enable && !target_dev[0]) {
             send_json_error(client_fd, 400, "Target device is required for Bluetooth pairing");
             close(client_fd);
@@ -865,12 +898,68 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
             unlink("/tmp/bt_pending_pair_device");
         }
         char pipe_cmd[128];
-        if (enable) snprintf(pipe_cmd, sizeof(pipe_cmd), "pair_host_on %s\n", name);
+        /* the keyboard keeps the old line: an older hub_btstack would take "profile=" for the name */
+        if (enable && strcmp(profile, "ps3") == 0) snprintf(pipe_cmd, sizeof(pipe_cmd), "pair_host_on profile=ps3 %s\n", name);
+        else if (enable) snprintf(pipe_cmd, sizeof(pipe_cmd), "pair_host_on %s\n", name);
         else snprintf(pipe_cmd, sizeof(pipe_cmd), "pair_host_off\n");
         hub_send_btstack_cmd(pipe_cmd);
         cJSON *st = cJSON_CreateObject();
         cJSON_AddBoolToObject(st, "ok", 1);
         cJSON_AddBoolToObject(st, "pairing", enable);
+        if (enable) cJSON_AddStringToObject(st, "profile", profile);
+        send_cjson_resp(client_fd, 200, st);
+        cJSON_Delete(st);
+        close(client_fd);
+        return 1;
+    }
+
+    /* Route: POST /api/bt-pairing-pin {"pin": "842631"} or {"cancel": true}: the code a host shows
+     * while it pairs the Hub (legacy PIN pairing, e.g. a PlayStation 3 registering a keyboard).
+     * hub_btstack answers a host's first PIN request with 0000; a host that refuses it is asked
+     * again on its next try, and GET /api/bt-status then shows pin.state "waiting" until this
+     * route answers, cancels, or 25 s pass. Admin only, like /api/bt-pairing. */
+    if (strcmp(clean_path, "/api/bt-pairing-pin") == 0 && strcmp(method, "POST") == 0) {
+        cJSON *params = parse_request_params(body);
+        char pin[24] = {0};
+        int cancel = 0;
+        if (params) {
+            cJSON *jc = cJSON_GetObjectItem(params, "cancel");
+            cancel = cJSON_IsTrue(jc);
+            cJSON *jp = cJSON_GetObjectItem(params, "pin");
+            if (jp && cJSON_IsString(jp)) snprintf(pin, sizeof(pin), "%s", jp->valuestring);
+            else if (jp && cJSON_IsNumber(jp)) cancel = -1; /* a number loses leading zeros */
+            cJSON_Delete(params);
+        }
+        size_t plen = strlen(pin);
+        int digits = plen >= 1 && plen <= 16;
+        for (size_t i = 0; i < plen && digits; i++) digits = pin[i] >= '0' && pin[i] <= '9';
+        if (cancel < 0 || (!cancel && !digits)) {
+            send_json_error(client_fd, 400, "pin must be a string of 1 to 16 digits (or send {\"cancel\": true})");
+            close(client_fd);
+            return 1;
+        }
+        if (!is_proc_running("hub_btstack")) {
+            send_json_error(client_fd, 503, "Bluetooth is off");
+            close(client_fd);
+            return 1;
+        }
+        if (!cancel && bt_pin_state_is("waiting") == 0) {
+            /* hub_btstack would ignore it: no host waits for a code (any more) */
+            send_json_error(client_fd, 409, "No PIN request is waiting");
+            close(client_fd);
+            return 1;
+        }
+        char pipe_cmd[48];
+        if (cancel) snprintf(pipe_cmd, sizeof(pipe_cmd), "pin_cancel\n");
+        else snprintf(pipe_cmd, sizeof(pipe_cmd), "pin_reply %s\n", pin);
+        if (hub_send_btstack_cmd_live(pipe_cmd) != 0) {
+            send_json_error(client_fd, 500, "Could not reach hub_btstack");
+            close(client_fd);
+            return 1;
+        }
+        cJSON *st = cJSON_CreateObject();
+        cJSON_AddBoolToObject(st, "ok", 1);
+        cJSON_AddBoolToObject(st, "cancelled", cancel ? 1 : 0);
         send_cjson_resp(client_fd, 200, st);
         cJSON_Delete(st);
         close(client_fd);

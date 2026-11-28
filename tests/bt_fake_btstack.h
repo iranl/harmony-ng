@@ -54,6 +54,7 @@
 #define BTHID_STATUS_FILE TEST_DIR "/bthid_status"
 #define HOST_TARGET_FILE TEST_DIR "/bthid_host_target"
 #define DEVICES_FILE TEST_DIR "/devices.json"
+#define BT_PROFILES_FILE TEST_DIR "/bt_host_profiles"
 #define LOG_MAX_BYTES 65536
 #define TLV_TAG_HOGD 0x484F4744u
 #define TLV_TAG_HIDR 0x48494452u
@@ -107,6 +108,7 @@ typedef struct {
     bool connected;
     bool manual_disconnect;
     char name[64];
+    uint8_t profile;
 } host_conn_t;
 #define MAX_HOST_RECONNECT_ATTEMPTS 25
 
@@ -122,6 +124,7 @@ extern uint16_t g_host_hid_cid;
 extern bd_addr_t g_host_addr;
 extern bool g_host_connected;
 extern bool g_host_pairing;
+extern uint8_t g_pairing_profile;
 extern bool g_pairing_new_key_valid;
 extern bd_addr_t g_pairing_new_key_addr;
 extern char g_host_name[64];
@@ -282,5 +285,14 @@ static int fake_store_tag(void *c, uint32_t tag, const uint8_t *d, uint32_t size
 }
 static void fake_delete_tag(void *c, uint32_t tag) { UNUSED(c); record("tlv_delete %08x", tag); s_tag_len = 0; }
 static const btstack_tlv_t s_fake_tlv = {fake_get_tag, fake_store_tag, fake_delete_tag};
+
+/* ---- bt_main.c's pairing profile and PIN replies (the PIN state itself is the real bt_pin.c) ---- */
+static int s_pairing_profile_calls;
+void bt_set_pairing_profile(uint8_t profile) { s_pairing_profile_calls++; g_pairing_profile = profile; }
+static char s_pin_cmd[64];
+void bt_pin_command(const char *cmd) { snprintf(s_pin_cmd, sizeof(s_pin_cmd), "%s", cmd); }
+void bt_pin_pairing_end(void) {}
+#include "../payload/source/hub_btstack/bt_pin.c"
+#include "../payload/source/hub_btstack/bt_ps3.c"
 
 #endif

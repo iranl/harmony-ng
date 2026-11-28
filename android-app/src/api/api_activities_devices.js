@@ -335,12 +335,23 @@ export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
     return this.request('/api/bt-status');
   }
 
-  async setBtPairing(enable, name = '', targetDev = '') {
+  /* profile: 'keyboard' (default) or 'ps3' (the Hub pairs as the PS3's BD Remote Control) */
+  async setBtPairing(enable, name = '', targetDev = '', profile = 'keyboard') {
     return this.postJson('/api/bt-pairing', {
       enable: enable ? 1 : 0,
       name: name || 'Harmony Keyboard',
-      targetDev: targetDev || ''
+      targetDev: targetDev || '',
+      profile: profile || 'keyboard'
     });
+  }
+
+  /* The code a host shows while it pairs (bt-status pin.state "waiting"), or cancel it */
+  async sendBtPairingPin(pin) {
+    return this.postJson('/api/bt-pairing-pin', { pin: String(pin || '') });
+  }
+
+  async cancelBtPairingPin() {
+    return this.postJson('/api/bt-pairing-pin', { cancel: true });
   }
 
   async connectBt(bdaddr) {

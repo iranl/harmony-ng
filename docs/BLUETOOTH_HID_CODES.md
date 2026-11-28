@@ -154,6 +154,42 @@ Harmony Hub also operates as a BLE central host to receive inputs from paired ph
 
 ---
 
+## 5a. PlayStation 3 (BD Remote Control profile)
+A PlayStation 3 is paired with the profile `ps3` (web UI: Pairing Mode, "Pair as" PlayStation 3;
+`POST /api/bt-pairing` with `"profile": "ps3"`). The Hub then pairs as Sony's BD Remote Control,
+with the stock firmware's HID record for its `ps3` device type: the PS3 lists it as "BD Remote Control"
+under Settings > Accessory Settings > Manage Bluetooth Devices > Register New Device. That host
+keeps the profile; every other host stays a keyboard.
+
+A key for a PS3 host goes out as the remote's report (layout of Linux `drivers/hid/hid-sony.c`).
+A command can name the remote's key in three ways:
+
+| Command value or name | Sent as |
+|:---|:---|
+| `PS3:<hex>`, for example `PS3:43` | that BD Remote key code |
+| a BD Remote key name (any case): `PS`, `Triangle`, `Circle`, `Cross`, `Square`, `Start`, `SelectButton`, `L1`, `R1`, `L2`, `R2`, `L3`, `R3`, `TopMenu`, `PopUpMenu`, `Eject`, `Display`, `Time`, `Clear`, `Subtitle`, `Audio`, `Angle`, `StepBack`, `StepForward`, `Return`, `Enter`, `Red`, `Green`, `Yellow`, `Blue`, `0`-`9` | that key |
+| a keyboard or consumer key | the remote's key of the same meaning, where it has one |
+
+Translated keyboard and consumer keys: arrows, Enter (also `Select`/`OK`), Escape and Backspace
+(Return), Home and Power (PS), Menu (Pop Up Menu), digits, Play, Pause, Play/Pause (Pause),
+Stop, Next, Previous, Fast Forward, Rewind, Eject, Info (Display), the colour keys and Back
+(Return). Keys the remote does not have (volume, mute, letters, the mouse) are dropped.
+
+Codes: `1`-`9` `00`-`08`, `0` `09`, Enter `0B`, Return `0E`, Clear `0F`, Eject `16`, Top Menu `1A`,
+Time `28`, Previous `30`, Next `31`, Play `32`, Rewind `33`, Fast Forward `34`, Stop `38`, Pause
+`39`, Pop Up Menu `40`, PS `43`, Select `50`, L3 `51`, R3 `52`, Start `53`, Up `54`, Right `55`,
+Down `56`, Left `57`, L2 `58`, R2 `59`, L1 `5A`, R1 `5B`, Triangle `5C`, Circle `5D`, Cross `5E`,
+Square `5F`, Step Back `60`, Step Forward `61`, Subtitle `63`, Audio `64`, Angle `65`, Display
+`70`, Blue `80`, Red `81`, Green `82`, Yellow `83`.
+
+### PIN pairing
+Hosts with legacy PIN pairing (a PS3 registering the Hub as a keyboard, older PCs) get PIN `0000`
+first. A host that refuses it shows the web UI's "did not accept PIN 0000" notice: start the
+pairing again on the host, then type the code it shows into the field that appears and press
+Send code (`POST /api/bt-pairing-pin`, see [API.md](API.md)).
+
+---
+
 ## 6. Official Specification Reference
 For the usage definitions of the two pages the Hub sends (Keyboard `07` and Consumer `0C`, in the ranges given at the top) and of all other pages, consult the official standard:
 - [USB Implementers Forum: HID Usage Tables v1.5](https://usb.org/document-library/hid-usage-tables-15)

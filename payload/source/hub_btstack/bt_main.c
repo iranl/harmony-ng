@@ -21,6 +21,8 @@
 #include "../atomic_file.h"
 #include "bt_pairing.h"
 #include "bt_hid.h"
+#include "bt_pin.h"
+#include "bt_ps3.h"
 
 /* A key for a host whose link is down is kept (g_pending_wake_btn) and used to be sent the instant
  * the HID channel opened. An Android TV box is not ready for input at that instant and drops it, so
@@ -56,9 +58,12 @@ static void wake_key_timer_handler(btstack_timer_source_t *ts) {
         if (g_hosts[i].connected && g_hosts[i].hid_cid == s_wake_key_cid) g_active_host_idx = i;
     }
     uint8_t mod = 0, kc = 0;
+    unsigned int ps3 = 0;
     if (sscanf(pbtn, "KEY %hhx %hhx", &mod, &kc) == 2) {
         send_host_keyboard_report(mod, kc);
         log_msg("Dispatched buffered wake keyboard report to host");
+    } else if (sscanf(pbtn, "PS3 %x", &ps3) == 1) {
+        if (send_host_ps3_code(ps3)) log_msg("Dispatched buffered wake BD Remote key to host");
     } else if (strncmp(pbtn, "CONSUMER ", 9) == 0) {
         unsigned int usage = 0;
         if (sscanf(pbtn + 9, "%x", &usage) == 1) {
@@ -84,6 +89,155 @@ static void wake_key_schedule(uint16_t cid, const bd_addr_t addr) {
     }
 }
 #include "bt_cmd.h"
+
+/* ---- What the Hub pairs as: the keyboard, or the BD Remote for a PS3 (bt_ps3.h) ----
+ * A host reads the SDP records while it pairs and keeps its copy, so the records only have to
+ * be the profile's during pairing mode; they are the keyboard's at all other times. */
+static uint32_t s_hid_sdp_handle, s_did_sdp_handle;
+static uint8_t s_sdp_profile = 0xff; /* none registered yet */
+static uint8_t s_ps3_hid_sdp[512];
+static uint8_t s_ps3_did_sdp[128];
+
+static void sdp_register_profile(uint8_t profile) {
+    if (profile == s_sdp_profile) return;
+    if (s_sdp_profile != 0xff) {
+        sdp_unregister_service(s_hid_sdp_handle);
+        sdp_unregister_service(s_did_sdp_handle);
+    }
+    uint8_t *hid_buf, *did_buf;
+    if (profile == BT_PROFILE_PS3) {
+        /* the values of the stock hal's record for its "ps3" type (and of the real remote) */
+        hid_sdp_record_t p = {
+            .hid_device_subclass = PS3_REMOTE_SUBCLASS,
+            .hid_country_code = 33,
+            .hid_virtual_cable = 1,
+            .hid_remote_wake = 1,
+            .hid_reconnect_initiate = 1,
+            .hid_normally_connectable = 0,
+            .hid_boot_device = 0,
+            .hid_ssr_host_max_latency = 0xffff,
+            .hid_ssr_host_min_timeout = 0xffff,
+            .hid_supervision_timeout = 8000,
+            .hid_descriptor = ps3_remote_descriptor,
+            .hid_descriptor_size = (uint16_t)ps3_remote_descriptor_len,
+            .device_name = PS3_REMOTE_NAME
+        };
+        memset(s_ps3_hid_sdp, 0, sizeof(s_ps3_hid_sdp));
+        hid_create_sdp_record(s_ps3_hid_sdp, s_hid_sdp_handle, &p);
+        btstack_assert(de_get_len(s_ps3_hid_sdp) <= sizeof(s_ps3_hid_sdp));
+        memset(s_ps3_did_sdp, 0, sizeof(s_ps3_did_sdp));
+        device_id_create_sdp_record(s_ps3_did_sdp, s_did_sdp_handle, DEVICE_ID_VENDOR_ID_SOURCE_USB,
+                                    PS3_REMOTE_VID, PS3_REMOTE_PID, 0x0100);
+        btstack_assert(de_get_len(s_ps3_did_sdp) <= sizeof(s_ps3_did_sdp));
+        hid_buf = s_ps3_hid_sdp;
+        did_buf = s_ps3_did_sdp;
+    } else {
+        /* built once in main(), with the same handles */
+        hid_buf = hid_service_buffer;
+        did_buf = device_id_sdp_service_buffer;
+    }
+    sdp_register_service(hid_buf);
+    sdp_register_service(did_buf);
+    s_sdp_profile = profile;
+}
+
+void bt_set_pairing_profile(uint8_t profile) {
+    if (profile != BT_PROFILE_PS3) profile = BT_PROFILE_KEYBOARD;
+    g_pairing_profile = profile;
+    sdp_register_profile(profile);
+    if (profile == BT_PROFILE_PS3) {
+        gap_set_local_name(PS3_REMOTE_NAME);
+        gap_set_class_of_device(PS3_REMOTE_COD);
+    } else {
+        gap_set_local_name(g_host_name);
+        gap_set_class_of_device(0x0025C0); /* Keyboard + Pointing Device */
+    }
+}
+
+/* ---- Legacy PIN pairing (bt_pin.h): 0000 first, the host's own code when it refuses that ---- */
+static btstack_timer_source_t s_pin_timer;
+
+static void pin_timer_handler(btstack_timer_source_t *ts) {
+    UNUSED(ts);
+    bd_addr_t addr;
+    if (pin_take_timeout(btstack_run_loop_get_time_ms(), addr)) {
+        char msg[128];
+        snprintf(msg, sizeof(msg), "Classic BT: no PIN entered for %s in %d s -> rejecting", bd_addr_to_str(addr), PIN_WAIT_MS / 1000);
+        log_msg(msg);
+        gap_pin_code_negative(addr);
+        update_status(app_state == APP_READY ? "ready" : "standby");
+    }
+}
+
+static void pin_request(bd_addr_t addr) {
+    char msg[160];
+    bd_addr_t held;
+    bool other_held = pin_state() == PIN_STATE_WAITING && memcmp(pin_state_addr(), addr, 6) != 0;
+    if (other_held) memcpy(held, pin_state_addr(), 6);
+    if (pin_on_request(addr, btstack_run_loop_get_time_ms()) == PIN_ACTION_DEFAULT) {
+        snprintf(msg, sizeof(msg), "Classic BT: PIN code requested by %s -> sending default '" PIN_DEFAULT "'", bd_addr_to_str(addr));
+        log_msg(msg);
+        gap_pin_code_response(addr, PIN_DEFAULT);
+        return;
+    }
+    snprintf(msg, sizeof(msg), "Classic BT: PIN code requested by %s, which refused '" PIN_DEFAULT "' -> waiting %d s for the code it shows",
+             bd_addr_to_str(addr), PIN_WAIT_MS / 1000);
+    log_msg(msg);
+    if (other_held) {
+        /* one code box: the host held before gets its answer now instead of none */
+        snprintf(msg, sizeof(msg), "Classic BT: PIN request of %s replaced -> rejecting it", bd_addr_to_str(held));
+        log_msg(msg);
+        gap_pin_code_negative(held);
+    }
+    pairing_timeout_restart();
+    btstack_run_loop_remove_timer(&s_pin_timer);
+    btstack_run_loop_set_timer_handler(&s_pin_timer, pin_timer_handler);
+    btstack_run_loop_set_timer(&s_pin_timer, PIN_WAIT_MS);
+    btstack_run_loop_add_timer(&s_pin_timer);
+    update_status(app_state == APP_READY ? "ready" : "standby");
+}
+
+void bt_pin_command(const char *cmd) {
+    bd_addr_t addr;
+    char msg[128];
+    if (strncasecmp(cmd, "pin_cancel", 10) == 0) {
+        if (pin_take_cancel(addr)) {
+            btstack_run_loop_remove_timer(&s_pin_timer);
+            snprintf(msg, sizeof(msg), "Classic BT: PIN entry for %s cancelled -> rejecting", bd_addr_to_str(addr));
+            log_msg(msg);
+            gap_pin_code_negative(addr);
+        }
+        update_status(app_state == APP_READY ? "ready" : "standby");
+        return;
+    }
+    const char *pin = cmd + 9;
+    while (*pin == ' ') pin++;
+    if (!pin_take_reply(pin, addr)) {
+        log_msg(pin_state() == PIN_STATE_WAITING ? "pin_reply: not 1 to 16 digits, ignored"
+                                                 : "pin_reply: no PIN request is waiting, ignored");
+        return;
+    }
+    btstack_run_loop_remove_timer(&s_pin_timer);
+    /* BTstack keeps the pointer and copies the digits only when hci_run() sends the reply,
+     * which can be later than this call: they must outlive the command buffer */
+    static char s_pin_reply[PIN_MAX_LEN + 1];
+    snprintf(s_pin_reply, sizeof(s_pin_reply), "%s", pin);
+    snprintf(msg, sizeof(msg), "Classic BT: sending the entered PIN (%u digits) to %s", (unsigned)strlen(s_pin_reply), bd_addr_to_str(addr));
+    log_msg(msg);
+    int err = gap_pin_code_response(addr, s_pin_reply);
+    if (err) {
+        snprintf(msg, sizeof(msg), "Classic BT: PIN reply to %s not sent (BTstack error 0x%02x)", bd_addr_to_str(addr), err);
+        log_msg(msg);
+    }
+    update_status(app_state == APP_READY ? "ready" : "standby");
+}
+
+void bt_pin_pairing_end(void) {
+    bd_addr_t addr;
+    btstack_run_loop_remove_timer(&s_pin_timer);
+    if (pin_take_cancel(addr)) gap_pin_code_negative(addr);
+    pin_session_end();
+}
 #include "bt_remote.h"
 #include "bt_listen.h"
 
@@ -349,6 +503,15 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                 log_msg(msg);
                 bool host_cleared = false;
                 for (int i = 0; i < MAX_HOST_CONNS; i++) {
+                    if (disconn_handle != HCI_CON_HANDLE_INVALID && g_hosts[i].acl_handle == disconn_handle &&
+                        g_host_pairing && pin_on_disconnect(g_hosts[i].addr)) {
+                        /* got 0000 and dropped the link without a key: it wants its own code */
+                        char pmsg[160];
+                        snprintf(pmsg, sizeof(pmsg), "Classic BT: %s refused PIN '" PIN_DEFAULT "' (reason 0x%02x): pair it again from the host and enter the code it shows",
+                                 bd_addr_to_str(g_hosts[i].addr), disconn_reason);
+                        log_msg(pmsg);
+                        pairing_timeout_restart();
+                    }
                     if (disconn_handle != HCI_CON_HANDLE_INVALID && g_hosts[i].acl_handle == disconn_handle) {
                         g_hosts[i].connected = false;
                         g_hosts[i].hid_cid = 0;
@@ -386,8 +549,7 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
             bd_addr_t pin_addr;
             hci_event_pin_code_request_get_bd_addr(packet, pin_addr);
             if (g_host_pairing) {
-                log_msg("Classic BT: PIN code requested -> sending default '0000'");
-                gap_pin_code_response(pin_addr, "0000");
+                pin_request(pin_addr);
             } else {
                 log_msg("Classic BT: PIN code requested but pairing mode is disabled -> rejecting");
                 gap_pin_code_negative(pin_addr);
@@ -425,6 +587,7 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
             bd_addr_t lk_addr;
             reverse_bd_addr(&packet[2], lk_addr);
             memcpy(g_host_addr, lk_addr, sizeof(bd_addr_t));
+            pin_on_link_key(lk_addr);
             if (g_host_pairing) {
                 memcpy(g_pairing_new_key_addr, lk_addr, sizeof(bd_addr_t));
                 g_pairing_new_key_valid = true;
@@ -489,16 +652,24 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                      * used to end pairing mode and take the pending device link. */
                     bool new_pairing = g_host_pairing && g_pairing_new_key_valid &&
                                        memcmp(g_pairing_new_key_addr, conn_addr, 6) == 0;
+                    uint8_t paired_profile = g_pairing_profile;
                     if (new_pairing) {
                         pairing_timeout_cancel();
                         g_host_pairing = false;
                         g_pairing_new_key_valid = false;
                         gap_discoverable_control(0);
+                        bt_pin_pairing_end();
+                        bt_set_pairing_profile(BT_PROFILE_KEYBOARD);
                     }
 
                     memcpy(g_host_addr, conn_addr, 6);
 
                     host_conn_t *h = register_host_target(conn_addr, NULL);
+                    if (h && new_pairing) {
+                        /* what it paired the Hub as decides what its reports look like from now on */
+                        h->profile = paired_profile;
+                        host_profile_save(conn_addr, paired_profile);
+                    }
                     if (h) {
                         h->connected = true;
                         h->hid_cid = cid;
@@ -884,16 +1055,18 @@ int main(int argc, const char *argv[]) {
         .hid_descriptor_size = hid_descriptor_composite_len,
         .device_name = g_host_name
     };
-    hid_create_sdp_record(hid_service_buffer, sdp_create_service_record_handle(), &hid_params);
+    s_hid_sdp_handle = sdp_create_service_record_handle();
+    hid_create_sdp_record(hid_service_buffer, s_hid_sdp_handle, &hid_params);
     btstack_assert(de_get_len(hid_service_buffer) <= sizeof(hid_service_buffer));
-    sdp_register_service(hid_service_buffer);
 
     // 7b. Device ID SDP record (Logitech 0x046D)
     memset(device_id_sdp_service_buffer, 0, sizeof(device_id_sdp_service_buffer));
-    device_id_create_sdp_record(device_id_sdp_service_buffer, sdp_create_service_record_handle(),
+    s_did_sdp_handle = sdp_create_service_record_handle();
+    device_id_create_sdp_record(device_id_sdp_service_buffer, s_did_sdp_handle,
                                DEVICE_ID_VENDOR_ID_SOURCE_USB, 0x046D, 0xC52B, 0x0100);
     btstack_assert(de_get_len(device_id_sdp_service_buffer) <= sizeof(device_id_sdp_service_buffer));
-    sdp_register_service(device_id_sdp_service_buffer);
+    /* both registered; pairing as the BD Remote swaps them for its own (bt_set_pairing_profile) */
+    sdp_register_profile(BT_PROFILE_KEYBOARD);
 
     char sdp_msg[96];
     snprintf(sdp_msg, sizeof(sdp_msg), "SDP registered: HID %u bytes, DeviceID %u bytes",

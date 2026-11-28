@@ -705,7 +705,9 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
       try {
         const initialBtSt = await this.client.getBtStatus().catch(() => null);
         const initialHosts = new Set(((initialBtSt?.hosts) || []).map(h => (h.addr || '').toLowerCase()));
-        await this.client.setBtPairing(true, 'Harmony Keyboard', devId);
+        const profile = document.getElementById('curDevBtPairProfile')?.value || 'keyboard';
+        await this.client.setBtPairing(true, 'Harmony Keyboard', devId, profile);
+        if (profile === 'ps3') showToast(t('bt_discoverable_ps3'), 'success');
 
         // Start polling for pairing completion
         if (this._btPairPollTimer) clearInterval(this._btPairPollTimer);
@@ -722,14 +724,29 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
           try {
             const btSt = await this.client.getBtStatus().catch(() => null);
             let newlyPairedAddr = '';
+            // A legacy PIN host (e.g. a PS3) that refused 0000 asks for the code it shows
+            const pin = btSt?.pin;
+            const pinName = pin?.name || pin?.addr || t('bluetooth_host_default');
+            if (pin?.state === 'waiting' && !this._btPinPrompted) {
+              this._btPinPrompted = true;
+              const code = (window.prompt(tf('bt_pin_waiting', { name: pinName })) || '').trim();
+              if (/^\d{1,16}$/.test(code)) await this.client.sendBtPairingPin(code).catch(err => showToast(tf('error_msg', { error: err.message }), 'error'));
+              else await this.client.cancelBtPairingPin().catch(() => {});
+            } else if (pin?.state !== 'waiting') {
+              this._btPinPrompted = false;
+            }
+            if (pin?.state === 'required' && statusMsg) statusMsg.textContent = tf('bt_pin_required', { name: pinName });
+            // A host in the table is not paired yet: one that refused the PIN stays with paired false
+            const pairedHosts = (btSt?.hosts || []).filter(h => h.paired !== false);
+            const isPaired = addr => pairedHosts.some(h => (h.addr || '').toLowerCase() === addr.toLowerCase());
 
             // 1. Check if an active host is connected
-            if (btSt?.host?.connected && btSt?.host?.addr && btSt.host.addr !== '00:00:00:00:00:00') {
+            if (btSt?.host?.connected && btSt?.host?.addr && btSt.host.addr !== '00:00:00:00:00:00' && isPaired(btSt.host.addr)) {
               newlyPairedAddr = btSt.host.addr;
-            } else if (btSt?.hosts && btSt.hosts.length > 0) {
+            } else if (pairedHosts.length > 0) {
               // 2. Check if any host is connected or newly added
-              const connectedHost = btSt.hosts.find(h => h.connected && h.addr && h.addr !== '00:00:00:00:00:00');
-              const newHost = btSt.hosts.find(h => h.addr && !initialHosts.has(h.addr.toLowerCase()) && h.addr !== '00:00:00:00:00:00');
+              const connectedHost = pairedHosts.find(h => h.connected && h.addr && h.addr !== '00:00:00:00:00:00');
+              const newHost = pairedHosts.find(h => h.addr && !initialHosts.has(h.addr.toLowerCase()) && h.addr !== '00:00:00:00:00:00');
               if (connectedHost) newlyPairedAddr = connectedHost.addr;
               else if (newHost) newlyPairedAddr = newHost.addr;
             }

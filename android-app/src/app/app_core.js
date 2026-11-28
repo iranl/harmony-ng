@@ -401,7 +401,10 @@ export class HarmonyAppCore {
    * state changes on the Hub; redraw only what is on screen */
   onLiveState(data) {
     if (data.type === 'bt_status') {
-      if (this.currentTab === 'bluetooth' && !this.isEditingIn('view-bluetooth')) this.loadBtView(data);
+      if (this.currentTab === 'bluetooth') {
+        if (!this.isEditingIn('view-bluetooth')) this.loadBtView(data);
+        else this.renderBtPin(data.pin); /* only the PIN box: it must follow the Hub while its field has focus */
+      }
       if (this.currentTab === 'overview') this.scheduleLiveRefresh('dashboard', () => this.loadDashboard());
     } else if (data.type === 'rf_status') {
       if (this.currentTab === 'rf-remote') this.refreshRfStatus(data);

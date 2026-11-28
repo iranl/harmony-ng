@@ -19,6 +19,19 @@ void cmd_poll_timeout(btstack_timer_source_t *ts);
 #define PAIRING_TIMEOUT_MS (180 * 1000)
 void pairing_mode_off(const char *reason);
 void pairing_timeout_cancel(void);
+/* Pairing mode restarts its timeout (a host refused 0000: the user pairs it again), but never
+ * past PAIRING_MAX_MS after pair_host_on: a host that keeps retrying cannot keep it on */
+#define PAIRING_MAX_MS (2 * PAIRING_TIMEOUT_MS)
+void pairing_timeout_restart(void);
+
+/* In bt_main.c (they touch the SDP records and the HCI PIN replies):
+ * what the Hub offers itself as while pairing: name, class of device and SDP records of the
+ * keyboard or of the BD Remote (BT_PROFILE_*); back to the keyboard when pairing ends */
+void bt_set_pairing_profile(uint8_t profile);
+/* "pin_reply <digits>" / "pin_cancel": the answer to a held PIN request (bt_pin.h) */
+void bt_pin_command(const char *cmd);
+/* Pairing mode ended: a held PIN request gets a negative reply, the session is forgotten */
+void bt_pin_pairing_end(void);
 /* Generic Classic BT page: called from HCI_EVENT_CONNECTION_COMPLETE */
 void bt_page_on_complete(const bd_addr_t addr, uint8_t status, hci_con_handle_t handle);
 

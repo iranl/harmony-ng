@@ -155,6 +155,7 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
         }
       }
       if (hostDetailEl) hostDetailEl.textContent = isHostConn ? t('ble_hid_link_active') : t('standby_idle');
+      this.renderBtPin(st.pin);
 
       // Remote connection
       const rem = st.remote || {};
@@ -175,7 +176,7 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
           <div class="queue-row" style="display:flex; justify-content:space-between; align-items:center; padding:8px 10px; background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-sm); margin-bottom:6px; flex-wrap:wrap; gap:8px;">
             <div style="min-width: 180px;">
               <strong>${escapeHtml(resolveHostDeviceName(h))}</strong>
-              <div class="muted mini">${escapeHtml(h.addr)} • <span style="color:${h.connected ? 'var(--success)' : (h.paired === false ? 'var(--warning)' : 'var(--text-dim)')}">${h.connected ? t('connected') : (h.paired === false ? t('host_not_paired_no_key') : t('host_paired'))}</span></div>
+              <div class="muted mini">${escapeHtml(h.addr)} • <span style="color:${h.connected ? 'var(--success)' : (h.paired === false ? 'var(--warning)' : 'var(--text-dim)')}">${h.connected ? t('connected') : (h.paired === false ? t('host_not_paired_no_key') : t('host_paired'))}</span>${h.profile === 'ps3' ? ` • ${escapeHtml(t('bt_profile_ps3_short'))}` : ''}</div>
             </div>
             <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
               <button type="button" class="btn btn-xs btn-danger btn-bt-forget" data-addr="${escapeHtml(h.addr)}" data-name="${escapeHtml(resolveHostDeviceName(h))}">${escapeHtml(t('bt_forget_host', 'Forget'))}</button>
@@ -241,6 +242,7 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
     const btn = document.getElementById('btPairToggleBtn');
     const name = document.getElementById('btPairName')?.value || 'Harmony Keyboard';
     const target = document.getElementById('btPairTargetDev')?.value || '';
+    const profile = document.getElementById('btPairProfile')?.value || 'keyboard';
 
     const isPairing = btn && btn.classList.contains('btn-warning'); /* set while pairing; the label is translated */
     if (isPairing) {
@@ -262,14 +264,56 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
     }
     try {
       if (btn) btn.textContent = t('entering_pairing_mode');
-      await this.client.setBtPairing(true, name, target);
+      await this.client.setBtPairing(true, name, target, profile);
       const devObj = (this.inventory.devices || []).find(d => String(d.id) === String(target));
-      showToast(tf('hub_now_discoverable', { name: name, target: devObj ? devObj.name : target }), 'success');
+      if (profile === 'ps3') showToast(t('bt_discoverable_ps3'), 'success');
+      else showToast(tf('hub_now_discoverable', { name: name, target: devObj ? devObj.name : target }), 'success');
     } catch (err) {
       alert(t('pairing_mode_failed', 'Pairing mode failed: ') + err.message);
     } finally {
       await this.loadBtView();
     }
+  }
+
+  /* Legacy PIN pairing: shown while a host refused 0000 (pair again) or waits for its code */
+  renderBtPin(pin) {
+    const box = document.getElementById('btPinBox');
+    const msg = document.getElementById('btPinMsg');
+    const row = document.getElementById('btPinRow');
+    const input = document.getElementById('btPinInput');
+    if (!box || !msg || !row) return;
+    const state = pin?.state || 'none';
+    box.style.display = state === 'none' ? 'none' : 'block';
+    const name = pin?.name || pin?.addr || t('bluetooth_host_default');
+    if (state === 'waiting') {
+      msg.textContent = tf('bt_pin_waiting', { name });
+      row.style.display = 'flex';
+      if (input && document.activeElement !== input) input.focus();
+    } else if (state === 'required') {
+      msg.textContent = tf('bt_pin_required', { name });
+      row.style.display = 'none';
+    }
+  }
+
+  async sendBtPairingPin(cancel) {
+    const input = document.getElementById('btPinInput');
+    try {
+      if (cancel) {
+        await this.client.cancelBtPairingPin();
+      } else {
+        const pin = (input?.value || '').trim();
+        if (!/^\d{1,16}$/.test(pin)) {
+          showToast(t('bt_pin_invalid'), 'error');
+          return;
+        }
+        await this.client.sendBtPairingPin(pin);
+        if (input) input.value = '';
+        showToast(t('bt_pin_sent'), 'success');
+      }
+    } catch (err) {
+      showToast(tf('error_msg', { error: err.message }), 'error');
+    }
+    await this.loadBtView();
   }
 
   async sendBtDirectText() {

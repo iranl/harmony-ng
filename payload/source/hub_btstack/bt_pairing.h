@@ -22,6 +22,11 @@ extern bool g_user_scan_active;
 extern time_t g_user_scan_end;
 
 uint16_t get_target_host_hid_cid(void);
+/* BT_PROFILE_* of the host get_target_host_hid_cid() names (keyboard when none) */
+uint8_t target_host_profile(void);
+/* The profile a host paired with, kept in BT_PROFILES_FILE (keyboard: no line) */
+uint8_t host_profile_load(const bd_addr_t addr);
+void host_profile_save(const bd_addr_t addr, uint8_t profile);
 bool is_any_host_connected(void);
 bool is_host_connected(const bd_addr_t addr);
 bool all_known_hosts_connected(void);

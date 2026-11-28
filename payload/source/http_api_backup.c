@@ -206,6 +206,8 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
                 { "auth", "/data/harmony/webui_auth.conf" },
                 { "users", HARMONY_USERS_JSON },
                 { "hub_id", "/data/harmony/hub_id" },
+                /* what each Bluetooth host paired the Hub as (a PS3: the BD Remote), with the keys */
+                { "bt_host_profiles", "/data/harmony/bt_host_profiles" },
                 { NULL, NULL }
             };
 
@@ -456,6 +458,7 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
                         { "auth", "/data/harmony/webui_auth.conf", 0 },
                         { "users", HARMONY_USERS_JSON, 0 },
                         { "hub_id", "/data/harmony/hub_id", 0 },
+                        { "bt_host_profiles", "/data/harmony/bt_host_profiles", 0 },
                         { NULL, NULL, 0 }
                     };
 

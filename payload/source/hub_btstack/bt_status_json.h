@@ -11,7 +11,9 @@
  * from dummy values (tests/bt_status_sample.c). Shape:
  *   backend, pid, state (the LE remote link's state), target (the LE remote's address),
  *   last_button, last_seen, remote {connected, addr}, host {connected, addr, name, pairing}
- *   (the host keys go to), hosts [{addr, name, connected, paired, cid}] (every known host).
+ *   (the host keys go to), hosts [{addr, name, connected, paired, cid, profile}] (every known
+ *   host; profile "keyboard" or "ps3"), pin {state, addr, name} (legacy PIN pairing, bt_pin.h:
+ *   state "none", "required" or "waiting").
  * hub_daemon adds ok, running, connected and pairing when it serves it (state_watch.c).
  */
 
@@ -24,6 +26,7 @@ typedef struct {
     bool connected;
     bool paired;
     uint16_t cid;
+    const char *profile;
 } bt_status_host_t;
 
 typedef struct {
@@ -38,6 +41,9 @@ typedef struct {
     char host_addr[BT_STATUS_ADDR_LEN];
     const char *host_name;
     bool host_pairing;
+    const char *pin_state;
+    char pin_addr[BT_STATUS_ADDR_LEN];
+    const char *pin_name;
     int nhosts;
     bt_status_host_t hosts[BT_STATUS_MAX_HOSTS];
 } bt_status_view_t;

@@ -104,6 +104,7 @@ def main():
         write(os.path.join(d, "web_remote_layouts.json"), json.dumps({"layouts": {}}))
         with open(os.path.join(d, "btstack_keys.tlv"), "wb") as f:
             f.write(b"\x01\x02\x03keys")
+        write(os.path.join(d, "bt_host_profiles"), "00:11:22:33:44:03 ps3\n")
 
         st, bundle = hub.http_get("/export/bundle")
         check(st == 200 and isinstance(bundle, dict), "bundle exported", str(st))
@@ -113,10 +114,13 @@ def main():
         check(bundle.get("rf_slot_map") == "1 4 3 2 5 6\n", "slot table exported as text", repr(bundle.get("rf_slot_map")))
         check(bundle.get("hub_id") == "20130507121425-002126\n", "hub_id exported as text", repr(bundle.get("hub_id")))
         check(bool(bundle.get("btstack_keys")), "Bluetooth keys in the bundle")
+        check(bundle.get("bt_host_profiles") == "00:11:22:33:44:03 ps3\n", "Bluetooth host profiles exported as text",
+              repr(bundle.get("bt_host_profiles")))
 
         # change what the import must put back
         write(os.path.join(d, "remote_slot6_map.json"), json.dumps({"remote": {"name": "changed"}}))
         write(os.path.join(d, "rf_slot_map.txt"), "1 2 3 4 5 6\n")
+        os.remove(os.path.join(d, "bt_host_profiles"))
         rf = FakeHubRf()
         st, r = hub.http_post("/import", {"target": "bundle", "payload": bundle, "restore_network": True}, timeout=15)
         check(st == 200, "bundle with every section imported", "%s %s" % (st, r))
@@ -131,6 +135,8 @@ def main():
             check(json.load(f).get("remote", {}).get("name") == "Slot 6", "slot 6 map restored")
         with open(os.path.join(d, "rf_slot_map.txt")) as f:
             check(f.read() == "1 4 3 2 5 6\n", "slot table restored")
+        with open(os.path.join(d, "bt_host_profiles")) as f:
+            check(f.read() == "00:11:22:33:44:03 ps3\n", "Bluetooth host profiles restored")
 
         # a bundle from before text sections stayed text: hub_id as a number is skipped
         old = dict(bundle)

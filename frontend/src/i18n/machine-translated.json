@@ -645,7 +645,20 @@
     "plg_verify_code",
     "plg_confirm_running",
     "plg_confirm_timeout",
-    "plg_ir_alt_title"
+    "plg_ir_alt_title",
+    "bt_profile_label",
+    "bt_profile_keyboard",
+    "bt_profile_ps3",
+    "bt_profile_ps3_short",
+    "bt_discoverable_ps3",
+    "bt_pin_placeholder",
+    "bt_pin_send",
+    "bt_pin_sent",
+    "bt_pin_invalid",
+    "bt_pin_waiting",
+    "bt_pin_required",
+    "bt_pair_select_device",
+    "btkey_cat_ps3"
   ],
   "fr": [
     "map_action_help",
@@ -1292,7 +1305,20 @@
     "plg_verify_code",
     "plg_confirm_running",
     "plg_confirm_timeout",
-    "plg_ir_alt_title"
+    "plg_ir_alt_title",
+    "bt_profile_label",
+    "bt_profile_keyboard",
+    "bt_profile_ps3",
+    "bt_profile_ps3_short",
+    "bt_discoverable_ps3",
+    "bt_pin_placeholder",
+    "bt_pin_send",
+    "bt_pin_sent",
+    "bt_pin_invalid",
+    "bt_pin_waiting",
+    "bt_pin_required",
+    "bt_pair_select_device",
+    "btkey_cat_ps3"
   ],
   "nl": [
     "map_action_help",
@@ -1939,7 +1965,20 @@
     "plg_verify_code",
     "plg_confirm_running",
     "plg_confirm_timeout",
-    "plg_ir_alt_title"
+    "plg_ir_alt_title",
+    "bt_profile_label",
+    "bt_profile_keyboard",
+    "bt_profile_ps3",
+    "bt_profile_ps3_short",
+    "bt_discoverable_ps3",
+    "bt_pin_placeholder",
+    "bt_pin_send",
+    "bt_pin_sent",
+    "bt_pin_invalid",
+    "bt_pin_waiting",
+    "bt_pin_required",
+    "bt_pair_select_device",
+    "btkey_cat_ps3"
   ],
   "es": [
     "map_action_help",
@@ -2586,7 +2625,20 @@
     "plg_verify_code",
     "plg_confirm_running",
     "plg_confirm_timeout",
-    "plg_ir_alt_title"
+    "plg_ir_alt_title",
+    "bt_profile_label",
+    "bt_profile_keyboard",
+    "bt_profile_ps3",
+    "bt_profile_ps3_short",
+    "bt_discoverable_ps3",
+    "bt_pin_placeholder",
+    "bt_pin_send",
+    "bt_pin_sent",
+    "bt_pin_invalid",
+    "bt_pin_waiting",
+    "bt_pin_required",
+    "bt_pair_select_device",
+    "btkey_cat_ps3"
   ],
   "it": [
     "map_action_help",
@@ -3233,6 +3285,19 @@
     "plg_verify_code",
     "plg_confirm_running",
     "plg_confirm_timeout",
-    "plg_ir_alt_title"
+    "plg_ir_alt_title",
+    "bt_profile_label",
+    "bt_profile_keyboard",
+    "bt_profile_ps3",
+    "bt_profile_ps3_short",
+    "bt_discoverable_ps3",
+    "bt_pin_placeholder",
+    "bt_pin_send",
+    "bt_pin_sent",
+    "bt_pin_invalid",
+    "bt_pin_waiting",
+    "bt_pin_required",
+    "bt_pair_select_device",
+    "btkey_cat_ps3"
   ]
 }

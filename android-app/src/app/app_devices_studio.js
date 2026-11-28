@@ -126,6 +126,37 @@ export const BT_STANDARD_KEY_PRESETS = [
       { name: 'Number8', code: 'HID:07:0025', desc: '8' },
       { name: 'Number9', code: 'HID:07:0026', desc: '9' }
     ]
+  },
+  {
+    // a host paired with the PS3 profile (BD Remote Control); the keys above are translated for it
+    category: 'PlayStation 3 (BD Remote)',
+    categoryKey: 'btkey_cat_ps3',
+    keys: [
+      { name: 'PS', code: 'PS3:43', desc: 'PS button (also wakes the PS3)' },
+      { name: 'Triangle', code: 'PS3:5C', desc: 'Triangle (options)' },
+      { name: 'Circle', code: 'PS3:5D', desc: 'Circle (back)' },
+      { name: 'Cross', code: 'PS3:5E', desc: 'Cross (confirm)' },
+      { name: 'Square', code: 'PS3:5F', desc: 'Square' },
+      { name: 'Start', code: 'PS3:53', desc: 'Start' },
+      { name: 'SelectButton', code: 'PS3:50', desc: 'Select' },
+      { name: 'L1', code: 'PS3:5A', desc: 'L1' },
+      { name: 'R1', code: 'PS3:5B', desc: 'R1' },
+      { name: 'L2', code: 'PS3:58', desc: 'L2' },
+      { name: 'R2', code: 'PS3:59', desc: 'R2' },
+      { name: 'TopMenu', code: 'PS3:1A', desc: 'Top Menu' },
+      { name: 'PopUpMenu', code: 'PS3:40', desc: 'Pop Up Menu' },
+      { name: 'Eject', code: 'PS3:16', desc: 'Eject' },
+      { name: 'Display', code: 'PS3:70', desc: 'Display' },
+      { name: 'Subtitle', code: 'PS3:63', desc: 'Subtitle' },
+      { name: 'Audio', code: 'PS3:64', desc: 'Audio' },
+      { name: 'Angle', code: 'PS3:65', desc: 'Angle' },
+      { name: 'StepBack', code: 'PS3:60', desc: 'Step / Slow back' },
+      { name: 'StepForward', code: 'PS3:61', desc: 'Step / Slow forward' },
+      { name: 'Red', code: 'PS3:81', desc: 'Red' },
+      { name: 'Green', code: 'PS3:82', desc: 'Green' },
+      { name: 'Yellow', code: 'PS3:83', desc: 'Yellow' },
+      { name: 'Blue', code: 'PS3:80', desc: 'Blue' }
+    ]
   }
 ];
 
