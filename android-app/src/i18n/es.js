@@ -1947,7 +1947,6 @@ export default {
     "usb_storage_disable_confirm": "¿Usar de nuevo la flash desde el próximo reinicio? Contiene los datos tal como estaban al configurar la memoria: los cambios posteriores quedan solo en la memoria.",
     "usb_storage_busy": "Trabajando...",
     "usb_storage_failed": "La última acción falló: {message}",
-    "usb_storage_title": "Almacenamiento USB",
     "hide_in_devices_tab": "Ocultar en la pestaña Dispositivos (solo interfaz web; el mando no cambia)",
     "devices_all_hidden": "Todos los dispositivos están ocultos en esta pestaña. Desmarque \"Ocultar en la pestaña Dispositivos\" en los ajustes del dispositivo para mostrar uno.",
     "slot_n_empty": "Ranura {slot} (vacía)",

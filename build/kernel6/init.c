@@ -52,6 +52,9 @@
 #include "flash_image.h"
 
 #define BUSYBOX "/cache/bin/busybox"
+/* the static BusyBox rc.sh keeps for this fallback once /cache/bin/busybox links to the root
+ * file system's (dynamic) one, which the flash initramfs does not have */
+#define RESCUE_BUSYBOX "/cache/kernel6/busybox"
 #define RC "/cache/kernel6/rc.sh"
 #define RESET_FLAG "/cache/kernel6/factory-reset"
 #define PENDING_ROOT "/cache/kernel6/rootfs.sqfs"
@@ -191,29 +194,17 @@ static int our_root(int n) {
     return ok;
 }
 
-static int mtd_erase(int fd, uint32_t off, uint32_t len) {
-    struct erase_info_user ei = { .start = off, .length = len };
-    return ioctl(fd, MEMERASE, &ei);
-}
-
-static long mtd_pread(int fd, void *buf, uint32_t len, uint32_t off) {
-    return pread(fd, buf, len, off);
-}
-
-static long mtd_pwrite(int fd, const void *buf, uint32_t len, uint32_t off) {
-    return pwrite(fd, buf, len, off);
-}
-
 /* writes a staged root file system (an XZ squashfs that fits) to mtd "root", block by block with
- * read-back */
+ * read-back. An image that is not valid is set aside (.failed); a flash error keeps it for the
+ * next boot (block 0 is erased first, so the half-written root is not mounted meanwhile: the
+ * fallback boot runs) */
 static void write_pending_root(const char *pending) {
-    static const struct flash_ops ops = { mtd_erase, mtd_pread, mtd_pwrite };
     char dev[32], err[128] = "";
     struct mtd_info_user mi;
     struct flash_part part;
     struct stat st;
     uint8_t *img = NULL;
-    int n = mtd_num("root"), fd = -1, mfd = -1, written = 0, ok = 0;
+    int n = mtd_num("root"), fd = -1, mfd = -1, written = 0, ok = 0, flash_error = 0;
 
     if (stat(pending, &st) != 0) return;
     msg("writing", pending, 0);
@@ -229,7 +220,8 @@ static void write_pending_root(const char *pending) {
         part.fd = mfd;
         part.size = mi.size;
         part.erasesize = mi.erasesize;
-        ok = flash_write_image(&part, 1, &ops, img, st.st_size, &written, err, sizeof(err)) == 0;
+        ok = flash_write_image(&part, 1, &flash_mtd_ops, img, st.st_size, &written, err, sizeof(err)) == 0;
+        flash_error = !ok;
     }
     if (fd >= 0) close(fd);
     if (mfd >= 0) close(mfd);
@@ -237,6 +229,8 @@ static void write_pending_root(const char *pending) {
     if (ok) {
         unlink(pending);
         dprintf(2, "init: root file system written (%d blocks)\n", written);
+    } else if (flash_error) {
+        msg("root file system not written (kept for the next boot):", err, 0);
     } else {
         char failed[96];
         snprintf(failed, sizeof(failed), "%s.failed", pending);
@@ -482,14 +476,15 @@ int main(void) {
         if (write(fd, "/bin/modprobe\n", 14) < 0) msg("cannot set", "modprobe path", errno);
         close(fd);
     }
-    if (access(RC, R_OK) == 0) {
-        execl(BUSYBOX, "sh", RC, (char *)NULL);
-        msg("cannot run", BUSYBOX, errno);
-    } else {
-        msg("missing", RC, errno);
+    {
+        static const char *const shells[] = { RESCUE_BUSYBOX, BUSYBOX };
+        if (access(RC, R_OK) != 0) msg("missing", RC, errno);
+        for (int i = 0; i < 2; i++) {
+            if (access(RC, R_OK) == 0) execl(shells[i], "sh", RC, (char *)NULL);
+            else execl(shells[i], "sh", (char *)NULL);
+            msg("cannot run", shells[i], errno);
+        }
     }
-    execl(BUSYBOX, "sh", (char *)NULL);
-    msg("cannot run", BUSYBOX, errno);
     for (;;)
         pause();
 }

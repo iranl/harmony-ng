@@ -100,17 +100,25 @@ def main() -> None:
             check=False, timeout=60)
 
     print("=== Waiting for the stock firmware ===")
+    # The 6.18 system answers until the write ends: 16 MB of NOR take about 15 minutes (test Hub,
+    # 2026-11-28). It counts as not done only once hub_util restore no longer runs there.
     time.sleep(60)
     end = time.time() + 600
     while time.time() < end:
         if hub.reachable():
-            rel = hub.run("uname -r", check=False).strip()
+            out = hub.run("uname -r; ps | grep -c '[r]b/hub_util restore'; tail -n 1 /tmp/rb/log",
+                          check=False).splitlines()
+            rel = out[0].strip() if out else ""
             if rel.startswith("2.6.31"):
                 print(f"Done: the Hub runs the stock kernel {rel}.")
                 return
             if "harmony" in rel:
-                raise SystemExit("Error: the Hub still runs the 6.18 system: the restore did not happen. "
-                                 "See /tmp/rb/log (gone after a restart) or run it by hand.")
+                if len(out) > 1 and out[1].strip() != "0":
+                    print(f"  still writing: {out[2].strip() if len(out) > 2 else ''}")
+                    end = time.time() + 600
+                else:
+                    raise SystemExit("Error: the Hub still runs the 6.18 system: the restore did not happen. "
+                                     "See /tmp/rb/log (gone after a restart) or run it by hand.")
         time.sleep(10)
     print("The Hub does not answer over SSH (the stock firmware of the backup may not run SSH on this "
           "network). Check its light; the serial console shows the boot.")

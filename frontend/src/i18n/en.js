@@ -1283,7 +1283,6 @@ export default {
     "usb_storage_disable_confirm": "Use the flash again from the next restart? It holds the data as they were when the stick was set up: later changes stay on the stick only.",
     "usb_storage_busy": "Working...",
     "usb_storage_failed": "Last action failed: {message}",
-    "usb_storage_title": "USB Storage",
     "hide_in_devices_tab": "Hide in Devices tab (web UI only; the remote is not changed)",
     "devices_all_hidden": "All devices are hidden from this tab. Clear \"Hide in Devices tab\" in the device settings to show one.",
     "device_visibility": "Visibility",

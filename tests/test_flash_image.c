@@ -130,7 +130,7 @@ int main(void) {
     CHECK(flash_write_image(parts, 2, &ops, img, len, &written, err, sizeof(err)) == 0, "write ok");
     CHECK(written == 6, "6 blocks written");
     CHECK(matches(parts, img, len), "content across both partitions, tail erased, rest untouched");
-    CHECK(nerase == 6 && erase_log[5] == ((uint32_t)parts[0].fd << 24 | 0), "header block erased last");
+    CHECK(nerase == 6 && erase_log[0] == ((uint32_t)parts[0].fd << 24 | 0), "header block erased first, once");
 
     nerase = 0;
     CHECK(flash_write_image(parts, 2, &ops, img, len, &written, err, sizeof(err)) == 0 && written == 0
@@ -141,9 +141,8 @@ int main(void) {
     CHECK(flash_write_image(parts, 2, &ops, huge, big, &written, err, sizeof(err)) != 0, "too big refused");
     free(huge);
 
-    /* new image, the 3rd erase fails: reported, header block still the old one */
-    uint8_t first_before[BS];
-    rd(parts[0].fd, first_before, BS, 0);
+    /* new image, the 2nd erase fails: reported, and the header block is erased (no header of
+     * the old image left over partly new blocks) */
     img[64 + 2 * BS] ^= 0xFF;
     put32(img + 24, flash_crc32(0, img + 64, len - 64));
     put32(img + 4, 0);
@@ -152,9 +151,10 @@ int main(void) {
     fail_erase_at = 1;
     CHECK(flash_write_image(parts, 2, &ops, img, len, &written, err, sizeof(err)) != 0
           && strstr(err, "erase failed"), "erase failure reported");
-    uint8_t first_after[BS];
+    uint8_t first_after[BS], blank[BS];
     rd(parts[0].fd, first_after, BS, 0);
-    CHECK(memcmp(first_before, first_after, BS) == 0, "header block untouched after a failure");
+    memset(blank, 0xFF, BS);
+    CHECK(memcmp(first_after, blank, BS) == 0, "header block erased after a failure");
     fail_erase_at = -1;
 
     close(parts[0].fd);

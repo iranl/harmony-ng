@@ -1283,7 +1283,6 @@ export default {
     "usb_storage_disable_confirm": "Utiliser de nouveau la flash à partir du prochain redémarrage ? Elle contient les données telles qu'elles étaient lors de la configuration de la clé : les modifications ultérieures restent seulement sur la clé.",
     "usb_storage_busy": "En cours...",
     "usb_storage_failed": "La dernière action a échoué : {message}",
-    "usb_storage_title": "Stockage USB",
     "hide_in_devices_tab": "Masquer dans l'onglet Appareils (interface web uniquement ; la télécommande ne change pas)",
     "devices_all_hidden": "Tous les appareils sont masqués dans cet onglet. Décochez « Masquer dans l'onglet Appareils » dans les réglages de l'appareil pour en afficher un.",
     "device_visibility": "Visibilité",

@@ -18,6 +18,9 @@ struct flash_ops {
     long (*pwrite)(int fd, const void *buf, uint32_t len, uint32_t off);
 };
 
+/* erase, pread and pwrite on an open /dev/mtdN (hub_util flash-image and restore, init.c) */
+extern const struct flash_ops flash_mtd_ops;
+
 uint32_t flash_crc32(uint32_t crc, const uint8_t *p, size_t len);
 
 /* 0 when img is a complete uImage with valid header and data CRCs and len covers it. */
@@ -31,8 +34,9 @@ int squashfs_check(const uint8_t *img, size_t len, int comp, char *err, size_t e
 
 /* Writes img over the partitions, which must follow each other on the flash in the given
  * order. Every erase block is read first and skipped when it already holds the data; others
- * are erased, written and read back. The first block (the uImage header) is written last, so
- * a write cut short leaves a header whose CRC check fails rather than a valid-looking image.
+ * are erased, written and read back. The first block (uImage header, squashfs superblock) is
+ * erased first when it changes and written last, so a write cut short leaves no header and no
+ * magic rather than the old one over partly new blocks.
  * Returns 0, or -1 with err set. *written counts the blocks that were rewritten. */
 int flash_write_image(const struct flash_part *parts, int nparts, const struct flash_ops *ops,
                       const uint8_t *img, size_t len, int *written, char *err, size_t errlen);

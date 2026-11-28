@@ -1283,7 +1283,6 @@ export default {
     "usb_storage_disable_confirm": "Usare di nuovo la flash dal prossimo riavvio? Contiene i dati com'erano quando la chiavetta è stata configurata: le modifiche successive restano solo sulla chiavetta.",
     "usb_storage_busy": "In corso...",
     "usb_storage_failed": "Ultima azione non riuscita: {message}",
-    "usb_storage_title": "Archiviazione USB",
     "hide_in_devices_tab": "Nascondi nella scheda Dispositivi (solo interfaccia web; il telecomando non cambia)",
     "devices_all_hidden": "Tutti i dispositivi sono nascosti in questa scheda. Deseleziona \"Nascondi nella scheda Dispositivi\" nelle impostazioni del dispositivo per mostrarne uno.",
     "device_visibility": "Visibilità",

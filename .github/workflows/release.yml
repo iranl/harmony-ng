@@ -194,6 +194,11 @@ jobs:
         run: |
           chmod +x build/*.sh
           ./build/compile_all.sh all
+          # static BusyBox for stock Hubs (tools/root_hub_usb.py, tools/backup_hub.py): payload/bin/busybox
+          LINK=static ./build/build_busybox.sh mips
+          mkdir -p build/output/stock_tools
+          cp -f payload/bin/busybox build/output/stock_tools/busybox
+          cp -f tools/bin/dropbearmulti_mips build/output/stock_tools/dropbearmulti_mips
           mkdir -p build/output/hub
           cp -a payload/bin/hub_* payload/bin/register_ehci payload/bin/eth_fix payload/bin/mknod build/output/hub/ 2>/dev/null || cp -f payload/bin/hub_* payload/bin/register_ehci payload/bin/eth_fix payload/bin/mknod build/output/hub/
           # shared BearSSL for plugins (scripts/publish_ota.py puts it in hub_ota.tar.gz as lib/)
@@ -209,6 +214,11 @@ jobs:
         with:
           name: hub-binaries
           path: build/output/hub/
+      - name: Archive Stock Hub Tools
+        uses: actions/upload-artifact@v7
+        with:
+          name: stock-tools
+          path: build/output/stock_tools/
       - name: Archive BTstack Dev Build
         uses: actions/upload-artifact@v7
         with:
@@ -374,6 +384,11 @@ jobs:
             fi
             cp -f build/deploy_hub.py staging_hub/
             printf '%s\n' "$VERSION" > staging_hub/VERSION
+            # static BusyBox and Dropbear for a stock Hub (tools/root_hub_usb.py looks in tools/bin)
+            if [ -d artifacts/stock-tools ]; then
+              mkdir -p staging_hub/tools/bin
+              cp -f artifacts/stock-tools/* staging_hub/tools/bin/
+            fi
             cp -f tools/root_hub_usb.py tools/harmony_hid.py tools/harmony_firmware.py tools/migrate_hub_configs.py tools/backup_hub.py tools/restore_stock.py tools/factory_reset.py tools/ssh_hostkeys.py tools/icon_pack.py tools/install_kernel6.py tools/rollback_kernel6.py staging_hub/tools/
             # the Linux 6.18 system for tools/install_kernel6.py (bundle layout: kernel6/)
             if [ -d artifacts/kernel6-images ]; then
@@ -452,4 +467,11 @@ jobs:
           # scripts/publish_ota.py ships the system image from build/output/kernel6 (kernel6/ in the manifest)
           mkdir -p build/output/kernel6
           cp -f artifacts/kernel6-images/harmony-hub-flash.uImage artifacts/kernel6-images/harmony-hub-rootfs.sqfs build/output/kernel6/
-          python scripts/publish_ota.py --version "$VERSION" --require-signature --push --remote "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" --branch ota4 --v4-pointer-branch ota
+          # v4 (Linux 6.18) releases go to ota4 and point v3 Hubs at them (VERSION_V4 on ota); a v3
+          # release goes to ota as before, without the pointer
+          if [ "${VERSION%%.*}" -ge 4 ]; then
+            OTA_BRANCH="--branch ota4 --v4-pointer-branch ota"
+          else
+            OTA_BRANCH="--branch ota"
+          fi
+          python scripts/publish_ota.py --version "$VERSION" --require-signature --push --remote "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" $OTA_BRANCH

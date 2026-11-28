@@ -36,6 +36,10 @@ python3 "$SCRIPT_DIR/test_root_boot_scripts.py"
 
 # tools/backup_hub.py keeps only complete tar archives (fake ssh)
 python3 "$SCRIPT_DIR/test_backup_hub_check.py"
+# tools/install_kernel6.py (mode detection, free space without HarmonyNG's BusyBox) and
+# tools/uboot_mm_load.py (serial RAM load)
+python3 "$SCRIPT_DIR/test_install_kernel6.py"
+python3 "$SCRIPT_DIR/test_uboot_mm_load.py"
 # tools/factory_reset.py stops and exits non-zero when a step fails (fake ssh)
 python3 "$SCRIPT_DIR/test_factory_reset_tool.py"
 # tools/restore_stock.py against a fake Hub root (no network)

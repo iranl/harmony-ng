@@ -78,10 +78,11 @@ void ir_i2s_shutdown(void) {
     }
 }
 
-/* Largest bit stream one send may build: 10 s of IR at a 60 kHz carrier fits (about 900 KB),
- * real frames need a few KB. Without a limit a high carrier or long durations built one of
- * tens of MB (or GB) on the Hub's 64 MB, one bit at a time. */
-#define IR_I2S_MAX_STREAM_BYTES (1024 * 1024)
+/* Largest bit stream one send may build: the Linux 6.18 I2S driver's TX ring (512 x 768
+ * bytes, build/kernel6/drivers/harmony_i2s.c), which is filled before the DMA starts: about
+ * 6.9 s of IR at a 38 kHz carrier; real frames need a few KB. Without a limit a high carrier
+ * or long durations built one of tens of MB (or GB) on the Hub's 64 MB, one bit at a time. */
+#define IR_I2S_MAX_STREAM_BYTES (512 * 768)
 
 static inline uint32_t get_spp(uint32_t period_ns) {
     if (period_ns >= 12000) return 12;
