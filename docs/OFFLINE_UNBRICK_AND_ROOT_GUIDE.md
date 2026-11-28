@@ -18,7 +18,7 @@ This guide documents the complete hardware and software procedure for recovering
 ## 0. Overview & Architecture
 
 ### The Hardware
-- **SoC**: Atheros AR9344 (MIPS 74Kc big-endian, ~533 MHz).
+- **SoC**: Atheros AR9330 "Hornet" (MIPS 24Kc big-endian, 400 MHz; 64 MB RAM, 16 MB SPI NOR).
 - **RAM**: 64 MB DDR.
 - **Flash**: 16 MB SPI Flash.
   - `mtd0`: U-Boot bootloader (`ar7240`).
@@ -174,6 +174,14 @@ When powered on, U-Boot listens on serial for ~1 second before booting the kerne
 6. Linux will boot directly to a root prompt:
    ```text
    /# 
+   ```
+
+   **Linux 6.18 system:** its kernel ignores `init=` (its init always runs the boot script, and
+   Bluetooth then takes the serial port). Ask the boot script to keep the serial console for this
+   boot instead; the system starts as usual, with a root shell on the serial port and Bluetooth off:
+   ```text
+   setenv bootargs console=ttyATH0,115200 harmony.serial=1
+   bootm 0x9f010000
    ```
 
 ---

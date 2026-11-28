@@ -8,6 +8,7 @@ import { getInitialLanguage, setLanguage, t } from './i18n/index.js';
 import { createStatusPill } from './components/status-pill.js';
 import { installUnauthorizedHandler } from './components/login-modal.js';
 import { initIconCache } from './icons/cache.js';
+import { setOtaSource } from './utils/update_source.js';
 import { createRemoteView } from './views/remote.js';
 import { createDevicesView } from './views/devices.js';
 import { createSetupView } from './views/setup/index.js';
@@ -51,6 +52,8 @@ async function initApp() {
     if (!dryRunBanner) return;
     try {
       const st = await api.getSettings().catch(() => null);
+      // the update source the icon archive fallback uses, before the System page is opened
+      if (st) setOtaSource(st.update_repo);
       if (st && (st.dry_run === true || st.dry_run === 1)) {
         dryRunBanner.style.display = 'flex';
       } else {

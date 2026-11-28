@@ -190,7 +190,7 @@ export class HarmonyAppActivitiesView extends HarmonyAppActivitiesState {
 
     try {
       const status = await this.client.request('/api/status').catch(() => null);
-      if (fwEl) fwEl.textContent = 'Linux 2.6.31 (4.15.600)';
+      if (fwEl) fwEl.textContent = (status && status.firmware) || '-';
       if (status && status.uptime_sec !== undefined) {
         const sec = Number(status.uptime_sec) || 0;
         const days = Math.floor(sec / 86400);

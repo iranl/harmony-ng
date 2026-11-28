@@ -8,7 +8,7 @@ Logitech Harmony Hub communicates locally with paired physical remotes, includin
 +------------------------------------+              2.4 GHz eQuad RF Link             +------------------------------------+
 |       Harmony Hub (Host Mode)      |                                                |   Harmony Remotes (Device Mode)    |
 |                                    |                                                |                                    |
-| Atheros AR9344 SoC (MIPS 24Kc)    |                                                | • Touchscreen: DaVinci DM365 ARM   |
+| Atheros AR9330 SoC (MIPS 24Kc)    |                                                | • Touchscreen: DaVinci DM365 ARM   |
 |   |                                |                                                | • Companion/Smart: CC2544/MCU      |
 |   | /dev/rfspi (SPI Master)        |                                                |   |                                |
 |   v                                |                                                |   v                                |
@@ -20,8 +20,8 @@ Logitech Harmony Hub communicates locally with paired physical remotes, includin
 
 ## 2. Hardware Interfaces & Kernel Drivers
 
-### 2.1 Hub (`cc2544.ko` on Atheros AR9344)
-- **Shared SPI Bus**: The Atheros AR9344 SoC multiplexes SPI lines between the CC2544 radio and the NOR flash memory (`ar7240_flash_spi_down()` / `ar7240_flash_spi_up()`).
+### 2.1 Hub (`cc2544.ko` on Atheros AR9330)
+- **Shared SPI Bus**: The Atheros AR9330 SoC multiplexes SPI lines between the CC2544 radio and the NOR flash memory (`ar7240_flash_spi_down()` / `ar7240_flash_spi_up()`).
   - **CRITICAL CONSTRAINT**: Multiple processes must **never** open `/dev/rfspi` concurrently. Doing so corrupts the SPI arbiter register, hangs the NOR flash bus, and freezes the kernel.
 - **Interrupts**: GPIO 14 (mapped to IRQ 46 / `0x2E`) handles CC2544 data-ready notifications.
 - **Kernel I/O Model**: `cc2544.ko` does not implement `.poll` or `.select`. `read()` on `/dev/rfspi` blocks until an IRQ fires. Dedicated worker threads are required.

@@ -1,4 +1,5 @@
 import { HarmonyClient } from '../api.js';
+import { DEFAULT_OTA_URL, setOtaSource, otaSource } from '../update_source.js';
 import { getSavedHubs, saveHub, deleteHub, getActiveHub, setActiveHubId } from '../storage.js';
 import { createAppToken, revokeAppToken, hubBaseUrl, loginFields, withLoginCheck, finishReplace } from '../app_token.js';
 import { RemoteEngine } from '../remote-engine.js';
@@ -89,7 +90,7 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
       }
 
       if (log) {
-        log.textContent = tf('ver_hub_firmware', { value: sys.firmware || stat.fw_version || '4.15.600' }) + '\n' +
+        log.textContent = tf('ver_hub_firmware', { value: sys.firmware || stat.fw_version || t('unknown_lc') }) + '\n' +
           tf('ver_hub_webui', { value: this.appVersion || APP_VERSION }) + '\n' +
           tf('ver_hub_daemon', { value: sys.version || stat.current_version || APP_VERSION }) + '\n' +
           tf('ver_commit', { value: stat.commit || sys.commit || 'dev' }) + '\n' +
@@ -104,14 +105,31 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
     }
   }
 
+  /* The update source field is the Hub's update_repo setting: the default URL is stored as
+     empty, so the Hub follows the official source if it moves. */
+  async saveUpdateRepo(value) {
+    const clean = (value || '').trim().replace(/\/+$/, '').replace(/\/bin\/mips$/, '').replace(/\/+$/, '');
+    const stored = clean === DEFAULT_OTA_URL ? '' : clean;
+    // unchanged: no settings write (a flash write and the settings applied again) per click
+    if ((clean || DEFAULT_OTA_URL) === otaSource()) return;
+    try {
+      await this.client.saveSettings({ update_repo: stored });
+      setOtaSource(stored);
+    } catch (err) {
+      showToast(tf('error_msg', { error: err.message }), 'error');
+      throw err;
+    }
+  }
+
   async checkSoftwareUpdate() {
     const log = document.getElementById('updateLog');
     const repoInput = document.getElementById('updateRepo')?.value.trim() || '';
     const tokenInput = document.getElementById('updateToken')?.value.trim() || '';
     try {
       if (log) log.textContent = t('checking_update_repo');
-      // A custom repo: the Hub reads its VERSION itself (the official one says nothing about it)
-      const remoteVer = repoInput ? '' : await this.fetchOnlineHubVersion(tokenInput);
+      // the field is the update_repo setting: save it, then read VERSION of that source
+      await this.saveUpdateRepo(repoInput);
+      const remoteVer = await this.fetchOnlineHubVersion(tokenInput);
 
       const res = await this.client.checkUpdate(true, repoInput, tokenInput, remoteVer);
       const stat = await this.client.getUpdateStatus().catch(() => ({}));
@@ -135,6 +153,7 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
     if (!await showConfirm(t('update_confirm', 'Download and apply update? Hub services will restart.'), { title: t('software_update'), okText: t('update_btn') })) return;
     const before = await this.client.getUpdateStatus().catch(() => ({}));
     try {
+      await this.saveUpdateRepo(repo);
       this.showUpdatingOverlay(t('hub_downloading_update'));
       if (log) log.textContent = t('update_applying', 'Applying software update...');
       await this.client.applyUpdate(token, repo);
@@ -288,60 +307,6 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
       alert(t('reboot_sent', 'Reboot command sent to hub. Reconnecting in 30 seconds...'));
     } catch (err) {
       alert(t('reboot_failed', 'Reboot failed: ') + err.message);
-    }
-  }
-
-  async cleanStockResources() {
-    const disk = await this.client.getSystemDisk().catch(() => null);
-    const kb = disk?.stock_resources_kb ?? 0;
-    const msg = tf('clean_stock_resources_confirm', { kb });
-    if (!await showConfirm(msg, {
-      title: t('clean_stock_resources_title', 'Empty Stock Resources'),
-      okText: t('empty_resources', 'Empty Resources'),
-      danger: true
-    })) return;
-
-    try {
-      const res = await this.client.cleanStockResources();
-      showToast(tf('freed_stock_resources_toast', { kb: res?.freed_kb ?? kb }), 'success');
-      await this.refreshStockResources();
-      if (typeof this.refreshDiskSpace === 'function') await this.refreshDiskSpace();
-    } catch (err) {
-      showToast(t('clean_resources_failed', 'Failed to empty stock resources: ') + err.message, 'error');
-    }
-  }
-
-  async refreshStockResources() {
-    const card = document.getElementById('cardStockResources');
-    const badge = document.getElementById('stockResourcesBadge');
-    const detail = document.getElementById('stockResourcesDetail');
-    const btn = document.getElementById('btnCleanStockResources');
-    if (!card) return;
-    if (btn) btn.disabled = true;
-
-    try {
-      const disk = await this.client.getSystemDisk();
-      const kb = disk?.stock_resources_kb;
-      // Firmware without the stock resources delete: no card
-      card.hidden = typeof kb !== 'number';
-      if (card.hidden) return;
-      const canEmpty = disk.can_empty_stock_resources === true;
-      if (badge) {
-        badge.textContent = `${kb} kB`;
-        badge.className = `badge ${kb > 0 ? 'warn' : 'ok'}`;
-      }
-      if (detail) {
-        detail.textContent = kb === 0 ? t('stock_resources_empty')
-          : canEmpty ? tf('stock_resources_used', { kb })
-          : !disk.stock_resources_saved ? t('stock_resources_not_saved') : t('stock_resources_not_imported');
-      }
-      if (btn) {
-        // style, not the hidden attribute: .btn sets display, which wins over [hidden]
-        btn.style.display = kb === 0 ? 'none' : '';
-        btn.disabled = !canEmpty;
-      }
-    } catch {
-      if (badge) badge.textContent = t('unknown');
     }
   }
 

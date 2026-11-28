@@ -1,4 +1,5 @@
 import { HarmonyClient } from '../api.js';
+import { otaSource, setOtaSource, githubReleasesApi } from '../update_source.js';
 import { getSavedHubs, saveHub, deleteHub, getActiveHub, setActiveHubId } from '../storage.js';
 import { RemoteEngine } from '../remote-engine.js';
 import {
@@ -598,28 +599,32 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
     }
   }
 
-  /* The Hub version update.sh would install, without "v", or '' when unknown: the ota branch
-   * VERSION first (its signed manifest is what gets installed), GitHub releases only when the
-   * branch cannot be read. */
+  /* The Hub version update.sh would install, without "v", or '' when unknown: VERSION of the
+   * update source first (its signed manifest is what gets installed), GitHub releases only when
+   * that cannot be read and the source is a GitHub repo. */
   async fetchOnlineHubVersion(token = '') {
-    const base = 'https://raw.githubusercontent.com/iranl/harmony-ng/ota';
-    for (const file of ['v2/VERSION', 'VERSION_V2']) {
+    const base = otaSource();
+    for (const file of ['VERSION']) {
       try {
         const res = await fetch(`${base}/${file}?_=${Date.now()}`, { cache: 'no-cache' });
         const ver = res.ok ? (await res.text()).trim().replace(/^v/, '') : '';
         if (/^\d+(\.\d+)*$/.test(ver)) return ver;
       } catch (_) { }
     }
+    const releasesApi = githubReleasesApi(base);
+    if (!releasesApi) return '';
     try {
       const headers = { 'Accept': 'application/vnd.github.v3+json' };
       if (token) headers['Authorization'] = `token ${token}`;
-      const res = await fetch('https://api.github.com/repos/iranl/harmony-ng/releases/latest', { headers, cache: 'no-cache' });
+      const res = await fetch(releasesApi, { headers, cache: 'no-cache' });
       if (res.ok) return String((await res.json()).tag_name || '').trim().replace(/^v/, '');
     } catch (_) { }
     return '';
   }
 
   async checkOnlineVersions() {
+    const st = await this.client.getSettings().catch(() => null);
+    if (st) setOtaSource(st.update_repo);
     const ver = await this.fetchOnlineHubVersion();
     if (ver) {
       this.onlineVersion = ver;

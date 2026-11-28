@@ -74,7 +74,9 @@ Returns high-level hub status, firmware, identity, active activity, flash space,
     read from the Hub (`/etc/version`) is in `/api/system-info` and `/api/update-status`. `version`
     and `commit`: this firmware, as in `/api/system-info`.
   - `total_kb`, `free_kb`: size and free space of the `/data` flash partition, in KB (not memory);
-    `cache_total_kb`, `cache_free_kb`: the same for `/cache`.
+    `cache_total_kb`, `cache_free_kb`: the same for `/cache`, both `0` when `/cache` is on the data
+    file system (the Linux 6.18 system's one data partition, or a USB stick): its space is in `total_kb`
+    already (`GET /api/disk-space` adds `cache_shared: true`).
   - `updating`: `true` while a firmware update runs or the services restart after it, as in `GET /api/update-status` (2.1).
   - `auth_enabled`: whether authentication is on. `role` (`"admin"` or `"user"`) and `user` are the
     caller's own: the account name, `pat:<token name>` for a personal access token, `"admin"` when
@@ -114,7 +116,7 @@ Returns Linux system uptime, CPU load average, kernel version, RAM breakdown, an
     "hub_name": "Living Room Hub",
     "uptime": "1d 4h 12m (101520s)",
     "loadavg": "0.12 0.08 0.05",
-    "kernel": "Linux version 3.3.8 (mips Atheros AR9344)",
+    "kernel": "Linux version 6.18.65-harmony (gcc 14) #1 Thu Nov 26 2026",
     "firmware": "4.15.600",
     "version": "2.4.2",
     "commit": "abc1234",
@@ -123,6 +125,8 @@ Returns Linux system uptime, CPU load average, kernel version, RAM breakdown, an
     "mem_total_kb": 131072,
     "mem_free_kb": 49152,
     "mem_available_kb": 73728,
+    "swap_total_kb": 16384,
+    "swap_free_kb": 16384,
     "network_details": "=== Network Interfaces (/proc/net/dev) ===\n..."
   }
   ```
@@ -143,9 +147,7 @@ Returns the flash space of `/data` (of root `/` when `/data` cannot be read) and
     "cache_free_kb": 2048,
     "cache_used_kb": 6144,
     "cache_percent_free": 25,
-    "stock_resources_kb": 251,
-    "stock_resources_saved": true,
-    "can_empty_stock_resources": true
+    "cache_shared": false
   }
   ```
 
@@ -196,6 +198,38 @@ Returns active network interface, Wi-Fi (`ath0`), USB Ethernet (`eth0`/`usb0`), 
     8.3); only `usb_wifi_setup` when there is no file. `usb_wifi_setup` is always there: `false`
     when `ethernet.conf` holds `USB_WIFI_SETUP=0`, else `true` (the default).
   - `ifconfig`: the text output of `/sbin/ifconfig`.
+
+#### `GET /api/usb-storage`
+The Hub's data and cache on a USB stick (Linux 6.18 system, `build/kernel6/usb_storage.sh`). An
+ext4 stick on the Hub's USB port (in host mode, through a USB hub cable) holds the overlay's
+writable layer and `/cache`: settings, icons and plugins, with room to spare. The flash keeps the
+boot state (`/cache/kernel6`: flags, a staged root file system) and the data as they were at the
+set-up. Without the stick at boot the Hub starts in rescue mode (Wi-Fi, SSH and the USB network,
+no HarmonyNG). While the stick is used the port stays in host mode (no USB device side).
+- **Response `200 OK`**:
+  ```json
+  {"ok": true, "mode": "usb", "device": "/dev/sda1", "total_kb": 7800000, "free_kb": 7700000,
+   "disks": [], "busy": false, "message": ""}
+  ```
+  - `mode`: `flash`, `usb` (`device`, `total_kb`, `free_kb` describe the stick) or `usb-missing`
+    (set up, but the stick was not there at boot: rescue mode).
+  - `disks`: the USB disks the Hub sees (`{"device": "/dev/sda", "size_kb": 7800000}`), in USB host
+    mode only (`scan`).
+  - `busy`: an action is running; `failed` (only when `true`) and `message` (the last output
+    line) describe the last one.
+
+#### `POST /api/usb-storage`
+- **Body**: `{"action": "scan" | "setup" | "disable"}`.
+  - `scan` switches the USB port to host mode (the USB device side, such as a network to a PC,
+    goes) and lists the disks.
+  - `setup` with `"device"` (a disk from `disks`, `/dev/sdX` or `/dev/sdXN`) and `"confirm": true`:
+    stops the Hub services, **erases** that disk, formats it as ext4, copies the data and cache to
+    it and restarts the Hub onto it.
+  - `disable`: the flash again from the next restart, with the data as they were at the set-up
+    (later changes stay on the stick).
+- **Response `202 Accepted`**: `{"ok": true, "status": "running", "action": "setup"}`; follow
+  `busy` in `GET /api/usb-storage`. **`400`**: unknown action, or `setup` without a listed disk
+  or without `confirm: true`. **`409`**: an action is running.
 
 ### 1.6 Background Services
 #### `GET /api/services`
@@ -312,9 +346,17 @@ Returns global hub settings from `/data/harmony/config/settings.json`.
     "timezone": "Europe/Amsterdam",
     "led_mode": "green",
     "mdns_enabled": true,
-    "legacy_enabled": false
+    "legacy_enabled": false,
+    "update_repo": "",
+    "update_repo_default": "https://raw.githubusercontent.com/iranl/harmony-ng/ota4"
   }
   ```
+  - `update_repo` (default empty, meaning `update_repo_default`): the update source. `update.sh`
+    (update check, update apply, remote OTA, Ethernet driver download) and the remote OTA in
+    `hub_rf` use it when a request names no `repo`. It must be an `http://` or `https://` URL of
+    letters, digits and `- _ . / : @ ~`; anything else is refused with `400`. For a
+    `raw.githubusercontent.com/<owner>/<repo>/...` source the version check falls back to that
+    repo's GitHub releases; for any other mirror it has no fallback.
   - `dry_run`: while `true`, `hub_daemon` simulates its outputs: nothing goes out over infrared,
     Bluetooth or MQTT, the sends are only logged. It is the state of the running daemon (set
     here, or by starting `hub_daemon` with `--dry-run`), not a stored setting: it is never stored
@@ -376,22 +418,6 @@ Answers of the actions below:
   or the services restart after it (`updating` of `GET /api/update-status`, 2.1).
 - `factory_reset`: `{"ok": true, "message": "Factory reset initiated. Reverting to stock firmware and rebooting."}`;
   `400` without `"confirm": "RESET"`.
-- `clean_stock_resources`: empties `/data/resources`, the stock Logitech files. Needs
-  `"confirm": "EMPTY"` (`400` without). `409` while `/data/harmony/config/devices.json` is missing or empty
-  (the stock import still needs the files), when `/data/resources` is a link, and while no saved copy of
-  the files as they are exists: `/data/harmony/stock_resources_saved` holds `<copy name> <count>:<hex>`,
-  written by `tools/backup_hub.py` once `backups/stock_resources_<hub>*.tar` holds exactly the files (every
-  `deploy_hub.py` run makes that backup). `<hex>` is the XOR of sha256(`"<size> <path>"`) over every
-  entry under `/data/resources` but directories (path relative to it, a link counts as size 0); the
-  route computes it again and refuses when it differs. `500` when a file could
-  not be removed or the directory not read. Answers
-  `{"ok": true, "freed_kb": 48, "stock_resources_kb": 0, "message": "..."}`: `freed_kb` is the free space
-  of `/data` gained. In `GET /api/disk-space`, `stock_resources_kb` is the files' own size; `/data` is
-  JFFS2, which compresses, so the flash space they take (and `freed_kb`) is smaller.
-  `stock_resources_saved` says whether the mark matches the files there now (false when there are
-  none), `can_empty_stock_resources` whether the action would run. The stock firmware needs these
-  files: `tools/restore_stock.py` puts the saved copy back on a stock restore whose archive holds none,
-  and refuses without it.
 - `mqtt_publish`: only `topic` and `payload` are read. `retain` is ignored: the message goes out
   with QoS 0 and is not retained. An empty `payload` is sent as `cmd`. The answer is
   `{"ok": true}` also when MQTT is off or `topic` is empty, so it does not tell whether anything
@@ -529,7 +555,7 @@ Returns running version, commit hash, build date, architecture, and whether an u
     "firmware": "4.15.600",
     "rf_version": "0x20 CC2544",
     "bt_version": "BTstack v1.5 (UART)",
-    "arch": "mips (AR9344)",
+    "arch": "mips (AR9330)",
     "update_available": false,
     "updating": false,
     "update_state": "idle"
@@ -563,7 +589,7 @@ Returns running version, commit hash, build date, architecture, and whether an u
 Checks for newer release bundles (also answered as `/api/update-check-state`).
 - **Request Body** (optional, all fields optional):
   ```json
-  {"repo": "https://raw.githubusercontent.com/iranl/harmony-ng/ota", "token": "ghp_example", "remote_version": "2.4.2"}
+  {"repo": "https://raw.githubusercontent.com/iranl/harmony-ng/ota4", "token": "ghp_example", "remote_version": "2.4.2"}
   ```
   - `repo`: the update source, the base URL under which `VERSION`, `manifest.json` and the bundle
     files are published. Default: the official `ota` branch. Only the characters `A-Z a-z 0-9 / . :
