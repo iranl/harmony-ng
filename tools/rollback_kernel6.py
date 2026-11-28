@@ -106,22 +106,28 @@ def main() -> None:
     end = time.time() + 600
     while time.time() < end:
         if hub.reachable():
-            out = hub.run("uname -r; ps | grep -c '[r]b/hub_util restore'; tail -n 1 /tmp/rb/log",
-                          check=False).splitlines()
+            try:
+                out = hub.run("uname -r; ps | grep -c '[r]b/hub_util restore'; tail -n 1 /tmp/rb/log",
+                              check=False, timeout=60).splitlines()
+            except subprocess.TimeoutExpired:
+                continue   # the restart cut the session: ask again
             rel = out[0].strip() if out else ""
             if rel.startswith("2.6.31"):
                 print(f"Done: the Hub runs the stock kernel {rel}.")
                 return
             if "harmony" in rel:
-                if len(out) > 1 and out[1].strip() != "0":
-                    print(f"  still writing: {out[2].strip() if len(out) > 2 else ''}")
+                last = out[2].strip() if len(out) > 2 else ""
+                # running, or the log says it writes (ps may not run while root is rewritten)
+                if (len(out) > 1 and out[1].strip() != "0") or (last.startswith("restore: writing")):
+                    print(f"  still writing: {last}")
                     end = time.time() + 600
                 else:
                     raise SystemExit("Error: the Hub still runs the 6.18 system: the restore did not happen. "
                                      "See /tmp/rb/log (gone after a restart) or run it by hand.")
         time.sleep(10)
-    print("The Hub does not answer over SSH (the stock firmware of the backup may not run SSH on this "
-          "network). Check its light; the serial console shows the boot.")
+    print("The Hub does not answer over SSH: the write may still be running (do not cut the power), or the "
+          "stock firmware of the backup does not run SSH on this network. Check its light; the serial "
+          "console shows the boot.")
 
 
 if __name__ == "__main__":

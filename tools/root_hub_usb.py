@@ -361,7 +361,7 @@ def backup_stock_partitions(hub_ip: str, priv_key_path: pathlib.Path) -> pathlib
         local_bb = find_busybox_binary()
         if not local_bb:
             print("[-] Error: BusyBox binary with tar support not found locally. Cannot take stock backup.")
-            print("    It is bin/busybox in the release bundle; in a git checkout build it with ./build/build_busybox.sh mips.")
+            print("    It is tools/bin/busybox in the release bundle; in a git checkout build it with LINK=static ./build/build_busybox.sh mips.")
             return None
         print(f"[*] Staging temporary BusyBox ({local_bb.stat().st_size:,} bytes) to Hub /tmp/busybox...")
         try:

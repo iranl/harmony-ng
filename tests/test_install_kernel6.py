@@ -51,7 +51,36 @@ class StockHubWithoutHarmonyNG(unittest.TestCase):
     def test_ssh_server_kept_until_the_kernel_is_written(self):
         self.assertFalse(any("dropbear" in p for p in ik.STOCK_ERA), ik.STOCK_ERA)
         self.assertNotIn("/data/harmony/bin", ik.STOCK_ERA)
-        self.assertIn("dropbear*|scp|ssh) ;;", ik.STOCK_ERA_BIN)
+        # the loop itself, on a copy of the folder
+        import subprocess
+        with tempfile.TemporaryDirectory() as d:
+            b = pathlib.Path(d) / "bin"
+            b.mkdir()
+            for n in ("dropbearmulti", "dropbear", "scp", "ssh", "hub_daemon", "hub_rf", "busybox"):
+                (b / n).write_text("x")
+            subprocess.run(["sh", "-c", ik.STOCK_ERA_BIN.replace("/data/harmony/bin", str(b))], check=True)
+            self.assertEqual(sorted(p.name for p in b.iterdir()), ["dropbear", "dropbearmulti", "scp", "ssh"])
+
+    def test_refused_before_anything_is_deleted(self):
+        # free space plus every file a deploy puts back is not enough: nothing removed, nothing stopped
+        class Tight(FakeHub):
+            def run(self, remote, check=True, timeout=600):
+                self.cmds.append(remote)
+                if "k6_hub_util df" in remote:
+                    return "100\n"
+                if remote.startswith("ls -lR"):
+                    return "50\n"
+                return ""
+        hub = Tight()
+        with tempfile.TemporaryDirectory() as d:
+            files = pathlib.Path(d)
+            (files / "harmony-hub-rootfs.sqfs").write_bytes(b"R" * 3_000_000)
+            inst = ik.Installer(hub, files, files, None, files / "bk")
+            inst.rescue_bb = None
+            with self.assertRaises(SystemExit) as ctx:
+                inst.from_stock_room()
+        self.assertIn("Nothing was changed", str(ctx.exception))
+        self.assertFalse([c for c in hub.cmds if c.startswith("rm ") or "killall" in c or "for f in" in c], hub.cmds)
 
 
 class DatacacheImage(unittest.TestCase):

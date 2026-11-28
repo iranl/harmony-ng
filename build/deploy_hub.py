@@ -444,6 +444,14 @@ class HubDeployer:
             print(f"[-] {self.hub_host} is not a Harmony Hub (uname -m: {machine or 'no answer'}). Nothing was changed. "
                   "For the remote use remote/deploy_remote.py.", file=sys.stderr)
             return False
+        # These binaries need the Linux 6.18 system (shared uClibc-ng): on the stock kernel they
+        # cannot start. tools/install_kernel6.py switches a Hub (and deploys after it).
+        rel = self.run_ssh("uname -r").stdout.strip()
+        if "harmony" not in rel:
+            print(f"[-] {self.hub_host} runs the stock kernel ({rel or 'no answer'}): this HarmonyNG needs the "
+                  "Linux 6.18 system. Nothing was changed. Switch the Hub with: python tools/install_kernel6.py "
+                  f"{self.hub_host}", file=sys.stderr)
+            return False
         # A deploy without one of them reported success and left the Hub without it
         missing = [] if self.webui_only else [b for b in REQUIRED_HUB_BINARIES if not (self.bin_dir / b).is_file()]
         if missing:
@@ -606,7 +614,7 @@ class HubDeployer:
             # Query remote hashes for core binaries and configs
             self.query_remote_hashes(
                 "/data/harmony/bin/* /data/harmony/lib/* /data/harmony/* /data/harmony/config/* /cache/www/* "
-                "/cache/www/assets/* /cache/www/assets/themes/* /cache/modules/* /cache/bin/busybox "
+                "/cache/www/assets/* /cache/www/assets/themes/* /cache/modules/* /cache/kernel6/busybox "
                 "/cache/icons.tar.gz /etc/init.d/rcS.local"
             )
 
@@ -671,13 +679,15 @@ class HubDeployer:
                 if src.is_file():
                     self.deploy_file_if_changed(src, f"/data/harmony/bin/{b}", "755")
 
-            # Extended BusyBox
+            # The static BusyBox (LINK=static build/build_busybox.sh) is the fallback boot's rescue
+            # copy (build/kernel6/init.c, rc.sh); /cache/bin/busybox links to the root file
+            # system's own
             local_bb = self.bin_dir / "busybox"
             if local_bb.is_file():
-                print("[*] Syncing extended BusyBox to /cache/bin/...")
+                print("[*] Syncing the rescue BusyBox to /cache/kernel6/...")
                 if not self.dry_run:
-                    self.run_ssh("mkdir -p /cache/bin 2>/dev/null")
-                self.deploy_file_if_changed(local_bb, "/cache/bin/busybox", "755")
+                    self.run_ssh("mkdir -p /cache/kernel6 2>/dev/null")
+                self.deploy_file_if_changed(local_bb, "/cache/kernel6/busybox", "755")
                 bb_setup = (
                     "ln -sf /cache/bin/busybox /data/harmony/bin/busybox 2>/dev/null; "
                     # readlink by path: the stock BusyBox has none, and /usr/bin/readlink is one of

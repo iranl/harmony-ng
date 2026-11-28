@@ -44,6 +44,14 @@ jobs:
       - name: Determine Version
         id: ver
         run: |
+          # This tree builds the Linux 6.18 system (v4, shared uClibc-ng): a 3.x release from it
+          # would reach v3 Hubs (branch ota) with binaries their C library cannot run
+          require_v4() {
+            case "${1#v}" in
+              [4-9].*|[1-9][0-9]*.*) ;;
+              *) echo "::error::v${1#v}: this tree releases v4 or later only"; exit 1 ;;
+            esac
+          }
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             if [ -n "${{ github.event.inputs.version }}" ]; then
               TARGET_VER="${{ github.event.inputs.version }}"
@@ -52,6 +60,7 @@ jobs:
               # --version below raises it again (the repository then had +2, the APK +1)
               TARGET_VER=$(python scripts/bump_version.py --next ${{ github.event.inputs.bump }})
             fi
+            require_v4 "$TARGET_VER"
             python scripts/bump_version.py --version "$TARGET_VER"
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -62,6 +71,7 @@ jobs:
             echo "version=$TARGET_VER" >> $GITHUB_OUTPUT
           else
             TAG_VER="${GITHUB_REF#refs/tags/v}"
+            require_v4 "$TAG_VER"
             python scripts/bump_version.py --version "$TAG_VER"
             if [ -n "$(git status --porcelain payload/config/cacert.pem)" ]; then
               git config user.name "github-actions[bot]"
@@ -467,11 +477,10 @@ jobs:
           # scripts/publish_ota.py ships the system image from build/output/kernel6 (kernel6/ in the manifest)
           mkdir -p build/output/kernel6
           cp -f artifacts/kernel6-images/harmony-hub-flash.uImage artifacts/kernel6-images/harmony-hub-rootfs.sqfs build/output/kernel6/
-          # v4 (Linux 6.18) releases go to ota4 and point v3 Hubs at them (VERSION_V4 on ota); a v3
-          # release goes to ota as before, without the pointer
-          if [ "${VERSION%%.*}" -ge 4 ]; then
-            OTA_BRANCH="--branch ota4 --v4-pointer-branch ota"
-          else
-            OTA_BRANCH="--branch ota"
-          fi
-          python scripts/publish_ota.py --version "$VERSION" --require-signature --push --remote "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" $OTA_BRANCH
+          # v4 (Linux 6.18) releases go to ota4 and point v3 Hubs at them (VERSION_V4 on ota). Never
+          # ota itself from this tree (prepare-version refuses a 3.x version already)
+          case "${VERSION#v}" in
+            [4-9].*|[1-9][0-9]*.*) ;;
+            *) echo "::error::v${VERSION#v} is not a v4 release: not published"; exit 1 ;;
+          esac
+          python scripts/publish_ota.py --version "${VERSION#v}" --require-signature --push --remote "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" --branch ota4 --v4-pointer-branch ota

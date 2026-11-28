@@ -171,7 +171,7 @@ class BackupHubTarget(unittest.TestCase):
 
 
 class DeployHubTarget(unittest.TestCase):
-    def make(self, machine: str = "mips", no_backup: bool = True):
+    def make(self, machine: str = "mips", no_backup: bool = True, release: str = "6.18.65-harmony"):
         d = deploy_hub.HubDeployer(hub_host="hub.invalid", ssh_key="/nonexistent", no_backup=no_backup)
         self.ssh: list[str] = []
 
@@ -179,6 +179,8 @@ class DeployHubTarget(unittest.TestCase):
             self.ssh.append(cmd)
             if cmd == "uname -m":
                 return subprocess.CompletedProcess(cmd, 0, machine + "\n", "")
+            if cmd == "uname -r":
+                return subprocess.CompletedProcess(cmd, 0, release + "\n", "")
             return subprocess.CompletedProcess(cmd, 0, "", "")
 
         d.run_ssh = fake_ssh
@@ -201,6 +203,12 @@ class DeployHubTarget(unittest.TestCase):
         d = self.make(machine="armv5tejl")
         self.assertFalse(self.deploy(d))
         self.assertEqual(self.ssh, ["uname -m"], "the tool changed something on a device that is not a Hub")
+
+    def test_refuses_a_hub_on_the_stock_kernel(self):
+        # the binaries need the 6.18 system: a v3 Hub would lose hub_daemon
+        d = self.make(release="2.6.31-g89d565c")
+        self.assertFalse(self.deploy(d))
+        self.assertEqual(self.ssh, ["uname -m", "uname -r"], "the tool changed something on a stock-kernel Hub")
 
     def test_refuses_binaries_of_another_architecture(self):
         with tempfile.TemporaryDirectory() as tmp:
